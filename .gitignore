@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Local-only analysis workspace (contains private project detail; never commit)
+analysis/
