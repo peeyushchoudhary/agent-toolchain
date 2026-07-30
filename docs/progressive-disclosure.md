@@ -82,9 +82,27 @@ validate_disclosure.py . --vs main          # + warn if source changed and READM
 | `over-budget` / `too-deep` (warn) | Disclosure decaying into a dump |
 | `stale-path` (warn) | A guide cites a code path that resolves nowhere |
 | `standard-*` | Taxonomy violations, unfinished scaffolding, version drift |
+| `lessons-entries` (note) | A lessons file accreted past readable-in-one-sitting |
 
-Exit 1 on any error, or on warnings with `--strict`. Wire into the repo's gate — in the reference
-project it is `make check-docs`, part of `make check`.
+Exit 1 on any error, never on a warning or a note — severity belongs to the finding, not the call
+site; there is no `--strict`. (The card validator keeps one deliberately: a card is a proposal, not
+an existing repository.) Wire into the repo's gate — in the reference project it is
+`make check-docs`, part of `make check`.
+
+## Declaring a repository deliberately public
+
+A public repository is critical: it is almost always an accident. One meant to be read declares so,
+in a file it already has — `docs/agents/README.md`, or the root `AGENTS.md`/`CLAUDE.md`. No central
+allowlist.
+
+```markdown
+<!-- public-exception: {"reason":"why this is meant to be read","date":"2026-01-31"} -->
+```
+
+Fails closed on bad JSON, a bad reason or date, or more than one marker. Two former holes: markers
+match **code-stripped** text, so the fenced example cannot exempt a repository that copies this
+page; and an exemption is loud: every mode, its own sweep row, a note when uncommitted, a re-raise
+after a year.
 
 ## Things the validator learned the hard way
 
