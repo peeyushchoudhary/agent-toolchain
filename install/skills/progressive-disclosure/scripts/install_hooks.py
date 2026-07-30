@@ -8,6 +8,10 @@ project needs this run once:
   pre-push     blocks the mistakes a push makes permanent (secrets, huge files, pushes to main)
   post-commit  re-extracts changed code into the Graphify graph, via `graphify hook install`
 
+It also wires one machine-global reporter line: the execution-methodology adoption check, added to
+the SessionStart script so every repository states whether it has adopted the shared methodology,
+drifted from it, or deliberately deferred it. It reports; it never adopts.
+
 pre-push carries the rules that GitHub itself would charge for: secret scanning on a private repo
 needs paid Secret Protection, and protected branches need a paid plan. Enforcing them locally costs
 nothing and matches the operating model, where local gates are the only gates.
@@ -18,7 +22,7 @@ our block rather than duplicating it.
 The pre-commit hook is deliberately forgiving about *setup* and strict about *breakage*: it skips
 silently when the repo has no `docs/agents/README.md` or no validator installed, so it is safe to
 install anywhere, including a project that has not been standardised yet. When the route does
-exist and is broken, it fails the commit — bypass with `git commit --no-verify`.
+exist, it surfaces warnings and fails the commit on structural errors.
 
 Usage:
   install_hooks.py [ROOT]              # install / update
@@ -38,28 +42,64 @@ BEGIN = "# >>> progressive-disclosure >>>"
 END = "# <<< progressive-disclosure <<<"
 
 PRE_COMMIT = """{begin}
-# Validates the agent disclosure route. Skips silently when this repo has no route yet or the
-# validator is not installed. Bypass a genuine emergency with: git commit --no-verify
+# Validates the agent disclosure route and the README contract. Skips silently when this repo
+# has no route yet or the validator is not installed. Warnings remain visible; structural
+# errors block the commit.
 _pd_validator="$HOME/.claude/skills/progressive-disclosure/scripts/validate_disclosure.py"
 if [ -f "docs/agents/README.md" ] && [ -f "$_pd_validator" ]; then
-  _pd_out=$(PYTHONDONTWRITEBYTECODE=1 python3 "$_pd_validator" .{flags} 2>&1) || {{
+  if _pd_out=$(PYTHONDONTWRITEBYTECODE=1 python3 "$_pd_validator" .{flags} --hook 2>&1); then
+    [ -z "$_pd_out" ] || printf '%s\\n' "$_pd_out"
+  else
     printf '%s\\n' "$_pd_out"
-    echo "pre-commit: the agent disclosure route is broken. Fix it, or use --no-verify."
+    echo "pre-commit: the agent disclosure route is broken. Fix the reported finding."
     exit 1
-  }}
+  fi
 fi
 {end}
 """
 
 PRE_PUSH = """{begin}
 # Blocks credentials, oversized blobs, and direct pushes to the default branch. Skips silently
-# when the guard is not installed. Bypass with: git push --no-verify
+# when the guard is not installed. Fix a reported finding before pushing.
 _pd_guard="$HOME/.claude/skills/progressive-disclosure/scripts/push_guard.py"
 if [ -f "$_pd_guard" ]; then
   PYTHONDONTWRITEBYTECODE=1 python3 "$_pd_guard" "$@" || exit 1
 fi
 {end}
 """
+
+# The SessionStart hook is not a git hook. It is the machine-global reporter at
+# ~/.claude/hooks/disclosure-check.sh, wired once in ~/.claude/settings.json, which already runs
+# validate_disclosure.py, check_github.py and check_toolchain.py against whatever directory a
+# session opens in. The execution-methodology adoption check belongs beside them: adoption is
+# staggered, so a repository that has not adopted the methodology has to say so every session until
+# it does, and only a session-level reporter can say it.
+#
+# Installing it from here — rather than shipping it inside that script — is what keeps the two
+# skills decoupled and what makes adopting the progressive-disclosure standard the thing that turns
+# the warning on. install_hooks.py invokes both scripts; neither imports the other.
+SESSION_BEGIN = "# >>> execution-methodology adoption >>>"
+SESSION_END = "# <<< execution-methodology adoption <<<"
+
+# The insertion point: everything above it builds $notes, and this line is where the reporter stops
+# collecting and emits. Anchoring on it (rather than appending) is required — an appended block
+# would sit after the emit and never run.
+SESSION_ANCHOR = '[ -n "$notes" ] || exit 0'
+
+SESSION_BLOCK = """{begin}
+# Reports whether this repository has adopted the shared execution methodology, has drifted from
+# it, or deliberately deferred it. Reports only: it never renders, never adopts, and never fails a
+# session. --adoption-check exits 0 by contract, and `|| true` covers anything it does not.
+# Skips silently when this repo has no route or the script is not installed.
+_em_sync="$HOME/.claude/skills/execution-methodology/scripts/sync_methodology.py"
+if [ -f "$root/docs/agents/README.md" ] && [ -f "$_em_sync" ]; then
+  _em_out=$(PYTHONDONTWRITEBYTECODE=1 python3 "$_em_sync" --repo "$root" --adoption-check 2>/dev/null || true)
+  [ -n "$_em_out" ] && add "$_em_out"
+fi
+{end}
+"""
+
+SESSION_HOOK = Path.home() / ".claude" / "hooks" / "disclosure-check.sh"
 
 
 def hook_path(root: Path, name: str) -> Path:
@@ -70,12 +110,58 @@ def read(p: Path) -> str:
     return p.read_text(encoding="utf-8", errors="replace") if p.is_file() else ""
 
 
-def strip_block(text: str) -> str:
-    if BEGIN not in text:
+def strip_block(text: str, begin: str = BEGIN, end: str = END) -> str:
+    if begin not in text:
         return text
-    head, _, rest = text.partition(BEGIN)
-    _, _, tail = rest.partition(END)
+    head, _, rest = text.partition(begin)
+    _, _, tail = rest.partition(end)
     return (head.rstrip("\n") + "\n" + tail.lstrip("\n")).strip("\n")
+
+
+def wire_session_start(remove: bool = False) -> str:
+    """Add (or remove) the execution-methodology adoption check in the SessionStart reporter.
+
+    Defensive in exactly the way the git-hook blocks are: every failure mode ends in a printed
+    status and a normal return, never an exception and never a broken hook. The block is marked, so
+    re-running replaces it instead of duplicating, and uninstalling takes back only our lines.
+
+    This is the one machine-global edit here, matching sync_codex above, which also writes outside
+    the repository being installed into. That is correct: SessionStart is configured once per
+    machine, not once per repository, and the adoption question is asked of whichever repository the
+    session opens in.
+    """
+    if not SESSION_HOOK.is_file():
+        return "skipped — no SessionStart reporter at ~/.claude/hooks/disclosure-check.sh"
+    try:
+        text = SESSION_HOOK.read_text(encoding="utf-8", errors="replace")
+        # Not strip_block(): that one normalises leading and trailing blank lines, which is fine for
+        # a git hook we own outright and wrong for a script we are only a guest in. Removing our
+        # block must leave the file byte-identical to what it was before we added it.
+        if SESSION_BEGIN in text and SESSION_END in text:
+            head, _, rest = text.partition(SESSION_BEGIN)
+            _, _, tail = rest.partition(SESSION_END)
+            stripped = head + tail.lstrip("\n")
+        else:
+            stripped = text
+        if remove:
+            if stripped == text:
+                return "absent"
+            SESSION_HOOK.write_text(stripped, encoding="utf-8")
+            SESSION_HOOK.chmod(0o755)
+            return "removed"
+
+        if SESSION_ANCHOR not in stripped:
+            return ("skipped — the reporter has been restructured and no longer contains its emit "
+                    f"anchor ({SESSION_ANCHOR}); add the block by hand")
+        block = SESSION_BLOCK.format(begin=SESSION_BEGIN, end=SESSION_END)
+        updated = stripped.replace(SESSION_ANCHOR, block + "\n" + SESSION_ANCHOR, 1)
+        if updated == text:
+            return "already current"
+        SESSION_HOOK.write_text(updated, encoding="utf-8")
+        SESSION_HOOK.chmod(0o755)
+        return "installed" if SESSION_BEGIN not in text else "updated"
+    except OSError as e:
+        return f"skipped — {e}"
 
 
 def write_hook(path: Path, block: str) -> str:
@@ -105,14 +191,20 @@ def sync_codex(root: Path) -> str | None:
     time anyone forgets, and the failure is silent: Codex quietly follows an older standard.
     """
     import shutil
+    # The set of mirrored skills is defined once, by the checker that reports drift in it. A second
+    # hardcoded copy here is how `execution-methodology` came to be checked but never copied: the
+    # checker's own suggested fix could not satisfy the checker. Import rather than restate; the two
+    # scripts ship in the same directory, so an ImportError means a broken install, not a fallback.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from check_toolchain import MIRRORED_SKILLS
+
     targets = [d for d in (Path.home() / ".codex" / "skills", root / ".codex" / "skills")
                if d.is_dir()]
     if not targets:
         return None
     copied: set[str] = set()
     for dest_root in targets:
-        for name in ("progressive-disclosure", "graph-navigation", "agent-personas",
-                     "agent-persona-factory", "project-onboarding"):
+        for name in MIRRORED_SKILLS:
             src = Path.home() / ".claude" / "skills" / name
             if not src.is_dir():
                 continue
@@ -123,6 +215,24 @@ def sync_codex(root: Path) -> str | None:
             copied.add(name)
     where = " + ".join("global" if t == Path.home() / ".codex" / "skills" else "repo" for t in targets)
     return f"{', '.join(sorted(copied))} -> {where}" if copied else None
+
+
+def graphify_root(root: Path) -> Path | None:
+    """Directory whose graphify-out/graph.json is the repository's graph, or None.
+
+    The graph does not always sit at the repository root. A repo that keeps its runnable
+    implementation in a subtree builds the graph there, and looking only at the root silently
+    skipped the post-commit refresh — so documentation-only commits never rebuilt the graph and the
+    always-loaded route kept pointing agents at a graph that was stale or absent. Checks the root
+    first, then one level down, which covers the implementation-subtree layout without walking the
+    whole tree.
+    """
+    if (root / "graphify-out" / "graph.json").is_file():
+        return root
+    for child in sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")):
+        if (child / "graphify-out" / "graph.json").is_file():
+            return child
+    return None
 
 
 def graphify_available() -> bool:
@@ -164,6 +274,10 @@ def main() -> int:
         print(f"  pre-push secret/size/main guard: {push}")
         print(f"  post-commit graph refresh: {graph}")
         print(f"  repo has a disclosure route: {route}")
+        session = read(SESSION_HOOK)
+        print("  session-start methodology adoption check: "
+              + ("present" if SESSION_BEGIN in session else
+                 "ABSENT" if session else "ABSENT (no SessionStart reporter)"))
         return 0
 
     if args.uninstall:
@@ -182,6 +296,7 @@ def main() -> int:
         if graphify_available():
             subprocess.run(["graphify", "hook", "uninstall"], cwd=root, capture_output=True)
             print("  removed graphify post-commit hook")
+        print(f"  session-start methodology adoption check {wire_session_start(remove=True)}")
         return 0
 
     synced = sync_codex(root)
@@ -198,24 +313,33 @@ def main() -> int:
         first = (r.stdout.strip().splitlines() or ["no output"])[0]
         print(f"  personas: {first}")
 
-    flags = " --standard" if args.standard else ""
+    # --readme by default: the seven-section README contract is part of the standard, and a
+    # check nothing runs is a check that does not exist. Nine README errors sat invisible in a
+    # repository for weeks because the hooks passed neither --readme nor --standard, while the
+    # route summary printed a reassuring "0 error(s)". --standard is the superset and implies it.
+    flags = " --standard" if args.standard else " --readme"
     action = write_hook(pre, PRE_COMMIT.format(begin=BEGIN, end=END, flags=flags))
     print(f"  pre-commit {action}"
           f"{' (enforcing the standard)' if args.standard else ''}")
 
+    # Adoption of the execution methodology is staggered and deliberate. This block only ever
+    # reports; it is what makes an unadopted repository say so at every session start instead of
+    # drifting onto a methodology of its own. Nothing here renders anything into any repository.
+    print(f"  session-start methodology adoption check {wire_session_start()}")
+
     action = write_hook(hook_path(root, "pre-push"), PRE_PUSH.format(begin=BEGIN, end=END))
     print(f"  pre-push {action}")
     print("    blocks: credentials in the pushed range, files over "
-          "$PD_MAX_FILE_MB (default 10) MB, direct pushes to main.")
+          "10 MB (not configurable), direct pushes to main.")
 
     if args.no_graph:
         print("  post-commit graph refresh skipped (--no-graph)")
-    elif not (root / "graphify-out" / "graph.json").is_file():
+    elif (graph_dir := graphify_root(root)) is None:
         print("  post-commit graph refresh skipped — no graphify-out/graph.json in this repo")
     elif not graphify_available():
         print("  post-commit graph refresh skipped — graphify is not installed")
     else:
-        r = subprocess.run(["graphify", "hook", "install"], cwd=root, capture_output=True, text=True)
+        r = subprocess.run(["graphify", "hook", "install"], cwd=graph_dir, capture_output=True, text=True)
         ok = r.returncode == 0
         print(f"  post-commit graph refresh {'installed' if ok else 'FAILED: ' + r.stderr.strip()[:120]}")
         print("    note: it re-extracts changed CODE only. Documentation changes still need a")

@@ -34,14 +34,17 @@ It blocks:
 - **a credential anywhere in the pushed commit range** — not the net diff. A secret added in one
   commit and removed in the next still ships to the server and stays recoverable. The net-diff
   version of this check was written first and verifiably missed exactly that case.
-- **any file over 10 MB** (`$PD_MAX_FILE_MB`) — git history keeps it forever; every future clone pays
+- **any file over 10 MB** — not configurable; git history keeps it forever and every future clone
+  pays
 - **a direct push to the default branch**
 
 It warns on a newly added `.env`-style file and on source changing while `README.md` did not.
 
-Escapes, in order of preference: fix it; `PD_ALLOW_MAIN_PUSH=1 git push` for a deliberate small
-change; `git push --no-verify` as a last resort. The env var is scoped to the one command — it
-leaves no hole behind.
+For a deliberate direct push to the default branch, `PD_ALLOW_MAIN_PUSH=1 git push` is the
+supported escape — scoped to the one command, it leaves no hole behind. A secret or oversized-file
+finding has no such override: fix it. There is no env var left to raise the 10 MB limit, so
+`git push --no-verify` is the only remaining route past a size or secret finding, not a
+recommended one — using it ships the file or credential unscanned.
 
 Secret patterns are deliberately narrow — AWS key id, GitHub token, Google API key, Slack token,
 Stripe live key, private-key blocks. A generic high-entropy rule fires on lockfile hashes and base64
