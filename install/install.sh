@@ -171,3 +171,4 @@ say "2. review the model names in ~/.claude/skills/agent-personas/personas/*.md 
 say "   not recommendations, and go stale as models change"
 say "3. open a project and run the project-onboarding skill"
 [ "$DRY" -eq 0 ] && say "Claude Code may need /hooks opened once, or a restart, to load the new hooks"
+exit 0
