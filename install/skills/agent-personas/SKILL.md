@@ -5,8 +5,11 @@ description: Use when delegating work to a subagent and you need to pick the rig
 
 # The persona pool
 
-Eleven roles, authored once, rendered into whichever harness you are driving. The point is that a
+Thirteen roles, authored once, rendered into whichever harness you are driving. The point is that a
 session should not re-derive "what is a reviewer and which model should it use" every time.
+
+The pool decides *who*. The order they run in, and what must be true to leave a stage, belongs to
+the `execution-methodology` skill.
 
 ## The roster
 
@@ -18,6 +21,8 @@ session should not re-derive "what is a reviewer and which model should it use" 
 | `developer` bounded work in one module | yes | ~14 | `sonnet` | `gpt-5.6-terra` | medium |
 | `senior-developer` judgement, cross-cutting, security | yes | ~6 | `opus` | `gpt-5.6-sol` | medium |
 | `planner` what to build, in what order | no | ~3 | `fable` | `gpt-5.6-sol` | high |
+| `product-steward` the WHY, scope, acceptance criteria | product specs only | ~2 | `opus` | `gpt-5.6-sol` | high |
+| `chief-of-staff` holds the loop, dispatches, keeps the ledger | ledger and cards only | ~3 | `opus` | `gpt-5.6-sol` | high |
 | `architect` is this the right shape | design docs only | ~4 | `opus` | `gpt-5.6-sol` | high |
 | `contract-architect` API, schema, migrations | yes | ~3 | `opus` | `gpt-5.6-sol` | high |
 | `reviewer` independent, cannot edit | no | ~20 | `opus` | `gpt-5.6-sol` | high |
@@ -29,9 +34,15 @@ where the spec is complete and a pattern exists; it **stops and escalates** rath
 anything about interfaces, migrations, contracts, security, concurrency, or where code should live.
 `senior-developer` takes everything else. A cheap tier is only safe because it refuses to improvise.
 
-`architect` may write, but only under `docs/architecture/` and `docs/decisions/`. Tool restriction
-cannot be scoped to a path, so that limit lives in its body as an instruction rather than a
-guarantee — it is the one persona whose boundary is not structurally enforced.
+**Three personas have a write boundary that is an instruction, not a guarantee.** `architect` writes
+only under `docs/architecture/` and `docs/decisions/`; `product-steward` only under the product spec
+directory; `chief-of-staff` only the ledger, task cards, and reports. Tool restriction cannot be
+scoped to a path, so each limit lives in the persona's body.
+
+`chief-of-staff` is the one to watch. Its boundary erodes in a predictable way: a review returns a
+one-line fix, dispatching feels like overhead, and the orchestrator patches it directly — producing
+a change nobody reviewed, recorded nowhere but its own context. Its body says this explicitly
+because saying it is the only enforcement available.
 
 ## Why these models and efforts
 
@@ -60,9 +71,22 @@ input price, which is why it appears only in `planner`. Full rationale in
 
 `reviewer`, `security-validator`, `acceptance`, `scout`, `test-judge` and `planner` carry
 `disallowedTools: Write, Edit, NotebookEdit` on Claude and `sandbox_mode = "read-only"` on Codex.
+All except `test-judge` also disallow `Bash`.
 
 A judge that **cannot** edit is a stronger guarantee than one instructed not to. It also removes the
 failure where a reviewer finds a defect and quietly patches it, so the defect never gets recorded.
+
+**`test-judge` is the one sanctioned exception, and it is narrow.** Running a gate requires a shell;
+without one the persona was assigned a job it could not do, and in practice it chained to a
+sub-subagent rather than say so. It keeps Write, Edit, and NotebookEdit disallowed, so it still
+cannot author a fix. The residual — edits through shell redirection — is covered by instruction
+rather than restriction, which is weaker, and its body says so plainly. Codex is unaffected:
+`read-only` permits execution and forbids writes, which is exactly the shape wanted.
+
+A consequence worth stating because it looks like an oversight: **judges cannot write their own
+reports.** Do not resolve that by granting a write tool. The judge returns its findings and the
+orchestrator persists them — one read per review is the price of the guarantee. `test_repo_sync.py`
+enforces both halves, with the exemption named rather than inferred.
 
 ## Authoring and generation
 
@@ -104,6 +128,19 @@ A repository can refine a persona or add its own, via `docs/agents/personas/<nam
 Overlays are committed, inside the disclosure route, and readable by both harnesses. The generated
 `.claude/agents/` and `.codex/agents/` are committed too, with `--check` in the repo's gate — the
 same contract as a generated API client.
+
+Every onboarded repository records the decision:
+
+- Persona sources require a maintained `docs/agents/personas.md` linked directly from
+  `docs/agents/README.md`.
+- If the shared base pool is sufficient, the index carries
+  `<!-- agent-personas: {"mode":"base-only","reason":"..."} -->` with a real reason.
+
+Missing both is warned. A `base-only` decision does not skip repository drift checking:
+`sync_personas.py --repo PATH --check` also catches generated project agents left behind after the
+last source is removed. Repository checks verify both committed harness formats without depending
+on whether Codex is installed and do not fail because the machine-global pool drifted; bare
+`sync_personas.py --check` owns global drift.
 
 Generation is required, not cosmetic: Claude Code's project-level agents **override** a same-named
 user agent wholesale, so "base plus project direction" cannot be expressed by file placement alone.

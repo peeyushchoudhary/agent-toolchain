@@ -70,9 +70,19 @@ and reports:
 | `standard-version-drift` (warn) | This repo's generated copies predate the current standard |
 | `readme-*` (error, under `--readme`) | The human front page is missing a section, a diagram, a PRD link, or a component |
 | `readme-stale` (warn, under `--vs REF`) | Source changed since REF but the README did not |
+| `persona-decision-missing` (warn) | No project specialists and no explicit reason the base pool is sufficient |
+| `persona-route-missing` (error) | Project persona sources exist but their maintained guide is not directly routed |
+| `lessons-entries` (note) | A lessons file has accreted past the point of being readable in one sitting |
 
-Exit 1 on any error, or on warnings with `--strict`. `--json` for machine use. Wire it into the
-repo's check gate so the route is verified like any other invariant.
+Exit 1 on any error. Never on a warning or a note: severity is a property of the finding, decided
+in the validator, not a strictness level chosen at the call site — so there is no `--strict`.
+`--json` for machine use. Wire it into the repo's check gate so the route is verified like any
+other invariant.
+
+(`validate_card.py` in the execution-methodology skill *does* keep a `--strict`, deliberately: a
+task card is a proposal being gated before work starts, where a caller may reasonably demand a
+clean bill, while this validator reports on a repository that already exists. The toolchain is
+inconsistent here on purpose, not by accident.)
 
 ## The README is a separate deliverable
 
@@ -98,6 +108,56 @@ bills. Session start reports this in every project.
 
 It reports. It never creates a repository, changes visibility, or pushes — those are the human's
 call. Remote data is cached for 24h so session start stays fast.
+
+Exit `0` clean, `1` a finding, `2` **the check could not run** — `gh` missing, logged out or rate
+limited, so visibility was never determined. Treat `2` as unanswered, not as clean: the whole point
+of the tool is the visibility question, and a report that could not read the remote has not answered
+it. (`--hook` always exits 0; session start must never fail on this.)
+
+## Before you trust a gate: preflight
+
+```bash
+~/.claude/hooks/preflight.sh <repo>
+```
+
+Mechanical checks for the environment-failure class — the machine facts that are identically true in
+every repository on day one and are otherwise re-learned one failed gate run at a time: does every
+tool the repo's own check scripts name resolve to a real binary, is `JAVA_HOME` sane when there is
+actually a Gradle build, was `SIGHUP` inherited-ignored from some ancestor `nohup`.
+
+Reports only: it never writes, scaffolds or fixes anything inside the target, and it runs safely
+against repositories that are not ours. Findings are `PREFLIGHT:` lines on stdout; `NOTE:` lines are
+coverage, never findings. Exit `0` means the checks ran (whether or not they found anything) and `2`
+means a check itself could not be completed. Non-zero never means "found a problem": a preflight
+that fails a session because it found something true about the machine gets switched off within a
+day.
+
+**Run it two ways, and the second is the one people skip.**
+
+*Automatically, at session start.* It is wired in `~/.claude/settings.json` beside
+`disclosure-check.sh`, against whatever directory the session opened in, so the machine facts are in
+front of you before you start trusting them. Same pattern as its sibling —
+`bash ~/.claude/hooks/preflight.sh "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null || true` — where the
+wrapper is what makes the hook's exit code non-fatal to session start. Worst measured run 0.111s.
+
+*By hand, immediately before a long gate run.* **This is the invocation that matters, and session
+start does not cover it.** The environment-failure class bites hardest at the moment you commit an
+hour to a gate: a session can be hours old, can have opened in a different repository, and can have
+had `JAVA_HOME`, `PATH` or the `SIGHUP` disposition change underneath it since. Run it against the
+repository you are about to gate, read the `PREFLIGHT:` lines, and only then start the gate:
+
+```bash
+~/.claude/hooks/preflight.sh <repo>     # then read the findings, THEN start the gate
+```
+
+Also run it when opening an unfamiliar repository, or when a gate fails in a way that smells like
+the machine rather than the code.
+
+Preflight itself is fast; the **gate** you run after it is the slow thing — ~60 minutes, past the
+tool-call cap for an agent turn. Launch *the gate* detached (`setsid`, or
+`Popen(..., start_new_session=True)`) and poll with `ps -p <pid>`, rather than waiting on it inline.
+Not `nohup`: that sets `SIGHUP` to ignored for every descendant, which is the third thing preflight
+checks for.
 
 ## The shared cross-project standard
 
@@ -129,6 +189,10 @@ Two rules that live here because they are properties of the route, not of onboar
 
 - **Git hooks are never shared through git.** `install_hooks.py` runs once per *clone*, not once per
   project. Session start flags a clone that is missing them.
+- **Persona need is an explicit project decision.** A standard repository either keeps sources in
+  `docs/agents/personas/` and directly routes `docs/agents/personas.md`, or records
+  `<!-- agent-personas: {"mode":"base-only","reason":"..."} -->` in
+  `docs/agents/README.md`. Missing both is warned; tooling never invents the reason.
 - **Never run `graphify claude install`.** It appends a section to `CLAUDE.md`, which breaks the
   standard's one-line rule and makes that guidance invisible to every non-Claude agent.
 

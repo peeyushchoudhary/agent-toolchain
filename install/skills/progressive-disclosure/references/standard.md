@@ -29,6 +29,25 @@ Every directory above carries a `README.md` naming its purpose and authority lev
 keeps a required directory from becoming empty ceremony, and it is what an agent reads to know
 whether the contents are current.
 
+## The project-persona decision
+
+Every standard repository makes the decision explicit; zero project personas is not silently
+treated as proof that the shared base pool is sufficient.
+
+- **Project personas:** keep their canonical sources in `docs/agents/personas/*.md`, maintain
+  `docs/agents/personas.md`, and link that guide directly from `docs/agents/README.md`.
+- **Base pool only:** put this exact single-line marker in `docs/agents/README.md`, with a real
+  project-specific reason:
+
+```html
+<!-- agent-personas: {"mode":"base-only","reason":"domain-neutral library; base reviewers cover its risks"} -->
+```
+
+The validator warns when neither decision exists, rejects malformed/duplicate/conflicting
+decisions, and errors when persona sources are not directly routed. The warning permits a gradual
+fleet migration; onboarding must still stop until the choice is recorded. Never generate a
+`base-only` reason automatically.
+
 Add `<dir>/AGENTS.md` + `CLAUDE.md` (≤40 words, pure routing) to every source directory. This is
 the layer that fires without the agent choosing to read anything, because both harnesses load the
 nearest entry file by proximity.

@@ -4,7 +4,7 @@ description: Use at the start of substantial work to decide what to build and in
 writes: no
 claude.model: fable
 claude.effort: high
-claude.disallowedTools: Write, Edit, NotebookEdit
+claude.disallowedTools: Write, Edit, NotebookEdit, Bash
 codex.model: gpt-5.6-sol
 codex.effort: high
 codex.sandbox: read-only

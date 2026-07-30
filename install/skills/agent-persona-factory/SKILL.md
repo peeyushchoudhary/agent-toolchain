@@ -1,11 +1,11 @@
 ---
 name: agent-persona-factory
-description: Use when a project needs its own specialist reviewers or validators beyond the nine base personas — derived from its PRD, architecture, and guardrails. Also use when the base personas keep missing a class of defect specific to this domain.
+description: Use when a project needs its own specialist reviewers or validators beyond the eleven base personas — derived from its PRD, architecture, and guardrails. Also use when the base personas keep missing a class of defect specific to this domain.
 ---
 
 # Deriving project specialists
 
-The nine base personas in `agent-personas` are domain-neutral. A health app needs someone who knows
+The eleven base personas in `agent-personas` are domain-neutral. A health app needs someone who knows
 that an unsigned vaccination schedule must not create reminders; a trading system needs someone who
 knows a backtest without slippage is a lie. Those specialists cannot live in the global pool, and
 re-deriving them every session is how they end up inconsistent.
@@ -14,7 +14,9 @@ This produces them from the project's own documents, once, into the repository.
 
 ## Hard constraints
 
-- **Writes only to `<repo>/docs/agents/personas/`.** Never the global pool, never another project.
+- **Persona definitions stay in `<repo>/docs/agents/personas/`.** Never the global pool, never
+  another project. The only companion writes are the maintained project guide
+  `docs/agents/personas.md` and its direct row in `docs/agents/README.md`.
 - **Propose before writing.** Show the roster you intend to create and get agreement. A specialist
   nobody asked for is one more file that drifts.
 - **Derive, never invent.** Every specialist must trace to a specific invariant, acceptance
@@ -45,13 +47,15 @@ inherits the staleness.
    generally; a specialist earns its place only by knowing something domain-specific it does not.
 4. Propose the roster: name, what it checks, which invariant justifies it, model and effort.
 5. On agreement, write each to `docs/agents/personas/<name>.md` in the persona format.
-6. Run `sync_personas.py --repo <repo>` and commit source and generated output together.
+6. Maintain `docs/agents/personas.md` with the roster, boundaries, and sync command; link it directly
+   from `docs/agents/README.md`.
+7. Run `sync_personas.py --repo <repo>` and commit source, route, and generated output together.
 
 ## Choosing model and effort
 
 Follow `agent-personas/references/roster.md`. Specialists are almost always non-editing validators,
 which means `opus`/`gpt-5.6-sol` at `high`, read-only tools, and a low run count. If a proposed
-specialist would *write* code, it is probably an overlay on `implementer` rather than a new persona.
+specialist would *write* code, it is probably an overlay on `developer` rather than a new persona.
 
 ## Format
 
@@ -64,7 +68,7 @@ description: Use when a change touches vaccination schedules, dosing, or any cli
 writes: no
 claude.model: opus
 claude.effort: high
-claude.disallowedTools: Write, Edit, NotebookEdit
+claude.disallowedTools: Write, Edit, NotebookEdit, Bash
 codex.model: gpt-5.6-sol
 codex.effort: high
 codex.sandbox: read-only

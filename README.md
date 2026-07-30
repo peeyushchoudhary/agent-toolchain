@@ -35,7 +35,7 @@ Then open a project and run the **`project-onboarding`** skill. Requirements and
 |---|---|
 | **A four-layer route** | Contract → index → per-directory → README, each with a word budget, all validated |
 | **A repository taxonomy** | One layout across every project, with a migrator for existing repos |
-| **Eleven personas** | `scout`, `developer`, `senior-developer`, `reviewer`, `architect`, `acceptance` and others — model and effort already decided, generated into both harnesses |
+| **Thirteen personas** | `scout`, `developer`, `senior-developer`, `reviewer`, `architect`, `acceptance` and others — model and effort already decided, generated into both harnesses |
 | **A push guard** | Blocks credentials, oversized files, and direct pushes to main — the two rules a forge charges for, enforced locally |
 | **Drift detection** | Session start reports a broken route, an unsynced persona, an unmirrored rule, a stale graph |
 

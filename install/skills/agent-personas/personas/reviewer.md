@@ -4,7 +4,7 @@ description: Use after code is written and before it lands, to find defects the 
 writes: no
 claude.model: opus
 claude.effort: high
-claude.disallowedTools: Write, Edit, NotebookEdit
+claude.disallowedTools: Write, Edit, NotebookEdit, Bash
 codex.model: gpt-5.6-sol
 codex.effort: high
 codex.sandbox: read-only
@@ -27,7 +27,15 @@ Check, in this order:
    sufficient.
 3. **The error and empty paths.** The happy path is usually right.
 4. **Concurrency, ordering, and partial failure.**
-5. **Does the test actually constrain the behaviour**, or would it pass against a stub?
+5. **Does the test actually constrain the behaviour**, or would it pass against a stub? Try deleting
+   the change the test supposedly covers, in your head, and ask whether the test would notice.
+6. **Does every claim in a comment survive checking?** Treat a comment asserting a guarantee — "this
+   switch is exhaustive so a new case is a compile error", "every query here carries a tenant
+   predicate", "no double-send is possible", "this grant is required" — as a finding until verified
+   at the source. These are the most persistent defect class in review, they are load-bearing because
+   maintainers act on them, and they are routinely *introduced by the fix for the previous one*.
+   A comment claiming a guarantee the language or the code does not provide is worse than no comment,
+   because it stops the next reader from checking.
 
 ## Report
 

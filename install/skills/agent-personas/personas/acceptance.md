@@ -4,7 +4,7 @@ description: Use once per milestone, before merge or release, to judge whether t
 writes: no
 claude.model: opus
 claude.effort: xhigh
-claude.disallowedTools: Write, Edit, NotebookEdit
+claude.disallowedTools: Write, Edit, NotebookEdit, Bash
 codex.model: gpt-5.6-sol
 codex.effort: xhigh
 codex.sandbox: read-only

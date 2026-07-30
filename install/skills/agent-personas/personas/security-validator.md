@@ -4,7 +4,7 @@ description: Use for any change touching consent, authorization, personal or hea
 writes: no
 claude.model: opus
 claude.effort: high
-claude.disallowedTools: Write, Edit, NotebookEdit
+claude.disallowedTools: Write, Edit, NotebookEdit, Bash
 codex.model: gpt-5.6-sol
 codex.effort: high
 codex.sandbox: read-only
