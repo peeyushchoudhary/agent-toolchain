@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Install the per-repository git hooks that keep agent context true.
 
-Three hooks, all per-repo because git hooks are not shared through git — every clone and every
+Four hooks, all per-repo because git hooks are not shared through git — every clone and every
 project needs this run once:
 
   pre-commit   validates the disclosure route (broken link, missing command, unscoped dir)
+               and, with --public, scans the staged diff for private identifiers
+  commit-msg   with --public only: scans the commit MESSAGE for private identifiers
   pre-push     blocks the mistakes a push makes permanent (secrets, huge files, pushes to main)
   post-commit  re-extracts changed code into the Graphify graph, via `graphify hook install`
 
@@ -24,11 +26,39 @@ silently when the repo has no `docs/agents/README.md` or no validator installed,
 install anywhere, including a project that has not been standardised yet. When the route does
 exist, it surfaces warnings and fails the commit on structural errors.
 
+--public IS OPT-IN, AND MUST STAY OPT-IN
+-----------------------------------------
+The identifier guard is for repositories that are DELIBERATELY PUBLIC. It blocks a commit that
+carries an absolute home path, the local git identity, or a name from the private deny-list at
+~/.claude/private-identifiers.txt. That deny-list lives outside the PUBLIC repository on purpose: a
+list of private project names committed to a public repository publishes exactly what it protects,
+and unlike a .gitignore rule — which `git add -f` overrides — a file above that work tree cannot be
+committed to it at all.
+
+The claim is relative, and was overstated here as "OUTSIDE every repository". ~/.claude is itself a
+git repository (allow-list .gitignore, no remote), so the deny-list is not outside every repository
+— it is outside the one that is deliberately published, which is the threat this guard addresses.
+See identifier_guard.py's module docstring for the full argument.
+
+It is not installed by default, and that is a decision rather than caution:
+
+  * In a PRIVATE repository the rules block nothing that matters. A private project's own name, its
+    author's email and its absolute paths are all fine inside it. Every finding there is a false
+    positive, and a guard that is wrong every day is a guard whose user learns to type --no-verify —
+    which then also disables the route check and the secret scan on the way past.
+  * The failure mode of NOT installing it on a public repo is a leak; the failure mode of installing
+    it on a private one is that the founder stops trusting all four hooks. The first is loud and
+    caught by review; the second is silent and permanent.
+
+So the flag is required, and re-running WITHOUT it removes the guard again — the state of the hook
+always matches the last thing that was asked for, with no sticky configuration to forget about.
+
 Usage:
   install_hooks.py [ROOT]              # install / update
   install_hooks.py [ROOT] --check      # report status, change nothing
   install_hooks.py [ROOT] --uninstall  # remove only our block
   install_hooks.py [ROOT] --standard   # pre-commit also enforces the structure standard
+  install_hooks.py [ROOT] --public     # add the private-identifier guard (public repos ONLY)
 """
 
 from __future__ import annotations
@@ -54,6 +84,68 @@ if [ -f "docs/agents/README.md" ] && [ -f "$_pd_validator" ]; then
     echo "pre-commit: the agent disclosure route is broken. Fix the reported finding."
     exit 1
   fi
+fi
+{identifier}{end}
+"""
+
+# Rendered into the SAME marked block as the route check rather than a block of its own, so that
+# `write_hook` — which replaces our one block wholesale — takes the stanza away again the moment
+# --public is dropped. A second marked block would need its own strip/rewrite path and would settle
+# its ordering against the first differently on every run.
+#
+# Two hooks, not one, and it is not a choice: git runs `pre-commit` BEFORE the commit message
+# exists, so that hook cannot see it, while `commit-msg` receives the message file as $1. One
+# SCRIPT with two modes serves both — the rule set, the deny-list loader and the exit contract have
+# to be identical in each, and two scripts would drift the first time a rule was added to one.
+#
+# THE MISSING-GUARD BRANCH IS NOT A SKIP. Every other block here skips silently when its script is
+# absent, and that is right for a reporter: not validating the route is not a claim about the route.
+# It is wrong for this one. identifier_guard.py's governing invariant is "a scan that did not run
+# must never read as clean", and `if [ -f ] … fi` broke it from outside the script — a guard that
+# was renamed, or deleted by install.sh's install_tree replacing the skill directory wholesale,
+# produced exit 0 and no output, which is indistinguishable from a clean commit. So absence exits 2
+# and says so. The propagated exit code is the guard's own, which is what makes the 1-vs-2
+# distinction described below true rather than merely asserted: `|| exit 1` collapsed both to 1.
+PRE_COMMIT_IDENTIFIER = """
+# Public repositories only. Blocks private identifiers — home paths, the local git identity, and
+# names from ~/.claude/private-identifiers.txt — from entering the STAGED CONTENT. Exit 1 is a
+# finding, exit 2 is a guard that could not run; neither may be committed past, and the guard's own
+# code is propagated so the two stay distinguishable.
+_pd_ident="$HOME/.claude/skills/progressive-disclosure/scripts/identifier_guard.py"
+if [ -f "$_pd_ident" ]; then
+  PYTHONDONTWRITEBYTECODE=1 python3 "$_pd_ident" --staged
+  _pd_rc=$?
+  [ "$_pd_rc" -eq 0 ] || exit "$_pd_rc"
+else
+  echo "commit BLOCKED: the private-identifier guard is not installed at" >&2
+  echo "  $_pd_ident" >&2
+  echo "  This hook was installed with --public, so this repository is treated as PUBLIC and the" >&2
+  echo "  staged content has NOT been scanned. A scan that did not run is not a clean result." >&2
+  echo "  Reinstall the progressive-disclosure skill, or re-run install_hooks.py WITHOUT --public" >&2
+  echo "  to remove this hook deliberately. Do not commit past it." >&2
+  exit 2
+fi
+"""
+
+COMMIT_MSG = """{begin}
+# Public repositories only. The other half of the identifier guard: a pre-commit hook runs before
+# the commit message exists, so the MESSAGE can only be checked here, where git passes its path as
+# $1. An absent guard BLOCKS rather than skipping, for the reason given above PRE_COMMIT_IDENTIFIER:
+# this hook's whole job is to assert that the message was scanned, and silence would assert it
+# falsely. Exit 1 is a finding, exit 2 is a guard that could not run; the guard's own code is
+# propagated.
+_pd_ident="$HOME/.claude/skills/progressive-disclosure/scripts/identifier_guard.py"
+if [ -f "$_pd_ident" ]; then
+  PYTHONDONTWRITEBYTECODE=1 python3 "$_pd_ident" --message "$1"
+  _pd_rc=$?
+  [ "$_pd_rc" -eq 0 ] || exit "$_pd_rc"
+else
+  echo "commit BLOCKED: the private-identifier guard is not installed at" >&2
+  echo "  $_pd_ident" >&2
+  echo "  The commit MESSAGE has NOT been scanned, and a scan that did not run is not a clean" >&2
+  echo "  result. Reinstall the progressive-disclosure skill, or re-run install_hooks.py WITHOUT" >&2
+  echo "  --public to remove this hook deliberately. Do not commit past it." >&2
+  exit 2
 fi
 {end}
 """
@@ -100,6 +192,34 @@ fi
 """
 
 SESSION_HOOK = Path.home() / ".claude" / "hooks" / "disclosure-check.sh"
+
+
+def render_pre_commit(*, standard: bool = False, public: bool = False) -> str:
+    """The one composition of the pre-commit block. Every caller goes through here.
+
+    PRE_COMMIT is a four-placeholder template whose two interesting slots are not free text: the
+    flag is `--standard` or `--readme` and nothing else, and the identifier stanza is present or
+    absent according to --public. Exposing the template alone made every caller re-derive both, and
+    a caller that re-derives a composition drifts from it silently. That is not hypothetical here:
+    adding `{identifier}` broke a test which had hand-formatted the same template, and the test
+    failed for the wrong reason — not because the hook was wrong, but because it was a copy. The
+    same finding was already made against the push-guard suite in this programme.
+
+    So the argument is the argparse flag, not the rendered string. A caller cannot now omit a
+    placeholder, cannot invent a flag combination `main()` never emits (the broken test asked for
+    `flags=""`, which no install produces), and the next placeholder added to the template reaches
+    every caller by construction.
+    """
+    return PRE_COMMIT.format(
+        begin=BEGIN,
+        end=END,
+        # --readme by default: the seven-section README contract is part of the standard, and a
+        # check nothing runs is a check that does not exist. Nine README errors sat invisible in a
+        # repository for weeks because the hooks passed neither --readme nor --standard, while the
+        # route summary printed a reassuring "0 error(s)". --standard is the superset and implies it.
+        flags=" --standard" if standard else " --readme",
+        identifier=PRE_COMMIT_IDENTIFIER if public else "",
+    )
 
 
 def hook_path(root: Path, name: str) -> Path:
@@ -183,6 +303,24 @@ def write_hook(path: Path, block: str) -> str:
     return action
 
 
+def remove_hook_block(path: Path) -> str:
+    """Take our block out of a hook, deleting the file only if nothing else was in it.
+
+    The same contract as the --uninstall loop, factored out because --public toggling OFF has to do
+    exactly this and doing it inline would have been a second, subtly different implementation of
+    "leave the user's own hook alone".
+    """
+    if not path.is_file():
+        return "absent"
+    cleaned = strip_block(read(path))
+    if cleaned.strip() in ("", "#!/bin/sh"):
+        path.unlink()
+        return "removed"
+    path.write_text(cleaned + "\n", encoding="utf-8")
+    path.chmod(0o755)
+    return "removed (kept the rest)"
+
+
 def sync_codex(root: Path) -> str | None:
     """Mirror the skills wherever Codex will look, so both agents run the same version.
 
@@ -250,6 +388,9 @@ def main() -> int:
     ap.add_argument("--uninstall", action="store_true", help="remove our block from the hooks")
     ap.add_argument("--standard", action="store_true",
                     help="pre-commit also enforces the structure standard")
+    ap.add_argument("--public", action="store_true",
+                    help="install the private-identifier guard (pre-commit + commit-msg). "
+                         "DELIBERATELY PUBLIC repositories only — see the module docstring")
     ap.add_argument("--no-graph", action="store_true", help="skip the Graphify post-commit hook")
     args = ap.parse_args()
 
@@ -270,7 +411,11 @@ def main() -> int:
         post = read(hook_path(root, "post-commit"))
         graph = "present" if "graphify" in post else "ABSENT"
         route = "yes" if (root / "docs" / "agents" / "README.md").is_file() else "no route yet"
+        ident = "present" if "identifier_guard.py" in read(pre) else "ABSENT"
+        msg = "present" if BEGIN in read(hook_path(root, "commit-msg")) else "ABSENT"
         print(f"  pre-commit route check: {state}")
+        print(f"  pre-commit private-identifier guard: {ident} (public repos only)")
+        print(f"  commit-msg private-identifier guard: {msg} (public repos only)")
         print(f"  pre-push secret/size/main guard: {push}")
         print(f"  post-commit graph refresh: {graph}")
         print(f"  repo has a disclosure route: {route}")
@@ -281,18 +426,11 @@ def main() -> int:
         return 0
 
     if args.uninstall:
-        for name in ("pre-commit", "pre-push", "post-commit"):
+        for name in ("pre-commit", "commit-msg", "pre-push", "post-commit"):
             p = hook_path(root, name)
             if not p.is_file():
                 continue
-            cleaned = strip_block(read(p))
-            if cleaned.strip() in ("", "#!/bin/sh"):
-                p.unlink()
-                print(f"  removed {name}")
-            else:
-                p.write_text(cleaned + "\n", encoding="utf-8")
-                p.chmod(0o755)
-                print(f"  cleaned {name} (kept the rest)")
+            print(f"  {name} {remove_hook_block(p)}")
         if graphify_available():
             subprocess.run(["graphify", "hook", "uninstall"], cwd=root, capture_output=True)
             print("  removed graphify post-commit hook")
@@ -313,14 +451,28 @@ def main() -> int:
         first = (r.stdout.strip().splitlines() or ["no output"])[0]
         print(f"  personas: {first}")
 
-    # --readme by default: the seven-section README contract is part of the standard, and a
-    # check nothing runs is a check that does not exist. Nine README errors sat invisible in a
-    # repository for weeks because the hooks passed neither --readme nor --standard, while the
-    # route summary printed a reassuring "0 error(s)". --standard is the superset and implies it.
-    flags = " --standard" if args.standard else " --readme"
-    action = write_hook(pre, PRE_COMMIT.format(begin=BEGIN, end=END, flags=flags))
+    action = write_hook(pre, render_pre_commit(standard=args.standard, public=args.public))
     print(f"  pre-commit {action}"
           f"{' (enforcing the standard)' if args.standard else ''}")
+
+    # Both halves of the identifier guard move together. Installing one without the other is the
+    # only genuinely dangerous state: the message half alone leaves file content unscanned, and the
+    # staged half alone leaves the message unscanned — and either one, seen in --check, reads as
+    # "the guard is installed".
+    msg_hook = hook_path(root, "commit-msg")
+    if args.public:
+        print(f"  pre-commit private-identifier guard installed (staged content)")
+        print(f"  commit-msg {write_hook(msg_hook, COMMIT_MSG.format(begin=BEGIN, end=END))}"
+              f" (commit message)")
+        print("    blocks: absolute home paths, the local git identity, and any name in")
+        print("    ~/.claude/private-identifiers.txt — which is NOT in any repository, because a")
+        print("    deny-list of private names committed to a public repo publishes what it guards.")
+        print("    THIS IS FOR DELIBERATELY PUBLIC REPOSITORIES. In a private repository every")
+        print("    finding is a false positive, and that is how --no-verify becomes a habit.")
+    else:
+        removed = remove_hook_block(msg_hook)
+        if removed != "absent":
+            print(f"  commit-msg identifier guard {removed} (no --public)")
 
     # Adoption of the execution methodology is staggered and deliberate. This block only ever
     # reports; it is what makes an unadopted repository say so at every session start instead of

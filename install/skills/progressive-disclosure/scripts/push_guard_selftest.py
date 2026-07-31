@@ -19,7 +19,8 @@ a push.
  12  `git log` fails INSIDE a valid range     exit 2   <- git()'s carve-out, which case 7 never reaches
  13  the object store cannot be READ          exit 2, and it does not say "run git fetch"
  14  an unexpected crash, and a Ctrl-C        exit 2, never the exit 1 reserved for a finding
- 15  a direct push to refs/heads/main         exit 1, and PD_ALLOW_MAIN_PUSH=1 is the way past
+ 15  a direct push to refs/heads/main         exit 1; the escape hatch tests its VALUE, and every
+                                             negative and unrecognised spelling fails CLOSED
  16  a SHA-256 repository's 64-zero null oid  first push still exits 0, and still gets scanned
  17  the repo declares its own files binary   exit 1  <- the scan switched off from INSIDE the repo
  18  the pattern set cannot load, or is empty exit 2  <- a crash and an empty set, both before main()
@@ -603,6 +604,21 @@ def case_direct_push_to_default_branch() -> None:
 
     Deleting the block left all 30 assertions green — no case pushed to refs/heads/main. The
     remote oid must be a real one: a brand-new default branch is not what this rule is about.
+
+    15d onward exist because 15a-15c did not catch the defect they were closest to. They drove the
+    escape hatch with exactly two spellings — unset and `=1` — which are the two that happen to
+    behave correctly under a PRESENCE test. `not os.environ.get("PD_ALLOW_MAIN_PUSH")` is true when
+    unset and false when `=1`, so both assertions passed against a guard in which
+    `PD_ALLOW_MAIN_PUSH=0` and `PD_ALLOW_MAIN_PUSH=false` ALSO bypassed the block. A break-test that
+    exercises only the inputs that work is not a break-test; it is a demonstration. So every
+    spelling below is asserted individually, and the negative ones are asserted first-class rather
+    than as an afterthought, because the negative direction is where the inversion lived: a founder
+    typing `=0` to be explicit that they do NOT want the escape was handed the escape.
+
+    The fixture needs TWO commits. `base_for` calls `object_exists(remote_oid)` before anything
+    else, so a payload whose remote oid is not a real local object exits 2 through that raise and
+    never reaches the direct-push block at all — the assertions would then be green against a code
+    path they never executed, which is the same vacuity this case is here to fix.
     """
     with tempfile.TemporaryDirectory() as td:
         repo = new_repo(Path(td))
@@ -621,6 +637,45 @@ def case_direct_push_to_default_branch() -> None:
         code, out = run_guard(repo, payload=payload, env={"PD_ALLOW_MAIN_PUSH": "1"})
         check("15c PD_ALLOW_MAIN_PUSH=1 is a real way past it, not just documented", code == 0,
               f"got {code}: {out[:300]}")
+
+        # A message that advertises only `=1` while the code accepts four spellings is a smaller
+        # version of the same defect: the text stops describing the guard.
+        _, blocked_out = run_guard(repo, payload=payload)
+        check("15d the message says which values open the hatch and which leave it closed",
+              "1/true/yes/on" in blocked_out and "0, false, no, off" in blocked_out,
+              blocked_out[:400])
+
+        # Affirmative — each of these must BYPASS. Case and surrounding whitespace are normalised,
+        # because `PD_ALLOW_MAIN_PUSH=" 1"` out of a shell variable is a real way to type it.
+        for value in ("1", "true", "yes", "on", "TRUE", "On", " 1 ", "\tyes\n"):
+            code, out = run_guard(repo, payload=payload, env={"PD_ALLOW_MAIN_PUSH": value})
+            check(f"15e PD_ALLOW_MAIN_PUSH={value!r} is affirmative and bypasses the block",
+                  code == 0, f"got {code}: {out[:300]}")
+
+        # Negative — each of these must BLOCK. Under the presence test every one of them bypassed.
+        for value in ("0", "false", "no", "off", "FALSE", "Off", "", " 0 ", "\tfalse\n"):
+            code, out = run_guard(repo, payload=payload, env={"PD_ALLOW_MAIN_PUSH": value})
+            check(f"15f PD_ALLOW_MAIN_PUSH={value!r} means NOT allowed and still blocks",
+                  code == 1, f"got {code}: {out[:300]}")
+
+        # Unrecognised — fail closed. A value nobody can parse is not consent to skip the check,
+        # and a deny-list of negatives would have let every one of these through.
+        for value in ("maybe", "banana", "2", "-1", "yes please", "true story", "null", "None"):
+            code, out = run_guard(repo, payload=payload, env={"PD_ALLOW_MAIN_PUSH": value})
+            check(f"15g PD_ALLOW_MAIN_PUSH={value!r} is unrecognised and fails CLOSED",
+                  code == 1, f"got {code}: {out[:300]}")
+
+        # The hatch is scoped to this one rule. A secret in the range is not a thing the founder can
+        # wave through, and an escape hatch that quietly widens is how a targeted exception becomes
+        # a global --no-verify.
+        (repo / "creds.txt").write_text(f"aws_key = {FAKE_AWS_KEY}\n")
+        sh("git", "add", "-A", cwd=repo)
+        sh("git", "commit", "-qm", "add creds", cwd=repo)
+        tip = sh("git", "rev-parse", "HEAD", cwd=repo).strip()
+        code, out = run_guard(repo, payload=f"refs/heads/main {tip} refs/heads/main {base}\n",
+                              env={"PD_ALLOW_MAIN_PUSH": "1"})
+        check("15h an affirmative value waives ONLY the direct-push rule, not the secret scan",
+              code == 1 and "creds.txt" in out, f"got {code}: {out[:300]}")
 
 
 def case_sha256_repository() -> None:

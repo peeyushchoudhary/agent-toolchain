@@ -81,6 +81,30 @@ MAX_FILE_MB = 10.0
 ENV_FILE = re.compile(r"(^|/)\.env(\.|$)")
 ENV_ALLOWED = re.compile(r"\.env\.(example|sample|template|defaults)$")
 
+# The only spellings that open the escape hatch. An allow-list rather than a deny-list of "0",
+# "false", "no", "off" and "": a deny-list has to anticipate every way a human might write "no", and
+# the one it forgets fails OPEN. This way the unanticipated value blocks, which is the harmless
+# direction to be wrong in.
+AFFIRMATIVE = frozenset({"1", "true", "yes", "on"})
+
+
+def env_allows(name: str) -> bool:
+    """Does this environment variable hold an AFFIRMATIVE value?
+
+    Presence is not consent. This was `not os.environ.get("PD_ALLOW_MAIN_PUSH")`, which tests
+    whether the variable is set to any non-empty string — so `PD_ALLOW_MAIN_PUSH=0` and
+    `PD_ALLOW_MAIN_PUSH=false` both OPENED the escape hatch. That is not merely a loose test; it is
+    an inversion. A founder who writes `=0` is being explicit that they do NOT want the escape, and
+    the guard handed them exactly the bypass they were refusing — silently, with exit 0, on the one
+    push a direct-to-main block exists to stop.
+
+    Unrecognised values fail closed. `PD_ALLOW_MAIN_PUSH=maybe` is a typo or a misunderstanding, and
+    the safe reading of an instruction nobody can parse is "do not disable the safety check". The
+    cost of failing closed is a push that blocks and a founder who re-reads the message; the cost of
+    failing open is an unreviewed commit on main that a PR would have caught.
+    """
+    return os.environ.get(name, "").strip().lower() in AFFIRMATIVE
+
 
 class GuardError(RuntimeError):
     """A check could not complete.
@@ -450,11 +474,13 @@ def run() -> int:
             continue
 
         if remote_ref in DEFAULT_BRANCHES and not is_null_oid(remote_oid) \
-                and not os.environ.get("PD_ALLOW_MAIN_PUSH"):
+                and not env_allows("PD_ALLOW_MAIN_PUSH"):
             blocking.append(
                 f"direct push to {remote_ref}. Milestone work lands through a pull request:\n"
                 f"      git switch -c milestone/<name> && git push -u origin HEAD && gh pr create\n"
-                f"      Deliberate exception: PD_ALLOW_MAIN_PUSH=1 git push")
+                f"      Deliberate exception: PD_ALLOW_MAIN_PUSH=1 git push\n"
+                f"      (1/true/yes/on open it; anything else — including 0, false, no, off — "
+                f"leaves it closed.)")
 
         base = base_for(local_oid, remote_oid)
 
