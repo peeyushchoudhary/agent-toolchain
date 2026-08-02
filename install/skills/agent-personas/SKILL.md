@@ -69,43 +69,104 @@ input price, which is why it appears only in `planner`. Full rationale in
 
 ## Judges cannot edit
 
-`reviewer`, `security-validator`, `acceptance`, `scout`, `test-judge` and `planner` carry
-`disallowedTools: Write, Edit, NotebookEdit` on Claude and `sandbox_mode = "read-only"` on Codex.
-All except `test-judge` also disallow `Bash`.
+`acceptance`, `planner`, `reviewer`, `scout`, `security-validator` and `test-judge` — the roster
+pinned in `skills/agent-personas/ROSTER` — are denied a **derived core** of tools on Claude
+(`JUDGE_DENIED_TOOLS` in `sync_personas.py` — write and dispatch, and more besides: it also carries
+`Monitor`, `EnterWorktree`, `ExitWorktree` and `TaskStop`, so read the name rather than this
+paraphrase) and run `sandbox_mode = "read-only"` on Codex. The derived core itself is never
+hand-written and can never be shrunk per source — but a source MAY add to it locally, and that is a
+supported mechanism, not a hole: `sync_personas.py` merges whatever a source declares in
+`claude.disallowedTools` with the derived core rather than rejecting it, and five of the six judging
+sources use exactly this to deny `Bash` locally (the worked example below is one of them — its
+`claude.disallowedTools: Bash` line is a local addition, not part of the derived core). For the
+current core names and the argument behind each one, read `~/.claude/docs/decisions.md`'s "What it withholds",
+or `JUDGE_DENIED_TOOLS` in `sync_personas.py` for the enforced value — not this paragraph, which will
+drift again the next time either does. The mirror mistake is real, and only one thing catches it: the
+renderer raises nothing at render time if a source's local `Bash` line is deleted — `Bash` is not
+part of the derived core, so nothing is contradicted — and session-start `--check` stays clean, since
+the check that would need to run is not one `--check` performs. Only
+`test_roster_personas_disallow_bash_except_the_sanctioned_exception` in the INSTALLED suite at
+`~/.claude/skills/agent-personas/tests/test_repo_sync.py` catches it, and nothing runs that suite
+automatically.
+
+**That suite is deliberately not vendored, and this paragraph is cited by absolute path for exactly
+that reason.** Three of its tests resolve the human record at `<skill>/../../docs/`, a path that
+exists in the installed layout and not in a vendored one, so a published copy of the suite would
+fail where it sits. A published copy of *this file* still points at a suite that exists — on the
+machine, where it runs — instead of at a relative path that resolves to nothing, or worse, to a
+different document that happens to share a name.
+
+What each judge additionally **holds** is a separate, mandatory allow-list: `claude.tools`. Absence
+of one on a roster member is rejected, not defaulted to "everything the deny-list didn't name". Five
+judges declare `Read, Grep, Glob, TodoWrite`; `test-judge` adds `Bash` to its own allow-list instead —
+the one sanctioned exception, so it is **not** among the judges denied a shell below — see
+`~/.claude/docs/decisions.md`'s "Exception denied: `test-judge` keeps `Bash`, loses `Agent`" for the argument.
+Current names, same caveat as above: `~/.claude/docs/decisions.md`'s "What it grants".
 
 A judge that **cannot** edit is a stronger guarantee than one instructed not to. It also removes the
 failure where a reviewer finds a defect and quietly patches it, so the defect never gets recorded.
 
-**`test-judge` is the one sanctioned exception, and it is narrow.** Running a gate requires a shell;
-without one the persona was assigned a job it could not do, and in practice it chained to a
-sub-subagent rather than say so. It keeps Write, Edit, and NotebookEdit disallowed, so it still
-cannot author a fix. The residual — edits through shell redirection — is covered by instruction
-rather than restriction, which is weaker, and its body says so plainly. Codex is unaffected:
-`read-only` permits execution and forbids writes, which is exactly the shape wanted.
+**`test-judge`'s `Bash` is the one sanctioned exception, and it is narrow.** Running a gate requires
+a shell; without one the persona was assigned a job it could not do, and in practice it chained to a
+sub-subagent rather than say so. `test-judge` is the only judge holding a shell — every other judge
+denies `Bash` (five of them locally, as above), and every dispatch tool stays denied on all six, so
+`test-judge` still cannot author a fix or hand the work to something that can. The residual — edits
+through shell redirection — is covered by instruction rather than restriction, which is weaker, and
+its body says so plainly. Codex is unaffected: `read-only` permits execution and forbids writes,
+which is exactly the shape wanted.
 
 A consequence worth stating because it looks like an oversight: **judges cannot write their own
 reports.** Do not resolve that by granting a write tool. The judge returns its findings and the
-orchestrator persists them — one read per review is the price of the guarantee. `test_repo_sync.py`
-enforces both halves, with the exemption named rather than inferred.
+orchestrator persists them — one read per review is the price of the guarantee. The installed suite
+at `~/.claude/skills/agent-personas/tests/test_repo_sync.py` enforces both halves, with the exemption
+named rather than inferred.
 
 ## Authoring and generation
 
-Personas live in `personas/<name>.md` — harness-neutral, with flat dotted frontmatter keys:
+**The base pool is a fixed set of thirteen**, pinned by `BASE_PERSONA_NAMES` in `sync_personas.py`:
+a file dropped into `personas/<name>.md` under any other name is rejected at exit 2 (`base persona
+pool must contain exactly the canonical 13 (unexpected: <name>)`) however correct its frontmatter is.
+This location is for editing one of the thirteen — never for adding a new specialist. A new
+specialist goes through `agent-persona-factory` into a project overlay
+(`docs/agents/personas/<name>.md`; see "Project specialisation" below).
+
+Each source is harness-neutral, with flat dotted frontmatter keys. A judging-roster member (see
+"Judges cannot edit" above) must additionally declare `claude.tools`, its allow-list — absence is
+rejected. The deny-list's derived core comes from roster membership alone, never per source; a
+source may still add a local extra to it (`claude.disallowedTools`, merged rather than replaced —
+see "Judges cannot edit").
+
+`reviewer`'s own source is the worked example, copied verbatim rather than reconstructed from
+memory — when authoring a new persona, copy an existing source file, not a prose rendering of one:
 
 ```yaml
 ---
 name: reviewer
-description: Use after code is written and before it lands…
+description: Use after code is written and before it lands, to find defects the author missed. Use for any change to a shared interface, a security path, or data handling.
 writes: no
 claude.model: opus
 claude.effort: high
-claude.disallowedTools: Write, Edit, NotebookEdit
+claude.tools: Read, Grep, Glob, TodoWrite
+claude.disallowedTools: Bash
 codex.model: gpt-5.6-sol
 codex.effort: high
 codex.sandbox: read-only
 ---
 The body becomes the system prompt on Claude and developer_instructions on Codex.
 ```
+
+**This is a judging-roster member's shape, and copying it is not what protects a project judge.**
+`reviewer` is on `skills/agent-personas/ROSTER`, so `restrict_for_roster` runs on it at render time:
+it completes `claude.disallowedTools` by merging in the derived core (no vocabulary check applies to
+this half — a typo'd tool name there renders as a dead entry, not a rejection), and it validates
+`claude.tools` outright — mandatory, non-empty, no overlap with the deny-list, closed vocabulary. A
+project specialist — a new name under `docs/agents/personas/`, the shape `agent-persona-factory`
+produces — is never on that roster, so **none** of this runs for it: cloning only the
+`claude.disallowedTools: Bash` line above, or omitting `claude.tools`, renders exactly that and
+nothing else, holding every tool the render pipeline itself doesn't drop. See
+`agent-persona-factory/SKILL.md` for the template that shape actually needs — read there rather than
+`~/.claude/docs/decisions.md`'s "Known limits" for what a *conformant* specialist looks like; that passage
+predates this template and, as written, does not describe it (a correction is tracked separately).
 
 ```bash
 sync_personas.py                      # render the pool to ~/.claude/agents and ~/.codex/agents
@@ -122,8 +183,14 @@ banner saying so; the next sync overwrites them.
 A repository can refine a persona or add its own, via `docs/agents/personas/<name>.md`:
 
 - **Same name as a base persona** → the overlay is appended under a "Project-specific direction"
-  heading, and may retune `model`/`effort`. Anything it omits inherits.
-- **A new name** → a project-only specialist, rendered from itself.
+  heading, and may retune `model`/`effort`. Anything it omits inherits. If the base name is on the
+  judging roster, `restrict_for_roster` still runs on the merged result — an overlay may narrow a
+  judge's tools and may never widen them.
+- **A new name** → a project-only specialist, rendered from itself, and **never on the judging
+  roster no matter what it claims about itself.** `restrict_for_roster` only ever runs for a name in
+  `JUDGING_PERSONA_NAMES`, so a new-name specialist gets nothing derived — no mandatory allow-list,
+  no derived deny-list — however plainly its `writes: no` or its description says it only judges.
+  Use `agent-persona-factory`, which authors this case correctly by hand.
 
 Overlays are committed, inside the disclosure route, and readable by both harnesses. The generated
 `.claude/agents/` and `.codex/agents/` are committed too, with `--check` in the repo's gate — the

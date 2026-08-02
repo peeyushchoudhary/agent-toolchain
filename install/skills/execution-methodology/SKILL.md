@@ -100,6 +100,11 @@ not request and response shapes hands the implementer an invention it will make 
 routes reviews, runs fix loops, keeps the ledger, and stops only on a blocker, a genuine ambiguity,
 or the fix cap.
 
+**A report is not a request.** Milestone reports inform; they do not pause the loop. Before
+stopping, name the decision — if it is not one of the three gates, a spend, an irreversible or
+outward-facing action, or a genuine fork, there is nothing to ask, so proceed and say so in the next
+report. "Confirm I should carry on with what we agreed" is not a decision.
+
 Superpowers' `subagent-driven-development` is a good implementation of the same loop and its
 workspace scripts are worth using. Two corrections when you do: its prompt templates dispatch
 `general-purpose` subagents, which carry every tool — so a "task reviewer" can edit the code it just

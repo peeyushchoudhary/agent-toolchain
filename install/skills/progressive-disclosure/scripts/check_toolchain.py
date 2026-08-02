@@ -16,29 +16,92 @@ exactly why they rot silently:
 Each failure is invisible from inside a project and silent at the point of use: Codex simply
 follows an older contract. Reports; fixes nothing.
 
-`--vendored` adds a fourth concern, and unlike the three above it IS repository-scoped:
+A fourth machine-global concern was added by TC-41, and it sits one floor BELOW the other three:
 
-  4. A repository that publishes a vendored copy of the installed shared layer — `install/skills`
+  4. The PLUGIN SURFACE in both harnesses. Everything else this toolchain governs decides what a
+     PERSONA holds — an allow-list, a derived deny-list, a roster floor. A plugin adds capability
+     underneath all of that: its hooks execute for every persona including the judging ones, and an
+     `agents/<name>.md` it ships can shadow a base persona from a directory neither the roster, nor
+     the allow-list, nor `sync_personas.py --check` looks at. There are three sources of that same
+     shadowing door and only the first is governed by anything:
+
+         ~/.claude/agents/<name>.md        `sync_personas.py --check` compares it
+         <repo>/.claude/agents/<name>.md   overrides globally; nothing automatic compares it
+         <plugin>/agents/<name>.md         seen by nothing at all — this is what is closed here
+
+     `check_plugins` ENUMERATES and CLASSIFIES. It does not approve. There is no conforming set of
+     plugins and inventing one would be wrong on the first new plugin and would train the reader to
+     ignore the report. See `check_plugins` for the classification and the severity table.
+
+`--vendored` adds a fifth concern, and unlike the four above it IS repository-scoped:
+
+  5. A repository that publishes a vendored copy of the installed shared layer — `install/skills`
      mirroring `~/.claude/skills`. That copy is refreshed by hand, so it drifts in both directions:
      a skill edited or added in `~/.claude` and never re-vendored publishes stale instructions, and
      a skill deleted or renamed in `~/.claude` but left in the repository publishes a dead one
-     forever. Neither side of that drift is visible from either side alone. It is a fourth concern
-     rather than a fifth mode of the first three because the comparison is between a machine and a
+     forever. Neither side of that drift is visible from either side alone. It is a fifth concern
+     rather than a fifth mode of the first four because the comparison is between a machine and a
      *specific* repository, named on the command line, and never runs implicitly.
 
-Exit codes: 0 clean, 1 finding, 2 usage or environment error. Which severities gate the exit
-differs by mode — see EXIT SEMANTICS in `main()`.
+THREE STATES, NEVER TWO. Every run resolves to exactly one of `clean`, `findings`, or `not-run`,
+and a check that did not execute is reported as not-run in those words. It is never absorbed into a
+pass and never contributes its name to the success line. The defect this closes is the one where
+the failure path and the success path produce the same output: `check_skills` used to `continue`
+past a mirrored skill that was not installed, and `check_personas` called a missing sync tool a
+`warn`, so a run that compared nothing printed the same "clean — personas in sync, instructions
+mirrored, Codex skills current" as a run that compared everything.
+
+Exit codes: 0 clean, 1 finding, 2 the check could not run (usage, environment, or a `not-run`
+finding). 2 outranks 1 for the reason `check_github.exit_code` gives: the exit code answers "can
+you trust this report" before it answers "did it find anything".
+
+Which severities gate the exit differs by mode — see EXIT SEMANTICS in `main()`. The exit code is
+NOT the whole result in default mode, deliberately (see the TC-06 ruling on SEVERITY_RANK), so a
+caller that reads only the exit status will miss real Codex-mirror drift. Callers must read `--json`
+or the summary line; `verify.sh` reading `>/dev/null 2>&1` and the exit code alone is that bug.
 
 Usage:
   check_toolchain.py           # human report
   check_toolchain.py --hook    # compact agent context, silent when healthy
   check_toolchain.py --json
   check_toolchain.py --vendored <repo>   # diff ~/.claude/skills against <repo>/install/skills
+
+`--json` emits an OBJECT, not a bare findings array: an array cannot carry the difference between
+"nothing was wrong" and "nothing was looked at". Stable keys for a caller:
+
+  {"mode", "status", "exit", "counts": {<severity>: n, "total": n},
+   "evaluated": [...], "not_evaluated": [{"check", "why"}], "excluded": [{"name", "why"}],
+   "findings": [{"severity", "detail"}], "plugins": {...} | null, "summary": "..."}
+
+`counts` is keyed by severity so a caller counts by severity without parsing prose, and always
+carries a key for every severity in SEVERITY_RANK even when it is zero.
+
+`plugins` is the TC-41 enumeration, structured so `project-conformance` can act on it without
+parsing prose. It is `null` in `--vendored` mode — that mode enumerates no plugins, and `null` says
+so where `{}` would read as "there are none". Its shape is fixed by `plugin_surface()`; the field a
+caller most likely wants is `plugins["claude"]["enumerated"]`, which is `false` whenever any part of
+the Claude-side enumeration could not be completed, so an incomplete list can never be mistaken for
+a short one.
+
+WHAT A `--json` CONSUMER MUST HANDLE, stated because it is NOT symmetrical with
+`validate_disclosure.py` and a caller told otherwise will crash on the path that matters most.
+The five usage-and-environment failures in `main` — an empty `--vendored` value, either root
+missing, either root a symlink, both roots resolving to the same directory, and an OSError while
+reading — print a message to **stderr** and return 2 **without emitting any JSON at all**, even
+under `--json`. Stdout is empty. That is deliberate: the empty stdout is itself pinned by
+`test_empty_and_whitespace_vendored_argument_exit_two`, because those paths never established a
+result to report and an empty findings array would read as "nothing was wrong".
+
+So: check the exit status BEFORE parsing. `0/1` ⇒ stdout is one JSON object; `2` ⇒ stdout may be
+empty and the reason is on stderr. `validate_disclosure.py` differs here — its could-not-run path
+DOES emit an object, carrying `"status": "could-not-run"` and `"exit": 2`.
 """
 
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import importlib.util
 import json
 import os
 import subprocess
@@ -51,6 +114,32 @@ CODEX_MD = HOME / ".codex" / "AGENTS.md"
 CODEX_SKILLS = HOME / ".codex" / "skills"
 CLAUDE_SKILLS = HOME / ".claude" / "skills"
 SYNC = CLAUDE_SKILLS / "agent-personas" / "scripts" / "sync_personas.py"
+
+# The plugin surface, both harnesses. Module-level and derived from HOME for the same reason
+# everything above is: the tests drive this file under a synthetic HOME.
+CLAUDE_SETTINGS = HOME / ".claude" / "settings.json"
+CLAUDE_PLUGINS = HOME / ".claude" / "plugins"
+INSTALLED_PLUGINS = CLAUDE_PLUGINS / "installed_plugins.json"
+CODEX_CONFIG = HOME / ".codex" / "config.toml"
+
+# What makes a directory a plugin, and it is a MANIFEST rather than a naming convention. Measured
+# on this machine: a naive `find ~/.claude/plugins -path '*/agents/*.md'` returns 34 files, three of
+# which live at `<plugin>/skills/skill-creator/agents/*.md` — inside a skill's own body, not in the
+# plugin's agent directory. Those three are not plugin-supplied agents and the harness does not load
+# them as such. Anchoring on the manifest and then on `<root>/agents/*.md` gives 31 files / 29 names,
+# and that is the number this check reports.
+PLUGIN_MANIFEST = (".claude-plugin", "plugin.json")
+
+# Pruned from the plugin walk. Neither can contain a plugin root that the harness would load, and
+# `node_modules` in particular can be enormous — a vendored dependency tree that happens to contain
+# a `.claude-plugin/plugin.json` is not an installed plugin.
+PLUGIN_WALK_PRUNE = frozenset({"node_modules", ".git", "__pycache__"})
+
+# Said in every plugin finding, because it is the fact most likely to be acted on wrongly. This tool
+# runs per-repository at every session start; the plugin surface it reports is per-MACHINE. Without
+# this sentence someone fixes it in one repository and expects the others to change.
+MACHINE_GLOBAL = ("This is MACHINE-GLOBAL, not a property of this repository: it comes from "
+                  "~/.claude and ~/.codex and is identical in every project on this machine.")
 
 # Blocks that must be byte-identical in both harnesses' global instructions, as (start, end) text
 # markers present in both files. The end marker is excluded from the comparison.
@@ -78,6 +167,130 @@ MIRRORED = [
 MIRRORED_SKILLS = ("progressive-disclosure", "agent-personas", "agent-persona-factory",
                    "graph-navigation", "project-onboarding", "execution-methodology")
 
+# The third state. A `not-run` is not a severity of finding in the ordinary sense — it is the
+# absence of a finding *and* the absence of a clean result, which is precisely the thing two-state
+# reporting cannot express. Spelled the way it is printed, so a grep for the word finds both.
+NOT_RUN = "not-run"
+
+# TC-06's ruling, implemented here rather than restated: RANK GOVERNS VISIBILITY, `BLOCKING`
+# GOVERNS THE EXIT CODE, and the two are deliberately different objects. An unknown severity —
+# whatever someone adds next — sorts to the TOP of the report (rank -1, louder than not-run) and is
+# NOT in any blocking set. Loud but not fatal. The alternative, treating an unrecognised severity
+# as blocking, would make every session start fail the day an advisory level is introduced.
+SEVERITY_RANK: dict[str, int] = {NOT_RUN: 0, "critical": 1, "warn": 2, "info": 3}
+
+# Default / --hook / --json. `warn` here means "a mirror this tool cannot fix from here has
+# drifted"; it is real and must be visible, but it has always exited 0 and raising it would turn
+# every session start into a failure. Visibility is the summary line and `--json`, not the code.
+BLOCKING_DEFAULT = frozenset({"critical"})
+
+# `--vendored`. A sentinel, not a set, so that adding a new severity later cannot quietly restore
+# the false GREEN this mode was built to kill. See EXIT SEMANTICS in `main()`.
+BLOCKING_ANY = "any-finding"
+
+
+def severity_sort_key(severity: str) -> tuple[int, str]:
+    """Report order. Unknown severities sort first — loud, per the TC-06 ruling."""
+    return (SEVERITY_RANK.get(severity, -1), severity)
+
+
+class Run:
+    """One execution of the checker: what it evaluated, what it did not, and what it found.
+
+    Exists so that "what may the summary claim" is answered by recorded fact rather than by a
+    hard-coded sentence. The old success line named three checks unconditionally; a run in which
+    none of the three could execute printed it verbatim.
+
+    `evaluated` is what actually ran to completion — and ONLY `evaluated` may appear in the clean
+    line. `not_evaluated` is what did not, and its presence alone is enough to deny a clean verdict
+    even when there is not a single finding. `excluded` is scope that was declared out of the
+    comparison on purpose: reported, never silent, never a finding.
+    """
+
+    def __init__(self, mode: str, blocking) -> None:
+        self.mode = mode
+        self.blocking = blocking
+        self.findings: list[tuple[str, str]] = []
+        self.evaluated: list[str] = []
+        self.clean_phrases: list[str] = []
+        self.not_evaluated: list[tuple[str, str]] = []
+        self.excluded: list[tuple[str, str]] = []
+        # The TC-41 enumeration, or None in a mode that does not enumerate plugins. NOT `{}`:
+        # an empty mapping is the correct value for "a machine with no plugins", so using it for
+        # "not enumerated here" would collapse the same two states this class exists to keep apart.
+        self.plugins: dict | None = None
+
+    def add(self, findings: list[tuple[str, str]], label: str | None = None,
+            clean_phrase: str | None = None) -> None:
+        """Record one check's findings and, from them alone, whether it may claim coverage.
+
+        THE CHOKEPOINT for coverage. A check earns its phrase only when it produced no `not-run`
+        finding, so it is structurally impossible for a check that skipped its work to contribute
+        the phrase that says it did the work. No caller decides this; the findings do.
+
+        TWO VOCABULARIES, kept apart on purpose. `label` NAMES the check ("Codex skill mirror") and
+        is what "checked: ..." lists — a statement that it ran, which stays true when it found
+        something. `clean_phrase` ASSERTS a result ("Codex skills current") and may only ever reach
+        the success line. Folding them into one list put "Codex skills current" in the summary of a
+        run that had just printed two Codex-mirror differences, which is the same false-reassurance
+        defect one layer in.
+        """
+        self.findings += findings
+        if label is None:
+            return
+        why = [d for s, d in findings if s == NOT_RUN]
+        if why:
+            self.not_evaluated.append((label, why[0]))
+        else:
+            self.evaluated.append(label)
+            self.clean_phrases.append(clean_phrase or label)
+
+    def counts(self) -> dict[str, int]:
+        tally = {s: 0 for s in SEVERITY_RANK}
+        for severity, _ in self.findings:
+            tally[severity] = tally.get(severity, 0) + 1
+        tally["total"] = len(self.findings)
+        return tally
+
+    def verdict(self) -> tuple[str, int]:
+        """The ONE place a run becomes a status and an exit code. Three states, never two.
+
+        `not-run` outranks everything: a report you cannot trust is worse news than a report with a
+        finding in it, and it must never resolve to 0. Only after that does severity gate the code,
+        and which severities do is the mode's business, not this function's.
+        """
+        if any(s == NOT_RUN for s, _ in self.findings) or self.not_evaluated:
+            return NOT_RUN, 2
+        if not self.findings:
+            return "clean", 0
+        blocked = (self.blocking is BLOCKING_ANY
+                   or any(s in self.blocking for s, _ in self.findings))
+        return "findings", (1 if blocked else 0)
+
+    def summary(self, status: str) -> str:
+        """The one sentence allowed to characterise the run. Derived, never asserted.
+
+        A clean line may name only `evaluated`. Anything else in it would be the original defect
+        wearing a new sentence.
+        """
+        scope = ""
+        if self.excluded:
+            scope = ("; " + f"{len(self.excluded)} excluded and NOT compared: "
+                     + ", ".join(f"{n} ({w})" for n, w in self.excluded))
+        if status == "clean":
+            return "clean — " + ("; ".join(self.clean_phrases) or "nothing to check") + scope
+        tally = self.counts()
+        parts = ", ".join(f"{tally[s]} {s}" for s in sorted(tally, key=severity_sort_key)
+                          if s != "total" and tally[s])
+        head = f"{tally['total']} finding(s): {parts}" if tally["total"] else "no findings"
+        ran = "; checked: " + (", ".join(self.evaluated) or "nothing")
+        if status == NOT_RUN:
+            missed = ", ".join(label for label, _ in self.not_evaluated)
+            return (f"NOT A CLEAN RESULT — {head}{ran}{scope}. "
+                    f"NOT RUN: {missed or 'see the not-run finding(s) above'}. "
+                    f"No verdict is available for what did not run.")
+        return f"NOT A CLEAN RESULT — {head}{ran}{scope}."
+
 
 def section(text: str, start: str, end: str) -> str | None:
     try:
@@ -87,32 +300,58 @@ def section(text: str, start: str, end: str) -> str | None:
 
 
 def check_personas() -> list[tuple[str, str]]:
+    """Every early return here used to be a `warn`, which is the wrong claim three times over.
+
+    "The sync tool is missing", "the tool would not start" and "the tool failed" are not findings
+    about the persona pool — they are the absence of any finding about it, and calling them `warn`
+    let a run that never compared a single persona exit 0 under a line saying personas were in sync.
+    """
     if not SYNC.is_file():
-        return [("warn", f"persona sync tool missing at {SYNC}")]
+        return [(NOT_RUN, f"persona sync was NOT RUN: the sync tool is missing at {SYNC}, so no "
+                          f"generated agent file was compared against the pool")]
     try:
         r = subprocess.run(["python3", str(SYNC), "--check"],
                            capture_output=True, text=True, timeout=60)
     except (subprocess.SubprocessError, FileNotFoundError) as e:
-        return [("warn", f"could not run the persona sync check: {e}")]
+        return [(NOT_RUN, f"persona sync was NOT RUN: the sync check could not be started ({e})")]
     if r.returncode == 1:
         n = sum(1 for line in r.stdout.splitlines() if line.strip().startswith("/"))
         return [("critical", f"{n} generated agent file(s) do not match the persona pool. Both "
                              f"harnesses are running a stale persona. Fix: python3 {SYNC}")]
     if r.returncode not in (0, 1):
-        return [("warn", f"persona sync check failed: {r.stderr.strip()[:120]}")]
+        return [(NOT_RUN, f"persona sync was NOT RUN: the sync check exited {r.returncode} without "
+                          f"reaching a verdict ({r.stderr.strip()[:120]})")]
     return []
 
 
 def check_instructions() -> list[tuple[str, str]]:
+    """A section that is absent from one side was never compared, and says so in those words.
+
+    The previous `warn` conflated "I compared these and they differ" with "one of them is not there
+    to compare", and only the first of those is a finding about the mirror.
+    """
     if not CLAUDE_MD.is_file() or not CODEX_MD.is_file():
-        return [("warn", "one of ~/.claude/CLAUDE.md or ~/.codex/AGENTS.md is missing")]
-    a, b = CLAUDE_MD.read_text(), CODEX_MD.read_text()
+        return [(NOT_RUN, "the instruction mirror was NOT RUN: one of ~/.claude/CLAUDE.md or "
+                          "~/.codex/AGENTS.md is missing, so no shared block was compared")]
+    # `is_file()` is True for a mode-000 file and for a UTF-16 one, so the existence probe above
+    # does not make the read safe. Unguarded, this raised out of `main` and Python exited 1 with a
+    # traceback — which is the two-state world returning: a run that could not look reported the
+    # code for "I looked and found something". Same shape as the guard in `read_declaration`.
+    try:
+        a, b = (CLAUDE_MD.read_text(encoding="utf-8", errors="strict"),
+                CODEX_MD.read_text(encoding="utf-8", errors="strict"))
+    except (OSError, UnicodeDecodeError) as e:
+        return [(NOT_RUN, f"the instruction mirror was NOT RUN: ~/.claude/CLAUDE.md or "
+                          f"~/.codex/AGENTS.md could not be read ({e}), so no shared block was "
+                          f"compared")]
     out = []
     for start, end in MIRRORED:
         sa, sb = section(a, start, end), section(b, start, end)
         if sa is None or sb is None:
-            out.append(("warn", f"section `{start}` is missing from "
-                                f"{'~/.claude/CLAUDE.md' if sa is None else '~/.codex/AGENTS.md'}"))
+            out.append((NOT_RUN,
+                        f"section `{start}` was NOT COMPARED: it is missing from "
+                        f"{'~/.claude/CLAUDE.md' if sa is None else '~/.codex/AGENTS.md'}, so "
+                        f"whether the two harnesses agree on it is unknown"))
         elif sa != sb:
             out.append(("critical", f"section `{start}` differs between ~/.claude/CLAUDE.md and "
                                     f"~/.codex/AGENTS.md — the two harnesses are following "
@@ -176,11 +415,19 @@ def tree(root: Path, pattern: str = "**/*") -> tuple[dict[str, bytes], list[tupl
 
 def check_skills() -> list[tuple[str, str]]:
     if not CODEX_SKILLS.is_dir():
-        return [("warn", "~/.codex/skills does not exist; Codex has none of the shared skills")]
+        return [(NOT_RUN, "the Codex skill mirror was NOT RUN: ~/.codex/skills does not exist, so "
+                          "none of the shared skills was compared — Codex has none of them and no "
+                          "statement about their currency is available")]
     out = []
     for name in MIRRORED_SKILLS:
         src, dst = CLAUDE_SKILLS / name, CODEX_SKILLS / name
         if not src.is_dir():
+            # The original silent swallow of this file: a bare `continue`. A mirrored skill that is
+            # not installed produced no output at all, so the failure path and the success path
+            # were byte-identical and the run still claimed "Codex skills current".
+            out.append((NOT_RUN, f"skill `{name}` was NOT COMPARED: it is named in MIRRORED_SKILLS "
+                                 f"but is not installed at {src}, so there was nothing to compare "
+                                 f"the Codex copy against"))
             continue
         if not dst.is_dir():
             out.append(("critical", f"skill `{name}` is missing from ~/.codex/skills — Codex "
@@ -201,11 +448,15 @@ def check_skills() -> list[tuple[str, str]]:
         links = sorted({rel for rel, why in a_bad if why == "symlink, not compared"}
                        | {rel for rel, why in b_bad if why == "symlink, not compared"})
         if links:
+            # `not-run`, not `warn`. "This skill is only partly checked" was already the honest
+            # sentence; the severity beside it said otherwise and let the run exit 0 under a line
+            # claiming the Codex skills are current. A region that was not compared is not-run for
+            # that region however much of the rest succeeded.
             detail = ", ".join(links[:3]) + (f", +{len(links) - 3} more" if len(links) > 3 else "")
-            out.append(("warn", f"skill `{name}` contains a symlink that was not compared "
-                                f"({detail}), so this skill is only partly checked. Fix: replace "
-                                f"the symlink with a real directory — install_hooks.py will not "
-                                f"remove it."))
+            out.append((NOT_RUN, f"skill `{name}` contains a symlink that was NOT COMPARED "
+                                 f"({detail}), so this skill is only partly checked. Fix: replace "
+                                 f"the symlink with a real directory — install_hooks.py will not "
+                                 f"remove it."))
 
         bad = (sorted((set(a) ^ set(b)) - unread)
                + sorted(k for k in set(a) & set(b) if a[k] != b[k])
@@ -216,6 +467,122 @@ def check_skills() -> list[tuple[str, str]]:
             out.append(("warn", f"skill `{name}` differs from the Codex copy ({detail}). "
                                 f"Fix: install_hooks.py <any-repo>"))
     return out
+
+
+def _gitignore_rules(text: str) -> list[tuple[str, bool, bool]]:
+    """Parse a .gitignore into `(pattern, negated, anchored)` rules matching one path component.
+
+    Deliberately narrow. This answers exactly one question — "does this repository declare that it
+    does not publish this path" — so it handles only the constructs that can bear on a single path
+    component: comments, blanks, `!` negation, a leading or trailing `/`, and shell globs. A rule
+    containing an interior `/` addresses a specific nested path; it is skipped rather than
+    half-applied, and skipping is the fail-CLOSED direction because it produces a finding rather
+    than a silent exclusion.
+
+    ANCHORING IS NOT COSMETIC, and dropping it is how this function nearly became a catastrophe.
+    `/*` and `.DS_Store` are both in the real declaration and they mean opposite-scoped things:
+    `/*` ignores every entry at the TOP of this directory, while `.DS_Store` ignores that name
+    ANYWHERE beneath it. An earlier draft stripped the leading `/` and returned both as bare
+    patterns, which was harmless only for as long as the rules were applied to top-level names
+    alone. Applied to nested paths — which F1 requires — an unanchored `*` matches every component
+    at every depth and excludes the entire tree, turning the whole comparison into a silent pass:
+    the exact defect class this card exists to remove, introduced by the fix for it.
+    """
+    rules: list[tuple[str, bool, bool]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        negated = line.startswith("!")
+        if negated:
+            line = line[1:]
+        anchored = line.startswith("/")
+        line = line.strip("/")
+        if not line or "/" in line:
+            continue
+        rules.append((line, negated, anchored))
+    return rules
+
+
+def excluded_by(rules: list[tuple[str, bool, bool]], rel: str) -> bool:
+    """Does the declaration cover `rel`, a path relative to the skills root?
+
+    THE ONE PLACE the declaration is applied. Every comparison site routes through here, because
+    F1 was precisely a comparison site that did not: exclusion reached the two directory sets and
+    not the top-level file sweep, so a `.DS_Store` — named in the real declaration, created by
+    opening the folder in Finder once, and unpublishable by git forever — became a permanent
+    CRITICAL. A permanent finding no remedy can clear is the thing that teaches a reader to ignore
+    the whole report, which is the pathology this card was written about.
+
+    Git's rules, narrowed to what the parser above produces:
+      * an anchored rule (`/x`) may match only the FIRST component;
+      * an unanchored rule (`x`) may match a component at any depth — that is what makes
+        `.DS_Store` and `*.pyo` "never, anywhere" in the real file;
+      * an ignored directory takes its contents with it, so a match on ANY component excludes the
+        whole path;
+      * last matching rule wins, which is what makes the allowlist form (`/*` then `!/name`) work.
+    """
+    for index, part in enumerate(Path(rel).parts):
+        ignored = False
+        for pattern, negated, anchored in rules:
+            if anchored and index > 0:
+                continue
+            if fnmatch.fnmatchcase(part, pattern):
+                ignored = not negated
+        if ignored:
+            return True
+    return False
+
+
+def read_declaration(vendored_skills: Path) -> tuple[list[tuple[str, bool, bool]],
+                                                     list[tuple[str, str]]]:
+    """Load `<repo>/install/skills/.gitignore`. Returns `(rules, findings)`.
+
+    THE DECLARATION ALREADY EXISTS. That file is the one git itself consults to decide what this
+    directory publishes, it is tracked, and it is written as an allowlist: ignore everything at the
+    top level, then name the skills the repository owns, then a short "never, anywhere" tail. A
+    vendor skill that installs itself into `~/.claude/skills` on its own schedule — graphify does
+    exactly this — is therefore already declared unpublished, by the only mechanism that actually
+    governs publication. Reading it is the whole fix.
+
+    There is no second exception list and no name is special-cased in this file. Delete the
+    declaration and every path it covered becomes a finding again, which is what the test asserts.
+
+    A missing .gitignore excludes nothing: the correct reading of "no declaration" is "everything is
+    published", and inventing exclusions from its absence would be the fail-open being remediated.
+    An UNREADABLE one is a `not-run`, because then what is excluded is unknown and every presence
+    finding below it would be a guess.
+    """
+    declaration = vendored_skills / ".gitignore"
+    if not declaration.is_file():
+        return [], []
+    try:
+        return _gitignore_rules(declaration.read_text(encoding="utf-8", errors="strict")), []
+    except (OSError, UnicodeDecodeError) as e:
+        return [], [(NOT_RUN, f"vendored drift was NOT RUN: {declaration} could not be read ({e}), "
+                              f"so what this repository declares unpublished is unknown and no "
+                              f"presence finding below would be trustworthy")]
+
+
+def declared_unpublished(vendored_skills: Path, rules) -> dict[str, str]:
+    """The top-level skill DIRECTORIES the declaration covers, on either side.
+
+    Directories only, and that is the whole of its job: these are the names subtracted from the two
+    directory sets in `check_vendored`, which is a set operation over directory names. Excluded
+    FILES are not its business and must not be inferred from its absence — they are dropped inside
+    `_compare`, and `_compare` reports what it dropped. This function used to be the sole source of
+    the `excluded` report too, which is exactly how excluded files came to be reported nowhere.
+
+    Both sides, not just the installed one. A name present only in the vendored copy and covered by
+    the declaration is untracked litter that git will never publish — uninstall graphify while a
+    stale `install/skills/graphify/` remains and the installed-only view would report it as "stale
+    published content" forever, another permanent finding no action can clear. The categories in
+    `check_vendored` must describe genuine publication, so the exclusion has to be symmetric.
+    """
+    names = {p.name for p in CLAUDE_SKILLS.iterdir() if p.is_dir() and not p.is_symlink()}
+    names |= {p.name for p in vendored_skills.iterdir() if p.is_dir() and not p.is_symlink()}
+    return {name: "declared unpublished by install/skills/.gitignore"
+            for name in sorted(names) if excluded_by(rules, name)}
 
 
 def _describe_vendored(skill: str, rel_path: str) -> str:
@@ -236,7 +603,7 @@ def _describe_vendored(skill: str, rel_path: str) -> str:
     return f"skill `{skill}` file `{rel_path}`"
 
 
-def check_vendored(vendored_skills: Path) -> list[tuple[str, str]]:
+def check_vendored(vendored_skills: Path, rules=()) -> list[tuple[str, str]]:
     """Diff ~/.claude/skills (the installed shared layer) against a repository's vendored copy.
 
     Reuses `tree()` — once per side for the top-level regular files, once per shared skill for the
@@ -252,16 +619,45 @@ def check_vendored(vendored_skills: Path) -> list[tuple[str, str]]:
 
     Every finding this returns gates the exit code in `--vendored` mode regardless of severity;
     the severity label orders the report, it does not decide pass/fail. See EXIT SEMANTICS.
+
+    Returns `(findings, excluded)`. `excluded` is `(path, why)` for everything the declaration
+    removed from this comparison, collected FROM THE COMPARISONS THEMSELVES rather than from a
+    separate enumeration — see the note on silence below.
+
+    `rules` are the repository's own `install/skills/.gitignore` (see `read_declaration`), and they
+    reach every comparison this function performs — the two directory sets, the top-level entry
+    sweep, and each skill's recursive sweep — through the single `excluded_by` predicate. An earlier
+    version applied them to the directory sets only, so a `.DS_Store` at the top level (named in the
+    real declaration, and unpublishable by git forever) was a permanent CRITICAL. That completeness
+    is enforced two ways: `_compare` has no default for `is_excluded`, so a new call site that omits
+    it raises TypeError, and `test_every_comparison_applies_the_declaration` walks this function's
+    AST and fails if any `_compare` call lacks the argument.
+
+    What exclusion means, in all three directions: a path git will never publish is not missing
+    from the vendored copy, is not stale published content if it happens to sit there untracked,
+    and has no published bytes to compare.
+
+    NOTHING IS DROPPED SILENTLY, and getting that right required deriving the report from the drop.
+    An earlier version re-enumerated the excluded set by listing top-level DIRECTORIES, so an
+    excluded top-level FILE — which the real anchored `/*` produces for every un-negated entry —
+    was removed from the comparison and appeared in no output at all. `touch NOTES.md` and it
+    vanished; if NOTES.md were something the repository should publish and someone had forgotten
+    the negation, the failure path and the success path produced identical output. The exclusions
+    reported are now exactly the exclusions applied.
     """
     out: list[tuple[str, str]] = []
+    why = "declared unpublished by install/skills/.gitignore"
+    excluded_names = declared_unpublished(vendored_skills, rules)
+    excluded = set(excluded_names)
+    dropped: dict[str, str] = dict(excluded_names)
 
     # Symlinked top-level entries are excluded from the directory sets and reported by the
     # top-level `tree()` sweep below: a symlinked skill directory is walked as empty (see tree()),
     # so treating it as a real skill would compare two empty trees and call the region clean.
     installed = {p.name for p in CLAUDE_SKILLS.iterdir()
-                 if p.is_dir() and not p.is_symlink()}
+                 if p.is_dir() and not p.is_symlink()} - set(excluded)
     vendored = {p.name for p in vendored_skills.iterdir()
-                if p.is_dir() and not p.is_symlink()}
+                if p.is_dir() and not p.is_symlink()} - set(excluded)
 
     # ...but excluding them from those sets is not enough on its own. A skill that is a real
     # directory on one side and a SYMLINK on the other is absent from exactly one set, and so was
@@ -283,20 +679,53 @@ def check_vendored(vendored_skills: Path) -> list[tuple[str, str]]:
     # were previously invisible in both directions because only directories were enumerated.
     # "entry", not "file": this sweep is also what reports a symlinked skill DIRECTORY, and calling
     # that a file is the same class of inaccuracy as calling it stale.
-    out += _compare(CLAUDE_SKILLS, vendored_skills, "*",
-                    lambda rel: f"top-level entry `{rel}`")
+    found, skipped = _compare(CLAUDE_SKILLS, vendored_skills, "*",
+                              lambda rel: f"top-level entry `{rel}`",
+                              lambda rel: excluded_by(rules, rel))
+    out += found
+    dropped.update({rel: why for rel in skipped})
 
     for name in sorted(installed & vendored):
-        out += _compare(CLAUDE_SKILLS / name, vendored_skills / name, "**/*",
-                        lambda rel, _n=name: _describe_vendored(_n, rel))
-    return out
+        found, skipped = _compare(
+            CLAUDE_SKILLS / name, vendored_skills / name, "**/*",
+            lambda rel, _n=name: _describe_vendored(_n, rel),
+            # The rule set is relative to the SKILLS ROOT, so a path inside a skill has to be
+            # re-rooted before it is matched. Passing the skill-relative path would test
+            # `scripts/x.py` against rules written for `<skill>/scripts/…` and quietly
+            # under-exclude.
+            lambda rel, _n=name: excluded_by(rules, f"{_n}/{rel}"))
+        out += found
+        dropped.update({f"{name}/{rel}": why for rel in skipped})
+
+    return out, sorted(dropped.items())
 
 
 def _compare(installed_root: Path, vendored_root: Path, pattern: str,
-             describe) -> list[tuple[str, str]]:
-    """One `tree()` per side, rendered as the three drift categories plus unreadable entries."""
+             describe, is_excluded) -> tuple[list[tuple[str, str]], list[str]]:
+    """One `tree()` per side, rendered as the three drift categories plus unreadable entries.
+
+    Returns `(findings, skipped)`. `skipped` is every path the declaration removed here, so that
+    what gets REPORTED as out of scope is derived from what was actually skipped rather than from a
+    second enumeration free to disagree with it.
+
+    `is_excluded` HAS NO DEFAULT, deliberately. It was `lambda rel: False`, which meant a call site
+    added later would compare unexcluded, reintroduce the permanent CRITICAL this parameter exists
+    to prevent, and leave every test green. Omission is now a TypeError at the call site — the
+    cheapest enforcement there is — and `test_every_comparison_applies_the_declaration` asserts the
+    same rule against this module's AST, so the guarantee survives a default being restored.
+
+    Applied to BOTH sides before any category is computed, so a declared-unpublished path is absent
+    from the present/absent diff, the content diff, and the unreadable list alike. Filtering one
+    side only would convert an exclusion into a presence finding, which is the bug rather than a fix.
+    """
     a, a_bad = tree(installed_root, pattern)
     b, b_bad = tree(vendored_root, pattern)
+    skipped = sorted({rel for rel in set(a) | set(b) if is_excluded(rel)}
+                     | {rel for rel, _ in a_bad + b_bad if is_excluded(rel)})
+    a = {rel: data for rel, data in a.items() if not is_excluded(rel)}
+    b = {rel: data for rel, data in b.items() if not is_excluded(rel)}
+    a_bad = [(rel, why) for rel, why in a_bad if not is_excluded(rel)]
+    b_bad = [(rel, why) for rel, why in b_bad if not is_excluded(rel)]
     out: list[tuple[str, str]] = []
 
     # An entry that could not be read is neither present nor absent. Report it as its own finding
@@ -316,11 +745,876 @@ def _compare(installed_root: Path, vendored_root: Path, pattern: str,
         out.append(("critical", f"{describe(rel)} present in vendored, not installed"))
     for rel in sorted(k for k in (set(a) & set(b)) - unread if a[k] != b[k]):
         out.append(("critical", f"{describe(rel)} content differs from vendored"))
-    return out
+    return out, skipped
 
 
-def collect() -> list[tuple[str, str]]:
-    return check_personas() + check_instructions() + check_skills()
+def _read_json(path: Path) -> tuple[dict | None, str | None]:
+    """`(parsed, why_not)`. Absent, unreadable and unparseable are three distinguishable answers.
+
+    Returns `(None, reason)` for unreadable or unparseable, and `({}, None)` for absent — because
+    "this optional file is not there" is a real answer for `installed_plugins.json` on a machine
+    that has never installed a plugin, while "it is there and I could not read it" is not.
+    """
+    if not path.is_file():
+        return {}, None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8", errors="strict"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        return None, f"{path} could not be read as JSON ({e})"
+    if not isinstance(loaded, dict):
+        return None, f"{path} is valid JSON but not an object (got {type(loaded).__name__})"
+    return loaded, None
+
+
+def persona_names() -> tuple[frozenset[str], frozenset[str], str | None]:
+    """`(base, judging, why_not)` — the two name sets, READ FROM sync_personas.py.
+
+    NOT a copy. `BASE_PERSONA_NAMES` and `JUDGING_PERSONA_NAMES` live in
+    `agent-personas/scripts/sync_personas.py`, which is the module the renderer itself consults; a
+    second literal list here is precisely the drift this programme has spent itself removing, and it
+    would fail SILENTLY — a persona added to the pool and not to the copy would be a name this check
+    then declined to protect.
+
+    Imported rather than shelled out to, because the values wanted are objects rather than a verdict
+    and `sync_personas.py` has no flag that prints them as data. The import is safe by inspection at
+    the only property that matters here: the module guards its entry point behind
+    `if __name__ == "__main__"`, so importing it defines constants and functions and runs no sync.
+    That is a claim about a file outside this card's write set, so it is stated as the reason for a
+    choice and NOT asserted by a test here — the assertion that belongs with it belongs to the
+    agent-personas write set. What IS asserted here is the consequence that matters: that this
+    function returns the same sets the module holds, and that a failed import is a not-run.
+
+    A failure to import is `(frozenset(), frozenset(), reason)`. The caller must turn that into a
+    not-run: without the names there is no cross-check, and an enumeration that silently skipped the
+    cross-check would report "no plugin shadows a persona" having compared against nothing.
+    """
+    if not SYNC.is_file():
+        return frozenset(), frozenset(), (f"the persona name sets could not be read: {SYNC} is "
+                                          f"missing, so no plugin agent name was cross-checked")
+    try:
+        spec = importlib.util.spec_from_file_location("_toolchain_persona_names", SYNC)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no loader for {SYNC}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        base = frozenset(module.BASE_PERSONA_NAMES)
+        judging = frozenset(module.JUDGING_PERSONA_NAMES)
+    # BaseException, not Exception, and this is not defensive padding — it is the observed
+    # behaviour. `exec_module` runs the target's module body, and a body that calls `sys.exit()`
+    # raises SystemExit, which is a BaseException: uncaught, it terminates check_toolchain.py with
+    # an empty stdout, so a `--json` caller gets no object at all and the three-state contract is
+    # gone. Reproduced against a one-line stub during TC-41. Any failure to obtain the names is the
+    # same not-run whatever its base class.
+    except BaseException as e:  # noqa: BLE001
+        return frozenset(), frozenset(), (f"the persona name sets could not be read from {SYNC} "
+                                          f"({type(e).__name__}: {e}), so no plugin agent name was "
+                                          f"cross-checked")
+    if not base or not judging:
+        return frozenset(), frozenset(), (f"{SYNC} exposes an EMPTY persona or judging name set. "
+                                          f"An empty set collides with nothing, so cross-checking "
+                                          f"against it would report a clear result having compared "
+                                          f"against no names at all")
+    return base, judging, None
+
+
+def plugin_roots(base: Path) -> tuple[list[Path], list[str]]:
+    """Every directory under `base` holding `.claude-plugin/plugin.json`, plus what could not be read.
+
+    `os.walk(..., onerror=...)` rather than `Path.rglob`, and that is the whole reason this does not
+    reuse `tree()`. `rglob` swallows a descent failure — it yields nothing from inside an
+    unreadable directory and raises nothing — which is the KNOWN GAP documented on `tree()`. Here
+    that gap would be a fail-open in the enumeration itself: a plugins directory this process cannot
+    descend into would contribute zero plugins and the surface would read as smaller than it is.
+    `onerror` turns the descent failure into a reported problem, which the caller makes a not-run.
+    """
+    roots: list[Path] = []
+    problems: list[str] = []
+    if not base.exists():
+        return roots, problems
+    if not base.is_dir():
+        return roots, [f"{base} exists but is not a directory, so no plugin was enumerated"]
+
+    def on_error(e: OSError) -> None:
+        problems.append(f"{e.filename or base} could not be walked ({e.strerror or e})")
+
+    for dirpath, dirnames, _ in os.walk(base, onerror=on_error, followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in PLUGIN_WALK_PRUNE]
+        here = Path(dirpath)
+        if (here / PLUGIN_MANIFEST[0] / PLUGIN_MANIFEST[1]).is_file():
+            roots.append(here)
+    return sorted(roots), problems
+
+
+def plugin_relative(root: Path, declared: str) -> Path:
+    """Resolve a path a manifest declares, without letting it escape the plugin root.
+
+    Manifests write these as `"./hooks/hooks-cursor.json"`, and the harness also expands
+    `${CLAUDE_PLUGIN_ROOT}`. Both forms are normalised to a path under `root`, and a declaration
+    that resolves outside the plugin is refused rather than followed: this check reads files
+    BECAUSE a third party named them, and `"../../../etc/passwd"` is a file the third party would
+    then have chosen for us to read. Refusing is the fail-closed direction — the caller turns it
+    into a problem, which is a not-run, not a silent skip.
+    """
+    text = declared.replace("${CLAUDE_PLUGIN_ROOT}", "").replace("$CLAUDE_PLUGIN_ROOT", "")
+    return (root / text.lstrip("/")).resolve()
+
+
+def _events_from(obj, where: str) -> tuple[list[str], str | None]:
+    """Event names out of a hooks declaration, whether it nests under `hooks` or is the map itself.
+
+    Both shapes are real and both were observed on this machine: `hooks/hooks.json` files here nest
+    under a `"hooks"` key, while a manifest's inline `"hooks": {}` is the map directly.
+    """
+    events = obj.get("hooks", obj) if isinstance(obj, dict) else obj
+    if not isinstance(events, dict):
+        return [], (f"{where} declares hooks in a shape this check does not recognise "
+                    f"({type(events).__name__}), so which events it binds is unknown")
+    return sorted(str(k) for k in events), None
+
+
+def hook_events(root: Path, manifest_hooks=None) -> tuple[list[str], str | None]:
+    """Which lifecycle events a plugin binds. NEVER what the hook does.
+
+    Enumerating THAT a plugin binds `PreToolUse` is a fact this file can assert from a manifest.
+    Reading intent out of the third-party script the binding points at is out of scope and would be
+    a false assurance — a hook reported as harmless is worse than a hook reported as present. So the
+    command strings are read past and only the event names are returned. Nothing here executes.
+
+    TWO SOURCES, UNIONED — NOT a precedence rule, and the difference matters. The convention is
+    `<root>/hooks/hooks.json`; the manifest may also declare `"hooks"` itself, as a PATH or as an
+    inline MAP. Reading only the first was a fail-open in the loudest tier: a plugin declaring hooks
+    by manifest was classified `inert`, emitted no warning, and was counted in the skills-only
+    census.
+
+    The first fix said the manifest WINS where both exist. THAT CLAIM HAD NO SOURCE. The evidence
+    cited for it was two sibling manifests — `.cursor-plugin/plugin.json` and
+    `.codex-plugin/plugin.json` — which THIS CODE NEVER READS; they establish that the declaration
+    forms exist in the wild, and nothing about how Claude's own loader resolves a conflict. Neither
+    manifest branch is exercised by any real plugin on this machine: superpowers' actual
+    `.claude-plugin/plugin.json` carries no `hooks` key at all. And the rule was actively wrong in a
+    shape that exists one directory over — `"hooks": {}` beside a populated `hooks/hooks.json`
+    yielded NO events, no problem, and tier `inert`.
+
+    So both sources are read and their event names unioned. Where the harness's real precedence is
+    unknown, reporting the union is the fail-closed direction: it can over-report an event the
+    harness would have ignored, and it cannot miss one the harness binds. Over-reporting a hook is
+    recoverable; missing one is the defect this function exists to prevent.
+    """
+    events: set[str] = set()
+    problems: list[str] = []
+
+    if isinstance(manifest_hooks, dict):
+        found, why = _events_from(manifest_hooks, f"{root} manifest `hooks`")
+        events |= set(found)
+        if why:
+            problems.append(why)
+    elif isinstance(manifest_hooks, str) and manifest_hooks.strip():
+        target = plugin_relative(root, manifest_hooks)
+        try:
+            inside = target.is_relative_to(root.resolve())
+        except AttributeError:  # pragma: no cover - Path.is_relative_to is 3.9+
+            inside = str(target).startswith(str(root.resolve()))
+        if not inside:
+            problems.append(f"{root} manifest declares `hooks: {manifest_hooks}`, which resolves "
+                            f"OUTSIDE the plugin root to {target}. It was NOT read, so which events "
+                            f"this plugin binds is unknown")
+        elif not target.is_file():
+            problems.append(f"{root} manifest declares `hooks: {manifest_hooks}` but {target} is "
+                            f"not a file, so which events this plugin binds is unknown")
+        else:
+            parsed, why = _read_json(target)
+            if parsed is None:
+                problems.append(why)
+            else:
+                found, why = _events_from(parsed, str(target))
+                events |= set(found)
+                if why:
+                    problems.append(why)
+    elif manifest_hooks is not None:
+        problems.append(f"{root} manifest declares `hooks` as {type(manifest_hooks).__name__}, a "
+                        f"shape this check does not recognise, so which events it binds is unknown")
+
+    conventional = root / "hooks" / "hooks.json"
+    if conventional.is_file():
+        parsed, why = _read_json(conventional)
+        if parsed is None:
+            problems.append(why)
+        else:
+            found, why = _events_from(parsed, str(conventional))
+            events |= set(found)
+            if why:
+                problems.append(why)
+    return sorted(events), problems
+
+
+def registered_agent_name(path: Path) -> tuple[str, str | None]:
+    """The name the HARNESS will resolve this subagent by. `(name, problem)`.
+
+    NOT the filename stem, and the difference is the card's own defect one field over. A subagent
+    file declares `name:` in its YAML frontmatter and that is what the harness registers; the stem
+    is merely where it usually agrees. Verified on this machine: all 31 plugin-supplied agent files
+    carry `name:` and all 31 happen to match their stem — a CONVENTION, not a guarantee. A plugin
+    shipping `agents/helper.md` whose frontmatter says `name: reviewer` registers as `reviewer`,
+    and a stem-based check would report `helper`, find no collision, and exit 0.
+
+    Frontmatter only, and only its `name:` line — this is not a YAML parser and does not need to be.
+
+    A file with no frontmatter, or frontmatter with no `name:`, falls back to the stem. THAT IS THIS
+    CHECK'S CHOICE IN THE ABSENCE OF A DECLARED NAME, not a documented harness behaviour: whether
+    the harness registers such a file by stem or declines to load it at all is NOT established here,
+    and there is no access to its subagent loader from this file. An earlier version of this
+    sentence called it "the harness's own fallback", which is the same unsourced assertion about
+    another system that `hook_events` was rewritten to stop making — stated in the same declarative
+    register as the measured claim above it, where a reader could not tell the two apart.
+
+    The direction is the safe one: if the harness in fact declines such files, this OVER-reports and
+    could raise a shadow finding for a file that never loads. Over-reporting a shadow is recoverable;
+    missing one is what this function exists to prevent.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as e:
+        return path.stem, (f"{path} could not be read ({e.strerror or e}), so the name this "
+                           f"subagent registers under is unknown and the stem was used instead")
+    if not lines or lines[0].strip() != "---":
+        return path.stem, None
+    for line in lines[1:60]:
+        if line.strip() == "---":
+            break
+        if line.startswith("name:"):
+            value = line[len("name:"):].strip().strip("\"'").strip()
+            if value:
+                return value, None
+            break
+    return path.stem, None
+
+
+def classify(root: Path) -> tuple[dict, list[str]]:
+    """One plugin, described by WHAT IT BRINGS. `(description, problems)`.
+
+    THREE TIERS, and the ordering is by what the plugin can do without being asked:
+
+      `hook`   it binds a lifecycle event, so its code runs every session or every prompt for every
+               persona INCLUDING the judging ones, which hold no Bash and no write tools precisely
+               so that they cannot make things happen. A hook is underneath that guarantee.
+      `agent`  it adds a subagent definition, which either introduces a new name or SHADOWS one of
+               ours from a directory no other check looks at.
+      `inert`  skills and commands only. Real capability, but nothing happens until someone invokes
+               it by name, so it is enumerated and not reported on its own.
+
+    Tiers are assigned by precedence, not accumulated: a plugin that ships hooks AND agents is a
+    `hook`, because that is the loudest true thing about it. The `agents`, `skills` and `commands`
+    fields are still populated, so nothing is lost to the tier label.
+
+    `agents` holds the names the HARNESS REGISTERS — frontmatter `name:`, falling back to the stem.
+    `agent_files` maps each of those back to the file it came from, so a report can name the file
+    while the collision check works on the name that actually resolves. See `registered_agent_name`.
+    """
+    manifest = root / PLUGIN_MANIFEST[0] / PLUGIN_MANIFEST[1]
+    parsed, why = _read_json(manifest)
+    problems = [why] if why else []
+    declared = parsed.get("name") if isinstance(parsed, dict) else None
+
+    events, hook_problems = hook_events(root,
+                                        parsed.get("hooks") if isinstance(parsed, dict) else None)
+    problems += hook_problems
+
+    # `name -> [file, ...]`, NOT `name -> file`. A dict keyed by registered name silently dropped
+    # every file but the last when two files in ONE plugin declared the same `name:` — say
+    # `agents/helper.md` with `name: reviewer` beside `agents/reviewer.md`. The loser was named
+    # nowhere in the output, `agents` was one short, the "adds N agent(s)" line undercounted, and no
+    # duplicate finding fired because the cross-plugin check collects plugin ITEMS, not files. The
+    # enumeration was silently short in the one directory this whole check exists because nothing
+    # else looks at it.
+    agent_files: dict[str, list[str]] = {}
+    agent_dir = root / "agents"
+    if agent_dir.is_dir():
+        try:
+            found = sorted(p for p in agent_dir.glob("*.md") if p.is_file())
+        except OSError as e:
+            found = []
+            problems.append(f"{agent_dir} could not be listed ({e.strerror or e}), so whether this "
+                            f"plugin ships an agent that shadows a persona is unknown")
+        for path in found:
+            name, agent_why = registered_agent_name(path)
+            if agent_why:
+                problems.append(agent_why)
+            agent_files.setdefault(name, []).append(path.name)
+
+    agents = sorted(agent_files)
+    tier = "hook" if events else "agent" if agents else "inert"
+    return {
+        "name": str(declared) if declared else root.name,
+        "root": str(root),
+        "tier": tier,
+        "hook_events": events,
+        "agents": agents,
+        "agent_files": agent_files,
+        "skills": (root / "skills").is_dir(),
+        "commands": (root / "commands").is_dir(),
+    }, problems
+
+
+def enabled_claude_plugins() -> tuple[dict[str, str | None], list[str]]:
+    """`({key: installPath or None}, problems)` for the plugins Claude actually loads.
+
+    ENABLEMENT IS THE DIFFERENCE BETWEEN A CATALOGUE AND A SURFACE, and it is why this is read at
+    all rather than treating every manifest on disk as live. `~/.claude/plugins/marketplaces` is a
+    downloaded catalogue: on this machine it holds 42 plugin roots of which ONE is enabled. Ranking
+    the other 41 as loudly as the enabled one would put eight permanent hook warnings in front of a
+    reader at every session start in every directory, and this file's own docstring is about what
+    that does to a reader.
+
+    Only ~/.claude/settings.json is consulted. A project's `.claude/settings.json` can also enable a
+    plugin; that is deliberately NOT read here, because this check reports a machine-global fact and
+    a per-project enablement is not one. It is a real gap and it is stated rather than papered over:
+    a plugin enabled only by the current repository is enumerated here as present-not-enabled.
+    """
+    settings, why = _read_json(CLAUDE_SETTINGS)
+    if settings is None:
+        return {}, [f"{why}, so which plugins Claude has ENABLED is unknown"]
+    raw = settings.get("enabledPlugins") or {}
+    if not isinstance(raw, dict):
+        return {}, [f"{CLAUDE_SETTINGS} has an `enabledPlugins` that is not an object "
+                    f"({type(raw).__name__}), so which plugins Claude has enabled is unknown"]
+    keys = sorted(k for k, v in raw.items() if v)
+    if not keys:
+        return {}, []
+
+    installed, why = _read_json(INSTALLED_PLUGINS)
+    if installed is None:
+        return {k: None for k in keys}, [f"{why}, so the install path of {len(keys)} enabled "
+                                         f"plugin(s) is unknown and what they bring was not read"]
+    records = installed.get("plugins") or {}
+    out: dict[str, str | None] = {}
+    problems: list[str] = []
+    for key in keys:
+        entries = records.get(key) if isinstance(records, dict) else None
+        paths = [e.get("installPath") for e in entries or [] if isinstance(e, dict)]
+        paths = [p for p in paths if p and Path(p).is_dir()]
+        out[key] = paths[-1] if paths else None
+        if not paths:
+            problems.append(f"plugin `{key}` is ENABLED in {CLAUDE_SETTINGS} but its install path "
+                            f"could not be resolved from {INSTALLED_PLUGINS}, so what it brings — "
+                            f"hooks, agents or neither — was NOT determined")
+    return out, problems
+
+
+def codex_plugin_keys() -> tuple[list[str], list[str]]:
+    """`(keys, problems)` from ~/.codex/config.toml `[plugins."name@marketplace"]` sections.
+
+    A LINE SCAN, NOT A TOML PARSE, and the narrowing is deliberate twice over. `tomllib` arrived in
+    Python 3.11 and this file is run by whatever `python3` the session hook resolves — 3.9.6 at
+    /usr/bin/python3 on this machine — so a `tomllib` import would make the check crash on the
+    interpreter most likely to run it. And the question asked is narrow enough not to need a parser:
+    which `[plugins."..."]` sections exist and is `enabled` true in each. Nothing here interprets a
+    value type, an array, or a multi-line string.
+
+    THE FAILURE DIRECTION IS BOTH WAYS. An early version of this docstring said it could only
+    over-report; that was wrong, and the file it reads is hand-edited and already carries `#`
+    markers, so the under-reporting cases were live.
+
+    WHAT IS HANDLED — three detectors, and this list is the contract:
+
+      READ, and a plugin is enumerated from it:
+        `[plugins."x@mp"]` … `enabled = true`, with a trailing `#` comment on either line.
+      DETECTED as unparseable, raising a problem rather than dropping a plugin:
+        `is_plugins_table`    — a `[plugins]` or `[plugins.…]` header whose members this scanner
+                                does not read. Parses the header interior, so `[plugins_cache]`
+                                is correctly NOT treated as a plugin section; prefix-matching it
+                                produced a permanent exit 2 no action could clear.
+        `assigns_plugins_key` — any statement whose first key segment is `plugins`, which covers
+                                `plugins = { … }` (header-less inline table), `plugins."x".enabled`
+                                and `"plugins"."x".enabled`. Segment equality rather than a prefix,
+                                so `plugins_cache = 30` is not caught.
+
+    ANYTHING ELSE IS BEST-EFFORT, and this paragraph does not claim to enumerate it. Two known
+    examples, in both directions: a `[plugins."x"]` header inside a multi-line string literal is
+    counted as a section (over-reports), and a `plugins.foo = 1` line inside a `\"\"\"…\"\"\"` block
+    raises a problem for text that is not configuration (over-reports, and unclearable until the
+    file changes). Neither exists in a Codex config today. A form not listed above may be read
+    wrongly in either direction; the detectors are a floor, not a parser.
+    """
+    if not CODEX_CONFIG.is_file():
+        return [], [f"{CODEX_CONFIG} is absent, so no Codex plugin was enumerated and the Codex "
+                    f"plugin surface is unknown rather than empty"]
+    try:
+        text = CODEX_CONFIG.read_text(encoding="utf-8", errors="strict")
+    except (OSError, UnicodeDecodeError) as e:
+        return [], [f"{CODEX_CONFIG} could not be read ({e}), so no Codex plugin was enumerated"]
+    keys: list[str] = []
+    problems: list[str] = []
+    current: str | None = None
+    for number, raw in enumerate(text.splitlines(), start=1):
+        line = raw.strip()
+        if line.startswith("#") or not line:
+            continue
+        if line.startswith("["):
+            # Everything after the closing `"]` is a trailing comment or trailing whitespace. Taking
+            # the header up to that bracket is what makes `[plugins."x@mp"]  # note` readable.
+            current = None
+            end = line.find('"]')
+            if line.startswith('[plugins."') and end > 0:
+                current = line[len('[plugins."'):end]
+            elif is_plugins_table(line):
+                # `[plugins]` on its own, whose members are inline `"x@mp" = { enabled = true }`
+                # entries this scanner does not read. NOT `startswith("[plugins")`, which also
+                # matched `[plugins_cache]` — an unrelated table that would have produced a
+                # permanent, unclearable exit 2 that no action could resolve.
+                problems.append(f"{CODEX_CONFIG}:{number} is a `plugins` section in a form this "
+                                f"scanner does not parse ({line[:60]!r}), so the Codex plugin list "
+                                f"may be incomplete and cannot be trusted")
+            continue
+        # A bare `key = value` line. Strip a trailing comment.
+        #
+        # NOT "every value this scanner reads is a bare boolean, so there is no quoted `#` to
+        # protect" — that was the previous sentence and it is not true of this code, which splits
+        # EVERY non-header line, including ones whose values it never reads. A `#` inside a quoted
+        # string on such a line is truncated here. The consequence is nil today: the truncated
+        # remainder only ever reaches the two `startswith` probes below, and a key segment cannot
+        # contain an unquoted `#`. Recorded because the old sentence licensed an assumption a later
+        # edit would have relied on.
+        statement = line.split("#", 1)[0].strip()
+        if not statement:
+            continue
+        squashed = statement.replace(" ", "")
+        if current and squashed.startswith("enabled="):
+            if statement.split("=", 1)[1].strip().lower() == "true":
+                keys.append(current)
+            current = None
+        elif assigns_plugins_key(statement):
+            problems.append(f"{CODEX_CONFIG}:{number} declares plugins with a key this scanner "
+                            f"does not parse ({statement[:60]!r}), so the Codex plugin list may be "
+                            f"incomplete and cannot be trusted")
+    return sorted(keys), problems
+
+
+def assigns_plugins_key(statement: str) -> bool:
+    """Does this `key = value` line assign to the `plugins` table by any key form?
+
+    Compares the FIRST key segment rather than matching prefixes, which is what closes the gap the
+    mislabelled test was hiding. The three forms, all of which silently dropped a plugin before:
+
+        plugins = { "x@mp" = { enabled = true } }     top-level inline table
+        plugins."x@mp".enabled = true                 dotted key
+        "plugins"."x@mp".enabled = true               quoted dotted key
+
+    A prefix match would also have caught `plugins_cache = 30`, which is the `[plugins_cache]`
+    mistake in the other syntactic position; segment equality does not.
+    """
+    key = statement.split("=", 1)[0].strip()
+    head = key.split(".", 1)[0].strip().strip('"').strip("'").strip()
+    return head == "plugins"
+
+
+def is_plugins_table(line: str) -> bool:
+    """Is this header the `plugins` table itself, rather than a table whose name merely starts so?
+
+    `[plugins]`, `[plugins.x]` and `["plugins"...]` are the plugin table; `[plugins_cache]` and
+    `[plugins-old]` are unrelated tables that happen to share a prefix, and treating them as
+    unparseable plugin sections produced a permanent exit 2 with no action that could clear it.
+    """
+    inside = line[1:].split("]", 1)[0].strip()
+    if inside.startswith('"plugins"'):
+        return True
+    return inside == "plugins" or inside.startswith("plugins.")
+
+
+# What the Codex harness's manifest cannot say, stated ONCE and reported rather than worked around.
+# `[plugins."name@marketplace"] enabled = true` carries a name and a boolean and nothing else: there
+# is no key for hooks, none for agents, and none for skills. `~/.codex/plugins/cache` does hold
+# plugin bodies, but in a layout with no `.claude-plugin/plugin.json` and no documented contract this
+# file can read, so classifying from it would mean inferring semantics from directory names — which
+# is exactly the invention TC-41 forbids. The asymmetry is therefore REPORTED as scope that was
+# deliberately not covered, and the Codex enumeration carries `"classified": false` so a consumer
+# cannot mistake an unclassified list for a list of inert plugins.
+CODEX_ASYMMETRY = ("~/.codex/config.toml expresses only `[plugins.\"name@marketplace\"] enabled`, "
+                   "with no key for hooks, agents or skills, so Codex plugins are enumerated by "
+                   "NAME ONLY. Whether a Codex plugin ships an agent that shadows a persona is "
+                   "UNKNOWN, not known to be false.")
+
+# Module-level DATA, exactly like `MIRRORED`, and for a reason worth stating: an `excluded` entry is
+# a `(name, why)` pair with the same shape as a `(severity, detail)` finding, so built inline it
+# would be indistinguishable from an emission to the AST rule in
+# `test_every_severity_emitted_is_ranked` — which would then report "Codex plugin classification" as
+# an unranked severity. Hoisting it here is what that test's module-data subtraction is for.
+#
+# SHORT, and that is a fix rather than a style choice. `Run.summary` renders every exclusion inline
+# as `name (why)`, so the full 250-character asymmetry paragraph rode on EVERY summary line this
+# tool printed — including the clean one, at every session start in every directory, with no action
+# that could ever clear it. The reason a reader may need is one clause; the paragraph stays in
+# `--json` under `plugins.codex.why_not_classified`, where a consumer reads it deliberately.
+PLUGIN_EXCLUSIONS = [("Codex plugin classification",
+                      "config.toml carries names only; see plugins.codex in --json")]
+
+
+def plugin_surface() -> tuple[dict, list[str], list[str]]:
+    """Enumerate and classify both harnesses. `(surface, claude_problems, codex_problems)`.
+
+    One code path per harness because the data differs, and where it differs the surface says so in
+    a field rather than emitting a silently thinner Codex result — see CODEX_ASYMMETRY.
+
+    THE TWO PROBLEM LISTS ARE SEPARATE AND THAT IS THE POINT. They were one list, and one list means
+    one blast radius: the absence of `~/.codex/config.toml` — an ordinary state on a Claude-only
+    machine — made `plugins.claude.enumerated` false and suppressed every Claude-side conclusion,
+    including a critical shadow finding about an enabled plugin. A failure in one harness must not
+    be able to silence an observation made in the other. A caller that wants the old behaviour can
+    concatenate them; a caller that wants the truth per harness now can have it.
+    """
+    problems: list[str] = []
+    enabled, enabled_problems = enabled_claude_plugins()
+    problems += enabled_problems
+    enabled_roots = {str(Path(p).resolve()) for p in enabled.values() if p}
+
+    # THE THIRD VALUE, and the whole of H-1 in three lines. `enabled_claude_plugins` returns None as
+    # the path for a key that settings.json says IS enabled but whose install root could not be
+    # located — a malformed installed_plugins.json, or an installPath that no longer exists after an
+    # uninstall/reinstall. With a two-valued flag every plugin on disk then read `enabled: False`,
+    # which is not "not enabled": it is "I could not tell". A rogue shipping `agents/reviewer.md`
+    # came out as a `warn` saying "Not enabled today" about a plugin whose enablement had been read
+    # successfully from settings.json one function earlier, and `enabled_keys` contradicted
+    # `enabled_count` in the same object.
+    #
+    # Which root each unresolved key refers to is exactly what could not be determined, so the
+    # uncertainty is not attributable to one plugin: any root that is not POSITIVELY matched to a
+    # resolved enabled key becomes `unknown` rather than `not-enabled`. Fail-closed, and it collapses
+    # back to the old answer the moment every enabled key resolves.
+    # `or enabled_problems`, and leaving it off was the same conflation one function further OUT.
+    # Two of `enabled_claude_plugins`'s four exits — settings.json unreadable, and `enabledPlugins`
+    # present but not an object — return an EMPTY dict beside a problem. `unresolved` is then `[]`,
+    # so a run that could not read which plugins are enabled AT ALL took the `not-enabled` branch
+    # and reported every plugin on disk as determined-not-enabled. Enablement was made three-valued
+    # at the source and then consumed two-valued here. ANY problem from that function means the
+    # enablement picture is incomplete, whether or not it produced a key to point at.
+    unresolved = sorted(k for k, p in enabled.items() if not p)
+    unmatched = "unknown" if unresolved or enabled_problems else "not-enabled"
+
+    roots, walk_problems = plugin_roots(CLAUDE_PLUGINS)
+    problems += walk_problems
+
+    items: list[dict] = []
+    for root in roots:
+        described, root_problems = classify(root)
+        problems += root_problems
+        matched = str(root.resolve()) in enabled_roots
+        described["enablement"] = "enabled" if matched else unmatched
+        described["key"] = next((k for k, p in enabled.items()
+                                 if p and Path(p).resolve() == root.resolve()), None)
+        items.append(described)
+
+    # An enabled plugin whose root is not under ~/.claude/plugins is still part of the surface, and
+    # `enabled_claude_plugins` already reported the unresolvable ones. This catches the resolvable
+    # ones the walk did not reach — a plugin installed from a path outside the plugins directory.
+    seen = {str(Path(i["root"]).resolve()) for i in items}
+    for key, path in sorted(enabled.items()):
+        if path and str(Path(path).resolve()) not in seen:
+            described, root_problems = classify(Path(path))
+            problems += root_problems
+            described["enablement"] = "enabled"
+            described["key"] = key
+            items.append(described)
+
+    codex_keys, codex_problems = codex_plugin_keys()
+
+    tiers = {t: sum(1 for i in items if i["tier"] == t) for t in ("hook", "agent", "inert")}
+    enablement = {state: sum(1 for i in items if i["enablement"] == state)
+                  for state in ("enabled", "not-enabled", "unknown")}
+    return {
+        "claude": {
+            # False whenever any part of the CLAUDE enumeration failed — and only then. A consumer
+            # that reads only this field can never mistake a truncated list for a short one, which
+            # is the empty-versus-failed distinction expressed in the data. It used to be false when
+            # the CODEX config was merely absent, which told `project-conformance` that 42 perfectly
+            # enumerated Claude plugins could not be trusted.
+            "enumerated": not problems,
+            "classified": True,
+            "root": str(CLAUDE_PLUGINS),
+            "count": len(items),
+            "enablement": enablement,
+            "enabled_count": enablement["enabled"],
+            "enabled_keys": sorted(enabled),
+            # The keys settings.json enables and this run could NOT locate. Present so that
+            # `enabled_keys` non-empty beside `enabled_count: 0` is explained by the data rather
+            # than reading as a self-contradiction.
+            "unresolved_enabled_keys": unresolved,
+            "tiers": tiers,
+            "items": sorted(items, key=lambda i: (i["enablement"] != "enabled", i["name"],
+                                                  i["root"])),
+        },
+        "codex": {
+            "enumerated": not codex_problems,
+            "classified": False,
+            "why_not_classified": CODEX_ASYMMETRY,
+            "config": str(CODEX_CONFIG),
+            "count": len(codex_keys),
+            "enabled_keys": codex_keys,
+        },
+    }, problems, codex_problems
+
+
+# The three states an item's `enablement` may hold, ordered MOST ALARMING FIRST. `unknown` outranks
+# `not-enabled` for the same reason `not-run` outranks `clean` in `Run.verdict`: a thing you could
+# not determine is worse news than a thing you determined to be absent, and collapsing the two is
+# the two-valued-flag defect this ordering exists to prevent recurring.
+ENABLEMENT_ORDER = ("enabled", "unknown", "not-enabled")
+
+
+def worst_enablement(owners: list[dict]) -> str:
+    """The most alarming enablement state among the plugins shipping one agent name.
+
+    One place, so a caller cannot accidentally write `any(o["enablement"] == "enabled" ...)` and
+    silently treat `unknown` as `not-enabled` — which is precisely the bug, one boolean over.
+    """
+    states = {o["enablement"] for o in owners}
+    return next(state for state in ENABLEMENT_ORDER if state in states)
+
+
+def from_file(item: dict, agent: str) -> str:
+    """` (agents/x.md)` when the files disagree with the name they register, else empty.
+
+    Naming the file unconditionally made the ordinary duplicate finding — two plugins shipping
+    `code-reviewer.md` as `code-reviewer` — three lines of repeated path for no information. The
+    disagreement is the only case where the filename tells the reader something the name does not,
+    and it is exactly the M3 case, so it is the only case that prints it.
+
+    ALL the files, not the first: a plugin registering one name from two files is the L-5 case, and
+    printing one of them is how that case stayed invisible.
+    """
+    filenames = item["agent_files"].get(agent, [])
+    if filenames == [f"{agent}.md"]:
+        return ""
+    return " (" + ", ".join(f"agents/{f}" for f in filenames) + ")"
+
+
+def check_plugins() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]]:
+    """`(surface, findings, excluded)`. ENUMERATES AND CLASSIFIES; NEVER APPROVES.
+
+    THERE IS NO CONFORMING SET OF PLUGINS and this function must never grow one. No name is
+    allow-listed, no name is deny-listed, and no plugin is called acceptable or unacceptable
+    anywhere below. What a plugin is permitted to be is the operator's decision; what it BRINGS is
+    a fact, and facts are all this reports. A check that decided would be wrong on the first new
+    plugin and would train its reader to skip the whole report.
+
+    THE SEVERITY TABLE, and every row of it turns on whether the plugin is ENABLED, because only an
+    enabled plugin executes:
+
+      critical  an ENABLED plugin ships `agents/<name>.md` matching a base persona. It is live, it
+                shadows from a directory `sync_personas.py --check` does not look at, and if the
+                name is on the judging roster the no-edit guarantee is void without any file the
+                roster governs having changed.
+      warn      a plugin that is PRESENT BUT NOT ENABLED ships such a name. One `/plugin install`
+                from being the row above, with precedence undefined by anything this toolchain owns.
+      warn      an ENABLED plugin binds a lifecycle hook. The loud tier: its code runs for every
+                persona, including the judges that hold no Bash and no write tool.
+      warn      one agent name shipped by two or more plugins where at least one is enabled.
+      info      one agent name shipped by two or more plugins, none enabled. TRUE ON THIS MACHINE
+                TODAY: `code-reviewer` (feature-dev, pr-review-toolkit) and `code-simplifier`
+                (code-simplifier, pr-review-toolkit), both inside the first-party catalogue. The
+                first-party catalogue already collides with itself.
+      info      an ENABLED plugin ships agents. Presence only — see below on why this line no
+                longer claims that none of them collides.
+      (none)    everything else. Enumerated in `--json` and counted in the report's plugin line;
+                not a finding, which is what the `inert` tier's "report quietly" means here.
+
+    A NOT-RUN NO LONGER SILENCES WHAT WAS ACTUALLY SEEN, and getting that wrong re-opened the exact
+    blind spot this card was written to close. Every problem is still a `not-run` and still forces
+    exit 2 — but an early return on the first one suppressed the findings below it under a comment
+    claiming they were all absence claims over a short list. Three of the four are PRESENCE claims:
+    "X SHADOWS a judging persona", "X is shipped by two plugins", "X binds N hook events". A
+    presence claim stays true when the list is short. The demonstrated sequence needed no adversary:
+    on a machine with no `~/.codex/config.toml`, an enabled plugin shipping `agents/reviewer.md`
+    produced exit 2, one finding about the CODEX surface, and no mention of `reviewer` anywhere.
+
+    So the rule is now per-claim rather than per-run:
+
+      * a PRESENCE claim is emitted whenever the observation behind it was made, with the not-run
+        alongside it saying the list may be short;
+      * an ABSENCE claim is emitted only when nothing could have hidden its subject. FOUR were
+        found, not one — the first pass of this docstring claimed "exactly one left", which is the
+        kind of confident completeness sentence that stops the next reader checking, and three more
+        were sitting directly under it. All four rode on a two-valued enablement flag that meant
+        "no" and "could not tell" with the same False:
+
+          - "would SHADOW ... Not enabled today" — said of a plugin whose enablement was UNREAD;
+          - "None is enabled" on the duplicate line — same;
+          - the hook and agent lines, gated on `enabled` being true, so a plugin of undetermined
+            enablement produced NO line at all: absence by omission, in the loudest tier;
+          - the clean phrase, which `Run.add` already withholds on a not-run.
+
+        The first three are fixed at the source rather than per-sentence: `enablement` is now
+        three-valued (`enabled` / `not-enabled` / `unknown`) and `unknown` is treated as live. See
+        `plugin_surface` and `worst_enablement`. "At the source" needed one further step to become
+        true: the three-valued FIELD was correct while the expression deriving it read only the
+        unresolved-key list, so the two `enabled_claude_plugins` exits that return an empty dict
+        beside a problem still produced `not-enabled`. That is `plugin_surface:1235-1243`.
+
+      * COMPLETENESS IS NOT CLAIMED HERE. This lists the absence claims that were found and fixed;
+        it does not assert that no fifth exists. The mechanical guard is the three-valued field —
+        an absence claim can no longer be written from a boolean that conflates the two — not a
+        promise in this paragraph.
+      * the base-persona cross-check needs the persona names, so when THEY are unavailable the
+        shadow branch does not run at all. Duplicate detection does not need them and still does.
+    """
+    surface, claude_problems, codex_problems = plugin_surface()
+    base, judging, why = persona_names()
+    names_ok = why is None
+
+    excluded = list(PLUGIN_EXCLUSIONS)
+    findings = [(NOT_RUN, f"the plugin surface was NOT FULLY ENUMERATED: {p}. {MACHINE_GLOBAL}")
+                for p in claude_problems + codex_problems + ([why] if why else [])]
+
+    items = surface["claude"]["items"]
+    shipped: dict[str, list[dict]] = {}
+    for item in items:
+        for agent in item["agents"]:
+            shipped.setdefault(agent, []).append(item)
+
+    # The invariant is "base name OR judging roster member", not "base name". They are nested today
+    # — every judge is a base persona — but that is a property of the pool, not a rule this file may
+    # assume: a judging name that is not in the pool is a roster the pool has drifted from, and it
+    # is the LAST name that should stop being protected here. The union costs nothing and does not
+    # depend on the nesting holding.
+    protected = base | judging
+
+    for agent in sorted(shipped):
+        owners = shipped[agent]
+        # FILES, not owners. `len(owners) > 1` misses an INTRA-plugin collision entirely: one plugin
+        # shipping two files that both register `code-reviewer` has one owner and undefined
+        # precedence just the same, and the harness has no more idea which wins than it does across
+        # two plugins. Counting sources makes the two cases one case.
+        sources = sum(len(o["agent_files"].get(agent, [])) for o in owners)
+        state = worst_enablement(owners)
+        where = ", ".join(f"`{o['name']}`{from_file(o, agent)}" for o in owners)
+        if names_ok and agent in protected:
+            role = "a JUDGING persona" if agent in judging else "a base persona"
+            where = ", ".join(
+                f"`{o['name']}` ("
+                + ", ".join(f"agents/{f}" for f in o["agent_files"].get(agent, []))
+                + f" in {o['root']})" for o in owners)
+            if state == "enabled":
+                findings.append(("critical",
+                                 f"plugin-supplied agent `{agent}` SHADOWS {role}. Shipped by an "
+                                 f"ENABLED plugin: {where}. Neither the roster, nor the judging "
+                                 f"allow-list, nor `sync_personas.py --check` compares a plugin's "
+                                 f"agents directory, so this persona can be replaced without any "
+                                 f"file those checks govern having changed. {MACHINE_GLOBAL}"))
+            elif state == "unknown":
+                # CRITICAL, not warn, and the presence half only. `not-enabled` would be an absence
+                # claim this run cannot make, and `warn` would tell a consumer filtering on severity
+                # that a possibly-live shadow of a judging persona is non-gating.
+                findings.append(("critical",
+                                 f"plugin-supplied agent `{agent}` SHADOWS {role}. Shipped by: "
+                                 f"{where}. Whether that plugin is ENABLED could NOT be determined "
+                                 f"(see the not-run finding), so this must be read as live: nothing "
+                                 f"compares a plugin's agents directory, and the persona may "
+                                 f"already be replaced. {MACHINE_GLOBAL}"))
+            else:
+                findings.append(("warn",
+                                 f"plugin-supplied agent `{agent}` would SHADOW {role} if its "
+                                 f"plugin were enabled. Shipped by: {where}. Not enabled today, and "
+                                 f"nothing compares a plugin's agents directory, so enabling it "
+                                 f"would replace the persona silently. {MACHINE_GLOBAL}"))
+        elif sources > 1:
+            said = {"enabled": "At least one is ENABLED. ",
+                    "unknown": "Whether any is enabled could NOT be determined. ",
+                    "not-enabled": "None is enabled. "}[state]
+            scope = (f"{sources} file(s) in {len(owners)} plugins" if len(owners) > 1
+                     else f"{sources} file(s) in ONE plugin")
+            findings.append(("info" if state == "not-enabled" else "warn",
+                             f"agent name `{agent}` is registered by {scope} ({where}) "
+                             f"— precedence between them is undefined by anything this toolchain "
+                             f"owns. {said}{MACHINE_GLOBAL}"))
+
+    for item in items:
+        # `unknown` is included, and that is the third absence-by-omission this round removes: a
+        # plugin whose enablement could not be determined used to produce NO line at all, so the
+        # loudest tier went silent about a hook that may well be executing.
+        if item["enablement"] == "not-enabled":
+            continue
+        said = ("ENABLED plugin" if item["enablement"] == "enabled"
+                else "plugin (ENABLEMENT UNDETERMINED — see the not-run finding)")
+        if item["hook_events"]:
+            findings.append(("warn",
+                             f"{said} `{item['name']}` binds "
+                             f"{len(item['hook_events'])} lifecycle hook event(s): "
+                             f"{', '.join(item['hook_events'])}. Its code runs for EVERY persona, "
+                             f"including the judging personas that hold no Bash and no write tool. "
+                             f"What that code does is out of scope here and was not read. "
+                             f"{MACHINE_GLOBAL}"))
+        elif item["agents"]:
+            # PRESENCE ONLY. This used to end "None collides with a base persona name", which is an
+            # absence claim riding on a line whose job is to say what is there — and it was emitted
+            # from the same list a not-run may have truncated.
+            registered = ", ".join(f"{n}{from_file(item, n)}" for n in item["agents"])
+            findings.append(("info",
+                             f"{said} `{item['name']}` adds "
+                             f"{len(item['agents'])} agent(s), registering as: {registered}. "
+                             f"{MACHINE_GLOBAL}"))
+    return surface, findings, excluded
+
+
+def plugin_line(surface: dict | None) -> str | None:
+    """The enumeration, as one line for a human. Counts only; it characterises nothing.
+
+    Separate from the summary on purpose. `Run.summary` is the one sentence allowed to say how the
+    run went, and this says neither that nor anything about acceptability — it is the census that
+    makes an `inert` plugin visible without making it a finding.
+    """
+    if not surface:
+        return None
+    c, x = surface["claude"], surface["codex"]
+    tiers = c["tiers"]
+    # A count from an enumeration that did not finish is a FLOOR, not a census, and printing it
+    # unmarked beside a not-run invited the reader to take it as the total. Each half is marked
+    # independently, because after the H1 partition each half can fail on its own.
+    claude_mark = "" if c["enumerated"] else " (INCOMPLETE — at least)"
+    codex_mark = "" if x["enumerated"] else " (INCOMPLETE — at least)"
+    # `N enabled` alone would repeat the two-valued defect in the census: on a run where enablement
+    # could not be determined it would print `0 enabled` beside a non-empty `enabled_keys`.
+    unknown = c["enablement"]["unknown"]
+    enablement = (f"{c['enabled_count']} enabled" if not unknown
+                  else f"{c['enabled_count']} enabled, {unknown} of UNDETERMINED enablement")
+    return (f"plugin surface (machine-global): Claude{claude_mark} {c['count']} on disk, "
+            f"{enablement} — {tiers['hook']} ship hooks, {tiers['agent']} ship "
+            f"agents, {tiers['inert']} skills/commands only; Codex{codex_mark} {x['count']} "
+            f"enabled, names only (see excluded).")
+
+
+# The four machine-global checks, paired with the phrase each is allowed to contribute to the
+# success line — and only if it produced no `not-run`. The old success line was a single hard-coded
+# string asserting all three; this table is what makes it derived. Adding a check here without a
+# label is impossible to do accidentally: the label is the second element.
+DEFAULT_CHECKS = (
+    ("personas", "personas in sync", check_personas),
+    ("instruction mirror", "instructions mirrored", check_instructions),
+    ("Codex skill mirror", "Codex skills current", check_skills),
+)
+
+
+def collect(run: Run) -> None:
+    for label, clean_phrase, fn in DEFAULT_CHECKS:
+        run.add(fn(), label, clean_phrase)
+
+    # The plugin check is not in DEFAULT_CHECKS because it returns two things that table cannot
+    # carry: the enumeration itself, which `--json` must emit whatever the verdict, and a declared
+    # exclusion (the Codex asymmetry). It still routes its findings through `Run.add`, which is the
+    # chokepoint that decides whether it may claim coverage — so a run whose enumeration failed
+    # cannot contribute the phrase saying it enumerated.
+    surface, findings, excluded = check_plugins()
+    run.plugins = surface
+    run.excluded += excluded
+    claude, codex = surface["claude"], surface["codex"]
+    # "no CLAUDE plugin agent shadows" — the qualifier is load-bearing and its absence was the L8
+    # fix introducing the next false reassurance. Shortening the exclusion notice was right, but
+    # what replaced it ("carries names only") no longer says the SHADOW question specifically is
+    # open, while this same sentence asserted the shadow absence unqualified. `CODEX_ASYMMETRY`
+    # states the opposite in as many words: whether a Codex plugin shadows a persona is UNKNOWN, not
+    # known to be false. The qualifier belongs on the claim it qualifies, not in the exclusion.
+    run.add(findings, "plugin surface",
+            f"plugin surface enumerated: {claude['count']} Claude plugin(s), "
+            f"{claude['enabled_count']} enabled, {codex['count']} Codex plugin(s); no CLAUDE plugin "
+            f"agent shadows a base persona; the Codex side was enumerated by name only and not "
+            f"classified")
 
 
 def main() -> int:
@@ -348,7 +1642,23 @@ def main() -> int:
     # here: every `check_vendored` finding is emitted as `critical`, AND the exit rule for this
     # mode ignores severity, so adding a `warn` category later cannot quietly restore the false
     # GREEN. Card TC-03 freezes: 0 clean, 1 finding, 2 usage or environment error.
+    #
+    # THE THIRD STATE OVERRIDES BOTH RULES. A `not-run` finding, in either mode, exits 2 — see
+    # `Run.verdict`. This is not a fourth code and not a new rule for `--vendored`: exit 2 already
+    # meant "the check could not run", and a check that did not run is that case whether it was the
+    # whole run or one skill inside it.
+    #
+    # WHY `warn` STILL EXITS 0 IN DEFAULT MODE, having been asked to make drift blocking. Because
+    # it would cry wolf: this machine's ordinary state has two genuine `warn`s (Codex-mirror drift
+    # awaiting a re-vendor), and this runs at every session start in every directory. TC-06's
+    # ruling separates visibility from the exit code precisely so that the answer to "the caller
+    # cannot see the drift" is a better report, not a louder exit code. The report now says
+    # `NOT A CLEAN RESULT` on its own line and `--json` carries `status` and per-severity `counts`.
+    # A caller that discards stdout and reads only `$?` still cannot see it — that is the caller's
+    # defect, and it is TC-37's to fix in verify.sh, not this file's to work around.
     vendored_mode = args.vendored is not None
+    run = Run("vendored" if vendored_mode else "default",
+              BLOCKING_ANY if vendored_mode else BLOCKING_DEFAULT)
 
     if vendored_mode:
         # Truthiness would be wrong: `--vendored ""` is falsy, and under `if args.vendored:` it
@@ -389,15 +1699,45 @@ def main() -> int:
                   f"Replace the link with a real directory.", file=sys.stderr)
             return 2
         try:
-            findings = check_vendored(vendored_skills)
+            rules, declaration_problems = read_declaration(vendored_skills)
+            run.add(declaration_problems)
+            # The scope report comes back FROM the comparison, not from a parallel enumeration that
+            # can disagree with it. See `check_vendored` on why re-deriving it dropped files
+            # silently.
+            findings, run.excluded = check_vendored(vendored_skills, rules)
+            run.add(findings,
+                    label="vendored drift",
+                    # Scoped to what the walk can actually see. "byte for byte" would overclaim:
+                    # `tree()` cannot surface a directory it is unable to descend into (see its
+                    # KNOWN GAP), so this may promise only that nothing it compared differed.
+                    clean_phrase=f"no drift found between ~/.claude/skills and {vendored_skills}: "
+                                 f"every file this walk could read matches on both sides")
         except OSError as e:
             print(f"error: could not read {e.filename or vendored_skills}: {e}", file=sys.stderr)
             return 2
     else:
-        findings = collect()
+        collect(run)
+
+    findings = sorted(run.findings, key=lambda f: severity_sort_key(f[0]))
+    status, code = run.verdict()
+    summary = run.summary(status)
 
     if args.as_json:
-        print(json.dumps([{"severity": s, "detail": d} for s, d in findings], indent=2))
+        print(json.dumps({
+            "mode": run.mode,
+            "status": status,
+            "exit": code,
+            "counts": run.counts(),
+            "evaluated": run.evaluated,
+            "not_evaluated": [{"check": c, "why": w} for c, w in run.not_evaluated],
+            "excluded": [{"name": n, "why": w} for n, w in run.excluded],
+            "findings": [{"severity": s, "detail": d} for s, d in findings],
+            # Always present, `null` outside default mode. A caller acts on the tiers and the
+            # `agents` lists directly; it never has to parse a finding's prose to learn what is
+            # installed. See `plugin_surface` for the shape.
+            "plugins": run.plugins,
+            "summary": summary,
+        }, indent=2))
     elif args.hook:
         if findings:
             # The header is mode-specific for the same reason the clean line is. The default
@@ -414,25 +1754,26 @@ def main() -> int:
                       "project, not just this one.")
             for s, d in findings:
                 print(f"  - [{s}] {d}")
+            # The exit code does not carry the whole result in default mode, so the compact mode
+            # says the result in words. Printed only when there is something to say, because this
+            # mode's contract is silence on a healthy machine.
+            print(f"  {summary}")
     else:
         print("agent toolchain:")
         for s, d in findings:
             print(f"  {s.upper():8} {d}")
-        if not findings:
-            # Name what was actually compared. The default line asserts three checks that
-            # `--vendored` never runs, and printing it there was a claim of a guarantee the run
-            # did not provide — from the one tool whose job is to be trusted about staleness.
-            if vendored_mode:
-                # Scoped to what the walk can actually see. "byte for byte" overclaimed: `tree()`
-                # cannot surface a directory it is unable to descend into (see its KNOWN GAP), so
-                # this line cannot promise the two trees hold the same files — only that nothing
-                # it compared differed and nothing it touched was unreadable.
-                print(f"  clean — no drift found between ~/.claude/skills and {vendored_skills}: "
-                      f"every file this walk could read matches on both sides")
-            else:
-                print("  clean — personas in sync, instructions mirrored, Codex skills current")
-    return (1 if findings else 0) if vendored_mode \
-        else (1 if any(s == "critical" for s, _ in findings) else 0)
+        # The census, printed whatever the verdict. It is what makes the quiet tier visible: an
+        # `inert` plugin produces no finding by design, so without this line the only evidence it
+        # was seen at all would be `--json`, and "reported quietly" would have become "not reported".
+        census = plugin_line(run.plugins)
+        if census:
+            print(f"  {census}")
+        # Always a summary line, never a hard-coded one. `Run.summary` composes it from what
+        # actually ran; the previous success line asserted three named checks unconditionally, and
+        # printed nothing at all when there were findings — so a drifted run's last word was its
+        # exit code, which was 0.
+        print(f"  {summary}")
+    return code
 
 
 if __name__ == "__main__":

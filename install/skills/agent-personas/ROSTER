@@ -1,0 +1,37 @@
+# The judging roster's LOWER BOUND. Machine-readable, read by scripts/sync_personas.py.
+#
+# This file is a RATCHET. Every name below must be on JUDGING_PERSONA_NAMES. Names may be ADDED;
+# removing one is a deliberate reduction of the no-edit guarantee.
+#
+# READ THIS BEFORE TRUSTING THE RATCHET. Two different things are checked in two different places,
+# and only one of them runs on its own:
+#
+#   the ROSTER falling below this floor  -> sync_personas.py, which `--check` runs at every session
+#                                           start. Automatic.
+#   a name deleted from THIS FILE        -> `test_the_recorded_floor_has_a_pawl` in the INSTALLED
+#                                           suite, and NOTHING RUNS THAT AUTOMATICALLY.
+#                                           With the floor lowered,
+#                                           check_roster_against_the_record() returns no finding,
+#                                           because the floor is what the renderer trusts.
+#
+# So a deletion from this file is caught only by a manually-run test. That is the weakest link in
+# the arrangement and it is stated here rather than left for someone to discover.
+#
+# That test is ~/.claude/skills/agent-personas/tests/test_repo_sync.py — named by ABSOLUTE path
+# because the suite is deliberately not vendored, so in a published copy of this file a relative
+# path would name a file that is not there and read as a deleted guard.
+#
+# It lives inside the skill so the skill is SELF-CONTAINED: a fresh `install.sh` ships it, and a
+# missing floor stops being the default state of a new machine. The human-readable argument for the
+# roster — why these six, what the guarantee is worth, what it does not cover — stays in
+# ~/.claude/docs/decisions.md, which is pinned to this file by
+# `test_the_roster_is_pinned_to_the_record_a_human_reads`. Defection must still edit the record a
+# human reads, because that property comes from the PIN, not from which file the renderer opens.
+#
+# One name per line. Blank lines and `#` comments ignored.
+acceptance
+planner
+reviewer
+scout
+security-validator
+test-judge

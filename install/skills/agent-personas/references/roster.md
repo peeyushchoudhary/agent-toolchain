@@ -39,9 +39,10 @@ failed" — and that is fixed by instruction and by tool restriction, not by rea
 
 It is the only non-writing persona with `Bash`, added after it was observed being assigned gate
 execution it could not perform and chaining to a sub-subagent instead of reporting the problem. A
-persona that cannot do its one job does not fail loudly; it improvises. Write, Edit, and
-NotebookEdit stay disallowed, so it still cannot author a fix, and Codex's `read-only` sandbox
-already had exactly the right shape — execute, never write.
+persona that cannot do its one job does not fail loudly; it improvises. Every other tool the roster
+denies stays denied — see `~/.claude/docs/decisions.md`'s "What it withholds" for the current names, not a
+restatement here, which is exactly what went stale before — so it still cannot author a fix, and
+Codex's `read-only` sandbox already had exactly the right shape — execute, never write.
 
 **`docs-steward` — sonnet / terra, medium.** Prose that has to match code. Needs care, not depth,
 and a wrong doc is cheap to correct.
