@@ -378,14 +378,11 @@ class PersonaDecisionTest(unittest.TestCase):
                 'print("WARN [persona-decision-missing] choose explicitly")\n',
                 encoding="utf-8",
             )
-            installer.write_hook(
-                hook,
-                installer.PRE_COMMIT.format(
-                    begin=installer.BEGIN,
-                    end=installer.END,
-                    flags="",
-                ),
-            )
+            # Through render_pre_commit, not PRE_COMMIT.format: hand-formatting the template here
+            # reimplemented production's composition, and when a fourth placeholder was added this
+            # case failed for the wrong reason — a KeyError, not a bad hook. Ask for the flags
+            # production is actually installed with and let one function render them.
+            installer.write_hook(hook, installer.render_pre_commit())
             self.assertIn("--hook", hook.read_text(encoding="utf-8"))
 
             checked = subprocess.run(
@@ -398,6 +395,44 @@ class PersonaDecisionTest(unittest.TestCase):
 
             self.assertEqual(checked.returncode, 0)
             self.assertIn("persona-decision-missing", checked.stdout)
+
+    def test_render_pre_commit_covers_every_placeholder(self) -> None:
+        """No placeholder may survive rendering, under any flag combination.
+
+        The regression this replaces was a *missing* placeholder argument, so the guard has to be
+        that the composition is total — not that one particular key was passed.
+        """
+        for standard in (False, True):
+            for public in (False, True):
+                with self.subTest(standard=standard, public=public):
+                    text = installer.render_pre_commit(standard=standard, public=public)
+                    self.assertNotIn("{", text)
+                    self.assertIn(installer.BEGIN, text)
+                    self.assertIn(installer.END, text)
+                    self.assertIn(
+                        " --standard" if standard else " --readme",
+                        text,
+                    )
+
+    def test_public_and_private_pre_commit_hooks_differ(self) -> None:
+        """--public must still be what decides whether the identifier guard is in the hook.
+
+        Routing both callers through one function is only safe if the function has kept the
+        distinction; a helper that rendered the same text either way would silently install the
+        guard everywhere, or nowhere.
+        """
+        private = installer.render_pre_commit(public=False)
+        public = installer.render_pre_commit(public=True)
+
+        self.assertNotEqual(private, public)
+        self.assertNotIn("identifier_guard.py", private)
+        self.assertIn("identifier_guard.py", public)
+        self.assertIn(installer.PRE_COMMIT_IDENTIFIER, public)
+        # The guard is rendered INSIDE the marked block, so dropping --public takes it away again.
+        self.assertLess(public.index("identifier_guard.py"), public.index(installer.END))
+        # Both keep the route check: --public adds a stanza, it does not replace one.
+        for text in (private, public):
+            self.assertIn("validate_disclosure.py", text)
 
 
 if __name__ == "__main__":

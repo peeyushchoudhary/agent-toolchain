@@ -9,8 +9,8 @@ mirrors — so the only place to stop it is before the object is written.
 
   BLOCK  an absolute home path in a staged line, a staged path, or the commit message
   BLOCK  the local git identity (author email, author name, remote account segment)
-  BLOCK  any name on the private deny-list, if a deny-list is installed
-  state  that the deny-list was NOT found, when it is absent — an absent list is not a clean scan
+  BLOCK  any name on the private deny-list
+  BLOCK  with exit 2 when the deny-list is absent, unreadable or empty — a check that did not run
 
 WHY THE DENY-LIST LIVES OUTSIDE THE PUBLIC REPOSITORY
 ------------------------------------------------------
@@ -44,6 +44,54 @@ path. Every rule here is either a PATTERN (`/Users/<segment>`) or a RUNTIME LOOK
 If you find yourself needing to write a real project name into this file, into the selftest, into a
 fixture, or into a comment to make a rule work — stop. That is the failure this guard exists to
 prevent, and it has a solution that does not require it.
+
+AN ABSENT DENY-LIST IS A CHECK THAT DID NOT RUN, AND IS EXIT 2
+---------------------------------------------------------------
+This used to be exit 0 with a printed note, and that was a fail-open. MEASURED: with the deny-list
+moved aside, a staged file containing a real private project name exited 0 and was committable; with
+the deny-list present, the same fixture exited 1. So the single most likely condition in practice —
+a fresh clone, a new machine, a renamed file, a `$HOME` that differs — silently switched off the
+half of the guard that this whole design exists for, while the other half kept reporting success.
+The note was real and the note was accurate. It made no difference: a hook acts on an exit code, and
+the exit code said clean. STATING a gap is not CLOSING one.
+
+The objection to fixing it is that a contributor to the public repository has no deny-list and never
+will, so absence-is-fatal would block their every commit until they deleted the guard. That
+objection does not survive contact with how this guard is reached. Git hooks are not carried by a
+clone — `install_hooks.py` writes into `.git/hooks`, which no clone, fetch or pull reproduces. This
+guard therefore cannot run on a machine where somebody has not deliberately run
+`install_hooks.py --public` against this work tree. Being invoked at all IS the declaration that
+this repository is deliberately public and that private names must be kept out of it. There is no
+population of surprised contributors; there is one person who asked for the check and then does not
+have the file the check needs.
+
+Nor does the guard need to ask the repository whether it is public. It cannot see that declaration
+anyway — the declaration lives in the hook that invoked it, not in the work tree — and conditioning
+on a signal inside the work tree would put the fail-open back one level down, where a repository
+could switch its own scan off from the inside. The invocation is the condition, and it is already
+satisfied by the time this file has an opinion.
+
+Deliberate emptiness still has to be expressible, or the fix is a trap for the one honest case: a
+public repository whose owner genuinely has no private names to hide. It is expressed by SAYING so,
+in the file, with the single line
+
+  !no-private-identifiers
+
+and it may not be expressed any other way. Not by deleting the file, which is exactly what a fresh
+clone and a bad `$HOME` look like. Not by leaving the file empty, which is exactly what a truncated
+write, an interrupted edit or a bad merge leaves behind. The declaration is a positive act with no
+accidental spelling: no filesystem event, no failed copy and no partial write produces that line.
+That is the whole property being bought — the difference between a state that was CHOSEN and a state
+that merely HAPPENED, which is the difference an exit code has to encode.
+
+The cost of being wrong in each direction settles the rest. Wrongly exiting 2 costs one message and
+one deliberate ten-second decision, and the message says exactly which two options are available.
+Wrongly exiting 0 puts a private project name in a public repository's history, permanently, and
+rewriting the branch does not recall the clones. Those are not comparable.
+
+THE GENERIC RULES ARE UNAFFECTED IN EVERY CASE. Home paths and the runtime-derived git identity are
+patterns and lookups; they need no file and are never skipped. What changed is only that a deny-list
+which could not be loaded now voids the run instead of shrinking it in silence.
 
 EXIT CONTRACT — identical to push_guard.py, deliberately
 --------------------------------------------------------
@@ -91,6 +139,13 @@ from pathlib import Path
 
 DENYLIST_ENV = "PD_PRIVATE_IDENTIFIERS"
 DEFAULT_DENYLIST = Path.home() / ".claude" / "private-identifiers.txt"
+
+# The one spelling of "I have no private names, and I mean it". Compared case-insensitively against
+# a stripped line. Leading `!` so it can never collide with an identifier (an entry beginning `!` is
+# not a project name), and it survives the `#`-comment strip because it is not a comment — a comment
+# would be indistinguishable from documentation somebody pasted in, which is the accident this line
+# has to be immune to.
+NO_PRIVATE_IDENTIFIERS = "!no-private-identifiers"
 
 # `/Users/<segment>` and `/home/<segment>`. Written as one alternation on purpose: this literal must
 # not match ITSELF, and it does not — the text `/Users` here is followed by `|`, never by `/`. Any
@@ -352,18 +407,29 @@ def derived_rules(notes: list[str]) -> list[Rule]:
 
 
 def read_denylist(path: Path, notes: list[str]) -> list[Rule]:
-    """Load the private deny-list. Absent is allowed and announced; broken is exit 2.
+    """Load the private deny-list. Every way of not loading it is exit 2.
 
-    ABSENT is a legitimate state — this file is per-machine and never travels with a clone, so the
-    guard has to work without it. It must not crash, and it must not pass in silence: a run with no
-    deny-list checked strictly less than a run with one, and the difference has to be visible or the
-    founder cannot tell the two apart.
+    ABSENT is not a clean scan and no longer reads as one. It used to append a note and return no
+    rules, and `report` then exited 0 — the fail-open documented at length in the module docstring,
+    reproduced by measurement. Absence is the MOST likely failure, not the least: this file is
+    per-machine and never travels with a clone. A guard whose most likely failure mode is silent
+    disablement is not a guard. The full argument, including why a public repository's contributors
+    are not locked out by this, is in the module docstring.
 
-    PRESENT-BUT-EMPTY is NOT the same state and is treated as broken. An empty list is what a
-    truncated write, a bad merge or an interrupted edit leaves behind, and it disables the rule while
-    looking exactly like a healthy install — the same failure push_guard.py's empty-SECRET_PATTERNS
-    probe exists to catch, in the same directory, one guard over. Emptiness that is DELIBERATE is
-    expressed by deleting the file, which produces the announcement above.
+    PRESENT-BUT-EMPTY is broken for the reason it always was. An empty list is what a truncated
+    write, a bad merge or an interrupted edit leaves behind, and it disables the rule while looking
+    exactly like a healthy install — the same failure push_guard.py's empty-SECRET_PATTERNS probe
+    exists to catch, in the same directory, one guard over.
+
+    DELIBERATE EMPTINESS is the single line `!no-private-identifiers`, and nothing else. Neither of
+    the two states above can be it, because both are things that HAPPEN to a file; a declaration has
+    to be something somebody DID. It is announced loudly on every run, because a machine that has
+    declared it away is checking strictly less than one that has not, and only the founder can judge
+    whether that is still true today.
+
+    A declaration ALONGSIDE entries is a contradiction and is exit 2. It is what a careless merge of
+    two machines' lists produces, and guessing which half was meant would be guessing whether to
+    check for private names at all.
 
     Decoded strictly, unlike `_decode`. A mojibake deny-list entry does not match the name it was
     meant to match, and the failure is silent; refusing to run is the only honest response.
@@ -371,14 +437,17 @@ def read_denylist(path: Path, notes: list[str]) -> list[Rule]:
     One identifier per line, `#` comments and blanks ignored. If a richer format ever seems
     necessary, it is not — a deny-list that needs a schema has stopped being a deny-list.
     """
-    if not path.exists():
-        # Not "the generic rules ABOVE": `report` prints every note before anything else, so there
-        # is nothing above this line to refer to.
-        notes.append(f"no private deny-list at {path} — it was NOT found, so private names were "
-                     f"NOT checked for. The generic rules still ran.")
-        return []
     try:
         raw = path.read_bytes()
+    except FileNotFoundError as exc:
+        raise GuardError(
+            f"no private deny-list at {path} — so private names were NOT checked for, and this "
+            f"run checked strictly less than a run with one. That is not a clean result. Create "
+            f"the file with one identifier per line, or point {DENYLIST_ENV} at where yours "
+            f"lives; if this repository genuinely has no private names to hide, say so on purpose "
+            f"by making the file's only line `{NO_PRIVATE_IDENTIFIERS}`. Deleting the file is not "
+            f"how that is said — an absent file is indistinguishable from a fresh clone. The "
+            f"private-name check did not run") from exc
     except OSError as exc:
         raise GuardError(f"the private deny-list at {path} exists but could not be read ({exc}) — "
                          f"the private-name check did not run") from exc
@@ -389,9 +458,13 @@ def read_denylist(path: Path, notes: list[str]) -> list[Rule]:
                          f"that does not decode does not match, so the check did not run") from exc
 
     rules: list[Rule] = []
+    declared_none = False
     for lineno, line in enumerate(text.splitlines(), 1):
         entry = line.split("#", 1)[0].strip()
         if not entry:
+            continue
+        if entry.lower() == NO_PRIVATE_IDENTIFIERS:
+            declared_none = True
             continue
         if len(entry) < MIN_DENYLIST_LEN:
             # The entry is NOT echoed. It is private, and a message that prints it to prove it is
@@ -403,11 +476,24 @@ def read_denylist(path: Path, notes: list[str]) -> list[Rule]:
                              f"private-name check did not run")
         rules.append(literal_rule("private deny-list entry", entry, sensitive=True))
 
+    if declared_none and rules:
+        raise GuardError(f"the private deny-list at {path} declares "
+                         f"`{NO_PRIVATE_IDENTIFIERS}` and also lists entries. Those cannot both be "
+                         f"true, and choosing between them would be choosing whether to check for "
+                         f"private names at all — remove whichever line is stale. The "
+                         f"private-name check did not run")
+    if declared_none:
+        notes.append(f"the deny-list at {path} declares `{NO_PRIVATE_IDENTIFIERS}` — private names "
+                     f"were deliberately NOT checked for, by declaration rather than by default. "
+                     f"The generic rules still ran. Remove that line the moment there is a private "
+                     f"name to keep out of this repository.")
+        return []
     if not rules:
         raise GuardError(f"the private deny-list at {path} exists but contains no usable entries. "
-                         f"An empty list silently checks for nothing while looking installed — if "
-                         f"that is deliberate, DELETE the file, which the guard reports honestly. "
-                         f"The private-name check did not run")
+                         f"An empty list silently checks for nothing while looking installed — an "
+                         f"interrupted write and a bad merge both leave exactly this. If having no "
+                         f"private names is DELIBERATE, say it on purpose: make the file's only "
+                         f"line `{NO_PRIVATE_IDENTIFIERS}`. The private-name check did not run")
     return rules
 
 
