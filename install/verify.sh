@@ -834,7 +834,7 @@ suite_dir_state() {
 # silently into a clean pass.
 run_one_suite() {
   local name="$1" dir="$2" out rc ran="" ln tail_line="" first_line="" sk=0 exec_lo
-  local home=0 saved_scope="$SCOPE" seen_ran=0 result_line=""
+  local home=0 saved_scope="$SCOPE" seen_ran=0 result_line="" ran_num=1
   local env_f0=$env_fail env_s0=$env_skip env_w0=$env_warn
   suite_reaches_home "$dir/tests" && home=1
   # PYTHONDONTWRITEBYTECODE: the gate must not leave __pycache__ behind in the vendored tree. It is
@@ -867,6 +867,25 @@ run_one_suite() {
   case "$result_line" in
     *"skipped="*) sk="${result_line#*skipped=}"; sk="${sk%%[!0-9]*}"; sk="${sk:-0}" ;;
   esac
+  # AND `ran` IS VALIDATED BEFORE ANY ARITHMETIC READS IT, WHICH `sk` ALREADY WAS AND IT WAS NOT.
+  # `sk` is forced non-negative by the `%%[!0-9]*` strip above; `ran` is the first whitespace-
+  # delimited word after `Ran `, taken verbatim from a stream this function's own comment (see the
+  # status-character rejection in the else arm below) says a test can write anything into. Two
+  # measured consequences of trusting it, both on bash 3.2 with `set -uo pipefail`:
+  #   * `Ran -3 tests in 0.000s` / `OK (skipped=9)` passes every branch test, gives suites_tests=-3
+  #     with exec_lo clamped to 0, and the summary prints `between 0 and -3 of -3` — an interval
+  #     whose upper end is below its lower, from a comment that says that cannot happen.
+  #   * `Ran abc tests` makes `[ "$ran" -eq 0 ]` print `integer expression expected` and fall to the
+  #     else arm, where `$((ran - sk))` resolves `abc` as a VARIABLE NAME, hits `set -u`, and the
+  #     shell exits mid-run. MEASURED against the real vendored tree with that stream: `abc: unbound
+  #     variable`, NO verdict section rendered at all, and exit 2 — which is this script's own
+  #     could-not-run code, so a caller reading only the status cannot tell a reported could-not-run
+  #     from a gate that died before it had anything to report.
+  # Neither is hypothetical enough to leave to a narrowed comment: the second is a TRUNCATION of the
+  # gate wearing a legitimate exit code. Unparseable is UNKNOWN, and unknown is this file's
+  # could-not-run — reported, counted, and reached by the summary line, which is what the fixed path
+  # does with the same stream.
+  case "$ran" in ''|*[!0-9]*) ran_num=0 ;; esac
 
   # $HOME-reaching suites: failures and could-not-runs are MACHINE facts. See the block comment.
   [ "$home" -eq 1 ] && SCOPE="env"
@@ -874,6 +893,14 @@ run_one_suite() {
   if [ -z "$ran" ]; then
     suites_cnr=$((suites_cnr+1))
     cnr "$name: the vendored suite COULD NOT RUN — \`$SUITE_PY\` produced no test result (rc=$rc). No verdict about this suite exists either way. First output line: ${first_line:-(no output)}"
+  elif [ "$ran_num" -eq 0 ]; then
+    # A `Ran N test…` LINE WHOSE N IS NOT A NON-NEGATIVE INTEGER. Same disposition and same reason as
+    # the missing-result-line branch below: a shape that was not understood does not contribute a
+    # number to a summary claiming to describe what executed. Tested before every branch that does
+    # arithmetic on `ran`, because the abort case aborts inside the arithmetic itself.
+    # UNMIGRATED-CNR: attempted and produced no result, still exiting 0. See the header.
+    suites_cnr=$((suites_cnr+1))
+    cnr "$name: the vendored suite COULD NOT RUN — its summary reported a test count this parser cannot read as a non-negative integer (\`Ran $ran test…\`, rc=$rc), so how many tests ran is UNKNOWN and no arithmetic is done on it. No verdict about this suite exists either way. Last output line: ${tail_line:-(no output)}"
   elif [ -z "$result_line" ]; then
     # RAN, BUT PRODUCED NO RECOGNISABLE RESULT LINE. Nothing after `Ran $ran test…` matched
     # `OK…`/`FAILED…`/`NO TESTS RAN…`, so how many of those tests skipped is UNKNOWN — and unknown is
@@ -910,7 +937,16 @@ run_one_suite() {
     # contradicts. THAT GUARANTEE IS THIS BRANCH'S ONLY BECAUSE `ran -eq 0`; the general case is the
     # `else` arm below, and an earlier version of this comment claimed the whole function while sitting
     # over a branch that still did `execd=$((ran - sk))`. See the SKIP EVENTS block above that arm.
+    #
+    # BUT THE SKIP-EVENT TOTAL IS NOT A TEST TOTAL, AND THIS BRANCH DOES FEED IT. `suites_skipevents`
+    # was fed only from the `else` arm, which excluded the branch that is the PARADIGM CASE of "an
+    # event that is not a test" — the entire reason the counter exists in its own unit. A run holding
+    # one method-skip suite and one guard-only suite reported `1 skip event(s) were reported` over two
+    # events, and the sentence prints that number with no denominator, so a reader has nothing to
+    # check it against. Adding it here leaves the guarantee above untouched: `suites_skipevents` is
+    # never a numerator or a denominator over tests, and the summary never divides by it.
     # UNMIGRATED-CNR: attempted and produced no result, still exiting 0. See the header.
+    suites_skipevents=$((suites_skipevents+sk))
     suites_vacuous=$((suites_vacuous+1))
     skip "$name: NOT TESTED HERE — discovery ran 0 test(s) because $sk class- or module-level guard(s) raised SkipTest before any test started, so 0 assertions executed. \`${result_line}\` is not evidence, and it is not a repository failure either — these guards are keyed on machine state"
   elif [ "$ran" -eq 0 ]; then
@@ -954,8 +990,16 @@ run_one_suite() {
     # `executed = ran - method_skips` lies in `[max(0, ran - sk), ran]`. `exec_lo` is that lower bound.
     # Clamping it at 0 is not hiding the negative: the negative was never a count of anything, and
     # whenever the interval is wider than a point the output SAYS "between X and Y" rather than
-    # picking an end. The interval collapses to a point exactly when `sk == 0`, which is every
-    # vendored suite on this tree today, so the ordinary sentence is unchanged.
+    # picking an end. The interval collapses to a point exactly when `sk == 0` — which is every
+    # vendored suite on this tree ON A MACHINE WHERE NONE OF ITS `$HOME`- AND TOOL-KEYED GUARDS FIRE,
+    # not a property of the tree. `sk == 0` is a machine fact and this file's header exists to punish
+    # exactly that conflation. MEASURED on this tree rather than reasoned: the progressive-disclosure
+    # suite carries four CLASS-level `@unittest.skipIf(REAL_GIT is None, …)` decorators, and a
+    # class-level skip is NOT the `_ErrorHolder` path the `ran -eq 0` branch above is built on —
+    # `TestCase.run` calls `startTest` before it tests `__unittest_skip__`, so each guarded test is
+    # counted inside `Ran N`. That suite run with `git` off PATH emits `Ran 294 tests` /
+    # `skipped=11`, giving `sk=11` and `exec_lo=283`, and this arm takes the INTERVAL form. So the
+    # ordinary sentence is unchanged THERE, and correctly different elsewhere.
     suites_tests=$((suites_tests+ran))
     suites_skipevents=$((suites_skipevents+sk))
     exec_lo=$((ran - sk)); [ "$exec_lo" -lt 0 ] && exec_lo=0
@@ -1101,7 +1145,17 @@ check_vendored_suites() {
   # discovered"; "0 of 2" is not. Printed as ctx because it is a description of the run, not a
   # finding — the findings above it are already counted. Two lines: suites, then tests, because the
   # test-level skip count is the one this gate was previously silent about.
-  ctx "$(printf 'suites: %d skill(s) discovered (%d excluded by the publication declaration), %d with a vendored suite, %d NOT TESTED HERE; %d of %d suite(s) passed, %d of %d failed, %d of %d could not run, %d of %d ran only skips' \
+  #
+  # THE LAST BUCKET IS NAMED FOR WHAT IS TRUE OF BOTH ITS OCCUPANTS, WHICH `ran only skips` WAS NOT.
+  # `suites_vacuous` holds two branches: the `ran -eq 0` guard branch, where nothing ran at all, and
+  # the `sk >= ran` branch, where the per-suite sentence four lines above this one is CAREFUL not to
+  # assert that nothing ran — it says `0 of N can be SHOWN to have executed` and names the reading
+  # under which up to N of them ran and passed. `ran only skips` re-asserted, in different words and
+  # in the aggregate, exactly the claim that sentence was reworded to stop making: for the
+  # mixed-guard fixture the same output block said `between 0 and 1 of 1 may in fact have passed`
+  # and `1 of 1 ran only skips`. `yielded no demonstrable assertion` is true of both occupants and
+  # asserts nothing about what executed.
+  ctx "$(printf 'suites: %d skill(s) discovered (%d excluded by the publication declaration), %d with a vendored suite, %d NOT TESTED HERE; %d of %d suite(s) passed, %d of %d failed, %d of %d could not run, %d of %d yielded no demonstrable assertion' \
     "$suites_found" "$suites_excluded" "$suites_with" "$suites_none" \
     "$suites_pass" "$suites_with" "$suites_fail" "$suites_with" "$suites_cnr" "$suites_with" \
     "$suites_vacuous" "$suites_with")"
@@ -1111,21 +1165,52 @@ check_vendored_suites() {
   # one from the other is what printed `-1 of 1 … 2 of 1` (see the SKIP EVENTS block in
   # run_one_suite). `suites_exec_lo` is the sum of per-suite lower bounds and is therefore in
   # `[0, suites_tests]` by construction, so neither a negative numerator nor a numerator above its
-  # own total can be produced here at any input. The skip-event total is printed WITHOUT a
-  # denominator on purpose: it has no total in the units of the sentence, and inventing `suites_tests`
-  # as its total is exactly the category error being fixed. The filtered count over TESTS is the
-  # interval beside it, and that one carries its total.
+  # own total can be produced here — for any `ran` that reaches the arithmetic, which is now only a
+  # `ran` that parsed as a non-negative integer, ENFORCED at the parse rather than assumed (see the
+  # validation above the branch chain in run_one_suite; `Ran -3 tests` used to reach here and print
+  # `between 0 and -3 of -3`).
   #
-  # TWO SHAPES, because a bound whose ends coincide should not be printed as a bound: with no skip
-  # events at all the interval is a point and the sentence is the exact one it has always been —
-  # which is every run on this tree today, so this line is unchanged in production.
-  if [ "$suites_skipevents" -eq 0 ]; then
+  # THE SKIP-EVENT TOTAL IS PRINTED WITHOUT A DENOMINATOR ON PURPOSE, AND IT NOW NAMES ITS WHOLE
+  # POPULATION. It has no total in the units of the sentence, and inventing `suites_tests` as its
+  # total is exactly the category error being fixed. What a count without a denominator still owes
+  # the reader is its population, and this one used to understate it: fed only from the `else` arm of
+  # run_one_suite, it excluded the `ran -eq 0` guard branch — the paradigm case of an event that is
+  # not a test. It is now fed from BOTH, so it is every skip event this run observed, over every
+  # suite that produced a recognisable result line. The filtered count over TESTS is the interval
+  # beside it, and that one carries its total.
+  #
+  # THE SHAPE SELECTOR KEYS ON THE INTERVAL'S OWN ENDS, NOT ON THE EVENT COUNT, and that is a
+  # consequence of the fix above rather than a preference. The two quantities used to move together;
+  # they no longer do. A run whose only skip events come from the guard branch has
+  # `suites_tests == suites_exec_lo == 0` with `suites_skipevents > 0`, and keying on the event count
+  # would print `between 0 and 0 of 0 … between 0 and 0 of 0` — a bound whose ends coincide, over a
+  # population of nothing. Keying on `suites_exec_lo -eq suites_tests` prints the point form there,
+  # correctly, and the event clause below still reports the events. The two corollaries that keep
+  # each shape honest: `suites_exec_lo < suites_tests` is exactly when a method-skip is possible, so
+  # the interval form can never print `between N and N`; and equality means no test-level skip was
+  # observed at all, so the point form can never print anything but `N of N` and a literal 0.
+  #
+  # TWO SHAPES, because a bound whose ends coincide should not be printed as a bound: with no
+  # test-level skips the interval is a point and the sentence is the exact one it has always been —
+  # which is every run on this tree ON A MACHINE WHERE NONE OF ITS `$HOME`- AND TOOL-KEYED GUARDS
+  # FIRE. That qualifier is the whole content of the claim and it was missing: `sk == 0` is a
+  # property of the MACHINE, never of the tree. MEASURED end to end, by pointing `VERIFY_SUITE_PY` at
+  # a python3 wrapper that hides `git` from the suite and changing nothing else — this line came out
+  # `between 381 and 392 of 392 … 11 skip event(s) were reported`. So the line is unchanged in
+  # production HERE, and correctly different elsewhere.
+  #
+  # The event clause is built once and appended to whichever shape is chosen, because it is a fact
+  # about the run in its own unit and not a fact about either shape. Empty when there were none, so
+  # neither sentence gains a trailing dash it has no number for.
+  local ev=""
+  [ "$suites_skipevents" -gt 0 ] && ev=$(printf -- ' — %d skip event(s) were reported, and a skip event is one test OR one whole guarded class, which a runner summary line cannot tell apart' "$suites_skipevents")
+  if [ "$suites_exec_lo" -eq "$suites_tests" ]; then
     ctx "$(printf 'tests:  %d of %d vendored test(s) actually executed an assertion; %d of %d were SKIPPED and are NOT TESTED HERE' \
-      "$suites_exec_lo" "$suites_tests" 0 "$suites_tests")"
+      "$suites_exec_lo" "$suites_tests" 0 "$suites_tests")$ev"
   else
-    ctx "$(printf 'tests:  between %d and %d of %d vendored test(s) actually executed an assertion; between %d and %d of %d were SKIPPED and are NOT TESTED HERE — %d skip event(s) were reported, and a skip event is one test OR one whole guarded class, which a runner summary line cannot tell apart' \
+    ctx "$(printf 'tests:  between %d and %d of %d vendored test(s) actually executed an assertion; between %d and %d of %d were SKIPPED and are NOT TESTED HERE' \
       "$suites_exec_lo" "$suites_tests" "$suites_tests" \
-      0 "$((suites_tests - suites_exec_lo))" "$suites_tests" "$suites_skipevents")"
+      0 "$((suites_tests - suites_exec_lo))" "$suites_tests")$ev"
   fi
 }
 
@@ -1720,7 +1805,7 @@ class Runs(unittest.TestCase):
   expect_suites "a suite where every test skipped is NOT TESTED HERE, never a pass" \
     "$st_allskip_root" 0 1 0 0 "alpha: NOT TESTED HERE — 2 vendored test(s) ran and 2 skip event(s) were reported, so 0 of 2 can be SHOWN to have executed an assertion" "vendored test(s) passed"
   expect_suites "and the summary counts it as ran-only-skips, not as passed" \
-    "$st_allskip_root" 0 1 0 0 "0 of 1 suite(s) passed, 0 of 1 failed, 0 of 1 could not run, 1 of 1 ran only skips"
+    "$st_allskip_root" 0 1 0 0 "0 of 1 suite(s) passed, 0 of 1 failed, 0 of 1 could not run, 1 of 1 yielded no demonstrable assertion" "ran only skips"
 
   # ── a FAILING suite. Built by MUTATING a fixture that is first proven to pass, so the failure can
   #    only come from the mutation — and the mutation is proven to have changed the file.
@@ -2165,6 +2250,38 @@ STUB
   # while `suites_tests` did not would print `-1 of 0` in the test-level summary.
   expect_suites "and the guard count does not leak into the test-level totals" \
     "$st_guard_root" 0 1 0 0 "tests:  0 of 0 vendored test(s) actually executed an assertion; 0 of 0 were SKIPPED"
+  # AND IT IS STILL COUNTED, IN THE UNIT THAT IS NOT TESTS. The two facts are easy to confuse and the
+  # counter used to satisfy the first by failing the second: `suites_skipevents` was fed only from the
+  # general arm, so this branch — the paradigm case of an event that is not a test — contributed
+  # nothing, and the run reported fewer events than occurred.
+  expect_suites "and the guard IS counted as a skip event, which is not a test count" \
+    "$st_guard_root" 0 1 0 0 "1 skip event(s) were reported, and a skip event is one test OR one whole guarded class"
+  # THE TRAP THAT FIX CREATES, PINNED AS AN ABSENCE. Once the event count can be non-zero while the
+  # test interval is a point, a shape selector keyed on the event count sends this root to the
+  # interval form and prints `between 0 and 0 of 0` — a bound whose ends coincide over a population
+  # of nothing. The selector keys on `suites_exec_lo -eq suites_tests` instead, and this is what says
+  # so; the needle above would stay green through that regression on its own.
+  expect_suites "and a guard-only run keeps the POINT form rather than bounding a population of nothing" \
+    "$st_guard_root" 0 1 0 0 "tests:  0 of 0 vendored test(s)" "between 0 and 0"
+  # ── (row 1, round 5) BOTH SHAPES IN ONE ROOT, WHICH NO ASSERTION HELD BEFORE. Every fixture above
+  #    is homogeneous: a root is all method-skips or all guards, so the aggregate can be right about
+  #    one arm while contributing nothing from the other and no needle can tell. `alpha` is
+  #    `st_skip_body` (`Ran 2` / `OK (skipped=1)`, the general arm) and `beta` is `st_classguard_body`
+  #    (`Ran 0` / `OK (skipped=1)`, the guard branch). TWO events occur. Fed only from the general
+  #    arm the line said `1 skip event(s) were reported` — an undercount printed with no denominator,
+  #    so nothing in the sentence lets a reader catch it. Both fixture shapes have had their premises
+  #    asserted against this interpreter above, so this root needs no third control.
+  #
+  #    PINNED IN BOTH DIRECTIONS. The present needle is the true total; the absent needle is the
+  #    undercount specifically, so the assertion fails on a regression rather than merely on the
+  #    sentence disappearing — and the test-level interval needle proves the sentence was rendered.
+  st_bothk_root="$st_dir/skills_bothkinds"
+  mk_skill "$st_bothk_root" alpha; mk_suite "$st_bothk_root" alpha "$st_skip_body"
+  mk_skill "$st_bothk_root" beta;  mk_suite "$st_bothk_root" beta  "$st_classguard_body"
+  expect_suites "a run holding BOTH skip shapes counts every event, not just the general arm's" \
+    "$st_bothk_root" 0 2 0 0 "— 2 skip event(s) were reported" "1 skip event(s) were reported"
+  expect_suites "and the test interval covers only the arm that has tests in it" \
+    "$st_bothk_root" 0 2 0 0 "tests:  between 1 and 2 of 2 vendored test(s) actually executed an assertion; between 0 and 1 of 2 were SKIPPED"
   # POSITIVE CONTROL: `Ran 0 tests` WITHOUT skips is still a hard failure. Without this, routing every
   # ran-0 to a skip would satisfy the two above and delete the check entirely. The stub supplies the
   # stream because real unittest will not emit `Ran 0 tests` + a bare `OK` for a non-empty suite.
@@ -2195,6 +2312,48 @@ STUB
   chmod 755 "$st_dir/stub_zero"
   expect_suites "ran 0 tests with NO recognisable result line is COULD NOT RUN, not a failure" \
     "$st_ok_root" 0 1 1 2 "produced NO RECOGNISABLE RESULT LINE" "a suite that runs nothing is not a passing suite"
+  # ── (row 4, round 5) AND A TEST COUNT THAT IS NOT A NON-NEGATIVE INTEGER IS COULD-NOT-RUN TOO. The
+  #    `[0, suites_tests]` invariant the summary's comment asserts is conditional on `ran` being one,
+  #    and nothing enforced it: `ran` is the first word after `Ran ` on a line from a stream this
+  #    parser's own comments say a test can write anything into. A stub is the right instrument for
+  #    the same reason it is above — real unittest will not emit these, so nothing on the real tree
+  #    would go red while the hole sat there.
+  #
+  #    NEGATIVE: `Ran -3 tests` / `OK (skipped=9)` passed every branch test, gave `suites_tests=-3`
+  #    with `exec_lo` clamped to 0, and printed `between 0 and -3 of -3` — an interval whose upper end
+  #    is BELOW its lower, from a comment saying that cannot happen. Both halves pinned.
+  cat > "$st_dir/stub_zero" <<'STUB'
+#!/bin/sh
+printf -- '----------------------------------------------------------------------\n'
+printf 'Ran -3 tests in 0.000s\n'
+printf '\n'
+printf 'OK (skipped=9)\n'
+STUB
+  chmod 755 "$st_dir/stub_zero"
+  expect_suites "a NEGATIVE test count is COULD NOT RUN, not arithmetic" \
+    "$st_ok_root" 0 1 1 2 "cannot read as a non-negative integer" "of -3"
+  expect_suites "and no interval is printed whose upper end is below its lower" \
+    "$st_ok_root" 0 1 1 2 "tests:  0 of 0 vendored test(s)" "between 0 and -3"
+  #    NON-NUMERIC: worse than a wrong number. `[ "$ran" -eq 0 ]` errors and falls through to the
+  #    general arm, where `$((ran - sk))` resolves `abc` as a VARIABLE NAME and `set -u` kills the
+  #    shell. Measured on bash 3.2 against the REAL vendored tree: no verdict section is rendered at
+  #    all and the process exits 2 — this script's own could-not-run code, worn by a gate that died.
+  #    So the LIVENESS is the assertion here, and it is carried by the counter deltas rather than by
+  #    any needle: an abort inside `check_vendored_suites` kills the whole self-test process, so a
+  #    matched delta and a rendered summary line are together the proof that the run survived the
+  #    stream. The needles pin the disposition on top of that.
+  cat > "$st_dir/stub_zero" <<'STUB'
+#!/bin/sh
+printf -- '----------------------------------------------------------------------\n'
+printf 'Ran abc tests in 0.000s\n'
+printf '\n'
+printf 'OK (skipped=1)\n'
+STUB
+  chmod 755 "$st_dir/stub_zero"
+  expect_suites "a NON-NUMERIC test count is COULD NOT RUN and does not abort the run mid-render" \
+    "$st_ok_root" 0 1 1 2 "cannot read as a non-negative integer" "unbound variable"
+  expect_suites "and the summary line is still reached and reports both suites as could-not-run" \
+    "$st_ok_root" 0 1 1 2 "1 of 1 could not run" "vendored test(s) passed"
   SUITE_PY="$st_saved_py4"
   # AND THE SCOPE: the same guard in a $HOME-reaching suite belongs on the machine line, marked away
   # from the repository's. The branch does not restore SCOPE, and this is what pins that.
@@ -2230,6 +2389,14 @@ STUB
     "$st_mixg_root" 0 1 0 0 "between 0 and 1 of 1 may in fact have passed"
   expect_suites "and the test-level summary states the bound instead of a point" \
     "$st_mixg_root" 0 1 0 0 "tests:  between 0 and 1 of 1 vendored test(s) actually executed an assertion; between 0 and 1 of 1 were SKIPPED"
+  # AND THE AGGREGATE MUST NOT RE-ASSERT WHAT THE PER-SUITE SENTENCE STOPPED ASSERTING. This is the
+  # same output block as the two assertions above: it says `between 0 and 1 of 1 may in fact have
+  # passed` AND, four lines later, it used to say `1 of 1 ran only skips`. Under the guard reading
+  # `test_3` ran and passed, so that was flatly false — the unhedged claim the per-suite reword
+  # removed, surviving in the aggregate in different words. Both halves are pinned here, present and
+  # absent, on the one fixture where the two readings actually diverge.
+  expect_suites "and the aggregate bucket does not assert what ran either" \
+    "$st_mixg_root" 0 1 0 0 "1 of 1 yielded no demonstrable assertion" "ran only skips"
 
   # ── TWO guarded classes beside one running test: `Ran 1 test` + `OK (skipped=2)`, the shape that
   #    produced `tests: -1 of 1 … 2 of 1 were SKIPPED`. Both halves of that are pinned as ABSENT, and
@@ -2566,12 +2733,15 @@ echo "════ verdict"
 # verdict line reads exactly as it does when the exit code is right — so it is not self-announcing
 # either.
 #
-# IT IS IRREDUCIBLE RATHER THAN MERELY UNPINNED, which is why it is named instead of fixed. Moving
-# the hop inside a function means that function calls `exit`, which ends the self-test process the
-# first time an assertion drives it — the residual can be relocated but not removed, and relocating
-# it is what the extraction of `render_verdicts`/`render_summary` already did as far as it goes. The
-# previous version of this comment said "NOTHING IS WIRED HERE ANY MORE"; a comment claiming zero
-# where the floor is one is exactly what stops the next reader looking.
+# IT IS IRREDUCIBLE BY EXTRACTION rather than merely unpinned, which is why it is named instead of
+# fixed. Moving the hop inside a function means that function calls `exit`, which ends the self-test
+# process the first time an assertion drives it — so along THAT route the residual can be relocated
+# but not removed, and relocating it is what the extraction of `render_verdicts`/`render_summary`
+# already did as far as it goes. It is NOT irreducible full stop: driving `verify.sh` as a
+# SUBPROCESS against a fixture tree would pin the verdict text and `$?` together, which is the only
+# technique that reaches this line, and no such harness exists here. The previous version of this
+# comment said "NOTHING IS WIRED HERE ANY MORE"; a comment claiming zero where the floor is one is
+# exactly what stops the next reader looking.
 render_verdicts
 echo
 render_summary
