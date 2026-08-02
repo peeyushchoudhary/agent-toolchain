@@ -14,7 +14,7 @@ green.
    5  a deny-listed name in the commit MESSAGE       exit 1
    6  a deny-listed name in a staged PATH            exit 1   <- no line of content to match
    7  the local git identity (email, name, account)  exit 1
-   8  NO deny-list installed                         exit 2   <- absent is a check that did not run
+   8  NO deny-list installed                         exit 2   <- the list is MANDATORY; nothing ran
    9  a deny-list that cannot be read or is broken   exit 2, never a silent pass
   10  an identifier already in history               exit 0   <- the scan is about the NEXT commit
   11  the rule set is broken or empty                exit 2   <- matched nothing against everything
@@ -24,7 +24,7 @@ green.
   15  argv: --help, an unknown flag, no mode at all
   16  content the DIFF FORMAT disguises as a header    exit 1   <- a measured bypass, `++` lines
   17  the WRAPPER with no guard file on disk           exit 2   <- absence must block, not skip
-  18  a DECLARED-empty deny-list                       exit 0   <- the only way to say "none", said
+  18  there is NO opt-out, by construction             exit 2   <- the removed hatch stays removed
 
 EVERY IDENTIFIER IN THIS FILE IS SYNTHETIC. Nothing below is a real project, a real account, a real
 person or a real path — and that is a hard constraint, not a nicety. This file is committed to a
@@ -76,11 +76,15 @@ SYNTH_NAME = "Grimblewort Fnordling"
 # home path anywhere else in this file is a placeholder or a machine account by construction.
 SYNTH_HOME = "/Users" + "/hoopfrabjous"
 
-# The one spelling of deliberate emptiness. Written out here rather than imported, because a test
-# that imports the value under test cannot tell a rename from a rewrite — it would stay green if the
-# guard silently started honouring something else. Case 18 asserts this literal equals the guard's
-# own `NO_PRIVATE_IDENTIFIERS`, which catches the rename loudly and in one place.
-DECLARE_NONE = "!no-private-identifiers"
+# THE REMOVED OPT-OUT. This string used to be a directive meaning "deliberately no private names",
+# and honouring it was a fail-open: a one-character transposition made it an ordinary entry, the file
+# read as populated, and a staged private name exited 0. It is kept here ONLY as the thing case 18
+# proves is gone — from the guard's source, from its namespace, and from its behaviour. A literal, so
+# that reintroducing the feature under any name cannot make this file green by importing it.
+REMOVED_OPT_OUT = "!no-private-identifiers"
+# A one-character transposition of it. Under the old code this was a legal entry that matched
+# nothing, so the run passed while the guard checked for nothing.
+MISTYPED_OPT_OUT = "!no-private-identifer"
 
 failures: list[str] = []
 
@@ -356,9 +360,15 @@ def case_missing_denylist() -> None:
     `$HOME` — silently disabled the half of the guard the whole design exists for.
 
     "It has to keep working without it" was the true premise with the wrong conclusion. Working
-    without the list means the generic rules still run and the run still refuses to read as clean,
-    which is exit 2 — asserted below in both directions, because a guard that exits 2 unconditionally
-    would satisfy the must-block half of this case and nothing else.
+    without the list means refusing to read as clean, which is exit 2 — asserted below in both
+    directions, because a guard that exits 2 unconditionally would satisfy the must-block half of
+    this case and nothing else.
+
+    IT IS NOT "the private-name half was skipped and the generic half ran". The deny-list loads
+    before anything is scanned, so an absent list VOIDS THE WHOLE RUN. An earlier revision of the
+    guard claimed the generic rules were "unaffected in every case" and "never skipped"; 8f now
+    asserts the opposite of that claim, by staging content the generic rules WOULD have caught and
+    requiring that no such finding is reported.
     """
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -371,30 +381,51 @@ def case_missing_denylist() -> None:
               f"got {code}: {out[:300]}")
         check("8b it says the private-name check did not run and is not a clean result",
               "did not run" in out and "not a clean result" in out, out[:300])
-        check("8c it names both ways out: install a list, or DECLARE there are none",
-              DECLARE_NONE in out and "Deleting the file is not how that is said" in out, out[:300])
+        # THE REMEDY, in full, because a block whose way out is not stated is the lockout this
+        # design is accused of being. Three parts, each asserted separately so a reworded message
+        # that quietly drops one fails here rather than in somebody's terminal at 1 a.m. No
+        # repository name belongs here — this file is vendored into a public repository.
+        check("8c the message names the path it looked at, so there is nothing to guess",
+              str(absent) in out, out[:600])
+        check("8d it names the one-identifier-per-line format",
+              "one identifier per line" in out, out[:600])
+        check("8f it points at the restore doc", "RESTORE.md" in out, out[:600])
 
         # THE FOUNDER'S FIXTURE, in synthetic form: content that a present deny-list would catch,
         # with the deny-list absent. This is the exact commit that used to be waved through.
         stage(repo, "docs.md", f"we should mention {SYNTH_PROJECT} here\n")
         code, out = run_guard(repo, "--staged", denylist=absent)
-        check("8d content a present deny-list would catch is NOT committable when it is absent",
+        check("8g content a present deny-list would catch is NOT committable when it is absent",
               code == 2, f"got {code}: {out[:300]}")
         present = write_denylist(tmp, [SYNTH_PROJECT])
         code, out = run_guard(repo, "--staged", denylist=present)
-        check("8e the same fixture with the list PRESENT is exit 1 — so 8d is about absence, "
+        check("8h the same fixture with the list PRESENT is exit 1 — so 8g is about absence, "
               "not about the fixture", code == 1, f"got {code}: {out[:300]}")
 
-        # The generic rules are unaffected by any of this: they are patterns and a runtime lookup,
-        # and they need no file. A guard that stopped assembling them would also exit 2 here, so the
-        # note is asserted rather than the code — it proves they ran, which a 2 alone does not.
+        # THE RUN IS VOIDED, NOT SHRUNK. The predecessor of this assertion checked that the output
+        # contained "private-name check did not run" — a string the message it was reading always
+        # contains, whatever the guard does. It could not fail, so it established nothing.
+        #
+        # What is actually worth pinning is the claim the guard used to make and that is false: that
+        # the generic rules run anyway. Stage a home path, which the generic rules catch with no
+        # deny-list involved, and require that NO such finding appears — because loading the list
+        # happens before any scanning, so nothing was scanned at all.
+        stage(repo, "docs.md", f"see {SYNTH_HOME}/code\n")
         code, out = run_guard(repo, "--staged", denylist=absent)
-        check("8f it does not claim the generic rules were skipped too",
-              "private-name check did not run" in out, out[:300])
+        check("8i an absent list VOIDS the run rather than shrinking it — the generic rules do not "
+              "report either", code == 2 and "absolute home path" not in out, f"got {code}: {out[:400]}")
+        code, out = run_guard(repo, "--staged", denylist=present)
+        check("8j the same home path IS reported once the list loads — so 8i is about the void, "
+              "not about the fixture", code == 1 and "absolute home path" in out,
+              f"got {code}: {out[:300]}")
+
+        sh("git", "reset", "-q", cwd=repo)
+        (repo / "docs.md").unlink()
+        stage(repo, "app.py", "print('hello')\n")
 
         msg = message_file(tmp, "fix: nothing of interest\n")
         code, out = run_guard(repo, "--message", str(msg), denylist=absent)
-        check("8g the MESSAGE mode fails closed on an absent list as well", code == 2,
+        check("8k the MESSAGE mode fails closed on an absent list as well", code == 2,
               f"got {code}: {out[:300]}")
 
         # THE DEFAULT LOCATION, not just the override. `PD_PRIVATE_IDENTIFIERS` unset with HOME
@@ -402,15 +433,27 @@ def case_missing_denylist() -> None:
         # the one path the env-var fixtures above cannot reach. See the module docstring.
         fakehome = tmp / "fakehome"
         (fakehome / ".claude").mkdir(parents=True)
-        check("8h the redirected home really holds no deny-list (fixture precondition)",
+        check("8l the redirected home really holds no deny-list (fixture precondition)",
               not (fakehome / ".claude" / "private-identifiers.txt").exists(), str(fakehome))
         code, out = run_guard(repo, "--staged", denylist=None, env={"HOME": str(fakehome)})
-        check("8i absence at the DEFAULT location fails closed too, not only under the override",
+        check("8m absence at the DEFAULT location fails closed too, not only under the override",
               code == 2, f"got {code}: {out[:300]}")
+        # And the message that says so does not print the home directory it was looking under. This
+        # is the guard's own output being held to the guard's own rule: the default path is
+        # `$HOME/.claude/private-identifiers.txt`, and printing it verbatim publishes the account
+        # segment that `home_path_rule` blocks everyone else's files for carrying.
+        check("8n the message abbreviates the home segment rather than printing it",
+              str(fakehome) not in out and "~/.claude/private-identifiers.txt" in out, out[:500])
 
 
 def case_broken_denylist() -> None:
-    """Unreadable, undecodable, empty, or absurdly short — all exit 2, none a silent pass."""
+    """Unreadable, undecodable, empty, or unusable — all exit 2, none a silent pass.
+
+    "Unusable" is the group that grew. An entry the matcher compiles into a rule that can never fire
+    is worse than no entry at all: the list looks longer than it is, and the line you are relying on
+    is the one doing nothing. Three shapes reach that state, all three were reachable, and one of
+    them was sitting inert in the real deny-list on this machine.
+    """
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         repo = new_repo(tmp)
@@ -442,15 +485,22 @@ def case_broken_denylist() -> None:
         code, out = run_guard(repo, "--staged", denylist=empty)
         check("9e an empty deny-list is not a clean guard — it exits 2", code == 2,
               f"got {code}: {out[:300]}")
-        check("9f it says how to express deliberate emptiness (the declaration line)",
-              DECLARE_NONE in out and "DELIBERATE" in out, out[:300])
-        check("9g deleting the file is NOT offered as the way to say it — that is case 8's exit 2",
+        check("9f it states the one-step remedy rather than only the complaint",
+              "one identifier per line" in out and "RESTORE.md" in out,
+              out[:600])
+        # There is nothing to "declare". The message must not offer an opt-out, because there is
+        # none, and a message that gestures at one teaches the reader to go looking for the syntax
+        # that was removed for being a fail-open.
+        check("9g no opt-out is offered — the removed declaration is not mentioned, and the "
+              "message says outright that there is no way to switch the check off",
+              REMOVED_OPT_OUT not in out and "no way to declare" in out.lower(), out[:600])
+        check("9h deleting the file is NOT offered as a way out either — that is case 8's exit 2",
               "delete the file" not in out.lower(), out[:300])
 
         short_entry = "qz"
         short = write_denylist(tmp, [short_entry])
         code, out = run_guard(repo, "--staged", denylist=short)
-        check("9h an entry too short to be an identifier exits 2", code == 2,
+        check("9i an entry too short to be an identifier exits 2", code == 2,
               f"got {code}: {out[:300]}")
         # Asserted DIRECTLY, with no `or` escape. The previous form was
         # `entry not in out.split("only")[0] or "entry on line" in out`, and both clauses passed
@@ -461,14 +511,61 @@ def case_broken_denylist() -> None:
         # The deny-list PATH is removed first, and only the path: it is a random temp directory that
         # could contain a two-character string by chance, which would be noise rather than a leak.
         scrubbed = out.replace(str(short), "<denylist>")
-        check("9i the too-short entry is NOT echoed in the message",
+        check("9j the too-short entry is NOT echoed in the message",
               short_entry not in scrubbed, scrubbed[:300])
 
         # A directory where a file was expected: a plausible fat-finger, and it must not read clean.
         (tmp / "as-a-dir").mkdir()
         code, out = run_guard(repo, "--staged", denylist=tmp / "as-a-dir")
-        check("9j a directory in place of the deny-list exits 2", code == 2,
+        check("9k a directory in place of the deny-list exits 2", code == 2,
               f"got {code}: {out[:300]}")
+
+        # A BACKSLASH ENTRY. `Two\ Words` is what pasting a shell-escaped name produces, and the
+        # matcher escapes the backslash literally — so the rule hunts for a backslash in the scanned
+        # text and never finds one. This exact shape was sitting inert in the real deny-list on this
+        # machine, duplicating a plain entry that was doing the actual work, so nothing looked wrong.
+        # It must be refused, not compiled: an accepted entry that cannot fire is unauditable.
+        escaped = write_denylist(tmp, [SYNTH_PROJECT_TWO.replace(" ", "\\ ")])
+        code, out = run_guard(repo, "--staged", denylist=escaped)
+        check("9l an entry containing a backslash is refused, not compiled into a dead rule",
+              code == 2, f"got {code}: {out[:400]}")
+        check("9m it says so without echoing the entry",
+              "backslash" in out and SYNTH_PROJECT_TWO.split()[0] not in out, out[:400])
+
+        # And the other direction, so 9l is about the backslash and not about the name: the same
+        # name written plainly loads and fires.
+        plain = write_denylist(tmp, [SYNTH_PROJECT_TWO])
+        stage(repo, "notes.md", f"the {SYNTH_PROJECT_TWO} rewrite\n")
+        code, out = run_guard(repo, "--staged", denylist=plain)
+        check("9n the same name written UNESCAPED loads and blocks", code == 1,
+              f"got {code}: {out[:300]}")
+        sh("git", "reset", "-q", cwd=repo)
+        (repo / "notes.md").unlink()
+        stage(repo, "app.py", "print('hello')\n")
+
+        # A SEPARATOR-ONLY entry passes the length floor and compiles to `[-_. ]*`, which matches the
+        # empty string at position 0 of every text. The scanner reads that empty match as no match,
+        # so the rule is dead everywhere while the file looks populated.
+        sep_only = write_denylist(tmp, ["-_-"])
+        code, out = run_guard(repo, "--staged", denylist=sep_only)
+        check("9o an entry of nothing but separators is refused", code == 2, f"got {code}: {out[:400]}")
+
+        # A BOM must not disable the first entry. The file is mandatory now, so this is no longer a
+        # 0-vs-2 question — it is a 1-vs-0 one, which is worse: the list loads, the run looks
+        # healthy, and the first name in it silently stops matching. MEASURED before the fix: with a
+        # BOM the guard exited 0 on content the same file without a BOM blocked.
+        bom = write_denylist(tmp, raw=b"\xef\xbb\xbf" + f"{SYNTH_PROJECT}\n".encode("utf-8"))
+        stage(repo, "notes.md", f"ported from the {SYNTH_PROJECT} loader\n")
+        code, out = run_guard(repo, "--staged", denylist=bom)
+        check("9p a BOM does not disable the first deny-list entry", code == 1,
+              f"got {code}: {out[:300]}")
+        nobom = write_denylist(tmp, raw=(SYNTH_PROJECT + "\n").encode("utf-8"))
+        code, out = run_guard(repo, "--staged", denylist=nobom)
+        check("9q the same file without a BOM blocks too — so 9p is about the BOM, not the fixture",
+              code == 1, f"got {code}: {out[:300]}")
+        sh("git", "reset", "-q", cwd=repo)
+        (repo / "notes.md").unlink()
+        stage(repo, "app.py", "print('hello')\n")
 
 
 def case_history_is_not_reflagged() -> None:
@@ -518,6 +615,15 @@ def case_broken_rule_set() -> None:
         tmp = Path(td)
         deny = write_denylist(tmp, [SYNTH_PROJECT])
         original = ig.HOME_PATH
+        # This case runs the guard IN-PROCESS, so the deny-list override has to be set on this
+        # interpreter's own environment rather than on a child's — and it must be put back. It was
+        # not: `os.environ["PD_PRIVATE_IDENTIFIERS"] = str(deny)` leaked into every later case, and
+        # into `case_end_to_end_commit`'s and `case_missing_guard_is_not_a_skip`'s `{**os.environ}`
+        # copies, pointing them at a temporary directory this case had already deleted. Harmless
+        # only because both of those set the variable again themselves; a case that did not would
+        # have inherited a stale path and failed for a reason nothing in it explains. Test isolation
+        # is not a nicety in a file whose whole subject is state that silently disables a check.
+        previous = os.environ.get("PD_PRIVATE_IDENTIFIERS")
         # A regex that compiles, imports and matches nothing — the realistic shape of a bad edit.
         ig.HOME_PATH = _re.compile(r"(?!x)x")
         buf = io.StringIO()
@@ -527,11 +633,18 @@ def case_broken_rule_set() -> None:
                 code = ig.main(["--staged"])
         finally:
             ig.HOME_PATH = original
+            if previous is None:
+                os.environ.pop("PD_PRIVATE_IDENTIFIERS", None)
+            else:
+                os.environ["PD_PRIVATE_IDENTIFIERS"] = previous
         out = buf.getvalue()
         check("11a a home-path rule that matches nothing exits 2, not 0", code == 2,
               f"got {code}: {out[:300]}")
         check("11b it says the pattern set is broken rather than reporting nothing",
               "pattern set is broken" in out, out[:300])
+        check("11c the case restored the environment it borrowed",
+              os.environ.get("PD_PRIVATE_IDENTIFIERS") == previous,
+              f"leaked {os.environ.get('PD_PRIVATE_IDENTIFIERS')!r}")
 
 
 def case_crash_and_interrupt() -> None:
@@ -669,6 +782,23 @@ def case_output_does_not_republish() -> None:
         code, out = run_guard(repo, "--message", str(msg), denylist=deny)
         check("14c a message finding does not print the identifier in full",
               code == 1 and SYNTH_PROJECT not in out, out[:400])
+
+        # THE SPELLING MISMATCH, which is the one the old redaction missed. The location column used
+        # to be scrubbed with `where.replace(found, shown)` — an EXACT substitution, case- and
+        # separator-sensitive, standing in for matchers that are neither. So a line spelled
+        # `zarquon-widget` inside a file named `Zarquon_Widget.md` had its match column redacted and
+        # its location column printed in full: every alternative spelling the deny-list exists to
+        # catch was a spelling the redaction failed to cover. Measured: the path appeared verbatim.
+        sh("git", "reset", "-q", cwd=repo)
+        for stale in ("docs/notes.md", f"docs/{SYNTH_PROJECT}.md"):
+            (repo / stale).unlink(missing_ok=True)
+        variant_dir = SYNTH_PROJECT.replace("-", "_").title()          # Zarquon_Widget
+        stage(repo, f"docs/{variant_dir}/notes.md", f"the {SYNTH_PROJECT} loader\n")
+        code, out = run_guard(repo, "--staged", denylist=deny)
+        check("14d the location column is redacted case- and separator-insensitively, not by an "
+              "exact replace", code == 1 and variant_dir not in out, f"got {code}: {out[:400]}")
+        check("14e and the finding is still locatable — the surviving path and line are printed",
+              "docs/" in out and "notes.md:1" in out, out[:400])
 
 
 def case_argv() -> None:
@@ -863,96 +993,121 @@ def case_diff_shape() -> None:
         check("16f deleting a file carrying an identifier is not a finding", code == 0,
               f"got {code}: {out[:300]}")
 
+        # THE REPOSITORY DOES NOT GET A VOTE ON THE GUARD'S PARSER. The header parser keys on
+        # `+++ b/`, and `b/` is only git's DEFAULT prefix: `diff.mnemonicPrefix` writes `+++ i/…`
+        # for the index and `diff.noprefix` writes no prefix at all. Both are ordinary settings a
+        # person turns on for readability. MEASURED with mnemonicPrefix set, before the fix: the
+        # finding still fired but was attributed to `?:1` — the file name, which is the half of a
+        # finding that makes it actionable, silently gone. `--src-prefix`/`--dst-prefix` on the
+        # command line override every config spelling of this.
+        for setting in ("diff.mnemonicPrefix", "diff.noprefix"):
+            sh("git", "config", setting, "true", cwd=repo)
+            # Content deliberately unlike any file already in history: identical content would be
+            # detected as a RENAME, which emits no `+` lines and would make this case pass for the
+            # wrong reason. (The first draft did exactly that.)
+            stage(repo, "cfg-leak.md", f"{setting} fixture, path {SYNTH_HOME}/code/thing\n")
+            code, out = run_guard(repo, "--staged", denylist=deny)
+            check(f"16g a finding survives `{setting}=true` WITH its file attribution",
+                  code == 1 and "cfg-leak.md:1" in out, f"got {code}: {out[:300]}")
+            sh("git", "reset", "-q", cwd=repo)
+            (repo / "cfg-leak.md").unlink()
+            sh("git", "config", "--unset", setting, cwd=repo)
 
-def case_declared_empty_denylist() -> None:
-    """`!no-private-identifiers` — the only spelling of deliberate emptiness, and it must be said.
 
-    Case 8 makes absence fatal. That would be a trap for the one honest case — a public repository
-    whose owner genuinely has no private names — without a way to say so, so there is one, and its
-    single design requirement is that NO ACCIDENT CAN PRODUCE IT. A deleted file is what a fresh
-    clone looks like; an empty file is what a truncated write looks like; a line of text that says
-    what it means is what a decision looks like. All three are asserted here, against each other.
+def case_no_opt_out() -> None:
+    """THE OPT-OUT IS GONE, AND STAYS GONE. Asserted against the source, the namespace, and the exits.
 
-    The declaration is not free and this case does not pretend otherwise: 18d asserts that a name a
-    deny-list would have caught is NOT caught under a declaration. That is the cost of the escape
-    hatch, stated as a test rather than left to be discovered, and it is why 18b requires the run to
-    announce the declaration on every commit rather than passing in silence.
+    WHAT THIS CASE REPLACES. It used to assert that a declaration line — `!no-private-identifiers`
+    as a deny-list's only content — was a clean run, the sanctioned way to say "this repository
+    genuinely has no private names". Two of its assertions, 18l and 18m, covered the misspelling of
+    that line. 18l was named "a misspelled declaration does not silently disable the check" and
+    asserted `code == 0`, establishing the exact opposite of its own name: a one-character
+    transposition made the directive an ordinary entry, long enough to be legal and matching nothing
+    that exists, so the file read as populated and a staged private name was committable. Delete the
+    file: 2. Empty it: 2. Comment it out: 2. Mistype it: 0. Both assertions are deleted rather than
+    re-pointed, because the path they described no longer exists.
+
+    WHY REMOVAL RATHER THAN VALIDATION, which is what this case now pins. A rule enforced by checking
+    a feature can regress, because the check can be evaded — and this one was, by a typo. A rule
+    enforced by the ABSENCE of the feature cannot: there is no misspelling of a syntax that does not
+    exist. So the assertions below are deliberately not "the guard rejects bad declarations". They
+    are "the guard has no concept of a declaration": no constant in its namespace, no such string in
+    its source, and every file that used to express one now exits 2 like any other unusable list.
+
+    That is also why 18b reads the guard's SOURCE. A behavioural assertion alone would stay green if
+    someone reintroduced a checked, canonicalised or fuzzy-matched variant that happened to reject
+    these three fixtures. Absence of the string is the property that was bought.
     """
+
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         repo = new_repo(tmp)
 
-        ig = _load_guard("identifier_guard_declaration")
-        check("18a the guard's declaration constant is the string this file tests",
-              ig.NO_PRIVATE_IDENTIFIERS == DECLARE_NONE,
-              f"guard says {ig.NO_PRIVATE_IDENTIFIERS!r}, test says {DECLARE_NONE!r}")
+        ig = _load_guard("identifier_guard_no_opt_out")
+        check("18a the guard exposes no declaration constant at all",
+              not hasattr(ig, "NO_PRIVATE_IDENTIFIERS"),
+              f"guard still defines NO_PRIVATE_IDENTIFIERS = "
+              f"{getattr(ig, 'NO_PRIVATE_IDENTIFIERS', None)!r}")
+        source = GUARD.read_text(encoding="utf-8")
+        check("18b the removed directive appears nowhere in the guard's source, not even as a "
+              "string it rejects", REMOVED_OPT_OUT not in source,
+              "the opt-out syntax is back in the source")
 
-        declared = write_denylist(tmp, [DECLARE_NONE])
         stage(repo, "app.py", "print('hello')\n")
-        code, out = run_guard(repo, "--staged", denylist=declared)
-        check("18b a declared-empty deny-list is a clean run", code == 0, f"got {code}: {out[:300]}")
-        check("18c and it SAYS the names were skipped by declaration, not by default",
-              "declaration rather than by default" in out, out[:300])
 
+        # THE THREE FILES THAT USED TO MEAN "deliberately none", each now an unusable list. The
+        # content is otherwise clean, so a 2 here is the LIST being refused, not a finding.
+        for label, entries in (("the exact former declaration", [REMOVED_OPT_OUT]),
+                               ("its upper-case spelling", [REMOVED_OPT_OUT.upper()]),
+                               ("the one-character misspelling", [MISTYPED_OPT_OUT])):
+            path = write_denylist(tmp, entries)
+            code, out = run_guard(repo, "--staged", denylist=path)
+            check(f"18c a deny-list whose only line is {label} exits 2", code == 2,
+                  f"got {code}: {out[:400]}")
+
+        # THE FIXTURE THE OLD 18l WAVED THROUGH, restated as it should always have read: the
+        # misspelled directive AND a private name staged. This was exit 0 — committable — because
+        # the typo counted as an entry and the file therefore counted as populated.
         stage(repo, "docs.md", f"we should mention {SYNTH_PROJECT} here\n")
-        code, out = run_guard(repo, "--staged", denylist=declared)
-        check("18d under a declaration a would-be deny-listed name is NOT caught — the stated cost",
-              code == 0, f"got {code}: {out[:300]}")
+        typo = write_denylist(tmp, [MISTYPED_OPT_OUT])
+        code, out = run_guard(repo, "--staged", denylist=typo)
+        check("18d a private name staged under a MISTYPED directive is not committable", code == 2,
+              f"got {code}: {out[:400]}")
+        check("18e the refusal is about the entry, and does not echo it",
+              "begins with `!`" in out and MISTYPED_OPT_OUT not in out, out[:400])
 
-        # The half that keeps 18d from being a hole: the generic rules are untouched by any of this.
-        stage(repo, "docs.md", f"see {SYNTH_HOME}/code\n")
-        code, out = run_guard(repo, "--staged", denylist=declared)
-        check("18e the generic rules STILL fire under a declaration", code == 1,
+        # And a real list catches the same fixture, so 18d is about the directive rather than the
+        # content — the both-directions rule this file is built on.
+        real = write_denylist(tmp, [SYNTH_PROJECT])
+        code, out = run_guard(repo, "--staged", denylist=real)
+        check("18f the same fixture under a REAL list is exit 1, not 2", code == 1,
               f"got {code}: {out[:300]}")
-        msg = message_file(tmp, f"fix: from {SYNTH_HOME}/code\n")
-        code, out = run_guard(repo, "--message", str(msg), denylist=declared)
-        check("18f and they still fire on the MESSAGE under a declaration", code == 1,
-              f"got {code}: {out[:300]}")
 
-        sh("git", "reset", "-q", cwd=repo)
-        (repo / "docs.md").unlink()
-        stage(repo, "app.py", "print('hello')\n")
-
-        # A declaration ALONGSIDE entries is what merging two machines' lists produces. Honouring
-        # either half would be picking, unprompted, whether to check for private names at all.
-        both = write_denylist(tmp, [DECLARE_NONE, SYNTH_PROJECT])
+        # A directive ALONGSIDE real entries used to be a special "contradiction" branch. There is
+        # no contradiction to detect any more: the `!` line is simply an unusable entry, and one
+        # unusable entry voids the list. Same exit, one fewer concept.
+        both = write_denylist(tmp, [REMOVED_OPT_OUT, SYNTH_PROJECT])
         code, out = run_guard(repo, "--staged", denylist=both)
-        check("18g a declaration alongside real entries is a contradiction, exit 2", code == 2,
+        check("18g a directive alongside real entries voids the list", code == 2,
               f"got {code}: {out[:300]}")
         check("18h and it says the private-name check did not run", "did not run" in out, out[:300])
 
-        # Spelling. Case-insensitive and comment/blank tolerant, because those are how a human
-        # actually writes the line — but nothing that merely RESEMBLES it counts.
-        upper = write_denylist(tmp, [DECLARE_NONE.upper()])
-        code, out = run_guard(repo, "--staged", denylist=upper)
-        check("18i the declaration is case-insensitive", code == 0, f"got {code}: {out[:300]}")
-
-        commented = tmp / "commented.txt"
-        commented.write_text(f"# no private names on this machine\n\n  {DECLARE_NONE}  \n",
-                             encoding="utf-8")
-        code, out = run_guard(repo, "--staged", denylist=commented)
-        check("18j surrounding comments, blanks and whitespace do not break it", code == 0,
-              f"got {code}: {out[:300]}")
-
-        # A COMMENTED-OUT declaration is not a declaration. This is the near-miss that matters: the
-        # `#`-strip runs first, so `# !no-private-identifiers` leaves an empty line and the file is
-        # the empty one — exit 2, not a quiet pass.
+        # A COMMENTED-OUT directive was already nothing, and still is: the `#`-strip runs first, so
+        # the file is the empty one. Exit 2 by the empty-list path rather than the `!` path.
         commented_out = tmp / "commented-out.txt"
-        commented_out.write_text(f"# {DECLARE_NONE}\n", encoding="utf-8")
+        commented_out.write_text(f"# {REMOVED_OPT_OUT}\n", encoding="utf-8")
         code, out = run_guard(repo, "--staged", denylist=commented_out)
-        check("18k a declaration inside a COMMENT does not count — exit 2", code == 2,
+        check("18i a directive inside a comment is an empty list — exit 2", code == 2,
               f"got {code}: {out[:300]}")
 
-        # And a misspelling is an entry, not a declaration: it is long enough to be a valid
-        # identifier, so it silently becomes a rule rather than a pass. The file is therefore a
-        # normal populated list and exits 0 here — but the DECLARATION path was not taken, which is
-        # what 18m proves by showing the announcement is absent.
-        typo = write_denylist(tmp, ["!no-private-identifier"])
-        code, out = run_guard(repo, "--staged", denylist=typo)
-        check("18l a misspelled declaration does not silently disable the check", code == 0,
+        # THE OTHER DIRECTION, so none of the above is passing because everything exits 2: an
+        # ordinary populated list on the same otherwise-clean index is a clean run.
+        sh("git", "reset", "-q", cwd=repo)
+        (repo / "docs.md").unlink()
+        stage(repo, "app.py", "print('hello')\n")
+        code, out = run_guard(repo, "--staged", denylist=write_denylist(tmp, [SYNTH_PROJECT]))
+        check("18j an ordinary populated list on clean content is still exit 0", code == 0,
               f"got {code}: {out[:300]}")
-        check("18m and it is treated as an entry, not as a declaration",
-              "declaration rather than by default" not in out, out[:300])
 
 
 def main() -> int:
@@ -966,7 +1121,7 @@ def main() -> int:
                  case_missing_denylist, case_broken_denylist, case_history_is_not_reflagged,
                  case_broken_rule_set, case_crash_and_interrupt, case_end_to_end_commit,
                  case_output_does_not_republish, case_argv, case_diff_shape,
-                 case_missing_guard_is_not_a_skip, case_declared_empty_denylist):
+                 case_missing_guard_is_not_a_skip, case_no_opt_out):
         case()
 
     print()

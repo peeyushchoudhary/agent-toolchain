@@ -71,27 +71,49 @@ on a signal inside the work tree would put the fail-open back one level down, wh
 could switch its own scan off from the inside. The invocation is the condition, and it is already
 satisfied by the time this file has an opinion.
 
-Deliberate emptiness still has to be expressible, or the fix is a trap for the one honest case: a
-public repository whose owner genuinely has no private names to hide. It is expressed by SAYING so,
-in the file, with the single line
+THERE IS NO OPT-OUT, AND THAT IS THE FIX — BY CONSTRUCTION, NOT BY VALIDATION
+------------------------------------------------------------------------------
+The first attempt at the above kept an escape hatch for the one honest case — a public repository
+whose owner genuinely has no private names — spelled as a single declaration line in the file. That
+hatch was itself a fail-open, and it was measured three times:
 
-  !no-private-identifiers
+  a one-character transposition of the declaration + a real private name staged   ->  exit 0
+  a BOM in front of the only real entry                                           ->  exit 0
+  the same file without the BOM                                                   ->  exit 1
 
-and it may not be expressed any other way. Not by deleting the file, which is exactly what a fresh
-clone and a bad `$HOME` look like. Not by leaving the file empty, which is exactly what a truncated
-write, an interrupted edit or a bad merge leaves behind. The declaration is a positive act with no
-accidental spelling: no filesystem event, no failed copy and no partial write produces that line.
-That is the whole property being bought — the difference between a state that was CHOSEN and a state
-that merely HAPPENED, which is the difference an exit code has to encode.
+Delete the file and it was 2. Empty the file and it was 2. Comment the line out and it was 2.
+MISTYPE it and it was 0 — because a misspelled directive is an ordinary deny-list ENTRY, long enough
+to be legal and matching nothing that exists, so the file looked populated and the run looked clean.
+The hatch turned a typo into a silently disabled guard, which is the exact defect the exit-2 rule was
+written to end, reintroduced one level down.
+
+So the hatch is gone, and no validated replacement takes its place. That distinction is the whole
+point: a rule enforced by VALIDATING a feature can regress, because the validation can be evaded, and
+this one was. A rule enforced by the ABSENCE of the feature cannot, because there is no misspelling
+of a syntax that does not exist. Do not reintroduce a checked, canonicalised, fuzzy-matched or
+otherwise "safe" variant of the declaration line. The safety came from deleting it.
+
+A DENY-LIST IS THEREFORE MANDATORY. Missing is 2, empty is 2, no usable entries is 2, and none of
+those is ever 0. An entry that begins `!` is refused too — entries are identifiers, not directives,
+and refusing them is what stops a file left over from the old regime from reading as populated.
+
+The lockout objection does not apply here, and it is worth being precise about why, because the same
+objection is sometimes correct. A block is dangerous when its stated remedy cannot clear it — the
+push guard's `git fetch` case, where doing the suggested thing left the block in place. This block's
+remedy is "create this file, at this path, one identifier per line", it is one step, and the message
+below states the path, the format, and where a fresh machine gets the file back. A block a person can
+clear in ten seconds is not a lockout.
 
 The cost of being wrong in each direction settles the rest. Wrongly exiting 2 costs one message and
-one deliberate ten-second decision, and the message says exactly which two options are available.
-Wrongly exiting 0 puts a private project name in a public repository's history, permanently, and
-rewriting the branch does not recall the clones. Those are not comparable.
+one ten-second file creation. Wrongly exiting 0 puts a private project name in a public repository's
+history, permanently, and rewriting the branch does not recall the clones. Those are not comparable.
 
-THE GENERIC RULES ARE UNAFFECTED IN EVERY CASE. Home paths and the runtime-derived git identity are
-patterns and lookups; they need no file and are never skipped. What changed is only that a deny-list
-which could not be loaded now voids the run instead of shrinking it in silence.
+WHAT AN EXIT 2 HERE DOES AND DOES NOT MEAN. It does NOT mean "the private-name check was skipped and
+the generic rules still ran". The deny-list is loaded BEFORE any scanning, so a run that cannot load
+it is VOIDED ENTIRELY — no home-path scan, no identity scan, no output about either. An earlier
+revision of this file claimed the generic rules were "unaffected in every case" and "never skipped";
+that was false as written and is struck. The generic rules need no file, but they never get the
+chance to run, because nothing is scanned at all.
 
 EXIT CONTRACT — identical to push_guard.py, deliberately
 --------------------------------------------------------
@@ -140,12 +162,12 @@ from pathlib import Path
 DENYLIST_ENV = "PD_PRIVATE_IDENTIFIERS"
 DEFAULT_DENYLIST = Path.home() / ".claude" / "private-identifiers.txt"
 
-# The one spelling of "I have no private names, and I mean it". Compared case-insensitively against
-# a stripped line. Leading `!` so it can never collide with an identifier (an entry beginning `!` is
-# not a project name), and it survives the `#`-comment strip because it is not a comment — a comment
-# would be indistinguishable from documentation somebody pasted in, which is the accident this line
-# has to be immune to.
-NO_PRIVATE_IDENTIFIERS = "!no-private-identifiers"
+# Where a fresh machine gets the deny-list back. Named in every fatal message, because a block whose
+# remedy is not stated is the lockout this design is accused of and is not. This file is vendored
+# into a deliberately-public repository, so the remedy names the machine's restore documentation and
+# nothing else: no repository name, account, or URL belongs here — see the module docstring on what
+# is safe to publish.
+RESTORE_DOC = "~/.claude/docs/RESTORE.md"
 
 # `/Users/<segment>` and `/home/<segment>`. Written as one alternation on purpose: this literal must
 # not match ITSELF, and it does not — the text `/Users` here is followed by `|`, never by `/`. Any
@@ -188,6 +210,14 @@ SEPARATORS = "-_. "
 # (and, for the verbose diff, duplicate every finding the staged scan already made).
 SCISSORS = re.compile(r"^\s*#\s*-+\s*>8\s*-+")
 
+# Prepended to EVERY git invocation. `core.quotepath` is on by default and makes git print a path
+# containing any non-ASCII byte as a C-quoted string — `"docs/\303\251t\303\251.md"` — so a private
+# name written in anything but ASCII arrives at the scanner as octal escapes and matches nothing.
+# Turning it off is not cosmetic; it is the difference between scanning the path and scanning a
+# transliteration of it. Passed as `-c` rather than read and checked, because the guard must not
+# depend on how the repository it is defending has configured itself.
+GIT_OVERRIDES = ("-c", "core.quotepath=false")
+
 
 class GuardError(RuntimeError):
     """A check could not complete.
@@ -224,7 +254,7 @@ def git(*args: str, timeout: int = 60, tolerate_failure: bool = False) -> str:
     clean scan.
     """
     try:
-        return _decode(subprocess.run(["git", *args], capture_output=True,
+        return _decode(subprocess.run(["git", *GIT_OVERRIDES, *args], capture_output=True,
                                       timeout=timeout, check=True).stdout)
     except subprocess.CalledProcessError as exc:
         if tolerate_failure:
@@ -255,6 +285,41 @@ def redact(text: str) -> str:
     if len(text) <= 4:
         return text[0] + "…"
     return text[:2] + "…" + text[-1]
+
+
+def display_path(path: Path | str) -> str:
+    """A filesystem path as it is safe to PRINT: no real home segment, ever.
+
+    Every fatal message below names the deny-list's path, because a block whose remedy omits the path
+    is not actionable. The default path is `$HOME/.claude/private-identifiers.txt`, and printing it
+    verbatim publishes the account segment — the very rule `home_path_rule` blocks other people's
+    files for carrying. The guard's own output was the one place exempt from its own rule, and hook
+    output is pasted into transcripts and agent reports exactly like any other text.
+
+    `~` is substituted for the real home first, which covers the default and every override under it.
+    Anything left that still looks like a home path — an override elsewhere on the disk, another
+    user's tree — is redacted through the same rule the scanner uses, so there is no second spelling
+    to keep in sync.
+    """
+    text = str(path)
+    home = str(Path.home())
+    if home and (text == home or text.startswith(home + os.sep)):
+        text = "~" + text[len(home):]
+    return HOME_PATH.sub(lambda m: m.group(0).replace(m.group(1), redact(m.group(1))), text)
+
+
+def remedy(path: Path) -> str:
+    """The one-step way out of every fatal deny-list state, stated identically in all of them.
+
+    Named parts, all three load-bearing: the PATH so there is nothing to guess, the FORMAT so the file
+    can be written correctly first time, and the DOC that describes how a fresh machine restores it —
+    no clone of this public repository brings it. A block is only a lockout when doing the suggested
+    thing does not clear it; this clears it.
+    """
+    return (f"Create {display_path(path)} — one identifier per line, `#` comments and blank lines "
+            f"ignored, nothing else — or point {DENYLIST_ENV} at where yours lives. The file is "
+            f"per-machine and no clone of a public repository brings it: see {RESTORE_DOC} for how "
+            f"this machine restores it.")
 
 
 class Rule:
@@ -406,8 +471,8 @@ def derived_rules(notes: list[str]) -> list[Rule]:
     return rules
 
 
-def read_denylist(path: Path, notes: list[str]) -> list[Rule]:
-    """Load the private deny-list. Every way of not loading it is exit 2.
+def read_denylist(path: Path) -> list[Rule]:
+    """Load the private deny-list. It is MANDATORY, and every way of not loading it is exit 2.
 
     ABSENT is not a clean scan and no longer reads as one. It used to append a note and return no
     rules, and `report` then exited 0 — the fail-open documented at length in the module docstring,
@@ -421,18 +486,32 @@ def read_denylist(path: Path, notes: list[str]) -> list[Rule]:
     exactly like a healthy install — the same failure push_guard.py's empty-SECRET_PATTERNS probe
     exists to catch, in the same directory, one guard over.
 
-    DELIBERATE EMPTINESS is the single line `!no-private-identifiers`, and nothing else. Neither of
-    the two states above can be it, because both are things that HAPPEN to a file; a declaration has
-    to be something somebody DID. It is announced loudly on every run, because a machine that has
-    declared it away is checking strictly less than one that has not, and only the founder can judge
-    whether that is still true today.
+    THERE IS NO WAY TO SAY "DELIBERATELY NONE", and that is deliberate. A declaration line used to
+    exist for it; a one-character typo in that line made it an ordinary entry, the file read as
+    populated, and a staged private name exited 0. The full argument, and the reason no validated
+    replacement is acceptable either, is in the module docstring. The consequence here is that this
+    function has exactly one success path: at least one usable entry.
 
-    A declaration ALONGSIDE entries is a contradiction and is exit 2. It is what a careless merge of
-    two machines' lists produces, and guessing which half was meant would be guessing whether to
-    check for private names at all.
+    AN ENTRY THAT CANNOT MATCH IS REFUSED RATHER THAN COMPILED. Three shapes reach that state, and
+    all three used to become rules that silently fired on nothing:
 
-    Decoded strictly, unlike `_decode`. A mojibake deny-list entry does not match the name it was
-    meant to match, and the failure is silent; refusing to run is the only honest response.
+      begins `!`      a leftover directive from the removed syntax, or a misspelling of one. Refused
+                      by shape, not by comparison against a known word — the point is that the file
+                      has no directives at all, so anything shaped like one is a mistake.
+      has a backslash a shell-escaped spelling (`Two\\ Words`) pasted from a command line. The
+                      matcher escapes it literally, so the rule looks for a backslash in the scanned
+                      text and never finds one. This was in the real list, inert, for months.
+      separators only compiles to `[-_. ]*`, which matches the empty string at every position and
+                      therefore returns an empty match the scanner treats as no match.
+
+    A deny-list that silently accepts entries which can never fire is a deny-list nobody can audit:
+    it looks longer than it is, and the entry that is not working is the one you believe in.
+
+    Decoded as utf-8-SIG, and strictly. Strictly, unlike `_decode`, because a mojibake entry does not
+    match the name it was meant to match and the failure is silent. `-sig` because a BOM is otherwise
+    a decoded character glued to the FIRST entry, which is a real, measured miss: with a BOM the only
+    entry in a file stopped matching and the run exited 0, and without it the same file exited 1.
+    Editors on this platform write BOMs without being asked.
 
     One identifier per line, `#` comments and blanks ignored. If a richer format ever seems
     necessary, it is not — a deny-list that needs a schema has stopped being a deny-list.
@@ -441,59 +520,60 @@ def read_denylist(path: Path, notes: list[str]) -> list[Rule]:
         raw = path.read_bytes()
     except FileNotFoundError as exc:
         raise GuardError(
-            f"no private deny-list at {path} — so private names were NOT checked for, and this "
-            f"run checked strictly less than a run with one. That is not a clean result. Create "
-            f"the file with one identifier per line, or point {DENYLIST_ENV} at where yours "
-            f"lives; if this repository genuinely has no private names to hide, say so on purpose "
-            f"by making the file's only line `{NO_PRIVATE_IDENTIFIERS}`. Deleting the file is not "
-            f"how that is said — an absent file is indistinguishable from a fresh clone. The "
-            f"private-name check did not run") from exc
+            f"there is no private deny-list at {display_path(path)}, and it is not optional — "
+            f"private names were NOT checked for, so nothing was scanned and this run is not a "
+            f"clean result. {remedy(path)} The private-name check did not run") from exc
     except OSError as exc:
-        raise GuardError(f"the private deny-list at {path} exists but could not be read ({exc}) — "
-                         f"the private-name check did not run") from exc
+        raise GuardError(f"the private deny-list at {display_path(path)} exists but could not be "
+                         f"read ({exc}) — the private-name check did not run") from exc
     try:
-        text = raw.decode("utf-8")
+        text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        raise GuardError(f"the private deny-list at {path} is not valid UTF-8 ({exc}) — an entry "
-                         f"that does not decode does not match, so the check did not run") from exc
+        raise GuardError(f"the private deny-list at {display_path(path)} is not valid UTF-8 "
+                         f"({exc}) — an entry that does not decode does not match, so the check "
+                         f"did not run") from exc
+
+    def refuse(lineno: int, why: str) -> GuardError:
+        # The entry is NEVER echoed. It is private, and a message that prints it to explain why it
+        # is unusable has published it to make a point about formatting.
+        return GuardError(f"the private deny-list at {display_path(path)} has an unusable entry on "
+                          f"line {lineno}: {why}. An entry that cannot match makes the list look "
+                          f"longer than it is, so it is refused rather than compiled into a rule "
+                          f"that never fires — fix or remove that line. The private-name check did "
+                          f"not run")
 
     rules: list[Rule] = []
-    declared_none = False
     for lineno, line in enumerate(text.splitlines(), 1):
         entry = line.split("#", 1)[0].strip()
         if not entry:
             continue
-        if entry.lower() == NO_PRIVATE_IDENTIFIERS:
-            declared_none = True
-            continue
         if len(entry) < MIN_DENYLIST_LEN:
-            # The entry is NOT echoed. It is private, and a message that prints it to prove it is
-            # too short has published it to make a point about length.
-            raise GuardError(f"the private deny-list at {path} has an entry on line {lineno} of "
-                             f"only {len(entry)} characters. An entry that short matches most "
-                             f"files, so the guard would block every commit — fix the line "
-                             f"(entries must be at least {MIN_DENYLIST_LEN} characters). The "
-                             f"private-name check did not run")
+            raise refuse(lineno, f"it is only {len(entry)} characters, and an entry that short "
+                                 f"matches most files, so the guard would block every commit "
+                                 f"(entries must be at least {MIN_DENYLIST_LEN} characters)")
+        if entry.startswith("!"):
+            raise refuse(lineno, "it begins with `!`. Entries are identifiers, not directives — "
+                                 "this file has no directive syntax and no way to switch the "
+                                 "private-name check off")
+        if "\\" in entry:
+            raise refuse(lineno, "it contains a backslash, which is matched literally, so the rule "
+                                 "would look for a backslash in the scanned text. Write the name "
+                                 "unescaped — spaces, hyphens, underscores and dots are already "
+                                 "interchangeable")
+        if all(ch in SEPARATORS for ch in entry):
+            raise refuse(lineno, "it is nothing but separator characters, which compile to a "
+                                 "pattern that matches the empty string everywhere and therefore "
+                                 "nothing anywhere")
         rules.append(literal_rule("private deny-list entry", entry, sensitive=True))
 
-    if declared_none and rules:
-        raise GuardError(f"the private deny-list at {path} declares "
-                         f"`{NO_PRIVATE_IDENTIFIERS}` and also lists entries. Those cannot both be "
-                         f"true, and choosing between them would be choosing whether to check for "
-                         f"private names at all — remove whichever line is stale. The "
-                         f"private-name check did not run")
-    if declared_none:
-        notes.append(f"the deny-list at {path} declares `{NO_PRIVATE_IDENTIFIERS}` — private names "
-                     f"were deliberately NOT checked for, by declaration rather than by default. "
-                     f"The generic rules still ran. Remove that line the moment there is a private "
-                     f"name to keep out of this repository.")
-        return []
     if not rules:
-        raise GuardError(f"the private deny-list at {path} exists but contains no usable entries. "
-                         f"An empty list silently checks for nothing while looking installed — an "
-                         f"interrupted write and a bad merge both leave exactly this. If having no "
-                         f"private names is DELIBERATE, say it on purpose: make the file's only "
-                         f"line `{NO_PRIVATE_IDENTIFIERS}`. The private-name check did not run")
+        raise GuardError(f"the private deny-list at {display_path(path)} exists but contains no "
+                         f"usable entries, and an empty list is not a clean guard — it checks for "
+                         f"nothing while looking installed, which is exactly what an interrupted "
+                         f"write, a bad merge and a file emptied by hand all leave behind. There "
+                         f"is no way to declare that a repository deliberately has no private "
+                         f"names; if that is genuinely true, this guard should not be installed "
+                         f"here at all. {remedy(path)} The private-name check did not run")
     return rules
 
 
@@ -513,12 +593,49 @@ def self_probe(rules: list[Rule], denylist_count: int) -> None:
         raise GuardError("the absolute-home-path rule does not match a known-good synthetic home "
                          "path — the pattern set is broken, so the scan would match nothing "
                          "against everything")
-    if any(r.sensitive and r.pattern.pattern == "" for r in rules):
-        raise GuardError("a rule compiled to an empty pattern, which matches everywhere and "
-                         "therefore nowhere useful — the rule set is broken")
+    # WHAT THIS USED TO TEST AND COULD NOT REACH: `r.pattern.pattern == ""`. No entry can produce an
+    # empty pattern — a blank line is skipped before it becomes a rule — so the check was dead, while
+    # the failure it was aimed at was live one shape over. A separator-only entry compiles to
+    # `[-_. ]*`, which is not the empty pattern but behaves worse than it: it matches the empty
+    # string at position 0 of every text, `find` gets `""` back, `""` is falsy, and the rule reports
+    # no match against anything for ever. The condition is therefore "matches the empty string",
+    # which covers the empty pattern too, and is reachable.
+    #
+    # `read_denylist` already refuses these at parse time. This stays as the backstop that also
+    # covers the DERIVED rules, which come from git config and are not parsed by that function: a
+    # `user.name` of `-_-_` is four characters, is not in TOO_GENERIC, and would otherwise compile to
+    # exactly this dead rule.
+    dead = [r.name for r in rules if r.pattern.search("") is not None]
+    if dead:
+        raise GuardError(f"a rule ({dead[0]}) compiled to a pattern that matches the empty string, "
+                         f"so it reports no match against every possible text — that rule is dead "
+                         f"and the rule set cannot be trusted")
     if denylist_count and not any(r.name == "private deny-list entry" for r in rules):
         raise GuardError(f"{denylist_count} deny-list entries were loaded but none reached the "
                          f"rule set — the private-name check did not run")
+
+
+def redact_location(where: str, rule: Rule) -> str:
+    """Redact the LOCATION column with the rule's own pattern, not with the matched string.
+
+    Not decoration. When the match is in a PATH the location string IS the identifier, and printing
+    `path docs/<private-name>.md` beside a carefully abbreviated match republishes it in the next
+    column. When the match is in a LINE the location is `<file>:<lineno>`, and the file is very often
+    named after the same private thing the line mentions.
+
+    THE BUG THIS REPLACES: `where.replace(found, shown)`. `str.replace` is exact — case-sensitive and
+    separator-sensitive — while every matcher here is neither. `zarquon-widget` found in a line did
+    not replace `Zarquon_Widget` in the path, so the location column printed in full precisely the
+    identifier the match column was redacting. Every other spelling the deny-list is built to catch
+    was a spelling this line failed to redact.
+
+    Substituting with the rule's own pattern removes the second spelling entirely: whatever the rule
+    can match, the rule redacts, in every case and separator variant, with no rule left to keep in
+    sync. Empty matches are passed through untouched — `re.sub` would otherwise splice a redaction
+    marker between every character — and `self_probe` has already refused any rule that can produce
+    one.
+    """
+    return rule.pattern.sub(lambda m: redact(m.group(0)) if m.group(0) else "", where)
 
 
 def scan(text: str, where: str, rules: list[Rule], hits: list[tuple[str, str, str]]) -> None:
@@ -531,12 +648,7 @@ def scan(text: str, where: str, rules: list[Rule], hits: list[tuple[str, str, st
     for rule in rules:
         found = rule.find(text)
         if found:
-            shown = redact(found)
-            # The LOCATION is redacted too, with the same substitution. It is not decoration: when
-            # the match is in a PATH rather than in a line, the location string contains the very
-            # identifier the finding is redacting, and printing `path docs/<private-name>.md`
-            # alongside a carefully abbreviated match republishes it in the next column.
-            hits.append((where.replace(found, shown), rule.name, shown))
+            hits.append((redact_location(where, rule), rule.name, redact(found)))
             return
 
 
@@ -578,7 +690,16 @@ def scan_staged(rules: list[Rule]) -> list[tuple[str, str, str]]:
         if path.strip():
             scan(path, f"path {path}", rules, hits)
 
+    # `--src-prefix`/`--dst-prefix` PINNED, not inherited. The header parser below keys on `+++ b/`,
+    # and `b/` is only the default: `diff.mnemonicPrefix=true` writes `+++ i/<path>` for the index,
+    # and `diff.noprefix=true` writes `+++ <path>` with none at all. MEASURED with mnemonicPrefix
+    # set: a staged file carrying a deny-listed name was still blocked, but the finding was
+    # attributed to `?:1` — the file name gone from the report, which is the half of a finding that
+    # makes it actionable. Command-line prefixes override every config spelling of this, including
+    # `diff.srcPrefix`/`diff.dstPrefix`, so the parser's assumption is now guaranteed rather than
+    # assumed. The repository being defended does not get a vote on the guard's parser.
     diff = git("diff", "--cached", "--text", "--no-textconv", "--no-ext-diff",
+               "--src-prefix=a/", "--dst-prefix=b/",
                "--unified=0", "--no-color", base, timeout=300)
 
     current = "?"
@@ -675,7 +796,7 @@ def run(args: argparse.Namespace) -> int:
     rules.extend(derived_rules(notes))
 
     denylist_path = Path(os.environ.get(DENYLIST_ENV) or DEFAULT_DENYLIST).expanduser()
-    denylist = read_denylist(denylist_path, notes)
+    denylist = read_denylist(denylist_path)
     rules.extend(denylist)
     self_probe(rules, len(denylist))
 
