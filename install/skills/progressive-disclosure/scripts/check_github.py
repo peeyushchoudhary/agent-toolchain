@@ -21,8 +21,10 @@ Usage:
   check_github.py [ROOT] --apply-settings  # disable Wiki/Projects/Issues on the remote
   check_github.py --sweep DIR              # one line per project under DIR
 
-Exit: 0 clean · 1 a finding · 2 the check could not run (the remote was never read, so visibility
-is NOT determined). `--hook` always exits 0 — session start must never fail on this.
+Exit: 0 clean · 1 a finding · 2 the check could not run. Two things can put it in that third state
+and both are reported as what was NOT determined rather than as an absence: the remote was never
+read (so visibility is unknown), or git itself never answered (so the local half is unknown).
+`--hook` always exits 0 — session start must never fail on this.
 """
 
 from __future__ import annotations
@@ -153,9 +155,10 @@ FEATURE_TOGGLES = ("has_wiki", "has_projects", "has_issues")
 def git_probe(root: Path, *args: str, timeout: int = 15) -> tuple[int, str] | None:
     """(returncode, stdout), or None when the command itself could not be run.
 
-    The distinction `git()` throws away. `None` means git never answered — not installed, killed by
-    the timeout, an unreadable object store — and is not evidence about the repository. A non-zero
-    returncode, by contrast, IS an answer: git ran and said no.
+    `None` means git never answered — not installed, killed by the timeout, an unreadable object
+    store — and is not evidence about the repository. A non-zero returncode may or may not be an
+    answer, and WHICH codes are answers depends on the command; that judgement belongs to the
+    caller, which is why this function reports the code rather than interpreting it.
     """
     try:
         r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
@@ -165,19 +168,54 @@ def git_probe(root: Path, *args: str, timeout: int = 15) -> tuple[int, str] | No
     return r.returncode, r.stdout
 
 
-# DELIBERATELY the opposite failure policy from `push_guard.py`'s function of the same name, and the
-# divergence must not be collapsed. That one RAISES on any non-zero and says so in its own comment,
-# because it decides whether a push is safe and a swallowed error there is a fail-OPEN. This one
-# returns "" on both a non-zero exit and a failure to run, because every caller here is gathering
-# facts for a report: a repo with no origin, no upstream and no commits is the normal case, and each
-# of those is a non-zero git exit that must read as "no" rather than as a crash at session start.
+class GitUnanswered(RuntimeError):
+    """git did not answer a question the local report is built on. Not a fact about the repository.
+
+    Carries the command and the exit code, because the report has to be able to say which question
+    went unanswered — "the check could not run" with no subject is a shrug, not a finding.
+    """
+
+    def __init__(self, args: tuple[str, ...], returncode: int | None) -> None:
+        self.args_run = args
+        self.returncode = returncode
+        what = "could not be run at all" if returncode is None else f"exited {returncode}"
+        super().__init__(f"`git {' '.join(args)}` {what}")
+
+
+# THE COMMENT THAT USED TO SIT HERE WAS FALSE, and that is why nobody checked. It said this
+# function returned "" on failure, and that an empty field in `local_state()` therefore meant the
+# thing was genuinely not there. The second half was never true. (The phrase it used is deliberately
+# not reproduced: a tripwire in the test file forbids it outright, so it cannot creep back as a
+# quotation that a later reader mistakes for a live claim.)
+# `git log --branches --not --remotes` exits 0 whenever it can
+# answer — including in a repo with no commits — so a non-zero from it is never "there is no
+# unpushed work", it is "nobody knows". With git exiting 128, a repo with three unpushed commits
+# reported nothing about them at all, and separately invented a CRITICAL "no git remote ... create
+# one" about a repository that has an origin. Absent and unknown are different states, and a
+# comment asserting they were the same is what let four call sites conflate them.
 #
-# What depends on that: `local_state()` only, whose fields are all "absent means absent". Nothing
-# security-relevant may be built on this function, because it cannot tell "git said no" from "git
-# never answered" — `marker_committed()` needs exactly that distinction and uses `git_probe()`.
-def git(root: Path, *args: str, timeout: int = 15) -> str:
+# So the policy is now `push_guard.py`'s, for the same reason: this function RAISES rather than
+# producing a value, and there is exactly one handler (`local_state`). What survives from the old
+# reasoning is the real observation buried in it — that a non-zero exit is SOMETIMES an answer. It
+# is per-command, so each caller states it:
+#
+#   git remote get-url origin                     0, and 2 = "there is no origin" — a real answer
+#   git log --branches --not --remotes            0 only
+#   git for-each-ref refs/heads                   0 only
+#   git status --porcelain                        0 only
+#
+# `answers` is keyword-only and has NO default, so a call site cannot be added without deciding
+# what a legitimate "no" looks like for it. Getting that set WRONG is the live risk rather than a
+# theoretical one: narrowing `remote get-url` to (0,) would reclassify every repository that simply
+# has no origin from CRITICAL to NOT CHECKED across the whole fleet. The codes above are measured,
+# not assumed, and `test_check_github_git_failure.py` re-measures them against the installed git.
+def git(root: Path, *args: str, answers: tuple[int, ...], timeout: int = 15) -> str:
     p = git_probe(root, *args, timeout=timeout)
-    return p[1].strip() if p and p[0] == 0 else ""
+    if p is None:
+        raise GitUnanswered(args, None)
+    if p[0] not in answers:
+        raise GitUnanswered(args, p[0])
+    return p[1].strip()
 
 
 # Session start runs this in every project; a slow network must never hold a session open. On a
@@ -202,27 +240,62 @@ def slug(url: str) -> str | None:
     return tail[:-4] if tail.endswith(".git") else tail or None
 
 
-def local_state(root: Path) -> dict:
-    st: dict = {"root": str(root), "name": root.name}
-    st["is_git"] = (root / ".git").is_dir()
-    if not st["is_git"]:
-        return st
+def git_state(root: Path) -> dict:
+    """Everything the local half knows, or `GitUnanswered` and nothing at all.
 
-    st["remote"] = git(root, "remote", "get-url", "origin")
+    All-or-nothing on purpose, and it is the decision most worth arguing with, so here is the
+    argument. Per-field unknowns would let three fields stay trustworthy while the fourth is not —
+    but every consumer of this dict (`findings`, `clean_detail`, the sweep row, the JSON) would
+    then need to learn the distinction separately, which is exactly the "teach each call site a
+    case" shape that produced the defect. One unknown for the whole local half means one handler
+    and one thing for a reader to understand.
+
+    What it costs: a repository where only `git status` fails loses an unpushed finding it could
+    have kept. That direction is the safe one — the finding is replaced by an `unable`, which
+    outranks it (exit 2 over exit 1), so the report gets louder rather than quieter. The unsafe
+    direction, a real finding replaced by silence, is the defect this function exists to remove.
+    """
+    st: dict = {}
+    # 2 is a real answer here — "there is no origin" — and it feeds the CRITICAL below.
+    st["remote"] = git(root, "remote", "get-url", "origin", answers=(0, 2))
     st["slug"] = slug(st["remote"])
 
     # Commits on a local branch that no remote-tracking ref contains. Tags are deliberately not
     # counted: `--not --remotes` ignores them, so a tag-only commit reads as unpushed when it is
     # not. Tag drift is checked against the remote instead, where it can be answered correctly.
-    unpushed = git(root, "log", "--branches", "--not", "--remotes", "--format=%ct")
+    #
+    # 0 only. This command answers 0 even in a repository with no commits and no branches, so a
+    # non-zero from it never means "no unpushed work" — it means nobody knows, and reading it as
+    # zero is what erased three unpushed commits from the report.
+    unpushed = git(root, "log", "--branches", "--not", "--remotes", "--format=%ct", answers=(0,))
     stamps = [int(s) for s in unpushed.split() if s.isdigit()]
     st["unpushed"] = len(stamps)
     st["unpushed_age_days"] = int((time.time() - min(stamps)) / 86400) if stamps else 0
 
     st["no_upstream"] = [b for b in git(
-        root, "for-each-ref", "--format=%(refname:short) %(upstream)", "refs/heads"
+        root, "for-each-ref", "--format=%(refname:short) %(upstream)", "refs/heads", answers=(0,)
     ).splitlines() if b and len(b.split()) == 1]
-    st["dirty"] = len([l for l in git(root, "status", "--porcelain").splitlines() if l.strip()])
+    st["dirty"] = len([l for l in git(root, "status", "--porcelain",
+                                      answers=(0,)).splitlines() if l.strip()])
+    return st
+
+
+def local_state(root: Path) -> dict:
+    """The local half, plus `unknown`: empty when git answered, and why not when it did not.
+
+    THE ONE HANDLER. On `GitUnanswered` the git-derived fields are not written at all, rather than
+    written with a plausible default. A caller that reads `st["unpushed"]` as 0 on a degraded state
+    is the defect; a caller that reads it and gets a KeyError is a bug report. Only `unknown` and
+    the two facts that need no git — the path and whether `.git` is a directory — survive.
+    """
+    st: dict = {"root": str(root), "name": root.name, "unknown": ""}
+    st["is_git"] = (root / ".git").is_dir()
+    if not st["is_git"]:
+        return st
+    try:
+        st.update(git_state(root))
+    except GitUnanswered as exc:
+        st["unknown"] = str(exc)
     return st
 
 
@@ -597,6 +670,18 @@ def findings(st: dict, rs: dict) -> list[tuple[str, str]]:
         out.append(("critical", "not a git repository at all — nothing here is version controlled "
                                 "or backed up. `git init` then create a PRIVATE GitHub repo."))
         return out
+    if st.get("unknown"):
+        # `unable`, and an early return, and both are the point. Everything below this line is
+        # derived from `git_state()`, which produced nothing — so there is no remote to judge, no
+        # commit count to compare and no branch list to walk. The alternative, falling through with
+        # missing fields, is what the old code did with empty ones: it printed a CRITICAL telling
+        # the human to create a remote for a repository that already had one, and said nothing
+        # about three commits that existed on one machine. A report that names what it could not
+        # measure is worth more than a confident report of the wrong thing.
+        out.append(("unable", f"git could not answer here, so this repository's remote, its "
+                              f"unsent commits and its branch state are NOT determined "
+                              f"({st['unknown']})"))
+        return out
     if not st.get("remote"):
         out.append(("critical", "no git remote — this repository exists only on this laptop. "
                                 "Create one with `gh repo create --private --source=. --push`."))
@@ -704,7 +789,15 @@ def report(st: dict, rs: dict, as_json: bool) -> int:
                           "findings": [{"severity": s, "detail": d} for s, d in f]}, indent=2,
                          default=str))
     else:
-        print(f"github: {st['name']}  ({st.get('slug') or 'no GitHub remote'})")
+        # The header is a report line like any other, and `or 'no GitHub remote'` made it assert an
+        # absence out of a missing key — so the broken-git run still opened by telling the reader
+        # this repository has no remote, one line above the finding saying the remote was never
+        # determined. Caught only by reading the real output; the findings list alone looked right.
+        if st.get("unknown"):
+            where = "GitHub remote NOT determined"
+        else:
+            where = st.get("slug") or "no GitHub remote"
+        print(f"github: {st['name']}  ({where})")
         if rs and not rs.get("unreachable"):
             print(f"  visibility: {'private' if rs.get('private') else 'PUBLIC'}   "
                   f"actions: {'on' if rs.get('actions_enabled') else 'off'}   "
@@ -781,6 +874,13 @@ def clean_detail(st: dict, rs: dict) -> str:
     """
     if not st.get("is_git"):
         return "not a git repository"
+    if st.get("unknown"):
+        # Unreachable today — an unknown always produces an `unable` finding, and this function is
+        # only called when there are none. Written anyway, because the alternative is not silence:
+        # the push clause below reads `st.get("unpushed") or 0` and would print the word "pushed"
+        # about a repository whose commits were never counted. A derived clause that cannot be
+        # derived is not printed; it is replaced by the fact that it could not be.
+        return f"git state NOT read ({st['unknown']})"
     read = bool(rs) and not rs.get("unreachable")
     clauses = ["private" if rs.get("private") else "PUBLIC"] if read else ["visibility NOT read"]
 
