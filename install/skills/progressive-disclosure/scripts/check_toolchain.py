@@ -33,15 +33,36 @@ A fourth machine-global concern was added by TC-41, and it sits one floor BELOW 
      plugins and inventing one would be wrong on the first new plugin and would train the reader to
      ignore the report. See `check_plugins` for the classification and the severity table.
 
-`--vendored` adds a fifth concern, and unlike the four above it IS repository-scoped:
+A fifth machine-global concern was added by TC-47, and it sits one floor BELOW even the plugins:
 
-  5. A repository that publishes a vendored copy of the installed shared layer — `install/skills`
-     mirroring `~/.claude/skills`. That copy is refreshed by hand, so it drifts in both directions:
-     a skill edited or added in `~/.claude` and never re-vendored publishes stale instructions, and
-     a skill deleted or renamed in `~/.claude` but left in the repository publishes a dead one
-     forever. Neither side of that drift is visible from either side alone. It is a fifth concern
-     rather than a fifth mode of the first four because the comparison is between a machine and a
-     *specific* repository, named on the command line, and never runs implicitly.
+  5. WHETHER GIT WOULD COMMIT ANY OF THIS AT ALL. Three times in one milestone authored content was
+     invisible to version control and nothing noticed — a decision record the renderer read at
+     startup, a lessons file invisible for two days while `git status` reported clean, and an entire
+     new skill directory a commit would have silently dropped. Each was found by a person and fixed
+     by a person adding one line to an allow-list. `check_tracking` asks git the question instead,
+     once per skill directory, with `git add --dry-run` and emphatically NOT `git check-ignore` —
+     see the block comment on GIT_ENV for the measurement that rules the second one out. The Codex
+     side is a derived mirror and is declared out of scope rather than swept; see
+     CODEX_TRACKING_ASYMMETRY.
+
+`--vendored` and `--reviews` add two REPOSITORY-SCOPED concerns; neither ever runs implicitly:
+
+  6. `--reviews <workspace>`: for every card that produced a report, an independent review artifact
+     must exist. Same defect class as (5) one floor over — authored work that no gate can see —
+     added after a live near-miss in which a card skipped its review stage entirely, was verified,
+     and moved toward a commit carrying two criticals. See `check_reviews`.
+
+  7. `--vendored <repo>`: a repository that publishes a vendored copy of the installed shared layer
+     — `install/skills` mirroring `~/.claude/skills`. That copy is refreshed by hand, so it drifts
+     in both directions: a skill edited or added in `~/.claude` and never re-vendored publishes
+     stale instructions, and a skill deleted or renamed in `~/.claude` but left in the repository
+     publishes a dead one forever. Neither side of that drift is visible from either side alone. It
+     is a concern of its own rather than a mode of the machine-global ones because the comparison is
+     between a machine and a *specific* repository, named on the command line.
+
+The two repository-scoped modes are MUTUALLY EXCLUSIVE at the argument parser: they are verdicts
+about different trees, and a run that silently executed one of them would print a status for a
+question the caller did not ask.
 
 THREE STATES, NEVER TWO. Every run resolves to exactly one of `clean`, `findings`, or `not-run`,
 and a check that did not execute is reported as not-run in those words. It is never absorbed into a
@@ -65,13 +86,15 @@ Usage:
   check_toolchain.py --hook    # compact agent context, silent when healthy
   check_toolchain.py --json
   check_toolchain.py --vendored <repo>   # diff ~/.claude/skills against <repo>/install/skills
+  check_toolchain.py --reviews <dir>     # every card with a report in <dir> must carry a review
 
 `--json` emits an OBJECT, not a bare findings array: an array cannot carry the difference between
 "nothing was wrong" and "nothing was looked at". Stable keys for a caller:
 
   {"mode", "status", "exit", "counts": {<severity>: n, "total": n},
    "evaluated": [...], "not_evaluated": [{"check", "why"}], "excluded": [{"name", "why"}],
-   "findings": [{"severity", "detail"}], "plugins": {...} | null, "summary": "..."}
+   "findings": [{"severity", "detail"}], "plugins": {...} | null,
+   "tracking": {...} | null, "reviews": {...} | null, "summary": "..."}
 
 `counts` is keyed by severity so a caller counts by severity without parsing prose, and always
 carries a key for every severity in SEVERITY_RANK even when it is zero.
@@ -82,6 +105,21 @@ so where `{}` would read as "there are none". Its shape is fixed by `plugin_surf
 caller most likely wants is `plugins["claude"]["enumerated"]`, which is `false` whenever any part of
 the Claude-side enumeration could not be completed, so an incomplete list can never be mistaken for
 a short one.
+
+`tracking` and `reviews` are TC-47's two sweeps, on the same terms and `null` in the modes that do
+not run them — `tracking` in `--vendored` and `--reviews`, `reviews` everywhere but `--reviews`.
+
+  tracking.claude.asked        false whenever git could not be asked. THE FIELD TO CHECK FIRST: an
+                               unasked question is not a satisfied one, and `results` is empty in
+                               both cases.
+  tracking.claude.results      skill directory -> "trackable" | "ignored" | "unknown", keyed by what
+                               the WORKING TREE holds, not by what HEAD carries. Do not reconcile
+                               its length against `git ls-files`; they count different trees.
+  tracking.claude.declared_vendor   name -> why. The exclusion list, quoted so it is visible.
+  tracking.codex.in_scope      always false, with `why_not_asked` carrying the reason.
+  reviews.cards                card id -> {"reports", "reviews"}. The per-card counts; the zero
+                               that is invisible in the aggregate is obvious here.
+  reviews.totals               {"cards", "with_reports", "unreviewed"}.
 
 WHAT A `--json` CONSUMER MUST HANDLE, stated because it is NOT symmetrical with
 `validate_disclosure.py` and a caller told otherwise will crash on the path that matters most.
@@ -106,6 +144,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 HOME = Path.home()
@@ -219,6 +258,10 @@ class Run:
         # an empty mapping is the correct value for "a machine with no plugins", so using it for
         # "not enumerated here" would collapse the same two states this class exists to keep apart.
         self.plugins: dict | None = None
+        # The TC-47 sweeps, on the same terms and for the same reason: `{}` is the right value for
+        # "a workspace with no cards", so it cannot also mean "this mode does not sweep".
+        self.tracking: dict | None = None
+        self.reviews: dict | None = None
 
     def add(self, findings: list[tuple[str, str]], label: str | None = None,
             clean_phrase: str | None = None) -> None:
@@ -275,7 +318,13 @@ class Run:
         """
         scope = ""
         if self.excluded:
-            scope = ("; " + f"{len(self.excluded)} excluded and NOT compared: "
+            # "excluded from findings", not "excluded and NOT compared". The header used to assert
+            # the stronger thing, which was true of every exclusion until TC-47 added one that was
+            # ASKED and ANSWERED and merely exempt from producing a finding — a declared vendor,
+            # whose state is recorded in `tracking.claude.results`. A header that contradicts the
+            # data two keys away is the same false-reassurance defect at label size. Each entry's
+            # own `why` still says which of the two it is.
+            scope = ("; " + f"{len(self.excluded)} excluded from findings: "
                      + ", ".join(f"{n} ({w})" for n, w in self.excluded))
         if status == "clean":
             return "clean — " + ("; ".join(self.clean_phrases) or "nothing to check") + scope
@@ -1233,6 +1282,197 @@ CODEX_ASYMMETRY = ("~/.codex/config.toml expresses only `[plugins.\"name@marketp
                    "NAME ONLY. Whether a Codex plugin ships an agent that shadows a persona is "
                    "UNKNOWN, not known to be false.")
 
+# ------------------------------------------------------------------------------------------------
+# TC-47. Authored content that git would not commit, and nothing noticed.
+#
+# THREE MEASURED INSTANCES IN ONE MILESTONE, all the same mechanism and all found by a person rather
+# than a gate: `docs/decisions.md` untracked while the renderer READ it at startup — an untracked
+# record is a broken install, not a documentation gap; `docs/fleet-lessons.md` invisible to git for
+# two DAYS while `git status` reported clean; and an entire new skill directory for which
+# `git status --porcelain` returned NOTHING, so a commit would have silently dropped it. Each was
+# fixed by a human adding one line to an allow-list. The remedy is right and the discovery mechanism
+# is not: nothing ever asked.
+#
+# THE QUESTION IS `git add --dry-run`, NOT `git check-ignore`, AND THAT DISTINCTION IS THE WHOLE
+# CHECK. `check-ignore` exits 0 both when a path is excluded AND when a NEGATION matched it, and only
+# the second is the wanted answer. Verified here on git 2.50.1 against `/*` + `!/kept`:
+#
+#     git check-ignore -v -- kept          -> exit 0, prints `.gitignore:2:!/kept  kept`
+#     git check-ignore -v -- ignored       -> exit 0, prints `.gitignore:1:/*      ignored`
+#
+# Two opposite states, one exit code. `skills/.gitignore` is an ALLOW-LIST — `/*` then a negation per
+# owned skill — so under that shape EVERY published skill is a negation match and a check built on
+# check-ignore's exit code cannot tell the published ones from the dropped one. It would report the
+# same answer for the whole directory on exactly the state it exists to catch. The programme's ledger
+# already records that trap being hit once; this is it not being inherited in a new form.
+#
+# `git add --dry-run` answers the question that was actually asked — WOULD THIS BE COMMITTED — and
+# separates the two states by exit code: 0 for the negated path, 1 for the excluded one.
+#
+# IT DOES NOT STAGE, re-derived rather than taken on trust, because a check that mutated the index at
+# every session start would be far worse than the gap it closes. On the case that carries the risk —
+# an untracked, NON-ignored path, where the add path really runs and really printed `add
+# 'newskill/SKILL.md'` — `git ls-files -s`, the raw bytes of `.git/index`, and `git status
+# --porcelain` were all byte-identical before and after. Proving the guarded operation was ATTEMPTED
+# is half of that: a probe on an ignored path leaves the index alone for the uninteresting reason
+# that it did nothing at all, and "no mutation" measured there would be a control broken in the
+# exonerating direction.
+#
+# THERE IS NO SECOND BELT, and an earlier version of this comment claimed there was. It set
+# `GIT_OPTIONAL_LOCKS=0` and told the reader the no-mutation property therefore did not rest solely
+# on `--dry-run`. MEASURED, and the claim was false: that variable suppresses only lock-taking git
+# considers OPTIONAL, and `git add`'s index lock is not. With `.git/index.lock` already held,
+# `git add --dry-run` fails identically with and without it —
+#
+#     touch .git/index.lock
+#     GIT_OPTIONAL_LOCKS=0 git add --dry-run -- agents   -> exit 128, "Unable to create index.lock"
+#                          git add --dry-run -- agents   -> exit 128, "Unable to create index.lock"
+#
+# — and polling the work tree during forty probes observes `.git/index.lock` being created. So the
+# variable was inert here and has been REMOVED rather than left in place with a corrected comment:
+# an inert setting whose comment claims a safety property is worse than no setting, because it
+# answers the question a reader would otherwise go and measure.
+#
+# The no-mutation property therefore rests SOLELY on `--dry-run`, which is exactly what stop
+# condition 1 asked to be verified. It is verified twice — by the measurement above, and now by
+# `test_a_tracking_run_does_not_touch_the_index`, which hashes `.git/index` and `git ls-files -s`
+# across a real run on a home carrying an untracked NON-ignored skill, so the add path runs.
+#
+# THE SECOND CONSEQUENCE IS OPERATIONAL AND IT IS WHY `git_probe` RETRIES. Taking the lock means one
+# probe per skill directory contends with any other git process in the same repository — and
+# `~/.claude` is a repository several agent sessions write to at once.
+#
+# MEASURED, WITH ITS TREE NAMED, because the first version of this comment said "six on a completely
+# healthy machine" and six was the six-skill TEST FIXTURE, not this machine, which has eight skill
+# directories. Two measured numbers in one file disagreeing is a provenance defect whatever the
+# conclusion. Re-run on a faithful eight-directory replica of ~/.claude carrying BOTH .gitignore
+# files — not on the live repository, deliberately: creating `.git/index.lock` there would inflict
+# on concurrent sessions exactly the failure being measured.
+#
+#   held lock, retries disabled  -> 8 unknown, 8 not-run findings   (the original defect, at 8)
+#   held lock, retries on, never clears -> 8 unknown, 8 not-run     (correctly still not-run)
+#   transient lock ~60ms, retries on    -> 0 findings, all resolved (the flake, removed)
+#
+# A session-start gate that flakes to "cannot be trusted" because another session held a lock for
+# three milliseconds teaches the reader to ignore exit 2, which is the same cry-wolf failure the
+# severity ruling in `check_tracking` exists to avoid.
+GIT_ENV = {
+    # git's ignored-path message is prose, and the classification below reads it to tell "excluded"
+    # apart from any other reason `add` could fail. Pin the language so a localised machine does not
+    # silently reclassify — and note the failure direction if git ever rewords it: the marker stops
+    # matching, the path resolves to `unknown`, and `unknown` is a not-run. Fail-closed.
+    "LC_ALL": "C",
+}
+
+# What `git` says when another process holds the index lock, and how many times to wait it out.
+# Bounded and short: this is contention with a sibling process that is about to finish, not a
+# recovery mechanism. When the retries are exhausted the answer is still UNKNOWN — the three-state
+# contract is not weakened, only stopped from firing on a transient.
+GIT_LOCK_MARKER = "unable to create"
+GIT_LOCK_RETRIES = 3
+GIT_LOCK_BACKOFF = 0.05
+
+# The sentence `git add` prints when it refuses an excluded path, under LC_ALL=C.
+GIT_IGNORED_MARKER = "ignored by one of your"
+
+# The three answers a probe may return. `unknown` is not a third kind of "fine" — it is the
+# unanswerable question, and it becomes a not-run finding, for the same reason `Run.verdict` ranks
+# not-run above every severity.
+TRACKABLE, IGNORED, UNKNOWN = "trackable", "ignored", "unknown"
+
+# THE DECLARED-VENDOR LIST. Short, in code, and quoted into the output so an exclusion is visible
+# rather than tacit.
+#
+# WHY IT IS IN CODE, and WHAT THE RULE IT IS EXEMPTED FROM ACTUALLY SAYS — stated precisely,
+# because an earlier version of this comment overstated it and thereby overstated the cost of the
+# exemption. `test_no_skill_is_special_cased_by_name` does NOT forbid "any skill name": it matches
+# ONE literal, `"graphify" in n.value.lower()`. Proof inside this same file — `MIRRORED_SKILLS`
+# holds six skill names as module-level constants and has always passed it. So the exemption below
+# widens a one-name rule by one assignment, which is a smaller trade than "a rule against naming
+# skills" implies.
+#
+# The rule so scoped protects `check_vendored`, whose exclusions are READ from the repository's own
+# `install/skills/.gitignore`, so deleting a line there restores the finding. There is no equivalent
+# declaration to read here. `~/.claude/skills/.gitignore` is an allow-list of what this repository
+# OWNS; a vendor skill is not in it, and being absent from an allow-list is precisely the state
+# under test — it carries no statement that the absence was deliberate. Reading it as one would make
+# every dropped skill self-exonerating.
+#
+# So the exemption is deliberate and it is paid for: the list may hold at most two entries, every
+# entry must carry an argument a reader can weigh, and emptying it must restore the finding. All
+# three are asserted by `TrackedContentTest`, which is what keeps this from being an allow-list
+# growing in the dark.
+DECLARED_VENDOR_SKILLS: dict[str, str] = {
+    "graphify": "third-party; it installs itself into both harnesses via `uv tool` and updates on "
+                "its own schedule. TC-04 ruled the vendor is the recovery path, so a pinned stale "
+                "copy tracked here would be worse than none.",
+}
+
+# STOP CONDITION 4, answered rather than worked around: `~/.codex/skills` CANNOT be asked this
+# question the same way, and a sweep that pretended otherwise would be permanently and unfixably red.
+#
+# Measured: `~/.codex` IS a work tree, and all seven skill directories in it come back ignored,
+# because `~/.codex/.gitignore` excludes `skills/` wholesale and says why — the tree is RENDERED from
+# ~/.claude by install_hooks.py, and backing up a derived copy costs space and creates a second
+# source of truth. Treated as authored content it would produce seven findings with no remedy, on
+# every machine, at every session start; that is the cry-wolf pathology this milestone exists to
+# remove, and a finding the reader learns to skip is worse than the gap.
+#
+# The compensating control is real but NARROWER THAN IT FIRST APPEARS, and the earlier version of
+# this comment overclaimed it. `check_skills` fires `critical` when a mirrored skill is missing from
+# ~/.codex/skills — but it iterates MIRRORED_SKILLS, which is SIX names, so it covers exactly those
+# six. `project-conformance` is not among them, which means the skill from measured incident 3 is
+# gated by this sweep on the Claude side and by NOTHING on the Codex side. That is a real edge and
+# it is stated rather than smoothed over.
+#
+# What the exclusion does rest on is that nothing AUTHORED lives in ~/.codex/skills: the tree is
+# generated, so the recovery path is regeneration rather than restoration from a commit. Same shape
+# as the TC-04 ruling on vendor content. That argument holds for all seven directories there
+# regardless of how many of them `check_skills` happens to compare.
+#
+# DECLARED is the operative word. The Codex side is reported as scope deliberately not covered, never
+# silently dropped, and `tracking.codex.asked` is false so a consumer cannot read an unasked question
+# as a satisfied one.
+CODEX_TRACKING_ASYMMETRY = (
+    "~/.codex/skills is a DERIVED mirror rendered from ~/.claude by install_hooks.py, and "
+    "~/.codex/.gitignore excludes it wholesale so as not to create a second source of truth. Asked "
+    "the same question every one of its skill directories answers `ignored`, which is a policy "
+    "rather than drift. Its currency is gated instead by the Codex skill mirror check, which fires "
+    "critical when a mirrored skill is missing there. Whether the Codex tree would be committed is "
+    "therefore NOT ASKED, not known to be fine.")
+
+# Module-level DATA for the same reason `PLUGIN_EXCLUSIONS` is — see the note there. Short, because
+# `Run.summary` renders every exclusion inline on every line this tool prints.
+TRACKING_EXCLUSIONS = [("Codex skill tracking",
+                        "derived mirror, not authored; see tracking.codex in --json")]
+
+# ------------------------------------------------------------------------------------------------
+# TC-47, sweep two. Same class one floor over: authored work that no gate can see.
+#
+# A LIVE NEAR-MISS, not a hypothetical. Card TC-40 skipped its review stage entirely, was verified,
+# and moved toward a commit; the first review it ever received returned two CRITICALs, one of them a
+# `--fix` that deleted machine-global agent files while printing "nothing changed". At that moment
+# the workspace held, per card: TC-35 2 review artifacts, TC-36 2, TC-37 2, TC-39 5, TC-41 3,
+# TC-42 2, TC-45 2 — and TC-40 zero. Seventeen artifacts across eight cards looks healthy in
+# aggregate and the zero is obvious the instant it is counted PER CARD. So the question this asks is
+# not "is a review file missing" but "did anything act on a paraphrase", once per card.
+#
+# REPOSITORY-SCOPED, like `--vendored` and unlike everything above it: the subject is one named
+# directory on the command line, never the machine, and it never runs implicitly at session start.
+CARD_PATTERN = "TC-*.yaml"
+REPORTS_DIRNAME = "reports"
+
+# What an artifact's name after `TC-<id>-` must contain to count. Two markers, not one: a
+# security-validator's verdict is an independent judging artifact by a persona that holds no write
+# tool, and refusing to count it would report a card as unreviewed because of who reviewed it.
+#
+# NOTE FOR ANYONE RECONCILING THIS WITH THE COUNTS ABOVE: those were taken with `review` alone, so
+# `--reviews` reports TC-39 as 6 rather than 5, and TC-34 and TC-38 as reviewed on the strength of a
+# `-security.md`. Two of the eight measured counts have moved on their own since (TC-40 acquired the
+# review that found the criticals; TC-41 a fourth round), which is why no count is pinned anywhere.
+REVIEW_MARKERS = ("review", "security")
+REPORT_MARKER = "report"
+
 # Module-level DATA, exactly like `MIRRORED`, and for a reason worth stating: an `excluded` entry is
 # a `(name, why)` pair with the same shape as a `(severity, detail)` finding, so built inline it
 # would be indistinguishable from an emission to the AST rule in
@@ -1553,6 +1793,417 @@ def check_plugins() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]]
     return surface, findings, excluded
 
 
+def git_probe(root: Path, rel: str) -> tuple[str, str]:
+    """Would git commit `rel`, a path relative to `root`? Returns `(state, detail)`.
+
+    `state` is TRACKABLE, IGNORED or UNKNOWN. It is never inferred: 0 and a recognised refusal are
+    the only two answers this function will turn into a verdict, and everything else — a git that
+    would not start, an exit code nobody has seen, a refusal whose reason is not exclusion — is
+    UNKNOWN with the reason attached. The alternative, folding an unrecognised failure into "not
+    ignored", is the exonerating-direction control break: nobody asks for evidence behind good news.
+
+    IGNORE RULES GOVERN UNTRACKED PATHS ONLY, so a path ALREADY IN THE INDEX answers TRACKABLE
+    unconditionally, whatever the allow-list says — gitignore(5), and measured: commit a file, then
+    add `/*` to `.gitignore`, and this still returns TRACKABLE. STATE BOTH HALVES OF THAT, because a
+    limitation recorded without its bounds invites someone to route around a probe that was correct.
+    It is the RIGHT answer for this sweep and not a false green: a skill directory in the index is
+    in the next commit and is therefore not invisible to git, and all three incidents in this
+    module's rationale were wholly untracked content. It is a TRAP for exactly one other reader —
+    anyone probing a path IN ORDER TO INTERROGATE THE ALLOW-LIST, which is the shape of TC-49. That
+    probe must be run on an UNTRACKED path or it measures trackedness instead; `plant_allowlisted_home`
+    and `hidden_top_level_states` in the test suite take `commit=False` for this reason.
+
+    Not `git check-ignore`; see the block comment on GIT_ENV for the measurement that rules it out.
+    Not a reimplementation of ignore semantics either — this file already carries a narrow
+    `.gitignore` parser for a different question, and it took two reviews to stop it eating the
+    whole tree. Inheriting the trap in a hand-rolled form is worse than inheriting it directly,
+    because it looks like it was thought about.
+
+    RETRIES ON LOCK CONTENTION ONLY, and only because `git add` takes `.git/index.lock` even under
+    `--dry-run` — measured, see GIT_ENV, which carries the numbers and their tree. `~/.claude` is
+    written by several agent sessions at once, and a single held lock was measured turning a healthy
+    eight-directory tree into eight `unknown` results, eight not-run findings and exit 2 — one per
+    skill directory, so the count is whatever the tree holds. The retry is bounded, applies to
+    nothing but that one recognised message, and ends in UNKNOWN like any other unanswerable state,
+    so it cannot convert a real failure into a pass.
+
+    DO NOT RESTATE A MEASURED NUMBER HERE. This sentence previously carried "six", which was the
+    six-skill test fixture, and it survived 450 lines below its own retraction in GIT_ENV — leaving
+    the file asserting both, with the stale copy in the more-read location: the docstring of the
+    function a maintainer opens first when touching the retry. GIT_ENV owns these figures.
+
+    WHEN A MEASURED NUMBER IS RETRACTED, GREP **BOTH FILES IN THE WRITE SET** — this module AND
+    `tests/test_check_toolchain.py` — before calling the retraction done. The earlier version of
+    this instruction said "grep the file", the grep was duly run against this module alone, and the
+    retracted "six" was found a round later sitting in the test suite's docstring for the very retry
+    described above. One file is never the unit: a retracted number lives wherever the rationale for
+    the code was written down, and the rationale for a retry is written in both the function and the
+    test that pins it. Prefer restating the RULE to restating the number, as the paragraph above now
+    does — a rule cannot go stale by measurement.
+    """
+    attempt = 0
+    while True:
+        try:
+            r = subprocess.run(["git", "-C", str(root), "add", "--dry-run", "--", rel],
+                               capture_output=True, text=True, timeout=30,
+                               env={**os.environ, **GIT_ENV})
+        except (OSError, subprocess.SubprocessError) as e:
+            return UNKNOWN, f"git could not be run ({e})"
+        if r.returncode == 0:
+            return TRACKABLE, ""
+        noise = (r.stderr + r.stdout).strip()
+        if r.returncode == 1 and GIT_IGNORED_MARKER in noise:
+            return IGNORED, ""
+        # Contention with a sibling git process, not an answer about this path.
+        if GIT_LOCK_MARKER in noise.lower() and attempt < GIT_LOCK_RETRIES:
+            attempt += 1
+            time.sleep(GIT_LOCK_BACKOFF * attempt)
+            continue
+        detail = noise.splitlines()[0][:120] if noise else "no output"
+        if GIT_LOCK_MARKER in noise.lower():
+            detail = (f"another process held the index lock through {GIT_LOCK_RETRIES} retries "
+                      f"({detail})")
+        return UNKNOWN, f"git exited {r.returncode} without saying the path is excluded ({detail})"
+
+
+def skill_dirs(root: Path) -> tuple[list[str], list[tuple[str, str]]]:
+    """Top-level skill directories under `root`, plus the entries that cannot be asked about.
+
+    A SYMLINKED skill directory is a problem rather than an entry, and this is the one place the
+    honest answer costs something. `git add` on a link records the LINK — a 120000 blob holding a
+    target path — so the probe would exit 0 and the sweep would report "git would commit this" about
+    a directory whose entire content lives somewhere git has never heard of. That is the
+    invisible-authored-work case wearing a green tick, which is the specific failure this check
+    exists to prevent, so it fails closed to UNKNOWN.
+    """
+    names: list[str] = []
+    problems: list[tuple[str, str]] = []
+    for p in sorted(root.iterdir(), key=lambda q: q.name):
+        if p.name == "__pycache__" or p.name.startswith("."):
+            continue
+        if p.is_symlink():
+            problems.append((p.name, "a symlink; git would record the link, not the content, so "
+                                     "whether the content would be committed is unknown"))
+            continue
+        if p.is_dir():
+            names.append(p.name)
+    return names, problems
+
+
+def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]]:
+    """For every skill directory, ask git whether it would be committed. `(surface, findings, excluded)`.
+
+    Three returns rather than one, matching `check_plugins`: the surface must reach `--json`
+    whatever the verdict, and the Codex asymmetry is a declared exclusion rather than a finding.
+
+    SEVERITY: `warn`, and the ruling is the substance of this check rather than a detail of it.
+
+    The case for `critical` is real — silently losing authored work is worse than reporting drift,
+    and one of the three measured instances would have dropped an entire skill. The case against is
+    what happens on the OTHER machine. `skills/.gitignore` is an allow-list precisely BECAUSE vendor
+    skills install themselves into this directory unannounced, so an ignored directory has two
+    possible causes and this check cannot distinguish them: authored work went invisible, or a
+    vendor arrived. The second is the designed-for, benign case, and it is one `uv tool install`
+    away on any machine. At `critical` this check exits 1 at every session start in every directory
+    on such a machine, until someone declares the newcomer — a permanently red gate is one the
+    reader learns to skip, which is the failure mode this milestone has spent five rounds removing.
+    Both arguments are satisfiable at once because TC-06 already separated the two axes: RANK
+    GOVERNS VISIBILITY, BLOCKING GOVERNS THE EXIT CODE. So the finding is loud where it is read —
+    named per directory, in the summary line, in `--hook`, and structured in `--json` — and does not
+    gate the exit.
+
+    KNOWN GAP — THIS SWEEP ASKS ABOUT SKILL DIRECTORIES AND NOTHING ELSE, AND THERE ARE THREE
+    UNCOVERED SURFACES ON WHICH A NEW AUTHORED FILE IS INVISIBLE BY DEFAULT. Carded as TC-49;
+    measured here so that card is scoped from fact rather than from this docstring.
+
+    TWO allow-lists apply, not one. An earlier version of this paragraph measured a replica that
+    omitted the second, which is how it came to state the opposite of what this module detects:
+
+        ~/.claude/.gitignore          /* ; !/docs/ then /docs/* then 4 names ; !/skills/ !/hooks/
+                                      !/agents/ !/codex/ ; 5 named top-level files
+        ~/.claude/skills/.gitignore   /* ; !/.gitignore !/README.md ; one negation per OWNED skill
+                                      ; then __pycache__/ *.pyc *.pyo .DS_Store "never, anywhere"
+
+    Measured against a faithful replica carrying BOTH files, with this check's own probe:
+
+        docs/NEW-LESSON.md                    rc 1  IGNORED BY DEFAULT      surface 1
+        skills/NOTES.md                       rc 1  IGNORED BY DEFAULT      surface 2
+        MEMORY.md            (new top-level)  rc 1  IGNORED BY DEFAULT      surface 3
+        skills/agent-personas/NOTES.md        rc 0  trackable — INSIDE a negated skill directory
+        hooks/new.sh, agents/new.md           rc 0  trackable
+        skills/new-vendor-skill/              rc 1  ignored — what THIS sweep fires on
+
+    IF YOU RE-MEASURE ANY ROW ABOVE, PROBE AN UNTRACKED PATH. Every row here is a claim about the
+    ALLOW-LIST, and `git_probe` answers TRACKABLE unconditionally for anything already in the index
+    — see its docstring for the measurement and its bounds — so a probe of a committed path
+    silently interrogates trackedness instead, and answers rc 0 for a surface this paragraph
+    correctly calls ignored.
+
+    Read the last three rows together. A file inside an already-negated skill directory is
+    trackable; a new file at the TOP LEVEL of `skills/` is not, because `skills/.gitignore` is a
+    SECOND per-file allow-list. "A new file in skills/ is trackable" would contradict this very
+    function: `graphify` measures `ignored` here today and the tests plant exactly that state.
+
+    THE TOP-LEVEL NEGATIONS, AS AN IDENTITY, so the figures below check each other rather than
+    each standing alone. `~/.claude/.gitignore` negates TEN top-level entries and they split
+    5 + 5:
+
+        5 named FILES        `.gitignore`, `CLAUDE.md`, `settings.json`, `statusline.sh`,
+                             `private-identifiers.txt`
+        5 named DIRECTORIES  `skills/`, `hooks/`, `agents/`, `codex/`, `docs/`
+                             (`docs/` is then re-narrowed by `/docs/*` plus 4 names — that is
+                             surface 1, and it does not change the top-level count)
+
+    5 + 5 = the 10 trackable measured below. If a future edit moves one of these three numbers and
+    not the other two, the identity stops holding and the paragraph is wrong — which is the point of
+    writing it as an identity. The previous version said "4 named top-level files", spent that 4
+    arithmetically two paragraphs down, and reconciled against neither the real file nor its own
+    "10 trackable".
+
+    THE COST OF CLOSING THEM IS NOT UNIFORM, and an earlier version quoted one figure — "four to six
+    paths, nothing to exclude" — for all of it. Right for one surface, wrong for another, and the
+    arithmetic failed too: 4 in `docs/` plus the 5 named top-level survivors is 9 before enumerating
+    anything to FIND a new entry.
+
+      surface 1, `docs/` — CHEAP, and the one worth doing first. Four files, all four named in the
+        allow-list, four probes, `git_probe` unchanged. Measured: `docs/` holds exactly LEDGER.md,
+        decisions.md, fleet-lessons.md, RESTORE.md and zero `.DS_Store` or `__pycache__`, so there
+        is genuinely nothing to exclude. It is also where the measured incident happened —
+        `docs/fleet-lessons.md` invisible for two days, with the `.gitignore` comment recording it
+        four lines below the rule that caused it.
+
+      surface 2, top level of `skills/` — CHEAP. Measured `os.listdir("skills")`, non-directory
+        entries, DOTFILES INCLUDED: two today, `README.md` and `.gitignore`, both allow-listed.
+        (One, if dotfiles are skipped — see the enumerator note below.) Needs only the four OS-noise
+        names above held out — a list, not a model.
+
+      surface 3, top level of `~/.claude` — NOT CHEAP, and it needs the very thing this paragraph
+        once said was unnecessary. Detecting a NEW top-level entry means enumerating all of them.
+        Measured with `os.listdir("~/.claude")`, `.git` excluded as never-authored, DOTFILES
+        INCLUDED: 32 entries, 10 trackable, 22 IGNORED. Every one of the 22 is ignored legitimately
+        and permanently — `projects/` alone is 2.6 GB holding 22,796 `*.jsonl` transcripts (26,159
+        files in total; the transcript figure is the `*.jsonl` count, not the file count). Probed
+        with no exclusion model that is 22 unclearable findings at every session start, which is
+        exactly the cry-wolf pathology argued against twenty-five lines above. This surface needs a
+        DECLARED AUTHORED-SET first, and must not be attempted as an extension of the cheap two.
+
+    THE ENUMERATOR IS PART OF EVERY COUNT ABOVE, and saying so is not pedantry — an earlier version
+    of this paragraph reported 28 / 9 / 19 for surface 3 and named no enumerator, which is the same
+    tree with dotfiles skipped, and it disagreed with an independent measurement of the same
+    directory. Both were honest; neither was reproducible. For the record: dotfiles skipped gives
+    28 / 9 / 19, dotfiles included gives 33 / 11 / 22, and excluding `.git` from that gives the
+    32 / 10 / 22 quoted above.
+
+    HIDDEN ENTRIES ARE IN SCOPE FOR TC-49, and this is a scoping decision rather than an arithmetic
+    one. `skill_dirs` skips dotfiles because a dotfile is not a skill; that convention must NOT be
+    inherited by a sweep of authored documents. A newly authored hidden top-level config is STRICTLY
+    MORE INVISIBLE than the `MEMORY.md` case this gap describes — ignored by `/*` exactly the same
+    way, and additionally passed over by an enumerator that never looks. A sweep built to 28 would
+    never see one. Measured, the FIVE hidden entries here today are `.git`, `.gitignore`,
+    `.last-cleanup`, `.last-update-result.json` and `.statusline-cache`. `.git` is excluded as
+    never-authored, per the enumerator note above — it is the entry that makes 33 − 28 = 5 hidden
+    come out, and the one that takes 33 trackable-plus-ignored down to the 32 quoted there — and of
+    the remaining four only `.gitignore` is authored, which is what a declared authored-set is for.
+    The four-item version of this sentence read as exhaustive and was short by exactly the entry the
+    counts twenty lines above turn on.
+
+    `.gitignore` is also the standing REFUTATION of "hidden entries are out of scope", not merely an
+    example of one that happens to be authored: it is hidden AND trackable (`!/.gitignore`) AND
+    authored AND it is the allow-list this whole sweep polices. That is pinned executably by
+    `test_a_hidden_top_level_entry_can_be_trackable_and_the_allowlist_line_decides` in the suite —
+    deleting the `!/.gitignore` negation from the fixture or from the real file now fails a test
+    rather than a review.
+
+    The in-skill FILE gap is a fourth thing and is nearly empty of risk: `skills/.gitignore` never
+    re-narrows INSIDE a negated directory, so the only exclusions reachable within a published skill
+    are those four OS-noise names. It remains true that a clean result here covers the skill and not
+    its contents — just do not read that as the reason the measured incidents are uncovered.
+
+    An escalation rule was considered and rejected on the evidence: promote to `critical` when the
+    ignored directory is named in MIRRORED_SKILLS, i.e. known to be ours. It would have been WRONG
+    on the measured case. The skill that actually went invisible was `project-conformance`, which is
+    not in MIRRORED_SKILLS — the rule would have quietly demoted the one instance it was invented
+    for. A discriminator that fails on the recorded evidence is worse than none.
+
+    `--reviews` rules the opposite way for the opposite reason; see `check_reviews`.
+    """
+    surface: dict = {}
+    findings: list[tuple[str, str]] = []
+
+    # The Codex side first, so the declaration is recorded even on a run where the Claude side
+    # cannot be asked at all. See CODEX_TRACKING_ASYMMETRY for stop condition 4.
+    surface["codex"] = {"root": str(CODEX_SKILLS), "in_scope": False, "asked": False,
+                        "results": {}, "declared_vendor": {},
+                        "why_not_asked": CODEX_TRACKING_ASYMMETRY}
+
+    claude: dict = {"root": str(CLAUDE_SKILLS), "in_scope": True, "asked": False,
+                    "results": {}, "declared_vendor": dict(DECLARED_VENDOR_SKILLS),
+                    "why_not_asked": None}
+    surface["claude"] = claude
+
+    def unanswerable(why: str) -> tuple[dict, list, list]:
+        claude["why_not_asked"] = why
+        findings.append((NOT_RUN, f"skill tracking was NOT RUN: {why}. No skill directory was "
+                                  f"asked whether git would commit it, so nothing here says any of "
+                                  f"them is safe. {MACHINE_GLOBAL}"))
+        return surface, findings, list(TRACKING_EXCLUSIONS)
+
+    if not CLAUDE_SKILLS.is_dir():
+        return unanswerable(f"{CLAUDE_SKILLS} is not a directory")
+    try:
+        top = subprocess.run(["git", "-C", str(CLAUDE_SKILLS), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=30,
+                             env={**os.environ, **GIT_ENV})
+    except (OSError, subprocess.SubprocessError) as e:
+        return unanswerable(f"git could not be run against {CLAUDE_SKILLS} ({e})")
+    if top.returncode != 0:
+        return unanswerable(f"{CLAUDE_SKILLS} is not inside a git work tree "
+                            f"({top.stderr.strip().splitlines()[0][:120] if top.stderr.strip() else 'git said nothing'})")
+    claude["work_tree"] = top.stdout.strip()
+
+    try:
+        names, problems = skill_dirs(CLAUDE_SKILLS)
+    except OSError as e:
+        return unanswerable(f"{CLAUDE_SKILLS} could not be listed ({e})")
+
+    claude["asked"] = True
+    for name, why in problems:
+        claude["results"][name] = UNKNOWN
+        findings.append((NOT_RUN, f"skill `{name}` was NOT ASKED whether git would commit it: it is "
+                                  f"{why}. {MACHINE_GLOBAL}"))
+    for name in names:
+        state, why = git_probe(CLAUDE_SKILLS, name)
+        claude["results"][name] = state
+        if state == UNKNOWN:
+            findings.append((NOT_RUN, f"skill `{name}` was NOT ASKED whether git would commit it: "
+                                      f"{why}. {MACHINE_GLOBAL}"))
+        elif state == IGNORED and name not in DECLARED_VENDOR_SKILLS:
+            findings.append(("warn", f"skill `{name}` in {CLAUDE_SKILLS} would NOT be committed — "
+                                     f"git excludes it, and it is not on the declared-vendor list "
+                                     f"({', '.join(sorted(DECLARED_VENDOR_SKILLS)) or 'empty'}). "
+                                     f"Authored content that no commit can carry is how three "
+                                     f"files and one whole skill went missing in this milestone. "
+                                     f"Fix: declare it as a vendor skill, or add one line to "
+                                     f"{CLAUDE_SKILLS / '.gitignore'} — a deliberate act belonging "
+                                     f"to whoever owns that allow-list. {MACHINE_GLOBAL}"))
+
+    # A declared vendor WAS asked and its answer IS recorded in `results`; what is excluded is the
+    # FINDING, not the question. Both halves of that are now said in the output: the summary header
+    # reads "excluded from findings" rather than the old "excluded and NOT compared", which was
+    # accurate for the Codex tree and false here, and this entry's own reason names which of the two
+    # it is. Pinned by `test_a_declared_vendor_is_reported_as_asked_not_as_uncompared`.
+    excluded = list(TRACKING_EXCLUSIONS)
+    excluded += [(f"skill {name}", "asked and ignored; exempt by declared vendor, see "
+                                   "tracking.claude.declared_vendor")
+                 for name in sorted(DECLARED_VENDOR_SKILLS) if name in claude["results"]]
+    return surface, findings, excluded
+
+
+def card_artifacts(reports: Path, card: str) -> tuple[list[str], list[str]]:
+    """`(report_names, review_names)` belonging to `card`, matched on the `TC-<id>-` delimiter.
+
+    THE DELIMITER IS LOAD-BEARING, and a bare `startswith(card)` is a silent all-clear generator:
+    the real workspace holds TC-04 beside TC-40 and TC-02A beside an orphan `TC-02-review.md`, so a
+    prefix match lets one card's review satisfy another card's obligation. Zero-padding makes the
+    numeric collision survivable on its own; the suffixed ids do not.
+    """
+    prefix = f"{card}-"
+    stems = [p.name[len(prefix):-len(p.suffix)].lower()
+             for p in sorted(reports.glob(f"{prefix}*.md"))]
+    # REVIEW WINS A TIE, and the markers are deliberately not disjoint. `TC-NN-security-report.md`
+    # contains both `report` and `security`.
+    #
+    # WHAT THIS DOES AND DOES NOT CHANGE, stated precisely because the first version of this comment
+    # implied more. It does NOT change the finding stream: counted in both lists the card had a
+    # report AND a review and emitted nothing; counted review-first it has no report and still emits
+    # nothing. What changes is the COUNTS — `reviews.cards[id]` no longer reports one file as both
+    # `{"reports": 1, "reviews": 1}`, and `totals.with_reports` no longer includes a card whose only
+    # artifact is its own reviewer's. The defect was therefore in the reported picture rather than
+    # in the verdict: a workspace could show a card as reported-and-reviewed on the strength of a
+    # single file. Fail toward silence, never toward an obligation that discharged itself.
+    reviews = [s for s in stems if any(m in s for m in REVIEW_MARKERS)]
+    return ([s for s in stems if REPORT_MARKER in s and s not in reviews], reviews)
+
+
+def check_reviews(workspace: Path) -> tuple[dict, list[tuple[str, str]]]:
+    """For every card that produced a report, assert an independent review artifact exists.
+
+    SEVERITY: `critical`, under an any-finding exit rule — the opposite of `check_tracking`'s ruling
+    on the same class of defect, and the discriminator is worth stating because it is the whole
+    reason two sweeps in one card get two answers.
+
+    `check_tracking` runs UNATTENDED at every session start in every directory, and its finding has
+    a benign cause it cannot rule out. This mode runs only when a human or an orchestrator names a
+    workspace on the command line and asks the question, and "a report exists and no review does"
+    has no benign cause: either a judging persona looked at the work or nothing did. A `warn` here
+    would exit 0 and print drift, which is precisely the false GREEN `--vendored` was built to kill;
+    this mode follows that mode's rule for that reason.
+
+    A large count is not noise. Run against the real workspace this reports sixteen cards, which is
+    the milestone's actual review debt measured per card — the number being uncomfortable is the
+    finding, not an argument against it.
+    """
+    surface: dict = {"workspace": str(workspace), "asked": False,
+                     "cards": {}, "totals": {"cards": 0, "with_reports": 0, "unreviewed": 0}}
+
+    def unanswerable(why: str) -> tuple[dict, list[tuple[str, str]]]:
+        surface["why_not_asked"] = why
+        return surface, [(NOT_RUN, f"review coverage was NOT RUN: {why}. No card was asked whether "
+                                   f"anything reviewed it, which is not the same as every card "
+                                   f"having been reviewed")]
+
+    try:
+        cards = sorted(p.stem for p in workspace.glob(CARD_PATTERN))
+    except OSError as e:
+        return unanswerable(f"{workspace} could not be listed ({e})")
+    if not cards:
+        return unanswerable(f"no file matching `{CARD_PATTERN}` in {workspace}")
+    reports = workspace / REPORTS_DIRNAME
+    if not reports.is_dir():
+        # Deliberately not "every card is unreviewed". That reading turns one missing directory into
+        # a wall of findings nobody can act on, and it is a verdict about a tree that was not read.
+        return unanswerable(f"{reports} does not exist, so no card's artifacts could be listed")
+
+    findings: list[tuple[str, str]] = []
+    surface["asked"] = True
+    unreviewed = with_reports = 0
+    for card in cards:
+        try:
+            report_names, review_names = card_artifacts(reports, card)
+        except OSError as e:
+            findings.append((NOT_RUN, f"card `{card}` was NOT ASKED whether it was reviewed: "
+                                      f"{reports} could not be listed ({e})"))
+            continue
+        surface["cards"][card] = {"reports": len(report_names), "reviews": len(review_names)}
+        if not report_names:
+            # No report is work not yet done, not work that skipped its review. Conflating them
+            # would make every unstarted card in the workspace red and the sweep unreadable.
+            continue
+        with_reports += 1
+        if review_names:
+            continue
+        unreviewed += 1
+        # WHAT WAS SEARCHED FOR, not what was concluded. The previous wording asserted "nothing
+        # independent judged this work", which this function cannot observe and which is FALSE for
+        # several of the sixteen cards in the real workspace: it holds `FULL-DIFF-review.md` — a
+        # reviewer-persona review of 3585 lines across 13 files and two repositories — plus
+        # `SECURITY-review.md` and others, none of which carry a card id and none of which this
+        # name-based search can see. A `critical` in a file whose register is measured fact must not
+        # carry an inference the measurement does not support.
+        findings.append(("critical", f"card `{card}` produced {len(report_names)} report(s) and no "
+                                     f"file named `{card}-*.md` containing "
+                                     f"{' or '.join(REVIEW_MARKERS)} in {reports}. THIS SEARCH IS "
+                                     f"BY NAME: a workspace-wide review that does not carry this "
+                                     f"card's id — a full-diff or branch-level review — is not "
+                                     f"counted, so this reports a missing PER-CARD artifact and not "
+                                     f"that the work went unjudged. Fix: persist the per-card "
+                                     f"verdict as {reports / (card + '-review.md')}, or confirm a "
+                                     f"broader review covered it"))
+    surface["totals"] = {"cards": len(cards), "with_reports": with_reports,
+                         "unreviewed": unreviewed}
+    return surface, findings
+
+
 def plugin_line(surface: dict | None) -> str | None:
     """The enumeration, as one line for a human. Counts only; it characterises nothing.
 
@@ -1616,14 +2267,53 @@ def collect(run: Run) -> None:
             f"agent shadows a base persona; the Codex side was enumerated by name only and not "
             f"classified")
 
+    # TC-47, and outside DEFAULT_CHECKS for exactly the reason above: it returns a surface `--json`
+    # must carry whatever the verdict, plus a declared exclusion. Its findings still route through
+    # `Run.add`, so a sweep that could not ask cannot contribute the phrase saying it asked.
+    tracking, tracking_findings, tracking_excluded = check_tracking()
+    run.tracking = tracking
+    run.excluded += tracking_excluded
+    asked = tracking["claude"]["results"]
+    # SCOPED TO WHAT WAS ACTUALLY ASKED, and with its tree named. "N skill directories" alone would
+    # invite the reader to reconcile it against `git ls-files`, which counts a different tree: this
+    # is what the working tree holds right now, not what HEAD carries.
+    #
+    # TWO NUMBERS, NOT ONE, and this sentence has already been wrong once for having only the total.
+    # It read "git would commit EVERY ONE of the {len(asked)}" — a claim about every directory
+    # asked, made on a line whose whole job is to be trustworthy, while a declared vendor sits in
+    # `tracking.claude.results` answering `ignored` two keys away. That machine is not exotic: one
+    # `uv tool install` produces it, and the exemption exists precisely because it is the expected
+    # state. The exempt directory produces no finding, so nothing else in the output contradicts the
+    # sentence and nothing stops the run being clean — the reader's only signal was the phrase, and
+    # the phrase overstated it. Same false-reassurance shape as `Run.summary`'s "excluded and NOT
+    # compared" header, one function away, and fixed the same way: report the FILTERED count
+    # alongside the TOTAL, in the sentence and not only in the JSON.
+    #
+    # `exempt` is derived from the answers, never from `len(DECLARED_VENDOR_SKILLS)` — a vendor on
+    # the list but not installed was never asked, and a declared vendor that came back TRACKABLE was
+    # not exempted from anything. Both counts say what this run measured.
+    trackable = sum(1 for state in asked.values() if state == TRACKABLE)
+    exempt = sum(1 for name, state in asked.items()
+                 if state == IGNORED and name in DECLARED_VENDOR_SKILLS)
+    run.add(tracking_findings, "skill tracking",
+            f"git would commit {trackable} of the {len(asked)} skill director(ies) on disk in "
+            f"{CLAUDE_SKILLS}, with {exempt} exempt as declared vendors "
+            f"(machine-global; the ~/.codex mirror is derived and out of scope, see excluded)")
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--hook", action="store_true", help="compact context; silent when healthy")
     ap.add_argument("--json", action="store_true", dest="as_json")
-    ap.add_argument("--vendored", metavar="REPO",
-                    help="compare ~/.claude/skills against REPO/install/skills; report drift only")
+    # MUTUALLY EXCLUSIVE, because they are verdicts about different trees. A run that silently
+    # executed one of them would print a status for a question the caller did not ask, which is the
+    # same false-reassurance shape as the clean line that named checks it had not run.
+    scoped = ap.add_mutually_exclusive_group()
+    scoped.add_argument("--vendored", metavar="REPO",
+                        help="compare ~/.claude/skills against REPO/install/skills; drift only")
+    scoped.add_argument("--reviews", metavar="WORKSPACE",
+                        help="assert every card with a report in WORKSPACE also has a review")
     args = ap.parse_args()
 
     # EXIT SEMANTICS — stated per mode, deliberately, rather than shared.
@@ -1656,11 +2346,40 @@ def main() -> int:
     # `NOT A CLEAN RESULT` on its own line and `--json` carries `status` and per-severity `counts`.
     # A caller that discards stdout and reads only `$?` still cannot see it — that is the caller's
     # defect, and it is TC-37's to fix in verify.sh, not this file's to work around.
+    #   --reviews:
+    #       exit 1 iff there is ANY finding, same as `--vendored` and for the same reason. Both are
+    #       deliberate, repository-scoped invocations rather than session-start ones, and both
+    #       report a state with no benign cause. See `check_reviews` on why this is the opposite
+    #       ruling to `check_tracking`'s `warn`, on what is the same class of defect.
     vendored_mode = args.vendored is not None
-    run = Run("vendored" if vendored_mode else "default",
-              BLOCKING_ANY if vendored_mode else BLOCKING_DEFAULT)
+    reviews_mode = args.reviews is not None
+    mode = "vendored" if vendored_mode else "reviews" if reviews_mode else "default"
+    run = Run(mode, BLOCKING_ANY if (vendored_mode or reviews_mode) else BLOCKING_DEFAULT)
+    # The `--hook` header, chosen with the mode rather than derived from a boolean at the point of
+    # printing. Both repository-scoped modes must deny the default header's two claims — "the SHARED
+    # toolchain" and "affects EVERY project" — or the reader is sent to fix a machine-global mirror
+    # over a diff scoped to one named directory.
+    hook_header = ("AGENT CONTEXT: the shared agent toolchain has drifted. This affects every "
+                   "project, not just this one.")
 
-    if vendored_mode:
+    if reviews_mode:
+        if not args.reviews.strip():
+            print("error: --reviews requires a workspace path; got an empty value", file=sys.stderr)
+            return 2
+        workspace = Path(args.reviews).expanduser()
+        if not workspace.is_dir():
+            print(f"error: workspace not found or unreadable: {workspace}", file=sys.stderr)
+            return 2
+        hook_header = (f"AGENT CONTEXT: cards in {workspace} produced work that nothing reviewed. "
+                       f"This is scoped to that workspace — the installed toolchain and other "
+                       f"projects are unaffected.")
+        surface, findings = check_reviews(workspace)
+        run.reviews = surface
+        run.add(findings, "review coverage",
+                clean_phrase=f"every card in {workspace} that produced a report also carries a "
+                             f"review artifact ({surface['totals']['with_reports']} of "
+                             f"{surface['totals']['cards']} card(s) had a report to judge)")
+    elif vendored_mode:
         # Truthiness would be wrong: `--vendored ""` is falsy, and under `if args.vendored:` it
         # silently ran the machine-global check and printed "clean" for a vendored-drift request.
         if not args.vendored.strip():
@@ -1669,6 +2388,9 @@ def main() -> int:
             return 2
         repo = Path(args.vendored).expanduser()
         vendored_skills = repo / "install" / "skills"
+        hook_header = (f"AGENT CONTEXT: the vendored copy of the shared toolchain in {repo} has "
+                       f"drifted from ~/.claude/skills. This is scoped to this repository — the "
+                       f"installed toolchain and other projects are unaffected.")
 
         # Probe the installed side separately. `CLAUDE_SKILLS.iterdir()` raises for problems with
         # ~/.claude/skills, and a shared handler blamed the vendored path — sending the operator
@@ -1736,22 +2458,26 @@ def main() -> int:
             # `agents` lists directly; it never has to parse a finding's prose to learn what is
             # installed. See `plugin_surface` for the shape.
             "plugins": run.plugins,
+            # TC-47, both sweeps, on the same `null`-outside-this-mode terms as `plugins`.
+            # `tracking.claude.results` maps a skill directory to `trackable`/`ignored`/`unknown`
+            # and `tracking.claude.asked` is false whenever the question could not be put to git,
+            # so an unasked question can never be read as a satisfied one. `reviews.cards` maps a
+            # card id to its report and review counts, which is where the per-card zero that is
+            # invisible in aggregate becomes obvious.
+            "tracking": run.tracking,
+            "reviews": run.reviews,
             "summary": summary,
         }, indent=2))
     elif args.hook:
         if findings:
-            # The header is mode-specific for the same reason the clean line is. The default
-            # header's two claims — "the SHARED toolchain" and "this affects EVERY project" — are
-            # both false of `--vendored`, which compares one named repository's published copy and
-            # affects nothing outside it. Printing it there told the reader to go and fix a
-            # machine-global mirror over a repository-scoped diff.
-            if vendored_mode:
-                print(f"AGENT CONTEXT: the vendored copy of the shared toolchain in {repo} has "
-                      f"drifted from ~/.claude/skills. This is scoped to this repository — the "
-                      f"installed toolchain and other projects are unaffected.")
-            else:
-                print("AGENT CONTEXT: the shared agent toolchain has drifted. This affects every "
-                      "project, not just this one.")
+            # The header is mode-specific for the same reason the clean line is, and it is CHOSEN
+            # WITH THE MODE above rather than re-derived here. The default header's two claims —
+            # "the SHARED toolchain" and "this affects EVERY project" — are both false of the
+            # repository-scoped modes, which read one named directory and affect nothing outside
+            # it. Printing it there told the reader to go and fix a machine-global mirror over a
+            # repository-scoped diff, and an `if` chain at the point of printing is a second place
+            # for the mode list to fall out of date.
+            print(hook_header)
             for s, d in findings:
                 print(f"  - [{s}] {d}")
             # The exit code does not carry the whole result in default mode, so the compact mode

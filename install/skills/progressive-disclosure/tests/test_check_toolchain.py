@@ -174,6 +174,180 @@ def enable_plugins(home: Path, roots: dict[str, Path]) -> None:
     }), encoding="utf-8")
 
 
+# --------------------------------------------------------------------------------------------
+# TC-47 fixture helpers.
+
+def git(root: Path, *args: str) -> subprocess.CompletedProcess:
+    """One git invocation against `root`, with output captured and never checked here.
+
+    Deliberately NOT `check=True`: two callers below run git precisely to observe a NON-zero exit
+    (`check-ignore` on a path a negation matched), and a helper that raised on those would make the
+    trap unprovable.
+    """
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+
+
+def git_init(root: Path) -> Path:
+    """Make `root` a work tree with an identity, and assert it actually became one.
+
+    The assertion is the point rather than politeness: a `git init` that silently failed leaves the
+    tracking sweep answering NOT-RUN, and a test that then observed "no ignored-skill finding" would
+    read that absence as a pass.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    git(root, "init", "-q")
+    git(root, "config", "user.email", "fixture@example.invalid")
+    git(root, "config", "user.name", "fixture")
+    top = git(root, "rev-parse", "--show-toplevel")
+    assert top.returncode == 0, f"git init did not produce a work tree at {root}: {top.stderr}"
+    return root
+
+
+# THE TWO ALLOW-LISTS, as committed literals. TC-47 fix round 3.
+#
+# WHY THIS EXISTS. Three versions of the KNOWN GAP paragraph in `check_tracking` were written from
+# ad-hoc replicas built at a shell prompt and thrown away. Two were wrong, and the second was wrong
+# precisely BECAUSE its replica carried only the top-level allow-list and omitted
+# `skills/.gitignore` — so it measured a tree where all three surfaces answer `trackable`, the
+# opposite of this machine. No artifact survived either time, so neither claim was falsifiable from
+# this repository, and "the fix is to the method" was a promise with no mechanism behind it.
+#
+# `green_home` cannot serve here and must NOT be changed to. It writes no `.gitignore` at any level,
+# deliberately: every tracking test plants the exact ignore state it means, and giving the shared
+# baseline a real allow-list would silently rewrite what all of them measure. But that does leave
+# the repository's only reusable replica a tree on which all three surfaces are trackable — the very
+# tree that produced the wrong claim, and the one the next measurer reaches for. Hence a SECOND,
+# purpose-built fixture rather than an edit to the shared one. Unifying them behind one builder is
+# the shared-fixture-builder card's remit, not this card's.
+#
+# Shapes copied from the real files, reduced to the rules that decide the three surfaces.
+# `test_the_committed_allowlists_still_decide_the_surfaces_the_real_ones_do` re-runs the same
+# assertions against the actual `~/.claude` files whenever they are present, so these literals
+# cannot silently drift from the policy they stand in for.
+CLAUDE_ALLOWLIST = """\
+/*
+
+!/.gitignore
+!/CLAUDE.md
+!/settings.json
+!/skills/
+!/hooks/
+!/agents/
+!/codex/
+!/docs/
+/docs/*
+!/docs/LEDGER.md
+!/docs/fleet-lessons.md
+!/docs/RESTORE.md
+!/docs/decisions.md
+
+__pycache__/
+*.pyc
+.DS_Store
+"""
+
+SKILLS_ALLOWLIST = """\
+/*
+
+!/.gitignore
+!/README.md
+
+!/progressive-disclosure
+!/agent-personas
+
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+"""
+
+# The paragraph's claim, as data: relative path -> is it trackable when newly authored?
+# FALSE is a surface the sweep does not cover; TRUE is a control that keeps the test non-vacuous.
+GAP_SURFACES = {
+    "docs/NEW-LESSON.md": False,              # surface 1 — per-file allow-list under /docs/*
+    "skills/NOTES.md": False,                 # surface 2 — the SECOND per-file allow-list
+    "MEMORY.md": False,                       # surface 3 — a new top-level entry under /*
+    ".hidden-config": False,                  # surface 3, hidden — strictly more invisible
+    "skills/agent-personas/NOTES.md": True,   # INSIDE a negated skill directory
+    "hooks/new.sh": True,
+    "agents/new.md": True,
+}
+
+# THE HIDDEN PAIR, and it is a separate table from GAP_SURFACES on purpose. TC-47 fix round 4.
+#
+# GAP_SURFACES answers "is a NEWLY AUTHORED file at this path trackable?", and every TRUE row in it
+# is a VISIBLE path. So as data it was consistent with the rule "hidden entries are out of scope" —
+# the very rule `check_tracking`'s docstring calls false. A one-sided table is not a counterexample.
+#
+# These two rows are the counterexample, and they are a PAIR by construction: same directory, same
+# probe, both hidden, both untracked, and the ONLY thing that differs is whether the allow-list
+# names the path. `.gitignore` is hidden AND trackable AND authored AND it is the allow-list this
+# whole sweep polices; `.hidden-config` is hidden and ignored. Together they say "hidden decides
+# nothing; the allow-list line decides", which one row alone cannot say.
+HIDDEN_TOP_LEVEL = {
+    ".gitignore": True,       # negated by `!/.gitignore` — hidden, authored, and TRACKABLE
+    ".hidden-config": False,  # not negated — the control that keeps the TRUE row meaningful
+}
+
+
+def plant_allowlisted_home(root: Path, claude_rules: str = CLAUDE_ALLOWLIST,
+                           skills_rules: str = SKILLS_ALLOWLIST, commit: bool = True) -> Path:
+    """A work tree carrying BOTH allow-lists and the directories they name.
+
+    Committed, reusable, and re-asserted against the real files by a sibling test — the three
+    properties the ad-hoc replicas lacked.
+
+    `commit=False` INITIALISES BUT DOES NOT COMMIT, and that is not a convenience. `git add
+    --dry-run` exits 0 for any path already in the index REGARDLESS of the ignore rules — measured:
+    commit a file, then add `/*` to `.gitignore`, and the probe still says 0. So a probe of a
+    committed path answers "is this tracked?", not "does the allow-list admit it", and the hidden
+    pair below must be probed UNTRACKED for the ALLOW-LIST rather than this builder's own
+    `git add -A` to be the discriminator.
+
+    DO NOT READ THAT AS "ASSERTIONS ON THE COMMITTED FIXTURE ARE VACUOUS". They are not, and an
+    earlier version of this paragraph said so and was wrong about this fixture's ordering. The rules
+    are written BEFORE the staging here — `.gitignore` at the top of the body, `git add -A` at the
+    bottom — so deleting `!/.gitignore` from `CLAUDE_ALLOWLIST` makes the file ignored AT STAGING
+    TIME and it is never committed at all. Measured on this builder with that one line stripped:
+    `git ls-files` does not list `.gitignore`, and the probe returns IGNORED on the committed tree
+    as well as the uncommitted one. The mutation IS caught either way; on the committed fixture it
+    is caught INDIRECTLY, by staging, rather than by the probe. `commit=False` is the direct
+    construction, which is the whole of the reason to prefer it.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    (root / ".gitignore").write_text(claude_rules, encoding="utf-8")
+    for d in ("skills", "docs", "hooks", "agents", "codex"):
+        (root / d).mkdir(exist_ok=True)
+    (root / "skills" / ".gitignore").write_text(skills_rules, encoding="utf-8")
+    for skill in ("progressive-disclosure", "agent-personas"):
+        (root / "skills" / skill).mkdir(exist_ok=True)
+        (root / "skills" / skill / "SKILL.md").write_text("x\n", encoding="utf-8")
+    (root / "skills" / "README.md").write_text("x\n", encoding="utf-8")
+    for name in ("LEDGER.md", "fleet-lessons.md", "RESTORE.md", "decisions.md"):
+        (root / "docs" / name).write_text("x\n", encoding="utf-8")
+    (root / "CLAUDE.md").write_text("x\n", encoding="utf-8")
+    git_init(root)
+    if commit:
+        git(root, "add", "-A")
+        git(root, "commit", "-qm", "base")
+    return root
+
+
+def plant_workspace(root: Path, cards: dict[str, tuple[str, ...]]) -> Path:
+    """A card workspace: `TC-*.yaml` beside a `reports/` directory.
+
+    `cards` maps a card id to the report-directory filenames it owns, so a test states the exact
+    artifact set it means — `("TC-40-report.md",)` for the measured near-miss, and the same plus a
+    review for its remedy.
+    """
+    (root / "reports").mkdir(parents=True, exist_ok=True)
+    for card, artifacts in cards.items():
+        (root / f"{card}.yaml").write_text(f"id: {card}\n", encoding="utf-8")
+        for artifact in artifacts:
+            (root / "reports" / artifact).write_text(f"# {artifact}\n", encoding="utf-8")
+    return root
+
+
 def _docstring_ids(tree: ast.AST) -> set[int]:
     out = set()
     for node in ast.walk(tree):
@@ -887,14 +1061,15 @@ class NotRunStateTest(unittest.TestCase):
             self.assertEqual(payload["status"], toolchain.NOT_RUN)
             self.assertEqual(payload["exit"], 2)
             self.assertEqual(payload["evaluated"], [])
-            # Four, not three: TC-41's plugin surface joined them, and an empty HOME cannot
-            # enumerate it either — ~/.codex/config.toml is absent, so the Codex plugin surface is
-            # UNKNOWN rather than empty. Updated to the new value rather than widened to a subset
-            # check, for the reason `test_hook_mode_emits_no_stray_output_shape` gives about
-            # widening an assertion to accommodate a new value.
+            # Five, not four: TC-41's plugin surface joined the original three, and TC-47's skill
+            # tracking joined those — an empty HOME has no ~/.codex/config.toml, so the Codex plugin
+            # surface is UNKNOWN rather than empty, and no ~/.claude/skills at all, so git cannot be
+            # asked whether anything would be committed. Updated to the new value rather than
+            # widened to a subset check, for the reason `test_hook_mode_emits_no_stray_output_shape`
+            # gives about widening an assertion to accommodate a new value.
             self.assertEqual({item["check"] for item in payload["not_evaluated"]},
                              {"personas", "instruction mirror", "Codex skill mirror",
-                              "plugin surface"})
+                              "plugin surface", "skill tracking"})
 
     def test_drift_is_machine_visible_while_the_exit_code_stays_zero(self) -> None:
         """FACE 1. Real Codex-mirror drift, `warn`, exit 0 — and now impossible to miss.
@@ -937,6 +1112,11 @@ class NotRunStateTest(unittest.TestCase):
             # absent ~/.codex/config.toml is an UNKNOWN one. Plant the config so the plugin check
             # enumerates zero rather than adding a not-run that would mask the drift under test.
             plant_codex_config(home)
+            # TC-47, same reasoning one check over: a HOME that is not a work tree cannot be asked
+            # whether git would commit its skills, and that not-run would turn this run's status
+            # into not-run and its exit code into 2 — measuring the missing repository instead of
+            # the single warn this test exists to pin.
+            git_init(home / ".claude")
 
             r = subprocess.run(
                 [sys.executable, str(SCRIPTS / "check_toolchain.py"), "--json"],
@@ -1060,7 +1240,7 @@ class DeclaredUnpublishedTest(unittest.TestCase):
             # Excluded, never silent: the summary states the scope beside the verdict, so "clean"
             # is never read as "everything was compared".
             self.assertIn("clean", r.stdout)
-            self.assertIn("1 excluded and NOT compared: vendorskill", r.stdout)
+            self.assertIn("1 excluded from findings: vendorskill", r.stdout)
             self.assertIn("install/skills/.gitignore", r.stdout)
 
     def test_deleting_the_declaration_makes_it_a_finding_again(self) -> None:
@@ -1190,7 +1370,7 @@ class DeclaredUnpublishedTest(unittest.TestCase):
             # one correctly compared. "Not a CRITICAL" is the property. "Never mentioned" never was.
             self.assertNotIn("CRITICAL", after.stdout)
             self.assertIn(".DS_Store", after.stdout)
-            self.assertIn("excluded and NOT compared", after.stdout)
+            self.assertIn("excluded from findings", after.stdout)
 
     def test_an_excluded_top_level_file_is_reported_not_silently_dropped(self) -> None:
         """R3. "Reported, never silent" has to hold for FILES, not only for skill directories.
@@ -1291,7 +1471,7 @@ class DeclaredUnpublishedTest(unittest.TestCase):
 
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertNotIn("stale published content", r.stdout)
-            self.assertIn("1 excluded and NOT compared: vendorskill", r.stdout)
+            self.assertIn("1 excluded from findings: vendorskill", r.stdout)
 
 
 class NoSecondExceptionListTest(unittest.TestCase):
@@ -1308,6 +1488,28 @@ class NoSecondExceptionListTest(unittest.TestCase):
         Asserted against the AST, not the text: prose may (and does) name the skill when explaining
         WHY the declaration is read. What must not exist is a string this code can compare against.
         Docstrings are excluded by identity, so the explanation cannot be mistaken for a rule.
+
+        WHAT THIS RULE ACTUALLY MATCHES, stated because the TC-47 review found all three places
+        justifying the exemption below describing it as forbidding "any skill name". It does not:
+        it matches ONE literal, `"graphify" in n.value.lower()`. The proof is in the file it guards
+        — `MIRRORED_SKILLS` holds six skill names as module-level constants and has always passed.
+        The exemption therefore widens a one-name rule by one assignment, a materially smaller
+        trade than the earlier description implied. Approving it was right; describing it as a
+        breach of a general prohibition was not.
+
+        ONE EXEMPTION, ADDED BY TC-47 AND NARROWED TO A SINGLE ASSIGNMENT: the right-hand side of
+        `DECLARED_VENDOR_SKILLS`. That card requires a code-resident vendor list because its sweep
+        has no declaration to read — `~/.claude/skills/.gitignore` is an allow-list of what this
+        repository OWNS, so a vendor skill's absence from it is the very state under test rather
+        than a statement that the absence was deliberate. Reading it as a declaration would make
+        every dropped skill self-exonerating, which is this rule's own failure mode arriving from
+        the other side.
+
+        The exemption is scoped to that one assignment and nowhere else, so a name in any FUNCTION
+        still fails, and it is paid for behaviourally in `TrackedContentTest`: the list is capped at
+        two entries, every entry must carry an argument, and emptying it must restore the finding —
+        which is the "delete it and the finding comes back" property this test was written to
+        protect, asserted directly instead of inferred from the absence of a literal.
         """
         tree = ast.parse(self.SOURCE)
         docstrings = set()
@@ -1317,9 +1519,24 @@ class NoSecondExceptionListTest(unittest.TestCase):
                 if body and isinstance(body[0], ast.Expr) \
                         and isinstance(body[0].value, ast.Constant):
                     docstrings.add(id(body[0].value))
+
+        exempt: set[int] = set()
+        for stmt in tree.body:
+            targets = ([stmt.target] if isinstance(stmt, ast.AnnAssign)
+                       else getattr(stmt, "targets", []))
+            if any(isinstance(t, ast.Name) and t.id == "DECLARED_VENDOR_SKILLS" for t in targets) \
+                    and stmt.value is not None:
+                exempt.update(id(n) for n in ast.walk(stmt.value))
+        # Guard the guard: the exemption must actually cover something, or a rename has quietly
+        # turned it into a no-op AND left the list unprotected by the behavioural tests that name it.
+        self.assertTrue(exempt, "DECLARED_VENDOR_SKILLS is gone — either the exemption below is "
+                                "dead and must be deleted, or the list was renamed and the "
+                                "narrowing now protects nothing")
+
         offenders = [f"line {n.lineno}: {n.value!r}" for n in ast.walk(tree)
                      if isinstance(n, ast.Constant) and isinstance(n.value, str)
-                     and id(n) not in docstrings and "graphify" in n.value.lower()]
+                     and id(n) not in docstrings and id(n) not in exempt
+                     and "graphify" in n.value.lower()]
         self.assertEqual(offenders, [], "a skill named in code, not read from the declaration:\n  "
                                         + "\n  ".join(offenders))
 
@@ -1431,6 +1648,35 @@ class NoSecondExceptionListTest(unittest.TestCase):
         So the rule is now structural rather than syntactic: every 2-tuple inside ANY list literal,
         plus every `.append(...)` argument. Module-level assignments are subtracted, because
         `MIRRORED` is a list of string 2-tuples that are section markers, not severities.
+
+        THE THIRD WIDENING WAS THE LAST ONE THIS MATCHER GETS FOR A HEAD SHAPE. The first three
+        rounds each named one more accepted node type, and each time the shape after it was already
+        in the file: the fourth was `findings.append(("info" if state == "not-enabled" else "warn",
+        …))`, an `ast.IfExp` head, which two rounds of "structural rather than syntactic" walked
+        straight past. The failing input is one word: make that literal `("blocker" if … else
+        "warn", …)` and the old matcher stayed green while a severity of rank −1 reached the output
+        with visibility and blocking both undefined.
+        The fix is not a fifth accepted type. `head_severities` WALKS the head expression, so
+        anything built out of the shapes it knows — a conditional, a boolean fallback, a constant, a
+        module constant, nested in any combination — resolves to the set of strings it can evaluate
+        to. That is what makes the "structural" claim above true rather than aspirational.
+        WHAT IT STILL DOES NOT REACH, stated because an unreachable head is silently invisible and
+        this test's whole history is a claim of totality that was not. TWO kinds, and the second is
+        the one the walker will meet first:
+          - A head computed at runtime — a dict subscript, a call, a `.format`, an f-string, an
+            attribute. Not resolvable from the AST at all.
+          - A NAME BOUND ANYWHERE BUT MODULE SCOPE. `head_severities` accepts `ast.Name` but
+            resolves it only as a module global, so a local binding yields `[]`. The failing input
+            is row 4's, restructured into two lines: `severity = "blocker" if state == "not-enabled"
+            else "warn"` followed by `findings.append((severity, …))` passes every assertion below
+            while `blocker` reaches the output at rank −1. No live instance today. Resolving an
+            enclosing-scope `Assign` would close it and was declined at this stage as too much
+            machinery for a shape the file does not yet contain — which is exactly the reasoning
+            that let the `IfExp` shape sit here for three rounds, so weigh it again if one appears.
+        Neither kind can be made an error: most 2-tuples in this file are not findings
+        (`("skill x", "reason")` exclusions, `(state, detail)` probe returns), and rejecting
+        unresolved heads fires immediately on four of them. A severity emitted through either shape
+        is out of this rule's reach; do not read the empty `unranked` as covering it.
         """
         tree = ast.parse(self.SOURCE)
         emitted: dict[str, int] = {}
@@ -1442,19 +1688,35 @@ class NoSecondExceptionListTest(unittest.TestCase):
             if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and stmt.value is not None:
                 module_data.update(id(n) for n in ast.walk(stmt.value))
 
+        def head_severities(head: ast.AST) -> list[str]:
+            """Every string the head can evaluate to THAT IS RESOLVABLE FROM THE AST ALONE.
+
+            `[]` MEANS UNRESOLVED, NOT NONE. Read it as "this head was not resolved", never as
+            "this head emits no severity" — the residue paragraph in the caller's docstring lists
+            the two shapes that land here, and an unqualified reading of this return is how the
+            previous version of this matcher came to claim a totality it did not have.
+
+            `Constant` and `Name` are leaves; `IfExp` and `BoolOp` are branches and BOTH sides of
+            each are taken, because a severity that is only reachable on one branch is still
+            emitted. A `Name` is resolved as a MODULE GLOBAL only — that is what covers `NOT_RUN`,
+            and it is also the limit: a name bound inside a function returns `[]`.
+            """
+            if isinstance(head, ast.Constant):
+                return [head.value] if isinstance(head.value, str) else []
+            if isinstance(head, ast.Name):
+                value = getattr(toolchain, head.id, None)
+                return [value] if isinstance(value, str) else []
+            if isinstance(head, ast.IfExp):
+                return head_severities(head.body) + head_severities(head.orelse)
+            if isinstance(head, ast.BoolOp):
+                return [s for value in head.values for s in head_severities(value)]
+            return []
+
         def record(node: ast.AST) -> None:
             if not isinstance(node, ast.Tuple) or len(node.elts) != 2:
                 return
-            head = node.elts[0]
-            if isinstance(head, ast.Constant) and isinstance(head.value, str):
-                emitted.setdefault(head.value, node.lineno)
-            elif isinstance(head, ast.Name):
-                # A severity emitted through a module constant — `NOT_RUN` — is still an emitted
-                # severity. Resolving it is what makes the third state covered by this rule rather
-                # than invisible to it, which is how the previous whitelist came to hold only two.
-                value = getattr(toolchain, head.id, None)
-                if isinstance(value, str):
-                    emitted.setdefault(value, node.lineno)
+            for severity in head_severities(node.elts[0]):
+                emitted.setdefault(severity, node.lineno)
 
         for node in ast.walk(tree):
             # `<list>.append((severity, detail))`
@@ -1470,9 +1732,13 @@ class NoSecondExceptionListTest(unittest.TestCase):
 
         # Guard the guard: an emission-site matcher that matched nothing would make the assertion
         # below vacuously true, which is the failure mode this whole test class exists to catch.
-        # Three, because the file emits exactly `critical`, `warn` and `not-run` today and the
-        # not-run emissions are the ones a naive matcher loses.
-        self.assertGreaterEqual(len(emitted), 3, emitted)
+        # FOUR, not three. The file emits `critical`, `warn`, `info` and `not-run` today, and a
+        # floor set below the real count is slack this guard hands to the next regression: at 3 a
+        # matcher that stopped reaching the `info` sites would still pass here, and then find
+        # nothing unranked below because it was no longer looking. The floor is only a guard while
+        # it equals what the matcher currently reaches — if a severity is deliberately retired,
+        # move this number down in the same commit and say which one went.
+        self.assertGreaterEqual(len(emitted), 4, emitted)
         self.assertIn(toolchain.NOT_RUN, emitted,
                       "the matcher no longer reaches the not-run emission sites")
         unranked = {s: line for s, line in emitted.items() if s not in toolchain.SEVERITY_RANK}
@@ -1480,20 +1746,14 @@ class NoSecondExceptionListTest(unittest.TestCase):
                                        f"undefined for these): {unranked}")
 
 
-class PluginSurfaceTest(unittest.TestCase):
-    """TC-41. The plugin surface: enumerated, classified, never approved.
+class GreenHomeMixin:
+    """The one synthetic HOME that every check passes, and the runners that drive it.
 
-    THE CARD'S DEFECT, in one sentence: a plugin shipping `agents/reviewer.md` replaces a judging
-    persona from a directory that the roster, the judging allow-list and `sync_personas.py --check`
-    all do not look at. Everything below either proves that is now seen, or proves that a failed
-    look cannot be mistaken for a clear one.
-
-    Every case runs against a GREEN BASELINE built by `green_home` and then mutated, and every
-    mutation is asserted to have taken effect before anything is concluded from it — a fixture that
-    silently failed to apply produces a pass that proves nothing.
+    EXTRACTED FROM `PluginSurfaceTest` BY TC-47 RATHER THAN COPIED, which is that card's own
+    instruction: reuse a fixture already observed green rather than reconstructing a layout. A
+    second hand-built "green" HOME is a second thing that can quietly stop being green, and a
+    tracking test whose baseline is not actually clean measures its own scaffolding.
     """
-
-    # ---- fixture construction -------------------------------------------------------------
 
     def green_home(self, tmp: Path) -> Path:
         """A synthetic HOME on which every check passes. Asserted green here, not assumed.
@@ -1517,11 +1777,41 @@ class PluginSurfaceTest(unittest.TestCase):
         # Mirror AFTER planting, or the persona stub is itself Codex-mirror drift.
         for name in toolchain.MIRRORED_SKILLS:
             shutil.copytree(claude / name, codex / name)
+        # TC-47. The tracking sweep asks git whether each skill directory would be committed, and a
+        # HOME that is not a work tree can only answer NOT-RUN — which would deny this baseline its
+        # clean verdict and make every test below measure the missing repository instead of the
+        # thing it planted. The work tree IS part of the green baseline now.
+        git_init(home / ".claude")
 
         rc, payload, err = self.run_json(home)
         self.assertEqual(rc, 0, err)
         self.assertEqual(payload["status"], "clean", payload["summary"])
         return home
+
+    def green_home_with_declared_vendor(self, tmp: Path) -> tuple[Path, str]:
+        """The green baseline plus one DECLARED VENDOR skill, ignored the way the real one is.
+
+        THE STATE NO OTHER FIXTURE REACHES, and the gap is why a false clean line survived a round
+        of review: `vendor_tree` calls `check_tracking()` directly and never renders a summary, and
+        `green_home` has no vendor, so nothing in the suite had ever seen a CLEAN RUN whose tracking
+        sweep answered `ignored` for something. That is the ordinary state of any machine with a
+        vendor skill installed, and it is precisely the state the clean sentence describes.
+        Still asserted green after the mutation: an exempt vendor must not cost the run its clean
+        verdict, or every assertion made from here would be measuring a finding instead.
+        """
+        home = self.green_home(tmp)
+        vendor = sorted(toolchain.DECLARED_VENDOR_SKILLS)[0]
+        skills = home / ".claude" / "skills"
+        (skills / vendor).mkdir(parents=True)
+        (skills / vendor / "SKILL.md").write_text("vendor\n", encoding="utf-8")
+        (skills / ".gitignore").write_text(f"/{vendor}\n", encoding="utf-8")
+
+        rc, payload, err = self.run_json(home)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(payload["status"], "clean", payload["summary"])
+        self.assertEqual(payload["tracking"]["claude"]["results"].get(vendor), "ignored",
+                         "fixture did not reproduce the ignored-vendor state it exists for")
+        return home, vendor
 
     def run_json(self, home: Path, *extra: str):
         r = subprocess.run(
@@ -1544,6 +1834,20 @@ class PluginSurfaceTest(unittest.TestCase):
         self.assertNotEqual(sorted(p.name for p in root.iterdir()), before,
                             "fixture did not mutate: no plugin was planted")
         return planted
+
+
+class PluginSurfaceTest(GreenHomeMixin, unittest.TestCase):
+    """TC-41. The plugin surface: enumerated, classified, never approved.
+
+    THE CARD'S DEFECT, in one sentence: a plugin shipping `agents/reviewer.md` replaces a judging
+    persona from a directory that the roster, the judging allow-list and `sync_personas.py --check`
+    all do not look at. Everything below either proves that is now seen, or proves that a failed
+    look cannot be mistaken for a clear one.
+
+    Every case runs against a GREEN BASELINE built by `green_home` and then mutated, and every
+    mutation is asserted to have taken effect before anything is concluded from it — a fixture that
+    silently failed to apply produces a pass that proves nothing.
+    """
 
     # ---- the test the card exists for -----------------------------------------------------
 
@@ -2283,15 +2587,23 @@ class PluginSurfaceTest(unittest.TestCase):
     def test_the_exclusion_notice_on_the_summary_line_is_short(self) -> None:
         """L8. `Run.summary` renders every exclusion inline, so the full asymmetry paragraph rode on
         every summary line this tool printed — including the clean one, at every session start, with
-        no action that could clear it. The paragraph belongs in --json."""
+        no action that could clear it. The paragraph belongs in --json.
+
+        SPLIT ON THE PLUGIN EXCLUSION BY NAME, not on `"1 excluded"`. The count moved the moment
+        TC-47 declared a second standing exclusion, and a split on the count would have raised
+        IndexError — or, had it been written defensively, silently stopped asserting anything. A
+        guard defeated by the next change is the shape this whole class is about; the generic rule
+        over every exclusion lives in `TrackedContentTest`."""
         with tempfile.TemporaryDirectory() as t:
             home = self.green_home(Path(t))
             _, payload, _ = self.run_json(home)
 
             self.assertEqual(payload["status"], "clean")
-            # The clause the exclusion contributes, isolated — the rest of the summary is the
-            # clean line and is not this test's subject.
-            clause = payload["summary"].split("1 excluded and NOT compared: ", 1)[1]
+            # The clause this exclusion contributes, isolated by its own name — the rest of the
+            # summary is the clean line and the other exclusions, and is not this test's subject.
+            entry, = [e for e in payload["excluded"] if e["name"] == "Codex plugin classification"]
+            clause = f"{entry['name']} ({entry['why']})"
+            self.assertIn(clause, payload["summary"])
             self.assertLess(len(clause), 120, clause)
             self.assertNotIn("UNKNOWN, not known to be false", payload["summary"])
             # ...and the full text is still available where a consumer reads it deliberately.
@@ -2560,6 +2872,963 @@ class PluginSurfaceTest(unittest.TestCase):
             self.assertEqual(payload["plugins"]["claude"]["items"][0]["agents"], [])
             self.assertEqual(rc, 0, err)
             self.assertEqual(payload["status"], "clean", payload["summary"])
+
+
+class TrackedContentTest(GreenHomeMixin, unittest.TestCase):
+    """TC-47, sweep one. Authored content that git would not commit, and nothing noticed.
+
+    THREE MEASURED INSTANCES IN ONE MILESTONE, all the same mechanism: `docs/decisions.md`
+    untracked while the renderer read it at startup; `docs/fleet-lessons.md` invisible to git for
+    two days while `git status` reported clean; and an entire new skill directory whose commit
+    would have silently dropped it. Each was fixed by a human remembering to add one line to an
+    allow-list. Nothing asked.
+
+    Every case mutates the SHARED green baseline and asserts the mutation landed before concluding
+    anything from it, and every not-run case is asserted to produce output DIFFERENT from the clean
+    one — a failure that renders identically to a pass is the defect this whole file is about.
+    """
+
+    def skills(self, home: Path) -> Path:
+        return home / ".claude" / "skills"
+
+    def write_gitignore(self, home: Path, body: str) -> Path:
+        """Plant `skills/.gitignore` and assert git's answer actually changed because of it."""
+        path = self.skills(home) / ".gitignore"
+        before = path.read_text(encoding="utf-8") if path.is_file() else None
+        path.write_text(body, encoding="utf-8")
+        self.assertNotEqual(path.read_text(encoding="utf-8"), before, "fixture did not mutate")
+        return path
+
+    def allow_everything_but(self, home: Path, *extra_allowed: str) -> str:
+        """The real shape of `skills/.gitignore`: `/*` and then a negation per owned entry.
+
+        Reproduced rather than simplified, because the negation is exactly what makes
+        `git check-ignore` answer the wrong question — see the trap test below.
+        """
+        entries = sorted(p.name for p in self.skills(home).iterdir() if p.name != ".gitignore")
+        return "/*\n" + "".join(f"!/{name}\n" for name in (*entries, *extra_allowed))
+
+    # ---- the state that occurred three times ----------------------------------------------
+
+    def test_an_ignored_skill_directory_is_a_finding_naming_it(self) -> None:
+        """THE ONE. A skill directory git will not commit, absent from the allow-list.
+
+        Baseline and mutation printed together: the same tree answers `clean` with the directory
+        trackable and `findings` with it ignored, so the finding is attributable to the state and
+        not to the fixture.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+
+            # BASELINE: the new skill exists and git would commit it. Nothing to report.
+            (self.skills(home) / "brand-new-skill").mkdir()
+            (self.skills(home) / "brand-new-skill" / "SKILL.md").write_text("x\n", encoding="utf-8")
+            base_rc, base_payload, err = self.run_json(home)
+            self.assertEqual(base_rc, 0, err)
+            self.assertEqual(base_payload["status"], "clean", base_payload["summary"])
+
+            # MUTATION: one line of .gitignore, and the whole skill becomes invisible.
+            self.write_gitignore(home, "/brand-new-skill\n")
+            rc, payload, err = self.run_json(home)
+
+            self.assertNotEqual(payload["summary"], base_payload["summary"],
+                                "the ignored state renders identically to the trackable one")
+            hits = [f for f in payload["findings"] if "brand-new-skill" in f["detail"]]
+            self.assertEqual(len(hits), 1, payload["findings"])
+            self.assertEqual(hits[0]["severity"], "warn", hits[0])
+            self.assertIn("MACHINE-GLOBAL", hits[0]["detail"])
+            self.assertIn("would NOT be committed", hits[0]["detail"])
+            self.assertEqual(payload["status"], "findings")
+            # TC-06: visible, not fatal. The severity ruling is argued on the card and in
+            # `check_tracking`; this pins it so a later raise to critical is a deliberate diff.
+            self.assertEqual(rc, 0, err)
+            # ...and structured, so `project-conformance` never parses the prose above.
+            self.assertEqual(payload["tracking"]["claude"]["results"]["brand-new-skill"], "ignored")
+
+    # ---- the trap the card exists to avoid inheriting ---------------------------------------
+
+    def test_a_path_a_negation_matched_is_reported_trackable_not_ignored(self) -> None:
+        """PROOF THE CHECK-IGNORE TRAP IS ABSENT, by constructing the state it fires on.
+
+        `git check-ignore` exits 0 both for "this path is excluded" and for "a NEGATION matched
+        it", and only the second is the wanted answer. Under the real allow-list shape — `/*` then
+        `!/<name>` per owned skill — EVERY owned skill is a negation match, so a check built on
+        `check-ignore`'s exit code answers 0 for all of them and cannot tell the published skills
+        from the dropped one.
+
+        This test does not take that on trust. It runs `check-ignore` itself, asserts it exits 0
+        with a negation as the matching rule, and then asserts this check calls the same path
+        TRACKABLE. The second half plants a directory that is genuinely excluded, so the first half
+        cannot pass by the check having simply stopped reporting anything.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+            claude = home / ".claude"
+            (self.skills(home) / "kept").mkdir()
+            (self.skills(home) / "kept" / "SKILL.md").write_text("x\n", encoding="utf-8")
+            self.write_gitignore(home, self.allow_everything_but(home))
+
+            # THE TRAP, demonstrated live rather than described.
+            probe = git(claude, "check-ignore", "-v", "--", "skills/kept")
+            self.assertEqual(probe.returncode, 0,
+                             "fixture does not reproduce the trap: check-ignore did not exit 0 "
+                             f"for a negated path ({probe.stdout}{probe.stderr})")
+            self.assertIn("!/kept", probe.stdout,
+                          f"exit 0 came from something other than a negation: {probe.stdout!r}")
+
+            # ...and the check disagrees with it, because it never asked that question.
+            base_rc, base_payload, err = self.run_json(home)
+            self.assertEqual(base_payload["tracking"]["claude"]["results"]["kept"], "trackable",
+                             base_payload["tracking"])
+            self.assertEqual(base_payload["status"], "clean", base_payload["summary"])
+            self.assertEqual(base_rc, 0, err)
+
+            # NON-VACUITY: the same run, one genuinely excluded directory later, does report.
+            (self.skills(home) / "rogue").mkdir()
+            (self.skills(home) / "rogue" / "SKILL.md").write_text("x\n", encoding="utf-8")
+            rc, payload, err = self.run_json(home)
+
+            self.assertEqual(payload["tracking"]["claude"]["results"]["rogue"], "ignored")
+            self.assertEqual(payload["tracking"]["claude"]["results"]["kept"], "trackable")
+            self.assertEqual([f for f in payload["findings"] if "kept" in f["detail"]], [])
+            self.assertEqual(len([f for f in payload["findings"] if "rogue" in f["detail"]]), 1,
+                             payload["findings"])
+            self.assertEqual(payload["status"], "findings")
+
+    def test_the_tracking_probe_does_not_invoke_check_ignore(self) -> None:
+        """Structural, and the reason it is worth having beside the behavioural test above.
+
+        The behavioural test proves today's implementation gets the negated case right. This proves
+        the wrong primitive is not reachable at all, so a later rewrite cannot pass by accident on a
+        tree where no negation happens to be present. Docstrings are excluded by identity: the
+        explanation of the trap must stay writable.
+        """
+        source = (SCRIPTS / "check_toolchain.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        docstrings = _docstring_ids(tree)
+        offenders = [f"line {n.lineno}: {n.value!r}" for n in ast.walk(tree)
+                     if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                     and id(n) not in docstrings and "check-ignore" in n.value]
+        self.assertEqual(offenders, [], "the trap primitive is reachable from code:\n  "
+                                        + "\n  ".join(offenders))
+        # GUARD THE GUARD, and tightened after the TC-47 review noted the first version only
+        # asserted `--dry-run` appeared SOMEWHERE in the module — which a stray constant in an
+        # unrelated function would have satisfied. Assert the argument vector itself, inside the
+        # function that owns the probe, so the rule cannot pass on a `git_probe` that was gutted.
+        probe = find_function(self, tree, "git_probe")
+        argv = [[e.value for e in n.elts
+                 if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+                for n in ast.walk(probe) if isinstance(n, ast.List)]
+        self.assertTrue(any("add" in v and "--dry-run" in v for v in argv),
+                        f"git_probe no longer invokes `git add --dry-run`: {argv}")
+
+    # ---- the disclosed gap, as a barrier rather than a paragraph ------------------------------
+
+    def surface_states(self, home: Path) -> dict[str, bool]:
+        """Author one file per surface and ask git, via the check's own probe, if it is trackable."""
+        out = {}
+        for rel in GAP_SURFACES:
+            path = home / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("authored\n", encoding="utf-8")
+            state, why = toolchain.git_probe(home, rel)
+            self.assertIn(state, (toolchain.TRACKABLE, toolchain.IGNORED), (rel, state, why))
+            out[rel] = state == toolchain.TRACKABLE
+        return out
+
+    def hidden_top_level_states(self, claude_rules: str, skills_rules: str) -> dict[str, bool]:
+        """Probe the hidden pair on an UNCOMMITTED tree carrying the given allow-lists.
+
+        Uncommitted for the reason `plant_allowlisted_home` records: `git add --dry-run` exits 0 on
+        anything already in the index whatever the rules say, so on a committed tree the probe
+        measures trackedness and the allow-list is enforced one step earlier, by the builder's own
+        staging. Not vacuous there — just indirect; this is the direct construction. `.gitignore` is
+        written by the fixture builder itself and must NOT be rewritten here — it is the rules under
+        test.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = plant_allowlisted_home(Path(t) / "claude", claude_rules=claude_rules,
+                                          skills_rules=skills_rules, commit=False)
+            out = {}
+            for rel in HIDDEN_TOP_LEVEL:
+                path = home / rel
+                if not path.exists():
+                    path.write_text("authored\n", encoding="utf-8")
+                state, why = toolchain.git_probe(home, rel)
+                self.assertIn(state, (toolchain.TRACKABLE, toolchain.IGNORED), (rel, state, why))
+                out[rel] = state == toolchain.TRACKABLE
+            return out
+
+    def test_a_hidden_top_level_entry_can_be_trackable_and_the_allowlist_line_decides(self) -> None:
+        """FIX ROUND 4, FINDING 3. The hidden counterexample, executable rather than prose.
+
+        `check_tracking`'s docstring states the true rule — HIDDEN ENTRIES ARE IN SCOPE — but every
+        executable TRUE row in `GAP_SURFACES` was a VISIBLE path and its single hidden row was
+        FALSE. Read as data that is "a hidden entry can be ignored", which is consistent with the
+        FALSIFIED rule rather than a refutation of it. The trigger the reviewer found: deleting
+        `!/.gitignore` from `CLAUDE_ALLOWLIST` broke NOTHING in this suite, even though that line is
+        what makes the counterexample true. It breaks this test now.
+
+        The pair is the assertion. One hidden TRUE row alone would be satisfied by a fixture that
+        tracked everything; one hidden FALSE row alone is what we already had. Two hidden paths in
+        the same directory under the same probe, differing only in whether the allow-list names
+        them, is the smallest thing that can say "hidden decides nothing".
+        """
+        states = self.hidden_top_level_states(CLAUDE_ALLOWLIST, SKILLS_ALLOWLIST)
+
+        self.assertEqual(states, HIDDEN_TOP_LEVEL,
+                         "hidden top-level paths no longer split the way the allow-list says — if "
+                         "`.gitignore` came back False, the `!/.gitignore` negation is gone and the "
+                         "docstring's 'hidden entries are in scope' has lost its only counterexample")
+        # Said out loud, because the failure message above is what a future reader will act on.
+        self.assertTrue(states[".gitignore"],
+                        "`.gitignore` is hidden, authored, and governs this very sweep — if git "
+                        "would not commit it, 'hidden => out of scope' is no longer refuted here")
+        self.assertFalse(states[".hidden-config"],
+                         "the control went trackable — the fixture now tracks everything and the "
+                         "TRUE row above proves nothing")
+
+    def test_the_three_uncovered_surfaces_are_what_the_docstring_says_they_are(self) -> None:
+        """FIX ROUND 3, FINDING 3. The KNOWN GAP paragraph, as an executable assertion.
+
+        Three versions of that paragraph were written from throwaway replicas and two were wrong —
+        the second because its replica omitted `skills/.gitignore` and therefore measured a tree on
+        which all three surfaces are trackable. Nothing in this repository could have contradicted
+        it. Now something can: the next wrong paragraph fails a test instead of a review.
+
+        The TRUE rows are not padding. Without them a fixture that ignored EVERYTHING would satisfy
+        every FALSE row and the test would confirm the paragraph while proving nothing.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = plant_allowlisted_home(Path(t) / "claude")
+
+            states = self.surface_states(home)
+
+            self.assertEqual(states, GAP_SURFACES,
+                             "the gap paragraph and the tree disagree — one of them is wrong")
+            # Say the two halves out loud, so a failure reads as the claim it breaks.
+            self.assertEqual(sorted(k for k, v in states.items() if not v),
+                             [".hidden-config", "MEMORY.md", "docs/NEW-LESSON.md", "skills/NOTES.md"])
+            # ...and the thing this sweep DOES cover still behaves as the module claims.
+            (home / "skills" / "new-vendor-skill").mkdir()
+            (home / "skills" / "new-vendor-skill" / "SKILL.md").write_text("x\n", encoding="utf-8")
+            state, _ = toolchain.git_probe(home, "skills/new-vendor-skill")
+            self.assertEqual(state, toolchain.IGNORED,
+                             "a new skill DIRECTORY must be ignored, or sweep one could never fire")
+
+    def test_the_committed_allowlists_still_decide_the_surfaces_the_real_ones_do(self) -> None:
+        """The literals above are a STAND-IN, and a stand-in that has drifted is the r1 defect again.
+
+        Runs the identical assertions against the real `~/.claude/.gitignore` and
+        `~/.claude/skills/.gitignore`, copied into a scratch tree — never against the live
+        repository, which must not be written to. Skips where they are absent, so the suite stays
+        machine-independent while still refusing to let the fixture drift from the policy silently.
+
+        BOTH PATHS COME FROM ONE BASE. They used to be derived from two: `toolchain.HOME / ".claude"`
+        for the top-level list and `toolchain.CLAUDE_SKILLS` for the skills list. `CLAUDE_SKILLS` is
+        a module global this suite patches (`TrackedContentTest.roots`, `NotRunStateTest.mirror`) and
+        `HOME` is not patched alongside it, so a patch that leaked would have this test comparing a
+        MISMATCHED PAIR of allow-lists — or, worse, skipping. Every patch site restores in a
+        `finally` today, so it did not fire; one base means it cannot.
+
+        AND THE SKIP IS LOUD. A drift detector that skips is a FALSE ZERO: the run still prints
+        `OK`, only with a `(skipped=1)` a reader is entitled to gloss over, and "the fixture has not
+        drifted" and "nobody checked" become the same output. The skip is still correct behaviour on
+        a machine with no `~/.claude` — but it announces itself on stderr, so the absence of a check
+        is visible without reading the tail of the summary line.
+        """
+        real_claude = toolchain.HOME / ".claude"
+        real_top = real_claude / ".gitignore"
+        real_skills = real_claude / "skills" / ".gitignore"
+        if not (real_top.is_file() and real_skills.is_file()):
+            missing = [str(p) for p in (real_top, real_skills) if not p.is_file()]
+            print(f"\n!! SKIPPING THE ALLOW-LIST DRIFT DETECTOR: no real allow-list at "
+                  f"{', '.join(missing)}. The committed literals were NOT compared against policy "
+                  f"on this run — treat this suite's `OK` as silent on drift.", file=sys.stderr)
+            self.skipTest(f"no real allow-lists to compare against: {', '.join(missing)}")
+
+        claude_rules = real_top.read_text(encoding="utf-8")
+        skills_rules = real_skills.read_text(encoding="utf-8")
+
+        # The hidden pair against the REAL rules too, so `!/.gitignore` is load-bearing in the file
+        # that actually governs this machine and not only in the stand-in literal.
+        self.assertEqual(self.hidden_top_level_states(claude_rules, skills_rules), HIDDEN_TOP_LEVEL,
+                         f"{real_top} no longer makes a hidden top-level entry trackable")
+
+        with tempfile.TemporaryDirectory() as t:
+            home = plant_allowlisted_home(
+                Path(t) / "claude",
+                claude_rules=claude_rules,
+                skills_rules=skills_rules)
+
+            states = self.surface_states(home)
+
+            self.assertEqual(states, GAP_SURFACES,
+                             f"the committed allow-lists no longer decide these paths the way "
+                             f"{real_top} and {real_skills} do — the fixture has drifted from the "
+                             f"policy, or the policy changed and the gap paragraph needs revisiting")
+
+    # ---- stop condition 1, as a barrier rather than a hand measurement ------------------------
+
+    def test_a_tracking_run_does_not_touch_the_index(self) -> None:
+        """STOP CONDITION 1, pinned. It was measured twice by hand and by nothing repeatable.
+
+        The property rests SOLELY on `--dry-run`: the TC-47 review was right that
+        `GIT_OPTIONAL_LOCKS=0` is inert for `git add`, and it has been removed rather than left as a
+        comment claiming a belt that does not exist. So this is the only standing guarantee that a
+        check running at every session start does not stage the developer's work tree.
+
+        THE ADD PATH MUST ACTUALLY RUN, or this measures nothing: an untracked NON-ignored skill is
+        planted first, and the run is asserted to have classified it `trackable` — which is only
+        reachable through a `git add --dry-run` that exited 0. Measuring "no mutation" on a tree
+        where every probe was refused would be a control broken in the exonerating direction.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+            (self.skills(home) / "unstaged-skill").mkdir()
+            (self.skills(home) / "unstaged-skill" / "SKILL.md").write_text("x\n", encoding="utf-8")
+            index = home / ".claude" / ".git" / "index"
+
+            before = (index.read_bytes() if index.exists() else None,
+                      git(home / ".claude", "ls-files", "-s").stdout,
+                      git(home / ".claude", "status", "--porcelain").stdout)
+
+            rc, payload, err = self.run_json(home)
+
+            after = (index.read_bytes() if index.exists() else None,
+                     git(home / ".claude", "ls-files", "-s").stdout,
+                     git(home / ".claude", "status", "--porcelain").stdout)
+
+            # Positive control FIRST: the add path ran and reached a verdict on the new skill.
+            self.assertEqual(payload["tracking"]["claude"]["results"]["unstaged-skill"],
+                             "trackable", payload["tracking"])
+            self.assertEqual(rc, 0, err)
+            self.assertEqual(before[1], after[1], "git ls-files changed — the run staged something")
+            self.assertEqual(before[2], after[2], "git status changed — the run staged something")
+            self.assertEqual(before[0], after[0], ".git/index bytes changed — the run wrote to it")
+
+    def test_a_git_failure_that_is_not_exclusion_is_unknown_rather_than_clean(self) -> None:
+        """The UNKNOWN branch of `git_probe`, which had NO test — the one branch deciding whether an
+        unrecognised git failure reads as clean.
+
+        Driven by a git that fails in a way this code does not recognise, planted on PATH ahead of
+        the real one. The alternative — trusting that exit-0-means-trackable is the only path — is
+        precisely the exonerating-direction assumption the rest of this file refuses.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            fake = Path(t) / "bin"
+            fake.mkdir()
+            shim = fake / "git"
+            shim.write_text("#!/bin/sh\n"
+                            "echo 'fatal: something this checker has never seen' >&2\n"
+                            "exit 7\n", encoding="utf-8")
+            shim.chmod(0o755)
+            root = Path(t) / "repo"
+            root.mkdir()
+            saved = os.environ.get("PATH", "")
+            os.environ["PATH"] = f"{fake}:{saved}"
+            try:
+                state, why = toolchain.git_probe(root, "anything")
+            finally:
+                os.environ["PATH"] = saved
+
+            self.assertEqual(state, toolchain.UNKNOWN, (state, why))
+            self.assertIn("7", why)
+            # It must NOT silently become "not ignored", which is the shape of a false all-clear.
+            self.assertNotEqual(state, toolchain.TRACKABLE)
+
+    def test_index_lock_contention_is_retried_before_it_becomes_not_run(self) -> None:
+        """FINDING 4's second consequence, and the fix for it.
+
+        `git add` takes `.git/index.lock` even under `--dry-run` — measured. `~/.claude` is written
+        by several agent sessions at once, and a single held lock was measured turning a healthy
+        machine into ONE not-run finding PER SKILL DIRECTORY and exit 2 — so the count is whatever
+        the tree holds, and `GIT_ENV` in `check_toolchain.py` owns the figures and the tree they were
+        measured on. A session-start gate that flakes to "cannot be trusted" because a sibling held a
+        lock for three milliseconds teaches the reader to ignore exit 2.
+
+        THE NUMBER IS DELIBERATELY NOT RESTATED HERE. This docstring carried "six" — the six-skill
+        test FIXTURE, not any real machine — and went on carrying it for a round after `GIT_ENV`
+        retracted it, because that retraction's remedy comment said "grep the file" and the grep was
+        duly run against `check_toolchain.py` alone. This suite is the second file in the same
+        exclusive-write set. Grep BOTH, and prefer restating the rule to restating the number.
+
+        Both halves are asserted: the transient IS retried through to a real answer, and a lock that
+        never clears still ends in UNKNOWN rather than being wished away.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            fake = Path(t) / "bin"
+            fake.mkdir()
+            counter = Path(t) / "n"
+            counter.write_text("0", encoding="utf-8")
+            shim = fake / "git"
+            # Fails the first two calls the way a held lock does, then succeeds.
+            shim.write_text(
+                "#!/bin/sh\n"
+                f"n=$(cat {counter})\n"
+                f"echo $((n+1)) > {counter}\n"
+                "if [ \"$n\" -lt 2 ]; then\n"
+                "  echo \"fatal: Unable to create '/x/.git/index.lock': File exists.\" >&2\n"
+                "  exit 128\n"
+                "fi\n"
+                "exit 0\n", encoding="utf-8")
+            shim.chmod(0o755)
+            saved = os.environ.get("PATH", "")
+            os.environ["PATH"] = f"{fake}:{saved}"
+            try:
+                state, why = toolchain.git_probe(Path(t), "some-skill")
+            finally:
+                os.environ["PATH"] = saved
+
+            self.assertEqual(state, toolchain.TRACKABLE, (state, why))
+            self.assertEqual(counter.read_text(encoding="utf-8").strip(), "3",
+                             "the transient was not retried the expected number of times")
+
+    def test_a_lock_that_never_clears_still_ends_in_not_run(self) -> None:
+        """The other half. A retry that could mask a permanent failure would be worse than the flake
+        it removes — the three-state contract is not weakened, only stopped from firing on noise."""
+        with tempfile.TemporaryDirectory() as t:
+            fake = Path(t) / "bin"
+            fake.mkdir()
+            shim = fake / "git"
+            shim.write_text("#!/bin/sh\n"
+                            "echo \"fatal: Unable to create '/x/.git/index.lock': File exists.\" >&2\n"
+                            "exit 128\n", encoding="utf-8")
+            shim.chmod(0o755)
+            saved = os.environ.get("PATH", "")
+            os.environ["PATH"] = f"{fake}:{saved}"
+            try:
+                state, why = toolchain.git_probe(Path(t), "some-skill")
+            finally:
+                os.environ["PATH"] = saved
+
+            self.assertEqual(state, toolchain.UNKNOWN, (state, why))
+            self.assertIn("retries", why)
+
+    # ---- the declared-vendor list -----------------------------------------------------------
+
+    @contextlib.contextmanager
+    def roots(self, claude: Path, codex: Path):
+        """Point the module at synthetic harness roots, as `NotRunStateTest.mirror` does."""
+        saved = (toolchain.CLAUDE_SKILLS, toolchain.CODEX_SKILLS)
+        toolchain.CLAUDE_SKILLS, toolchain.CODEX_SKILLS = claude, codex
+        try:
+            yield
+        finally:
+            toolchain.CLAUDE_SKILLS, toolchain.CODEX_SKILLS = saved
+
+    def vendor_tree(self, tmp: Path) -> tuple[Path, Path, str]:
+        """A work tree holding one declared vendor skill, ignored exactly as the real one is."""
+        vendor = sorted(toolchain.DECLARED_VENDOR_SKILLS)[0]
+        claude = git_init(tmp / "claude")
+        skills = claude / "skills"
+        (skills / vendor).mkdir(parents=True)
+        (skills / vendor / "SKILL.md").write_text("vendor\n", encoding="utf-8")
+        (skills / ".gitignore").write_text(f"/{vendor}\n", encoding="utf-8")
+        return skills, tmp / "codex" / "skills", vendor
+
+    def test_a_declared_vendor_skill_is_not_a_finding_and_the_declaration_is_visible(self) -> None:
+        """Reported, never silent, never a finding — and the reason travels with it.
+
+        The card's constraint is that an exclusion be VISIBLE rather than tacit, so the assertion
+        is not merely that no finding fired: it is that the name and the reason both reach the
+        output a consumer reads.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            skills, codex, vendor = self.vendor_tree(Path(t))
+            with self.roots(skills, codex):
+                surface, findings, excluded = toolchain.check_tracking()
+
+            self.assertEqual(surface["claude"]["results"][vendor], "ignored",
+                             "fixture did not reproduce the excluded state")
+            self.assertEqual(findings, [], findings)
+            self.assertIn(vendor, surface["claude"]["declared_vendor"])
+            self.assertTrue(surface["claude"]["declared_vendor"][vendor].strip(),
+                            "a declaration with no reason is a tacit exclusion with a name on it")
+            self.assertIn(vendor, " ".join(f"{n} {w}" for n, w in excluded))
+
+    def test_a_declared_vendor_is_reported_as_asked_not_as_uncompared(self) -> None:
+        """The exclusion header and the exclusion reason must both survive a distinction TC-47 made.
+
+        Two kinds of entry now share one list. The Codex tree was genuinely NOT COMPARED — the
+        question was never put to git. A declared vendor WAS asked and its answer is sitting in
+        `tracking.claude.results`; only the FINDING is waived. The summary header used to assert the
+        stronger claim for both, contradicting the data two keys away, which is this file's
+        false-reassurance defect at label size.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            skills, codex, vendor = self.vendor_tree(Path(t))
+            with self.roots(skills, codex):
+                surface, _, excluded = toolchain.check_tracking()
+
+            why = dict(excluded)[f"skill {vendor}"]
+            self.assertIn("asked", why, why)
+            self.assertNotIn("NOT compared", why)
+            # The rendered header, which a per-entry assertion cannot reach.
+            run = toolchain.Run("default", toolchain.BLOCKING_DEFAULT)
+            run.excluded += excluded
+            summary = run.summary("clean")
+            self.assertIn("excluded from findings", summary)
+            self.assertNotIn("NOT compared", summary)
+            # ...and the answer it was excluded from REPORTING is still on the record.
+            self.assertEqual(surface["claude"]["results"][vendor], "ignored")
+
+    def test_the_clean_line_does_not_claim_a_directory_it_excluded_would_be_committed(self) -> None:
+        """The clean sentence must reconcile with `tracking.claude.results`, not contradict it.
+
+        THE DEFECT, exactly: the phrase read "git would commit every one of the N skill
+        director(ies) on disk", where N was `len(results)` — every directory ASKED, including the
+        ones that answered `ignored` and were exempted from producing a finding. On any machine
+        with a declared vendor installed, which is the designed-for case, the success line asserted
+        committability for a directory the JSON two keys away records as ignored. It is the same
+        false-reassurance shape the round-5 fix removed from `Run.summary`'s exclusion header
+        ("excluded and NOT compared" -> "excluded from findings"), left standing one function over.
+
+        The rule this asserts is the programme's own: REPORT THE TOTAL ALONGSIDE THE FILTERED
+        COUNT, in the sentence and not only in the JSON. Both numbers, and the exempt count that
+        reconciles them, so a reader can check the arithmetic without opening `--json`.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home, vendor = self.green_home_with_declared_vendor(Path(t))
+
+            rc, payload, err = self.run_json(home)
+            self.assertEqual(rc, 0, err)
+            self.assertEqual(payload["status"], "clean", payload["summary"])
+
+            results = payload["tracking"]["claude"]["results"]
+            trackable = sum(1 for state in results.values() if state == toolchain.TRACKABLE)
+            summary = payload["summary"]
+
+            # The state the sentence has to survive: asked about more than it can vouch for.
+            self.assertEqual(results[vendor], "ignored", results)
+            self.assertLess(trackable, len(results), results)
+
+            self.assertNotIn("every one of the", summary,
+                             "the clean line still claims committability for a directory git "
+                             f"answered `ignored` about: {results}")
+            self.assertIn(f"git would commit {trackable} of the {len(results)} skill director(ies)",
+                          summary)
+            self.assertIn("1 exempt as declared vendors", summary)
+
+    def test_the_clean_line_reports_both_counts_when_nothing_is_exempt(self) -> None:
+        """The other half: with no vendor installed the two counts agree, and both are still said.
+
+        A sentence that only names the filtered count when they differ teaches the reader that the
+        number they usually see is a total, which is how the original phrasing read. It says both
+        every time, so `8 of 8` and `7 of 8` are read the same way.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+
+            rc, payload, err = self.run_json(home)
+            self.assertEqual(rc, 0, err)
+
+            results = payload["tracking"]["claude"]["results"]
+            total = len(results)
+            self.assertEqual(sum(1 for s in results.values() if s == toolchain.TRACKABLE), total,
+                             results)
+            self.assertIn(f"git would commit {total} of the {total} skill director(ies)",
+                          payload["summary"])
+            self.assertIn("0 exempt as declared vendors", payload["summary"])
+
+    def test_deleting_the_declaration_makes_the_vendor_skill_a_finding_again(self) -> None:
+        """The property `test_no_skill_is_special_cased_by_name` protects, asserted behaviourally.
+
+        That AST rule forbids a skill name as a string constant anywhere in the checker, and TC-47
+        narrows it to exempt `DECLARED_VENDOR_SKILLS` — the card requires a code-resident list, and
+        `skills/.gitignore` is an allow-list of what this repository OWNS, so it carries no
+        statement that a given exclusion is a vendor's. The exemption is only safe if the list is
+        load-bearing rather than decorative, which is exactly this: empty it, and the finding
+        returns.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            skills, codex, vendor = self.vendor_tree(Path(t))
+
+            with self.roots(skills, codex):
+                _, declared_findings, _ = toolchain.check_tracking()
+                saved = toolchain.DECLARED_VENDOR_SKILLS
+                toolchain.DECLARED_VENDOR_SKILLS = {}
+                try:
+                    surface, findings, _ = toolchain.check_tracking()
+                finally:
+                    toolchain.DECLARED_VENDOR_SKILLS = saved
+
+            self.assertEqual(declared_findings, [], "baseline was not silent")
+            self.assertEqual([s for s, _ in findings], ["warn"], findings)
+            self.assertIn(vendor, findings[0][1])
+            self.assertEqual(surface["claude"]["declared_vendor"], {})
+
+    def test_the_declared_vendor_list_is_short_and_every_entry_carries_a_reason(self) -> None:
+        """The other half of the exemption. A list that may grow silently is an allow-list again.
+
+        SHORT is the card's word and the reason is the reader: an exclusion set large enough to
+        skim is one nobody audits. Two is one more than today's single legitimate entry, so
+        adding a second is possible without a test edit and adding a third is not.
+        """
+        declared = toolchain.DECLARED_VENDOR_SKILLS
+        self.assertIsInstance(declared, dict)
+        self.assertGreaterEqual(len(declared), 1, "an empty list makes the exemption vacuous")
+        self.assertLessEqual(len(declared), 2, sorted(declared))
+        for name, why in declared.items():
+            self.assertGreater(len(why), 40,
+                               f"`{name}` is excluded with no argument a reader can weigh: {why!r}")
+
+    # ---- an unanswerable question is never a clean one ---------------------------------------
+
+    def test_a_home_that_is_not_a_work_tree_is_could_not_run_and_differs_from_clean(self) -> None:
+        """The invariant, end to end: no git, no verdict — and the two outputs are not the same.
+
+        Both halves matter. A not-run that exits 2 but prints the clean line is still the defect,
+        and a run that prints differently but exits 0 is the other half of it.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+            clean_rc, clean_payload, err = self.run_json(home)
+            self.assertEqual((clean_rc, clean_payload["status"]), (0, "clean"), err)
+
+            dot_git = home / ".claude" / ".git"
+            shutil.rmtree(dot_git)
+            self.assertFalse(dot_git.exists(), "fixture did not mutate")
+
+            rc, payload, err = self.run_json(home)
+
+            self.assertEqual(rc, 2, err)
+            self.assertEqual(payload["status"], toolchain.NOT_RUN)
+            self.assertNotEqual(payload["summary"], clean_payload["summary"])
+            self.assertIn("skill tracking", [i["check"] for i in payload["not_evaluated"]])
+            self.assertNotIn("skill tracking", payload["evaluated"])
+            self.assertFalse(payload["tracking"]["claude"]["asked"])
+            self.assertTrue(payload["tracking"]["claude"]["why_not_asked"])
+
+    def test_git_being_unavailable_is_could_not_run_rather_than_nothing_ignored(self) -> None:
+        """No git binary is the purest form of the unanswerable question, and the likeliest way a
+        future reader gets a false all-clear: with no git there is nothing ignored to report."""
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+            r = subprocess.run(
+                [sys.executable, str(SCRIPTS / "check_toolchain.py"), "--json"],
+                capture_output=True, text=True,
+                env={**dict(os.environ), "HOME": str(home), "PATH": ""})
+
+            payload = json.loads(r.stdout)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertEqual(payload["status"], toolchain.NOT_RUN)
+            self.assertIn("skill tracking", [i["check"] for i in payload["not_evaluated"]])
+            why = payload["tracking"]["claude"]["why_not_asked"] or ""
+            self.assertIn("git", why.lower(), why)
+
+    def test_a_symlinked_skill_directory_is_could_not_run_not_trackable(self) -> None:
+        """`git add` on a link records the LINK, so exit 0 would mean "committed" about a path
+        whose actual content is somewhere else entirely — the invisible-authored-work case wearing
+        a green tick. Fail closed."""
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+            elsewhere = Path(t) / "outside"
+            (elsewhere / "scripts").mkdir(parents=True)
+            (elsewhere / "SKILL.md").write_text("real content\n", encoding="utf-8")
+            link = self.skills(home) / "linked-skill"
+            link.symlink_to(elsewhere, target_is_directory=True)
+            self.assertTrue(link.is_symlink(), "fixture did not mutate")
+
+            rc, payload, err = self.run_json(home)
+
+            self.assertEqual(payload["tracking"]["claude"]["results"]["linked-skill"], "unknown")
+            self.assertEqual(rc, 2, err)
+            self.assertEqual(payload["status"], toolchain.NOT_RUN)
+
+    # ---- the harness asymmetry, stated rather than silently dropped -------------------------
+
+    def test_the_codex_side_is_declared_out_of_scope_rather_than_silently_thinner(self) -> None:
+        """STOP CONDITION 4. `~/.codex/skills` cannot be asked this question the same way.
+
+        Measured on this machine: `~/.codex` IS a work tree and every one of its seven skill
+        directories is ignored, because `~/.codex/.gitignore` excludes `skills/` wholesale — the
+        tree there is RENDERED from `~/.claude` by install_hooks.py, and backing up a derived copy
+        would create a second source of truth. Swept identically, this check would emit seven
+        permanent findings with no remedy, on every machine, at every session start: the
+        cry-wolf failure the milestone has been removing.
+
+        So the Codex side is declared out of scope — and DECLARED is the operative word. The
+        exclusion is named in the report and carries its reason in --json, and the currency of that
+        derived tree is still gated, by `check_skills`, which fires critical when a mirrored skill
+        is missing there and prescribes the command that restores it.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+            _, payload, err = self.run_json(home)
+
+            codex = payload["tracking"]["codex"]
+            self.assertFalse(codex["in_scope"])
+            self.assertFalse(codex["asked"])
+            self.assertIn("derived", (codex["why_not_asked"] or "").lower())
+            names = [e["name"] for e in payload["excluded"]]
+            self.assertIn("Codex skill tracking", names, names)
+            # ...and it is not a finding, in either direction.
+            self.assertEqual(payload["status"], "clean", payload["summary"])
+
+    def test_every_exclusion_clause_on_the_summary_line_stays_short(self) -> None:
+        """L8's rule, now that TC-47 adds a second standing exclusion.
+
+        `Run.summary` renders every exclusion inline, so each one rides on every line this tool
+        prints at every session start. The previous version of this rule string-split on
+        `"1 excluded"` and would have silently stopped asserting anything the moment a second
+        exclusion existed — a guard defeated by the change it was meant to survive.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+            _, payload, _ = self.run_json(home)
+
+            self.assertEqual(payload["status"], "clean")
+            self.assertGreaterEqual(len(payload["excluded"]), 2, payload["excluded"])
+            for entry in payload["excluded"]:
+                self.assertLess(len(f"{entry['name']} ({entry['why']})"), 120, entry)
+            scope = payload["summary"].split("excluded from findings: ", 1)[1]
+            self.assertLess(len(scope), 240, scope)
+
+    # ---- the real machine, with its tree named ----------------------------------------------
+
+    def test_the_real_machine_is_askable_and_its_clear_result_is_an_asked_one(self) -> None:
+        """The current true answer must be reported as a result, not as the absence of a check.
+
+        In-process, so this reads the real `~/.claude` without spawning `sync_personas.py --check`
+        and its 60-second timeout. THE POSITIVE CONTROL IS THE POINT: an absence claim ("nothing is
+        invisible") needs proof that directories were actually asked about, or a walk that found
+        none reads exactly like a machine with nothing wrong.
+        """
+        if not toolchain.CLAUDE_SKILLS.is_dir():
+            self.skipTest("no ~/.claude/skills on this machine")
+        surface, findings, excluded = toolchain.check_tracking()
+
+        claude = surface["claude"]
+        if not claude["asked"]:
+            self.skipTest(f"~/.claude is not a work tree here: {claude['why_not_asked']}")
+        # ON DISK, not at HEAD: `results` is keyed by what the walk saw in the working tree.
+        on_disk = sorted(p.name for p in toolchain.CLAUDE_SKILLS.iterdir()
+                         if p.is_dir() and p.name != "__pycache__")
+        self.assertGreater(len(on_disk), 0)
+        self.assertEqual(sorted(claude["results"]), on_disk,
+                         "the sweep did not ask about every skill directory on disk")
+        self.assertEqual([n for n, _ in excluded if n == "Codex skill tracking"],
+                         ["Codex skill tracking"])
+        # Whatever the verdict, it is a measured one: no directory may be silently unclassified.
+        self.assertEqual([n for n, v in claude["results"].items() if v not in
+                          ("trackable", "ignored", "unknown")], [])
+        for severity, detail in findings:
+            self.assertIn(severity, toolchain.SEVERITY_RANK, detail)
+
+
+class ReviewArtifactTest(unittest.TestCase):
+    """TC-47, sweep two. Same class of defect: authored work that no gate can see.
+
+    MEASURED, at the time the card was written — TC-35 2 review artifacts, TC-36 2, TC-37 2,
+    TC-39 5, TC-41 3, TC-42 2, TC-45 2, and TC-40 ZERO. The zero is invisible in aggregate and
+    obvious per card. TC-40 skipped its review stage entirely, was verified and moved toward a
+    commit, and the first review it ever received returned two CRITICALs — a `--fix` that deleted
+    machine-global agent files while printing "nothing changed".
+
+    Those counts are the EVIDENCE, not the assertion. Two of them have already moved (TC-40 has a
+    review now; TC-41 gained a fourth), which is precisely why nothing here pins a number measured
+    against a tree that keeps changing. What is pinned is the question, asked per card.
+    """
+
+    def run_reviews(self, workspace: Path):
+        r = subprocess.run(
+            [sys.executable, str(SCRIPTS / "check_toolchain.py"), "--json",
+             "--reviews", str(workspace)],
+            capture_output=True, text=True)
+        return r.returncode, (json.loads(r.stdout) if r.stdout.strip() else None), r.stdout + r.stderr
+
+    def test_a_card_with_a_report_and_no_review_is_a_finding_naming_it(self) -> None:
+        """THE ONE, in the shape it actually happened. Reported, verified, never reviewed."""
+        with tempfile.TemporaryDirectory() as t:
+            ws = plant_workspace(Path(t), {
+                "TC-39": ("TC-39-report.md", "TC-39-review.md"),
+                "TC-40": ("TC-40-report.md",),
+                "TC-41": ("TC-41-report.md", "TC-41-review-round2.md"),
+            })
+
+            rc, payload, err = self.run_reviews(ws)
+
+            hits = [f for f in payload["findings"] if "TC-40" in f["detail"]]
+            self.assertEqual(len(hits), 1, payload["findings"])
+            self.assertEqual(hits[0]["severity"], "critical", hits[0])
+            # The observable, not the inference — see
+            # `test_the_finding_says_what_was_searched_for_and_claims_no_more`.
+            self.assertIn("no file named `TC-40-*.md`", hits[0]["detail"])
+            # The aggregate would have hidden it; the per-card count is what makes it obvious.
+            self.assertEqual(payload["reviews"]["cards"]["TC-40"],
+                             {"reports": 1, "reviews": 0})
+            self.assertEqual(payload["reviews"]["cards"]["TC-39"],
+                             {"reports": 1, "reviews": 1})
+            self.assertEqual(rc, 1, err)
+            self.assertEqual(payload["status"], "findings")
+
+    def test_adding_the_review_clears_it(self) -> None:
+        """Baseline and remedy together. A finding no action can clear is one the reader ignores."""
+        with tempfile.TemporaryDirectory() as t:
+            ws = plant_workspace(Path(t), {"TC-40": ("TC-40-report.md",)})
+            base_rc, base_payload, err = self.run_reviews(ws)
+            self.assertEqual((base_rc, base_payload["counts"]["total"]), (1, 1), err)
+
+            planted = ws / "reports" / "TC-40-review.md"
+            planted.write_text("# review\n", encoding="utf-8")
+            self.assertTrue(planted.is_file(), "fixture did not mutate")
+
+            rc, payload, err = self.run_reviews(ws)
+
+            self.assertNotEqual(payload["summary"], base_payload["summary"])
+            self.assertEqual(payload["status"], "clean", payload["summary"])
+            self.assertEqual(rc, 0, err)
+
+    def test_a_card_with_no_report_is_not_a_finding(self) -> None:
+        """Work not yet done is not work that skipped its review, and conflating them would make
+        every unstarted card in the workspace red."""
+        with tempfile.TemporaryDirectory() as t:
+            ws = plant_workspace(Path(t), {"TC-43": (), "TC-44": ()})
+
+            rc, payload, err = self.run_reviews(ws)
+
+            self.assertEqual(payload["findings"], [], payload)
+            self.assertEqual(payload["reviews"]["cards"], {"TC-43": {"reports": 0, "reviews": 0},
+                                                           "TC-44": {"reports": 0, "reviews": 0}})
+            self.assertEqual(rc, 0, err)
+
+    def test_a_sibling_card_id_does_not_satisfy_a_cards_review(self) -> None:
+        """Prefix collision, and the workspace really contains both shapes: TC-04 beside TC-40, and
+        TC-02 beside TC-02A. A `startswith` on the bare id lets one card's review clear another's,
+        which is the silent all-clear this sweep exists to refuse."""
+        with tempfile.TemporaryDirectory() as t:
+            ws = plant_workspace(Path(t), {
+                "TC-04": ("TC-04-report.md",),
+                "TC-40": ("TC-40-report.md", "TC-40-review.md"),
+                "TC-02A": ("TC-02A-report.md",),
+            })
+            (ws / "reports" / "TC-02-review.md").write_text("# orphan\n", encoding="utf-8")
+
+            rc, payload, err = self.run_reviews(ws)
+
+            # Matched on the BACKTICKED subject, not a bare substring. The finding prose cites the
+            # TC-40 near-miss by name, so `"TC-40" in detail` is true of every finding this check
+            # emits — a loose matcher that would have reported the collision as present when it was
+            # not, which is the same false answer the check itself is built to refuse.
+            named = sorted(c for c in ("TC-04", "TC-40", "TC-02A")
+                           if any(f"card `{c}`" in f["detail"] for f in payload["findings"]))
+            self.assertEqual(named, ["TC-02A", "TC-04"], payload["findings"])
+            self.assertEqual(payload["reviews"]["cards"]["TC-40"]["reviews"], 1)
+            self.assertEqual(rc, 1, err)
+
+    def test_a_workspace_with_no_cards_is_could_not_run_and_exits_two(self) -> None:
+        """An unanswerable question is COULD-NOT-RUN, never clean. A directory with no cards in it
+        has not been swept; it has been mistyped."""
+        with tempfile.TemporaryDirectory() as t:
+            ws = Path(t) / "empty"
+            (ws / "reports").mkdir(parents=True)
+
+            rc, payload, err = self.run_reviews(ws)
+
+            self.assertEqual(rc, 2, err)
+            self.assertEqual(payload["status"], toolchain.NOT_RUN)
+            self.assertNotIn("clean", payload["summary"])
+            self.assertIn("review coverage", [i["check"] for i in payload["not_evaluated"]])
+
+    def test_a_missing_reports_directory_is_could_not_run_not_universal_failure(self) -> None:
+        """The exonerating direction has a mirror image here: no `reports/` could be read as "every
+        card is missing its review", which is a wall of findings nobody can act on. It is neither
+        that nor clean — it is a question that was not asked."""
+        with tempfile.TemporaryDirectory() as t:
+            ws = Path(t) / "ws"
+            ws.mkdir()
+            (ws / "TC-40.yaml").write_text("id: TC-40\n", encoding="utf-8")
+
+            rc, payload, err = self.run_reviews(ws)
+
+            self.assertEqual(rc, 2, err)
+            self.assertEqual(payload["status"], toolchain.NOT_RUN)
+            self.assertEqual([f for f in payload["findings"]
+                              if f["severity"] != toolchain.NOT_RUN], [])
+
+    def test_a_missing_workspace_exits_two_with_stdout_empty(self) -> None:
+        """The usage-and-environment contract this file already documents: exit 2, message on
+        stderr, and NO json object, because no result was ever established."""
+        with tempfile.TemporaryDirectory() as t:
+            r = subprocess.run(
+                [sys.executable, str(SCRIPTS / "check_toolchain.py"), "--json",
+                 "--reviews", str(Path(t) / "nope")], capture_output=True, text=True)
+
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertEqual(r.stdout.strip(), "")
+            self.assertIn("nope", r.stderr)
+
+    def test_the_two_repository_scoped_modes_are_mutually_exclusive(self) -> None:
+        """They answer different questions about different trees, and a run that silently ran only
+        one of them would report a verdict for a question the caller did not ask."""
+        with tempfile.TemporaryDirectory() as t:
+            r = subprocess.run(
+                [sys.executable, str(SCRIPTS / "check_toolchain.py"),
+                 "--vendored", t, "--reviews", t], capture_output=True, text=True)
+
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertEqual(r.stdout.strip(), "")
+
+    def test_a_single_file_cannot_be_both_the_report_and_the_review_that_clears_it(self) -> None:
+        """FINDING 9. `REPORT_MARKER` and `REVIEW_MARKERS` are not disjoint.
+
+        `TC-NN-security-report.md` contains both `report` and `security`. Counted in both lists it
+        would be the report that creates the obligation AND the review that discharges it — one file
+        clearing its own card, which is the self-exonerating shape this sweep exists to remove.
+        Review wins the tie, so such a card has no report and produces no finding: fail toward
+        silence, never toward a discharged obligation.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            ws = plant_workspace(Path(t), {"TC-50": ("TC-50-security-report.md",)})
+
+            rc, payload, err = self.run_reviews(ws)
+
+            self.assertEqual(payload["reviews"]["cards"]["TC-50"], {"reports": 0, "reviews": 1},
+                             "one file was counted as both the obligation and its discharge")
+            self.assertEqual(payload["findings"], [], payload["findings"])
+            self.assertEqual(rc, 0, err)
+
+    def test_the_finding_says_what_was_searched_for_and_claims_no_more(self) -> None:
+        """FINDING 2. The `critical` used to assert "nothing independent judged this work".
+
+        This function observes only whether a file named `TC-<id>-*` contains `review` or
+        `security`. The real workspace holds `FULL-DIFF-review.md` — a reviewer-persona review of
+        3585 lines across 13 files and two repositories — plus `SECURITY-review.md` and others, none
+        of which carry a card id. For several of the sixteen real findings the old sentence was
+        simply FALSE, at `critical`, in a file whose register is measured fact.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            ws = plant_workspace(Path(t), {"TC-40": ("TC-40-report.md",)})
+            (ws / "reports" / "FULL-DIFF-review.md").write_text("# broad\n", encoding="utf-8")
+
+            rc, payload, err = self.run_reviews(ws)
+
+            detail = payload["findings"][0]["detail"]
+            self.assertIn("TC-40-*.md", detail, detail)
+            self.assertIn("BY NAME", detail, detail)
+            # The inference must be gone, and its absence asserted rather than assumed.
+            self.assertNotIn("Nothing independent judged", detail)
+            self.assertNotIn("paraphrase", detail)
+
+    def test_the_zero_is_obvious_per_card_though_invisible_in_aggregate(self) -> None:
+        """The card's own framing, reproduced at the measured shape: seven cards carrying sixteen
+        review artifacts between them and one carrying none. The aggregate reads healthy."""
+        with tempfile.TemporaryDirectory() as t:
+            reviewed = {"TC-35": 2, "TC-36": 2, "TC-37": 2, "TC-39": 5,
+                        "TC-41": 3, "TC-42": 2, "TC-45": 2}
+            cards = {c: (f"{c}-report.md", *[f"{c}-review-{i}.md" for i in range(n)])
+                     for c, n in reviewed.items()}
+            cards["TC-40"] = ("TC-40-report.md",)
+            ws = plant_workspace(Path(t), cards)
+
+            rc, payload, err = self.run_reviews(ws)
+
+            self.assertEqual(payload["reviews"]["totals"],
+                             {"cards": 8, "with_reports": 8, "unreviewed": 1}, payload["reviews"])
+            self.assertEqual(len(payload["findings"]), 1, payload["findings"])
+            self.assertIn("TC-40", payload["findings"][0]["detail"])
+            self.assertEqual(rc, 1, err)
 
 
 if __name__ == "__main__":
