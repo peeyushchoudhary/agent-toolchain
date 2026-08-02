@@ -142,7 +142,7 @@ opt_file "$VENDOR/skills/graph-navigation/SKILL.md" "graph-navigation (optional)
   "graph-navigation absent from install/skills — only matters if you use graphify"
 
 echo "── vendored scripts run"
-for s in validate_disclosure check_github check_toolchain push_guard install_hooks; do
+for s in validate_disclosure check_github check_toolchain push_guard install_hooks identifier_guard promote_lesson; do
   runs_help "$VPD/$s.py" "$s.py" "$VPD"
 done
 VSYNC="$VENDOR/skills/agent-personas/scripts/sync_personas.py"
@@ -221,7 +221,7 @@ opt_file "$CLAUDE/skills/graph-navigation/SKILL.md" "graph-navigation (optional)
   "graph-navigation absent — only matters if you use graphify"
 
 echo "── installed scripts run"
-for s in validate_disclosure check_github check_toolchain push_guard install_hooks; do
+for s in validate_disclosure check_github check_toolchain push_guard install_hooks identifier_guard promote_lesson; do
   runs_help "$IPD/$s.py" "$s.py" "$IPD"
 done
 SYNC="$CLAUDE/skills/agent-personas/scripts/sync_personas.py"
