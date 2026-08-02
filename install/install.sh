@@ -93,14 +93,33 @@ say "target: $CLAUDE$([ "$DO_CODEX" -eq 1 ] && echo " and $CODEX")"
 [ "$DRY" -eq 1 ] && say "DRY RUN — nothing will be written"
 
 # ── Skills ───────────────────────────────────────────────────────────────────────────────────────
-# graph-navigation is included but only useful alongside the third-party `graphify` CLI; it is inert
-# without it, so installing it costs nothing.
-SKILLS="progressive-disclosure agent-personas agent-persona-factory project-onboarding graph-navigation"
+# The skill set is DISCOVERED from install/skills/.gitignore rather than named a second time here.
+# That file is this repository's own declaration of what install/skills/ publishes (see
+# docs/README.md, "What is published, and what is not") — an allowlist that ignores everything in
+# the directory and then re-includes each published skill by a `!/name` line. A hardcoded SKILLS
+# string here was a second copy of that same fact, and it went stale: it named five of the six
+# skills and nothing caught the sixth (`execution-methodology`) going unpublished by this installer
+# while verify.sh's own vendored-suite runner was already executing its tests. Reading the
+# declaration instead of re-listing it means there is exactly one place that says what
+# install/skills/ contains, and it is the same place the rest of the toolchain already reads.
+#
+# graph-navigation is declared like every other skill and installed the same way; it is included
+# even though it is only useful alongside the third-party `graphify` CLI, because it is inert
+# without that CLI, so installing it costs nothing.
+GITIGNORE="$HERE/skills/.gitignore"
+if [ -f "$GITIGNORE" ]; then
+  SKILLS=$(grep -E '^!/' "$GITIGNORE" | sed -E 's#^!/##' | grep -vE '^(\.gitignore|README\.md)$')
+else
+  SKILLS=""
+  fail "skills: install/skills/.gitignore is missing — the published-skill declaration could not be read, so nothing is known to install"
+fi
 
 echo "skills"
 run mkdir -p "$CLAUDE/skills" || fail "skills: could not create $CLAUDE/skills"
 skills_installed=0
+skills_declared=0
 for s in $SKILLS; do
+  skills_declared=$((skills_declared + 1))
   [ -d "$HERE/skills/$s" ] || { say "SKIP $s (not in this package)"; continue; }
   if [ "$DRY" -eq 1 ]; then
     say "would install $s"
@@ -111,6 +130,22 @@ for s in $SKILLS; do
   else
     fail "skill $s: could not install into $CLAUDE/skills"
   fi
+done
+# EVERY FILTERED COUNT CARRIES ITS TOTAL. "skills_installed" alone cannot distinguish "all of them
+# landed" from "the declaration named nothing" — this line says both numbers, always, at zero too.
+say "$skills_installed of $skills_declared declared skill(s) installed"
+# A directory under skills/ that the declaration does NOT name is not installed — same treatment
+# verify.sh's own vendored-suite discovery already gives it (EXCLUDED, not a failure): a re-vendor
+# that drops an undeclared tree here (graphify arrives via `uv tool` on its own schedule and could
+# land in a checkout) must not have this installer copy it into ~/.claude on the strength of its
+# presence alone. Reported so the gap is visible rather than silent.
+for d in "$HERE"/skills/*/; do
+  [ -f "${d}SKILL.md" ] || continue
+  dn="$(basename "$d")"
+  declared=0
+  for s in $SKILLS; do [ "$s" = "$dn" ] && { declared=1; break; }; done
+  [ "$declared" -eq 1 ] ||
+    say "note: $dn is present under install/skills but not declared in install/skills/.gitignore — NOT installed"
 done
 # A skill missing from the package is a statement about package contents, not a failure — but ALL of
 # them missing means this package has no skills/ at all, and then the installer wired nothing.

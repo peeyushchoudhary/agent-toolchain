@@ -97,6 +97,23 @@ CLAUDE="$HOME/.claude"
 CODEX="$HOME/.codex"
 IPD="$CLAUDE/skills/progressive-disclosure/scripts"
 
+# declared_skills — the published-skill names, DISCOVERED from install/skills/.gitignore rather than
+# listed a second time in this script. That file is this repository's own declaration of what
+# install/skills/ contains (see docs/README.md, "What is published, and what is not"): an allowlist
+# that ignores everything in the directory and re-includes each published skill by a `!/name` line.
+# TC-51 found the presence loop below hardcoding four of the six names — a second copy of the same
+# fact, disagreeing with install.sh's own separate hardcoded list, and disagreeing with itself about
+# which two names were missing. Reading the declaration means the presence check and install.sh's
+# install set are the SAME source, so they cannot drift apart again by hand-editing one of two lists.
+# A function rather than a global: it is read after the anchoring block runs but before the
+# `--self-test` early-exit, so nothing calls it, and computing it unconditionally at parse time would
+# do file I/O `--self-test` and `--help` never need. Absence of the file is reported by the caller,
+# not here, because the two call sites want it worded for their own scope ("this repository" vs
+# "this machine").
+declared_skills() {
+  grep -E '^!/' "$1" 2>/dev/null | sed -E 's#^!/##' | grep -vE '^(\.gitignore|README\.md)$'
+}
+
 # ── options ──────────────────────────────────────────────────────────────────────────────────────
 # The vendored-vs-installed drift gate is OFF by default, and the ORDER here is deliberate rather
 # than deferred. Three reasons, listed with their expiry dates because two of them have one.
@@ -2635,11 +2652,30 @@ echo "════ 1. THIS REPOSITORY — the vendored tree at $VENDOR"
 SCOPE="repo"
 
 echo "── vendored skills"
-for s in progressive-disclosure agent-personas agent-persona-factory project-onboarding; do
-  want_file "$VENDOR/skills/$s/SKILL.md" "$s" "$s missing from install/skills"
-done
-opt_file "$VENDOR/skills/graph-navigation/SKILL.md" "graph-navigation (optional)" \
-  "graph-navigation absent from install/skills — only matters if you use graphify"
+vendor_skills=$(declared_skills "$VENDOR/skills/.gitignore")
+if [ -z "$vendor_skills" ]; then
+  bad "install/skills/.gitignore is missing or names no skills — the published-skill declaration could not be read, so presence cannot be checked"
+else
+  vs_present=0; vs_total=0
+  for s in $vendor_skills; do
+    vs_total=$((vs_total + 1))
+    # graph-navigation is declared like the rest but stays a WARNING here rather than a failure: it
+    # is useful only alongside the third-party `graphify` CLI (see install.sh), which is a statement
+    # about usefulness, not about whether this repository published it — so its severity is deliberately
+    # different from the other five even though its name comes from the same declaration.
+    if [ "$s" = "graph-navigation" ]; then
+      opt_file "$VENDOR/skills/$s/SKILL.md" "graph-navigation (optional)" \
+        "graph-navigation absent from install/skills — only matters if you use graphify"
+    else
+      want_file "$VENDOR/skills/$s/SKILL.md" "$s" "$s missing from install/skills"
+    fi
+    [ -f "$VENDOR/skills/$s/SKILL.md" ] && vs_present=$((vs_present + 1))
+  done
+  # EVERY FILTERED COUNT CARRIES ITS TOTAL. "0 skills missing" cannot be told apart from "the
+  # declaration named nothing" without this — see the check_vendored_suites floor a few hundred
+  # lines below, which exists for the identical reason.
+  ctx "$vs_present of $vs_total declared skill(s) present in install/skills"
+fi
 
 echo "── vendored scripts run"
 for s in validate_disclosure check_github check_toolchain push_guard install_hooks identifier_guard promote_lesson; do
@@ -2767,11 +2803,25 @@ echo "════ 2. THIS MACHINE — the installed layer at $CLAUDE"
 SCOPE="env"
 
 echo "── installed skills"
-for s in progressive-disclosure agent-personas agent-persona-factory project-onboarding; do
-  want_file "$CLAUDE/skills/$s/SKILL.md" "$s" "$s missing from ~/.claude/skills"
-done
-opt_file "$CLAUDE/skills/graph-navigation/SKILL.md" "graph-navigation (optional)" \
-  "graph-navigation absent — only matters if you use graphify"
+# Same declaration as the repository section above ($vendor_skills, from install/skills/.gitignore)
+# — the installed layer is checked against what THIS REPOSITORY says it publishes, not against a
+# second list of installed-skill names that could name a different set.
+if [ -z "$vendor_skills" ]; then
+  bad "install/skills/.gitignore is missing or names no skills — the published-skill declaration could not be read, so installed presence cannot be checked"
+else
+  is_present=0; is_total=0
+  for s in $vendor_skills; do
+    is_total=$((is_total + 1))
+    if [ "$s" = "graph-navigation" ]; then
+      opt_file "$CLAUDE/skills/$s/SKILL.md" "graph-navigation (optional)" \
+        "graph-navigation absent — only matters if you use graphify"
+    else
+      want_file "$CLAUDE/skills/$s/SKILL.md" "$s" "$s missing from ~/.claude/skills"
+    fi
+    [ -f "$CLAUDE/skills/$s/SKILL.md" ] && is_present=$((is_present + 1))
+  done
+  ctx "$is_present of $is_total declared skill(s) present in ~/.claude/skills"
+fi
 
 echo "── installed scripts run"
 for s in validate_disclosure check_github check_toolchain push_guard install_hooks identifier_guard promote_lesson; do
