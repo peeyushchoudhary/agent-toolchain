@@ -157,6 +157,7 @@ import re
 import subprocess
 import sys
 import traceback
+import unicodedata
 from pathlib import Path
 
 DENYLIST_ENV = "PD_PRIVATE_IDENTIFIERS"
@@ -202,7 +203,33 @@ MIN_DENYLIST_LEN = 3     # below this, a deny-list entry matches most files — 
 
 # Runs of these inside a deny-list entry match any run of them (or none) in the scanned text, so a
 # single entry covers the spaced, hyphenated, underscored and squashed spellings of one name.
-SEPARATORS = "-_. "
+#
+# NOT ASCII-ONLY, and that is the point. An entry written with a typographic en dash — which is what
+# a word processor, a chat client and a `#` heading pasted out of a design doc all produce — used to
+# compile to a rule looking for U+2013 in text that contains U+002D, and matched nothing for ever.
+# MEASURED before this change: a deny-list entry `zarquon<U+2013>widget` against staged content
+# saying `zarquon-widget` exited 0. Folding every Unicode dash and every Unicode space into the same
+# class makes that entry WORK rather than merely refusing it, which is the right direction because
+# the author cannot see the difference on screen.
+#
+# The non-ASCII half is exactly Unicode general categories Pd (dash punctuation) and Zs (space
+# separator) for the Unicode version this interpreter ships. Listed BY CODEPOINT, on purpose, twice
+# over: half of these characters are invisible, so a source file holding them as literals is one
+# careless editor away from being the bug it defends against — and computing the set instead costs a
+# full sweep of the codepoint space (measured: 76 ms) on every commit, for a set that changes once
+# every few years. `identifier_guard_selftest.py` asserts this list still equals `Pd | Zs` under the
+# running interpreter, so a Unicode update is a test failure here rather than a character that
+# silently stopped being folded.
+UNICODE_SEPARATORS = "".join(chr(c) for c in (
+    0x00A0, 0x058A, 0x05BE, 0x1400, 0x1680, 0x1806,
+    0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005,
+    0x2006, 0x2007, 0x2008, 0x2009, 0x200A, 0x2010,
+    0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x202F,
+    0x205F, 0x2E17, 0x2E1A, 0x2E3A, 0x2E3B, 0x2E40,
+    0x2E5D, 0x3000, 0x301C, 0x3030, 0x30A0, 0xFE31,
+    0xFE32, 0xFE58, 0xFE63, 0xFF0D, 0x10D6E, 0x10EAD,
+))
+SEPARATORS = "-_. " + UNICODE_SEPARATORS
 
 # The commit-message file `commit-msg` receives holds more than the message: git's own instruction
 # comments, and — under `commit -v` — the entire staged diff below a scissors line. git strips both
@@ -259,7 +286,10 @@ def git(*args: str, timeout: int = 60, tolerate_failure: bool = False) -> str:
     except subprocess.CalledProcessError as exc:
         if tolerate_failure:
             return ""
-        detail = _decode(exc.stderr or b"").strip().splitlines()
+        # git's own stderr routinely names an absolute path ("fatal: not a git repository: <path>"),
+        # and this text is printed by the guard, so it goes through the guard's own redaction like
+        # everything else the guard prints.
+        detail = display_path(_decode(exc.stderr or b"").strip()).splitlines()
         raise GuardError(f"`git {' '.join(args)}` failed (exit {exc.returncode})"
                          f"{': ' + detail[0] if detail else ''} — the scan did not run") from exc
     except subprocess.TimeoutExpired as exc:
@@ -300,11 +330,18 @@ def display_path(path: Path | str) -> str:
     Anything left that still looks like a home path — an override elsewhere on the disk, another
     user's tree — is redacted through the same rule the scanner uses, so there is no second spelling
     to keep in sync.
+
+    EVERY OCCURRENCE, not just a leading one. This used to substitute only when the text STARTED
+    with the home directory, which is true of a path and false of the two other things now routed
+    through here: a crash traceback, which names the home directory once per frame, and an OSError's
+    `str`, which embeds the path mid-sentence. The substitution is bounded on the right by a
+    non-name character so that `<home>-backup` — a sibling directory belonging to somebody else —
+    is not mangled into `~-backup`, and is left for `HOME_PATH` to redact properly.
     """
     text = str(path)
     home = str(Path.home())
-    if home and (text == home or text.startswith(home + os.sep)):
-        text = "~" + text[len(home):]
+    if home and home != os.sep:
+        text = re.sub(re.escape(home) + r"(?![A-Za-z0-9._-])", "~", text)
     return HOME_PATH.sub(lambda m: m.group(0).replace(m.group(1), redact(m.group(1))), text)
 
 
@@ -471,6 +508,33 @@ def derived_rules(notes: list[str]) -> list[Rule]:
     return rules
 
 
+def _entry_char_is_usable(ch: str) -> bool:
+    """Can this character, inside a deny-list entry, ever match anything?
+
+    Three ways yes, and the order is the order of frequency:
+
+      1. It is one of the folded separators. Those are not matched literally at all — `literal_rule`
+         turns a run of them into "any run of separators, or none" — so a Unicode dash pasted out of
+         a document matches the ASCII hyphen somebody typed.
+      2. It is ASCII and printable. Everything an identifier is normally made of, plus the
+         punctuation an email address and a repository slug need (`@ / + ~`), all matched literally
+         against text that genuinely contains them.
+      3. It is a non-ASCII LETTER, DIGIT or combining MARK. A private name in Greek, Devanagari or
+         Han is a name; see `GIT_OVERRIDES` on why such a name reaches the scanner intact and must.
+
+    Everything else is no: ASCII and non-ASCII control characters (an interior tab), format
+    characters (zero-width space, soft hyphen, a BOM that is not the first byte), unpaired-looking
+    private-use codepoints, and non-ASCII symbols and punctuation that merely LOOK like ASCII ones
+    (U+2212 MINUS SIGN, U+2044 FRACTION SLASH). Every one of those compiles into a perfectly valid
+    rule that then searches for a character no ordinary file contains.
+    """
+    if ch in SEPARATORS:
+        return True
+    if ch.isascii():
+        return ch.isprintable()
+    return unicodedata.category(ch)[0] in ("L", "N", "M")
+
+
 def read_denylist(path: Path) -> list[Rule]:
     """Load the private deny-list. It is MANDATORY, and every way of not loading it is exit 2.
 
@@ -492,8 +556,9 @@ def read_denylist(path: Path) -> list[Rule]:
     replacement is acceptable either, is in the module docstring. The consequence here is that this
     function has exactly one success path: at least one usable entry.
 
-    AN ENTRY THAT CANNOT MATCH IS REFUSED RATHER THAN COMPILED. Three shapes reach that state, and
-    all three used to become rules that silently fired on nothing:
+    AN ENTRY THAT CANNOT MATCH IS REFUSED RATHER THAN COMPILED. A deny-list that silently accepts
+    entries which can never fire is a deny-list nobody can audit: it looks longer than it is, and
+    the entry that is not working is the one you believe in. Four shapes are refused:
 
       begins `!`      a leftover directive from the removed syntax, or a misspelling of one. Refused
                       by shape, not by comparison against a known word — the point is that the file
@@ -501,17 +566,42 @@ def read_denylist(path: Path) -> list[Rule]:
       has a backslash a shell-escaped spelling (`Two\\ Words`) pasted from a command line. The
                       matcher escapes it literally, so the rule looks for a backslash in the scanned
                       text and never finds one. This was in the real list, inert, for months.
-      separators only compiles to `[-_. ]*`, which matches the empty string at every position and
-                      therefore returns an empty match the scanner treats as no match.
+      an illegal      any character that is neither ASCII-printable, nor a Unicode LETTER, DIGIT or
+      character       combining MARK, nor one of the folded separators above. That is the whole of
+                      the invisible-and-lookalike class: zero-width space, soft hyphen, a BOM that
+                      is not the first byte of the file, an interior tab, a control character, and
+                      every non-ASCII symbol or punctuation mark that is not a dash or a space —
+                      U+2212 MINUS SIGN and U+2044 FRACTION SLASH being the ones a document
+                      actually produces. Each of those compiles cleanly and then hunts for a
+                      character the scanned text does not contain.
+      separators only compiles to `[<separators>]*`, which matches the empty string at every
+                      position and therefore returns an empty match the scanner treats as no match.
 
-    A deny-list that silently accepts entries which can never fire is a deny-list nobody can audit:
-    it looks longer than it is, and the entry that is not working is the one you believe in.
+    WHY THE RULE IS NOT "ASCII ONLY", which would be one line shorter and wrong. `GIT_OVERRIDES`
+    turns `core.quotepath` off precisely so that a private name written in a non-Latin script
+    survives the trip from git to this scanner; refusing non-ASCII entries would break that real
+    case to close a theoretical one. Letters, digits and marks are therefore let through in any
+    script, and only the characters with no business in a name are refused. Unicode DASHES and
+    SPACES are neither refused nor taken literally — they are folded into `SEPARATORS`, so the entry
+    a word processor produced still matches the hyphen a human typed.
+
+    WHAT THIS STILL DOES NOT CATCH, named because the paragraph above reads as closed and is only
+    closed over the class it describes:
+
+      * Canonical equivalence. An entry composed as U+00E9 does not match text decomposed as
+        `e` + U+0301, and this platform's filesystem hands out decomposed paths. Closing it means
+        normalising the SCANNED text too, which touches every match offset `redact_location`
+        depends on; it is a separate change, not a line here.
+      * Homoglyphs. A Cyrillic `а` is a letter, so it is accepted, and it will not match a Latin
+        `a`. That is indistinguishable, at this layer, from deliberately deny-listing a Cyrillic
+        name — which is a thing someone may legitimately want.
 
     Decoded as utf-8-SIG, and strictly. Strictly, unlike `_decode`, because a mojibake entry does not
     match the name it was meant to match and the failure is silent. `-sig` because a BOM is otherwise
     a decoded character glued to the FIRST entry, which is a real, measured miss: with a BOM the only
     entry in a file stopped matching and the run exited 0, and without it the same file exited 1.
-    Editors on this platform write BOMs without being asked.
+    Editors on this platform write BOMs without being asked. A BOM anywhere OTHER than the first
+    byte is not stripped by the codec and is caught by the illegal-character rule above.
 
     One identifier per line, `#` comments and blanks ignored. If a richer format ever seems
     necessary, it is not — a deny-list that needs a schema has stopped being a deny-list.
@@ -524,8 +614,12 @@ def read_denylist(path: Path) -> list[Rule]:
             f"private names were NOT checked for, so nothing was scanned and this run is not a "
             f"clean result. {remedy(path)} The private-name check did not run") from exc
     except OSError as exc:
+        # `str(exc)` REPEATS THE PATH — "[Errno 13] Permission denied: '<path>'" — and the deny-list
+        # lives under the real home by default, so interpolating it raw undid the abbreviation done
+        # two words earlier. Same defect as the one fixed in `scan_message`, found while fixing it.
         raise GuardError(f"the private deny-list at {display_path(path)} exists but could not be "
-                         f"read ({exc}) — the private-name check did not run") from exc
+                         f"read ({display_path(str(exc))}) — the private-name check did not run"
+                         ) from exc
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
@@ -560,6 +654,19 @@ def read_denylist(path: Path) -> list[Rule]:
                                  "would look for a backslash in the scanned text. Write the name "
                                  "unescaped — spaces, hyphens, underscores and dots are already "
                                  "interchangeable")
+        illegal = next((ch for ch in entry if not _entry_char_is_usable(ch)), None)
+        if illegal is not None:
+            # The CHARACTER is named, and only the character. It is punctuation, a symbol or an
+            # invisible — never a letter of the name, because letters in every script are accepted —
+            # so this says what is wrong without publishing any part of the identifier. Naming it is
+            # not optional either: the whole difficulty with this class is that the author cannot
+            # see the character, so "there is a bad character somewhere" would be unactionable.
+            raise refuse(lineno, f"it contains U+{ord(illegal):04X} "
+                                 f"({unicodedata.name(illegal, 'an unnamed character')}, Unicode "
+                                 f"category {unicodedata.category(illegal)}), which is matched "
+                                 f"literally and appears in no ordinary text, so the rule would "
+                                 f"hunt for a character that is not there. Retype the entry as "
+                                 f"plain text rather than pasting it")
         if all(ch in SEPARATORS for ch in entry):
             raise refuse(lineno, "it is nothing but separator characters, which compile to a "
                                  "pattern that matches the empty string everywhere and therefore "
@@ -577,15 +684,38 @@ def read_denylist(path: Path) -> list[Rule]:
     return rules
 
 
-def self_probe(rules: list[Rule], denylist_count: int) -> None:
+def self_probe(rules: list[Rule]) -> None:
     """Prove the assembled rule set actually matches before trusting it to find nothing.
 
     Borrowed wholesale from push_guard.py's SECRET_PATTERNS probe, and it earns its place for the
     same reason: an empty or broken matcher set imports perfectly, iterates zero times, and exits 0
     having matched nothing against everything — indistinguishable, in the output, from a clean
-    commit. The home-path probe is a synthetic string that appears nowhere real. The deny-list is
-    probed structurally (count only), because probing an entry against itself would require holding
-    the entry — which `literal_rule` already guarantees by construction.
+    commit.
+
+    TWO probes, and it is worth being exact about what each one can and cannot establish.
+
+    The FIRST is a positive: the home-path rule is run against a synthetic home path that appears
+    nowhere real, and must match it. That rule is the one whose pattern is written by hand in this
+    file, so it is the one a bad edit can silently neuter.
+
+    The SECOND is a negative, and it runs over EVERY rule, deny-list and derived alike: no rule may
+    match the empty string. That is the whole of what can honestly be checked about a rule built
+    from a term this function does not know the shape of.
+
+    WHAT USED TO BE CLAIMED HERE AND WAS FALSE, twice over. The docstring said the deny-list could
+    only be probed by count, "because probing an entry against itself would require holding the
+    entry". It does not: `rule.pattern.pattern` holds the compiled spelling of the entry, and the
+    probe below reads it. The obstacle was imaginary. It then named the wrong guarantee — that
+    `literal_rule` "already guarantees" the match. What `literal_rule` guarantees is that a rule
+    matches ITS OWN TERM, which is a tautology of construction: it says nothing about whether the
+    term can occur in scanned text, which is the only property worth probing and is not decidable
+    from the rule. So the honest position is that a deny-list rule cannot be positively probed, and
+    the shapes that would make one dead are refused by `read_denylist` at parse time instead.
+
+    AND WHAT WAS DELETED: `if denylist_count and not any(r.name == "private deny-list entry" …)`.
+    Every rule `read_denylist` appends carries exactly that name, so the condition could not fire —
+    dead code inside the function whose job is proving no rule is dead. `denylist_count` had no
+    other use, so the parameter went with it.
     """
     probe = "/Users/" + "synthetic-probe-segment"
     home = [r for r in rules if r.name == "absolute home path"]
@@ -603,16 +733,14 @@ def self_probe(rules: list[Rule], denylist_count: int) -> None:
     #
     # `read_denylist` already refuses these at parse time. This stays as the backstop that also
     # covers the DERIVED rules, which come from git config and are not parsed by that function: a
-    # `user.name` of `-_-_` is four characters, is not in TOO_GENERIC, and would otherwise compile to
-    # exactly this dead rule.
+    # `user.name` of `_-_-` is four characters, is not in TOO_GENERIC, and would otherwise compile to
+    # exactly this dead rule. That is the path `identifier_guard_selftest.py` case 11 exercises —
+    # delete these five lines and it goes red, which was not true before this revision.
     dead = [r.name for r in rules if r.pattern.search("") is not None]
     if dead:
         raise GuardError(f"a rule ({dead[0]}) compiled to a pattern that matches the empty string, "
                          f"so it reports no match against every possible text — that rule is dead "
                          f"and the rule set cannot be trusted")
-    if denylist_count and not any(r.name == "private deny-list entry" for r in rules):
-        raise GuardError(f"{denylist_count} deny-list entries were loaded but none reached the "
-                         f"rule set — the private-name check did not run")
 
 
 def redact_location(where: str, rule: Rule) -> str:
@@ -763,8 +891,12 @@ def scan_message(path: Path, rules: list[Rule]) -> list[tuple[str, str, str]]:
     try:
         text = path.read_bytes().decode("utf-8", errors="replace")
     except OSError as exc:
-        raise GuardError(f"the commit message file {path} could not be read ({exc}) — "
-                         f"the message was not scanned") from exc
+        # Both halves go through `display_path`: the path itself, and the OSError's own `str`, which
+        # repeats the path inside its message. This was the one `{path}` in the file not routed
+        # through it — the guard's own output exempt from the guard's own rule, one site over from
+        # where that was already fixed.
+        raise GuardError(f"the commit message file {display_path(path)} could not be read "
+                         f"({display_path(str(exc))}) — the message was not scanned") from exc
 
     hits: list[tuple[str, str, str]] = []
     for lineno, line in enumerate(text.split("\n"), 1):
@@ -796,9 +928,8 @@ def run(args: argparse.Namespace) -> int:
     rules.extend(derived_rules(notes))
 
     denylist_path = Path(os.environ.get(DENYLIST_ENV) or DEFAULT_DENYLIST).expanduser()
-    denylist = read_denylist(denylist_path)
-    rules.extend(denylist)
-    self_probe(rules, len(denylist))
+    rules.extend(read_denylist(denylist_path))
+    self_probe(rules)
 
     if args.message is not None:
         return report(scan_message(Path(args.message), rules), notes, "commit-msg")
@@ -838,8 +969,17 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:                                            # noqa: BLE001
         # A crash must not be able to impersonate a finding, nor a finding a crash. `traceback` is
         # imported at module scope so this handler survives a MemoryError.
-        traceback.print_exc()
-        print(f"\n  commit BLOCKED: the guard crashed ({type(exc).__name__}: {exc}).\n"
+        #
+        # FORMATTED, then routed through `display_path`, rather than printed directly. Every frame
+        # of a traceback out of this file names the file, and this file lives under the real home
+        # directory — so `traceback.print_exc()` published the account segment on every crash, in
+        # the output most likely to be pasted verbatim into an issue or an agent report. Measured
+        # before the change: the home path appeared in the captured output of the crash fixture.
+        # `format_exc` cannot raise where `print_exc` would not, and the redaction is the same one
+        # every other line of output already goes through.
+        print(display_path(traceback.format_exc()), file=sys.stderr, end="")
+        shown = display_path(str(exc))
+        print(f"\n  commit BLOCKED: the guard crashed ({type(exc).__name__}: {shown}).\n"
               f"\n  This is not a clean result — the check did not complete. Fix the environment "
               f"and commit again.\n  Do not commit past it.\n", file=sys.stderr)
         return 2

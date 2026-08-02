@@ -54,6 +54,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from pathlib import Path
 
 GUARD = Path(__file__).resolve().parent / "identifier_guard.py"
@@ -101,18 +102,23 @@ def sh(*args: str, cwd: Path) -> str:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True).stdout
 
 
-def new_repo(tmp: Path, remote_url: str | None = None) -> Path:
+def new_repo(tmp: Path, remote_url: str | None = None, user_name: str = SYNTH_NAME) -> Path:
     """A throwaway repo whose identity is synthetic and LOCAL, so it shadows the real one.
 
     `git config user.email` in the repo outranks the global value, so the derived-identity rules see
     the synthetic identity and never the machine's own. That is what lets case 7 assert a positive
     finding without this file ever holding a real address.
+
+    `user_name` is overridable for exactly one caller: case 11's dead-rule probe needs an identity
+    that compiles to a pattern matching the empty string, which no deny-list entry can be any more
+    (`read_denylist` refuses that shape at parse time) and which therefore has to arrive from git
+    config to reach the probe at all.
     """
     repo = tmp / "repo"
     repo.mkdir(parents=True)
     sh("git", "init", "-q", "-b", "feature", cwd=repo)
     sh("git", "config", "user.email", SYNTH_EMAIL, cwd=repo)
-    sh("git", "config", "user.name", SYNTH_NAME, cwd=repo)
+    sh("git", "config", "user.name", user_name, cwd=repo)
     if remote_url:
         sh("git", "remote", "add", "origin", remote_url, cwd=repo)
     (repo / "README.md").write_text("# selftest\n")
@@ -366,9 +372,15 @@ def case_missing_denylist() -> None:
 
     IT IS NOT "the private-name half was skipped and the generic half ran". The deny-list loads
     before anything is scanned, so an absent list VOIDS THE WHOLE RUN. An earlier revision of the
-    guard claimed the generic rules were "unaffected in every case" and "never skipped"; 8f now
+    guard claimed the generic rules were "unaffected in every case" and "never skipped"; 8i now
     asserts the opposite of that claim, by staging content the generic rules WOULD have caught and
     requiring that no such finding is reported.
+
+    (This sentence said "8f" until it was corrected. 8f is the RESTORE.md pointer; the reference went
+    stale when 8e was deleted and the letters below it shifted up by one. Recorded rather than
+    quietly fixed because it is the same prose-disagrees-with-assertion defect this whole case exists
+    to punish, occurring inside the fix for it — an assertion letter in a comment is a reference with
+    no compiler behind it, and the only thing keeping it true is somebody re-reading it.)
     """
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -494,8 +506,14 @@ def case_broken_denylist() -> None:
         check("9g no opt-out is offered — the removed declaration is not mentioned, and the "
               "message says outright that there is no way to switch the check off",
               REMOVED_OPT_OUT not in out and "no way to declare" in out.lower(), out[:600])
+        # Asserted on the STEM, not on one phrasing. The previous form was `"delete the file" not in
+        # out.lower()`, which pinned a single exact wording: "delete this file", "deleting it" and
+        # "you may delete the list" all satisfied it while saying the forbidden thing. The stem
+        # covers every inflection, and no legitimate message here wants it — the refusals say
+        # "remove that line", and the deny-list's own header comment used to say "DELETE this file"
+        # and was wrong.
         check("9h deleting the file is NOT offered as a way out either — that is case 8's exit 2",
-              "delete the file" not in out.lower(), out[:300])
+              "delet" not in out.lower(), out[:300])
 
         short_entry = "qz"
         short = write_denylist(tmp, [short_entry])
@@ -549,6 +567,19 @@ def case_broken_denylist() -> None:
         sep_only = write_denylist(tmp, ["-_-"])
         code, out = run_guard(repo, "--staged", denylist=sep_only)
         check("9o an entry of nothing but separators is refused", code == 2, f"got {code}: {out[:400]}")
+        # PINNED TO THE PARSE-TIME REFUSAL SPECIFICALLY. Two independent mechanisms return 2 for this
+        # fixture — `read_denylist`'s separator-only check and `self_probe`'s matches-the-empty-string
+        # backstop — so `code == 2` alone stayed green with EITHER of them deleted. The message is
+        # what distinguishes them: only the parser says "unusable entry on line N". The probe's own
+        # half is pinned independently by 11d, which reaches it through a DERIVED rule that the
+        # parser never sees.
+        # The distinguishing string has to be chosen with care: BOTH messages say "matches the empty
+        # string", because the parser's refusal explains the same underlying defect the probe detects.
+        # "that rule is dead" belongs only to the probe, and "unusable entry on line" only to the
+        # parser, so the pair separates them.
+        check("9o2 and it is the PARSER that refused it, not the probe catching it downstream",
+              "unusable entry on line" in out and "separator characters" in out
+              and "that rule is dead" not in out, out[:400])
 
         # A BOM must not disable the first entry. The file is mandatory now, so this is no longer a
         # 0-vs-2 question — it is a 1-vs-0 one, which is worse: the list loads, the run looks
@@ -566,6 +597,71 @@ def case_broken_denylist() -> None:
         sh("git", "reset", "-q", cwd=repo)
         (repo / "notes.md").unlink()
         stage(repo, "app.py", "print('hello')\n")
+
+        # THE INVISIBLE-AND-LOOKALIKE CLASS. Every entry below compiles into a syntactically perfect
+        # rule that then hunts for a character no ordinary file contains, so the list looks longer
+        # than it is and the line you are relying on does nothing. MEASURED before the fix, each of
+        # these five with the plain ASCII spelling staged: EXIT 0, committable, override confirmed in
+        # effect. The characters are written as escapes, never as themselves — a test file carrying a
+        # literal zero-width space is one careless editor away from being the bug it is testing.
+        #
+        # TWO OUTCOMES, deliberately different. A Unicode DASH or SPACE is FOLDED — the entry works —
+        # because the author cannot see the difference between it and a hyphen and should not have
+        # to. Everything else is REFUSED, because there is no ASCII character it plausibly stood for.
+        stage(repo, "notes.md", f"ported from the {SYNTH_PROJECT} loader\n")
+        en_dash = write_denylist(tmp, [SYNTH_PROJECT.replace("-", "\u2013")])   # EN DASH
+        code, out = run_guard(repo, "--staged", denylist=en_dash)
+        check("9r an entry written with an en dash still matches the ASCII hyphen in the content",
+              code == 1, f"got {code}: {out[:400]}")
+        sh("git", "reset", "-q", cwd=repo)
+        (repo / "notes.md").unlink()
+        stage(repo, "app.py", "print('hello')\n")
+        # The other direction, so 9r is not passing because the guard blocks everything: the same
+        # folded entry against content that does not contain the name is a clean run.
+        code, out = run_guard(repo, "--staged", denylist=en_dash)
+        check("9s the same folded entry on unrelated content is exit 0, so 9r is a real match",
+              code == 0, f"got {code}: {out[:400]}")
+
+        for label, char, entry in (
+                ("a zero-width space", "U+200B", SYNTH_PROJECT.replace("-", "\u200b")),
+                ("a soft hyphen", "U+00AD", SYNTH_PROJECT.replace("-", "\u00ad")),
+                ("an interior tab", "U+0009", SYNTH_PROJECT.replace("-", "\t")),
+                ("a non-leading BOM", "U+FEFF", SYNTH_PROJECT + "\ufeff")):
+            path = write_denylist(tmp, [entry])
+            code, out = run_guard(repo, "--staged", denylist=path)
+            check(f"9t an entry containing {label} is refused, not compiled into a dead rule",
+                  code == 2, f"got {code}: {out[:400]}")
+            # The CHARACTER is named — the author cannot see it, so "there is a bad character
+            # somewhere in line 2" would be unactionable — and the ENTRY still is not echoed.
+            check(f"9u it names {char} without echoing the entry",
+                  char in out and SYNTH_PROJECT.split("-")[0] not in out, out[:400])
+
+        # A NON-ASCII LETTER IS NOT REFUSED, and this is the assertion that keeps the rule above from
+        # being quietly widened into "ASCII only". `GIT_OVERRIDES` turns core.quotepath off precisely
+        # so a name in a non-Latin script survives the trip from git to the scanner; a blanket
+        # ASCII-only rule would break that real, documented case to close a theoretical one.
+        accented = "Zarqu\u00f6n-Widget"     # LATIN SMALL LETTER O WITH DIAERESIS
+        stage(repo, "notes.md", f"ported from the {accented} loader\n")
+        code, out = run_guard(repo, "--staged", denylist=write_denylist(tmp, [accented]))
+        check("9v a non-ASCII LETTER in an entry is accepted and matches — the rule is not "
+              "ASCII-only", code == 1, f"got {code}: {out[:400]}")
+        sh("git", "reset", "-q", cwd=repo)
+        (repo / "notes.md").unlink()
+        stage(repo, "app.py", "print('hello')\n")
+
+        # THE FOLDED SET IS A HARDCODED LIST IN THE GUARD, because computing it costs a full sweep of
+        # the codepoint space on every commit. A hardcoded list is a list that goes stale: a Unicode
+        # update that adds a dash character would leave it un-folded and silently un-matchable, which
+        # is the exact defect this whole block exists for. So the list is checked against the running
+        # interpreter's own Unicode data here, where staleness is a test failure rather than a dead
+        # entry somebody trusts.
+        ig = _load_guard("identifier_guard_separators")
+        expected = {chr(c) for c in range(sys.maxunicode + 1)
+                    if unicodedata.category(chr(c)) in ("Pd", "Zs")} | set("-_. ")
+        check("9w the folded separator set is exactly Pd | Zs plus the ASCII four, for THIS "
+              "interpreter's Unicode version", set(ig.SEPARATORS) == expected,
+              f"missing {sorted(ord(c) for c in expected - set(ig.SEPARATORS))}, "
+              f"extra {sorted(ord(c) for c in set(ig.SEPARATORS) - expected)}")
 
 
 def case_history_is_not_reflagged() -> None:
@@ -646,6 +742,35 @@ def case_broken_rule_set() -> None:
               os.environ.get("PD_PRIVATE_IDENTIFIERS") == previous,
               f"leaked {os.environ.get('PD_PRIVATE_IDENTIFIERS')!r}")
 
+    # THE DEAD-RULE PROBE, WHICH HAD NO TEST AT ALL. `self_probe` refuses any rule whose pattern
+    # matches the empty string — a rule that reports no match against every possible text, for ever.
+    # MEASURED: deleting those five lines outright left this suite fully green, so the branch was
+    # unpinned code inside the function whose entire job is proving that no rule is dead.
+    #
+    # It has to be reached through a DERIVED rule. `read_denylist` refuses separator-only entries at
+    # parse time (9o), so the deny-list can no longer deliver one; git config can, and is not parsed
+    # by that function. `_-_-` is four characters, so it clears MIN_DERIVED_LEN, and it is not in
+    # TOO_GENERIC, so it is not skipped with a note — it compiles straight to `[<separators>]*`.
+    # Its parts are four characters too, below the 5-character floor, so exactly one dead rule is
+    # produced and the assertion is about that rule and nothing else.
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        repo = new_repo(tmp, user_name="_-_-")
+        stage(repo, "app.py", "print('hello')\n")            # clean, so a 2 is not a finding
+        deny = write_denylist(tmp, [SYNTH_PROJECT])
+        code, out = run_guard(repo, "--staged", denylist=deny)
+        check("11d a git identity that compiles to a rule matching the EMPTY STRING exits 2",
+              code == 2, f"got {code}: {out[:400]}")
+        check("11e and it says the rule is dead rather than reporting a clean scan",
+              "matches the empty string" in out and "that rule is dead" in out, out[:400])
+        # The other direction, so 11d is about the identity and not about the fixture: an ordinary
+        # identity on the identical index and the identical deny-list is a clean run.
+        ordinary = new_repo(tmp / "ordinary")
+        stage(ordinary, "app.py", "print('hello')\n")
+        code, out = run_guard(ordinary, "--staged", denylist=deny)
+        check("11f the same index under an ordinary git identity is exit 0", code == 0,
+              f"got {code}: {out[:400]}")
+
 
 def case_crash_and_interrupt() -> None:
     """main()'s handler chain. A crash must not impersonate a finding, nor a finding a crash."""
@@ -671,6 +796,33 @@ def case_crash_and_interrupt() -> None:
     check("12a an unexpected crash exits 2, never the 1 reserved for a finding", code == 2,
           f"got {code}: {out[:300]}")
     check("12b it names the crash", "the guard crashed" in out and "MemoryError" in out, out[:300])
+
+    check("12b2 the traceback itself is printed, not swallowed — a crash must stay diagnosable",
+          "Traceback (most recent call last)" in out, out[:300])
+    # THE TRACEBACK IS THE GUARD'S OWN OUTPUT AND IS HELD TO THE GUARD'S OWN RULE. Every frame of a
+    # traceback out of identifier_guard.py names identifier_guard.py, which lives under the real home
+    # directory — so `traceback.print_exc()` published the account segment on every crash, in the one
+    # piece of output most certain to be pasted verbatim into an issue or an agent report. This was
+    # reproducible on the machine, in this very fixture's captured output, until `format_exc` was
+    # routed through `display_path`. `GUARD` is this suite's own resolved path, so the assertion is
+    # about the running interpreter's real home rather than a fixture's.
+    #
+    # SKIPPED, LOUDLY, WHEN THE GUARD IS NOT UNDER $HOME. A copy of this suite run out of tree — from
+    # a scratch directory, a worktree, a mutation harness — produces frames that never mention the
+    # home directory, so these two would pass without exercising anything, which is worse than not
+    # running. The installed guard IS under $HOME (case 13 refuses to proceed otherwise, and the hook
+    # templates hardcode the path), so in the configuration that ships, this runs.
+    real_home = Path.home()
+    if GUARD.is_relative_to(real_home):
+        check("12e the crash traceback does not print the real home directory in its frames",
+              str(real_home) not in out, out[-800:])
+        check("12f and the home segment is abbreviated to `~` rather than merely redacted, so the "
+              "frames stay readable", "~/.claude" in out, out[-800:])
+        check("12g and it is still locatable — the guard's own file name survives",
+              "identifier_guard.py" in out, out[-800:])
+    else:
+        print(f"  skip  12e-12g the guard under test is not under $HOME ({GUARD}), so a traceback "
+              f"from it cannot exercise the home-path redaction")
 
     code, out = main_with(KeyboardInterrupt())
     check("12c Ctrl-C exits 2, not 1", code == 2, f"got {code}: {out[:300]}")
@@ -799,6 +951,23 @@ def case_output_does_not_republish() -> None:
               "exact replace", code == 1 and variant_dir not in out, f"got {code}: {out[:400]}")
         check("14e and the finding is still locatable — the surviving path and line are printed",
               "docs/" in out and "notes.md:1" in out, out[:400])
+
+        # THE ONE `{path}` THAT WAS NOT ROUTED THROUGH `display_path`. `scan_message`'s read-failure
+        # message interpolated the raw path, and the OSError's own `str` repeats it — so pointing
+        # `--message` at anything unreadable under the real home printed the account segment twice.
+        # A directory is the realistic way to get there: a wrapper that passes `$GIT_DIR` or a
+        # half-written `$1`. Asserted against the REAL home, because that is the value at risk; the
+        # fixtures elsewhere in this file redirect HOME and would not catch it.
+        real_home = Path.home()
+        unreadable_msg = real_home / ".claude"          # exists, is a directory, is under $HOME
+        if unreadable_msg.is_dir():
+            code, out = run_guard(repo, "--message", str(unreadable_msg), denylist=deny)
+            check("14f an unreadable commit-message PATH is abbreviated, not printed in full",
+                  code == 2 and str(real_home) not in out, f"got {code}: {out[:400]}")
+            check("14g and it still says which file and that the message was not scanned",
+                  "~/.claude" in out and "was not scanned" in out, out[:400])
+        else:
+            print("  skip  14f-14g no directory under $HOME to point --message at")
 
 
 def case_argv() -> None:
@@ -1044,10 +1213,19 @@ def case_no_opt_out() -> None:
         repo = new_repo(tmp)
 
         ig = _load_guard("identifier_guard_no_opt_out")
-        check("18a the guard exposes no declaration constant at all",
-              not hasattr(ig, "NO_PRIVATE_IDENTIFIERS"),
-              f"guard still defines NO_PRIVATE_IDENTIFIERS = "
-              f"{getattr(ig, 'NO_PRIVATE_IDENTIFIERS', None)!r}")
+        # NOT "the constant is not called NO_PRIVATE_IDENTIFIERS". That pinned one NAME, and the
+        # feature is not a name — reintroducing it as `OPT_OUT_MARKER` or `DELIBERATELY_NONE` would
+        # have kept this green. The property is that the guard's namespace holds no directive-shaped
+        # STRING at all: nothing beginning `!`, and nothing spelling the removed syntax whatever it
+        # is bound to. `DENYLIST_ENV` and the rest are ordinary strings and are unaffected.
+        directive_like = sorted(
+            attr for attr, value in vars(ig).items()
+            if isinstance(value, str)
+            and (value.strip().startswith("!") or REMOVED_OPT_OUT in value.lower()
+                 or "no-private-identifiers" in value.lower()))
+        check("18a the guard's namespace holds no directive-shaped string under any name",
+              not directive_like and not hasattr(ig, "NO_PRIVATE_IDENTIFIERS"),
+              f"directive-shaped constants: {directive_like}")
         source = GUARD.read_text(encoding="utf-8")
         check("18b the removed directive appears nowhere in the guard's source, not even as a "
               "string it rejects", REMOVED_OPT_OUT not in source,
@@ -1099,6 +1277,12 @@ def case_no_opt_out() -> None:
         code, out = run_guard(repo, "--staged", denylist=commented_out)
         check("18i a directive inside a comment is an empty list — exit 2", code == 2,
               f"got {code}: {out[:300]}")
+        # PINNED TO WHICH MECHANISM. Two paths return 2 for this fixture and they mean different
+        # things: the `#`-strip running FIRST (so the file is simply empty), or the `!` refusal
+        # firing on a line that should never have reached it. `code == 2` alone could not tell them
+        # apart, and this case's whole subject is that a commented-out directive is nothing at all.
+        check("18i2 and it is the EMPTY-LIST path, not the `!` refusal — the comment strip ran first",
+              "contains no usable entries" in out and "begins with `!`" not in out, out[:400])
 
         # THE OTHER DIRECTION, so none of the above is passing because everything exits 2: an
         # ordinary populated list on the same otherwise-clean index is a clean run.
