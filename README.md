@@ -36,7 +36,10 @@ Then open a project and run the **`project-onboarding`** skill. Requirements and
 | **A four-layer route** | Contract → index → per-directory → README, each with a word budget, all validated |
 | **A repository taxonomy** | One layout across every project, with a migrator for existing repos |
 | **Thirteen personas** | `scout`, `developer`, `senior-developer`, `reviewer`, `architect`, `acceptance` and others — model and effort already decided, generated into both harnesses |
-| **A push guard** | Blocks credentials, oversized files, and direct pushes to main — the two rules a forge charges for, enforced locally |
+| **A push guard** | Blocks credentials, oversized files, and direct pushes to main — the two rules a forge charges for, enforced locally. Fails closed: a scan that could not run exits 2 and never reads as clean |
+| **An identifier guard** | For a repository that is deliberately public: blocks home paths, account identifiers, and a machine-local list of private names from the staged diff and the commit message. The list lives outside the repository it protects |
+| **An environment preflight** | Asserts the facts that break scripts and gates rather than code — a tool that resolves in your shell but not in a script, a keg-only JDK, an inherited SIGHUP-ignore |
+| **A vendored-drift check** | Compares the installed layer against this repository's published copy, so the two cannot silently disagree |
 | **Drift detection** | Session start reports a broken route, an unsynced persona, an unmirrored rule, a stale graph |
 
 ## How it fits together

@@ -1,6 +1,6 @@
 # Agent personas
 
-Eleven roles, authored once, rendered into whichever harness is being driven. A session should not
+Thirteen roles, authored once, rendered into whichever harness is being driven. A session should not
 re-derive "what is a reviewer and which model should it use" every time.
 
 Implementation: `~/.claude/skills/agent-personas/`. Specialists:
