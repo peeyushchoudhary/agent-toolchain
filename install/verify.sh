@@ -28,21 +28,33 @@
 # never contributes its name to a passing line.
 #
 # Exit codes: 0 nothing that ran failed, 1 at least one check failed, 2 something that had to run
-# COULD NOT RUN AT ALL. Note what 0 does NOT mean: a default run always skips at least the opt-in
-# drift gate, so 0 is never a claim that every check ran. Skips are counted and printed in the
-# verdict for exactly that reason — the verdict may not claim more than what actually executed.
+# COULD NOT RUN AT ALL, 64 this script was invoked wrongly (EX_USAGE — an unknown option). 64 is
+# separate on purpose: the argument parser used to exit 2, so `./verify.sh --tpyo` was
+# indistinguishable from "a vendored suite produced no result" to any caller keying on the code.
+# Note what 0 does NOT mean: a default run always skips at least the opt-in drift gate, so 0 is
+# never a claim that every check ran. Skips are counted and printed in the verdict for exactly that
+# reason — the verdict may not claim more than what actually executed.
 #
 # 2 DOMINATES 1, and that ordering is the TC-06 ruling already quoted above: the exit code answers
 # "can you trust this report" BEFORE it answers "did it find anything". A run that could not execute
 # a vendored suite does not know what that suite would have said, so it may not present itself as a
 # run that merely found problems. See `exit_arm`.
 #
-# 2 IS CLAIMED NARROWLY, AND THE NARROWNESS IS DELIBERATE. Only a vendored skill suite that could
-# not be executed raises it. The other `skip`s in this file are checks that were deliberately NOT
-# ATTEMPTED — the opt-in drift gate, the Codex checks on a machine with no Codex — and a default run
-# always has at least one of those. Routing every skip to 2 would make 2 the permanent exit status
-# and destroy the distinction it exists to draw. "Was not attempted" and "was attempted and could
-# not run" are different sentences; only the second is a 2.
+# WHAT RAISES 2 TODAY, STATED AS A FACT ABOUT THIS FILE RATHER THAN AS A PRINCIPLE. `cnr` is called
+# from exactly one place — the vendored-suite runner — so a vendored skill suite that produced no
+# test result is the ONLY thing that raises 2. An earlier version of this comment justified that by
+# claiming every other `skip` in the file is a check "deliberately NOT ATTEMPTED". That is false,
+# and the next maintainer acting on it would mis-route. These skips are ATTEMPTED AND PRODUCED NO
+# RESULT — the file's own definition of could-not-run — and remain UNMIGRATED, each exiting 0:
+#   * "cannot compare — vendored check_toolchain.py is missing"
+#   * "no installed check_toolchain.py to fall back to — the comparison was NOT measured"
+#   * "cannot check — installed check_toolchain.py is missing"
+#   * the payload renderer's skip for an EMPTY legacy bare array — a payload that established nothing
+# They are left as skips because migrating them is a change to the machine section's exit behaviour
+# that no card has authorised, not because they are a different kind of thing. What IS true, and is
+# the reason 2 must stay narrow, is that a default run always contains at least one genuinely
+# not-attempted skip (the opt-in drift gate, the Codex checks on a machine with no Codex): routing
+# every skip to 2 would make 2 the permanent exit status and destroy the distinction it draws.
 # Absence of an OPTIONAL dependency (gh, ripgrep, graphify) is a warning and never fails.
 set -uo pipefail
 
@@ -116,7 +128,18 @@ usage: verify.sh [--check-vendored-drift] [--self-test] [-h|--help]
                           nothing about the machine or the repository.
 
 Exit codes: 0 nothing that ran failed; 1 at least one check failed; 2 something that had to run
-could not run at all, so the report is not known to be complete. 2 outranks 1.
+could not run at all, so the report is not known to be complete; 64 unknown option (EX_USAGE). 2
+outranks 1. 64 is NOT 2: a mistyped flag must not be readable as "a suite produced no result".
+
+Requirements for the vendored skill suites:
+  python3   required. Which interpreter is used is printed beside the results, because a green
+            result is only as good as the interpreter that produced it, and the default is
+            whatever `python3` PATH resolves to — which differs between machines.
+  git       REQUIRED, and this is a real prerequisite rather than an optional extra. The vendored
+            progressive-disclosure suite calls `subprocess.run(["git", ...], check=True)` at 19
+            unguarded call sites; without git on PATH those tests raise and the suite goes red.
+            Checked before the suites run, and reported as a machine finding if absent.
+  sh, bash  required by three further call sites. Present on any POSIX machine.
 
 Environment:
   VERIFY_VENDORED_DRIFT=1 same as --check-vendored-drift.
@@ -130,7 +153,9 @@ while [ $# -gt 0 ]; do
     --check-vendored-drift) CHECK_VENDORED_DRIFT=1 ;;
     --self-test) SELF_TEST=1 ;;
     -h|--help) usage; exit 0 ;;
-    *) printf 'verify.sh: unknown option %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
+    # 64 = EX_USAGE, NOT 2. This exited 2 before, which collided with "something that had to run
+    # could not run at all" — so a caller keying on 2 got it for a typo.
+    *) printf 'verify.sh: unknown option %s\n\n' "$1" >&2; usage >&2; exit 64 ;;
   esac
   shift
 done
@@ -149,7 +174,15 @@ SCOPE="repo"
 # because `skip` cannot: `skip` is also how a deliberately-not-attempted check is recorded, and a
 # default run always has one of those. Inventing a fourth *bucket* would have meant re-routing every
 # existing skip; adding a tally beside them does not.
+#
+# AND IT IS SCOPE-ROUTED LIKE THE OTHERS. `could_not_run` is the total, which is what the exit arm
+# reads; `repo_cnr` and `env_cnr` are what the two verdict LINES read. A previous version kept only
+# the total and attributed all of it to the repository line with a comment saying "split this if a
+# machine-scope check ever grows a could-not-run". It has: a vendored suite whose tests reach into
+# $HOME can fail to run for a reason that belongs to the machine, and printing COULD NOT RUN against
+# "this repository" for it is the same overclaim in the opposite direction.
 could_not_run=0
+repo_cnr=0; env_cnr=0
 
 count() {
   case "$SCOPE:$1" in
@@ -178,7 +211,12 @@ skip() { printf '  \033[36mskip\033[0m  %s\n' "$1"; count skip; }
 # only in the colour — the same ruling `toolchain_report`'s renderer already makes for the rc-2
 # path, so an operator scanning the output can tell "was not attempted" from "was attempted and
 # produced no result" without reading the sentence.
-cnr()  { printf '  \033[35mCOULD NOT RUN\033[0m  %s\n' "$1"; count skip; could_not_run=$((could_not_run+1)); }
+cnr()  {
+  printf '  \033[35mCOULD NOT RUN\033[0m  %s\n' "$1"
+  count skip
+  could_not_run=$((could_not_run+1))
+  case "$SCOPE" in env) env_cnr=$((env_cnr+1)) ;; *) repo_cnr=$((repo_cnr+1)) ;; esac
+}
 # ctx prints without counting. Same rule as the `ctx` level in toolchain_report: context about what
 # ran is not a finding, and composing a finding out of it would inflate the tallies the verdict is
 # computed from.
@@ -511,29 +549,110 @@ toolchain_report() {
 #                                               interpreter, a crash before collection. That is one
 #                                               observable fact, not an invented fourth state.
 #
-# A FAILING SUITE IS FATAL, and the ordering objection was checked rather than waved past. The
-# precedent in this file is the drift gate (see reason 2 in the options comment): a gate is defaulted
-# OFF when it would be red for the very change that clears it. That reasoning does NOT transfer here,
-# and the difference is which side of the change the gate runs on. The drift exists BEFORE the
-# re-vendor and is cleared BY it, so the re-vendor card's own `./verify.sh` would be red through no
-# fault of its work. A failing vendored suite is the OPPOSITE: it can only appear in a tree a
-# re-vendor has already produced, and the same re-vendor can produce a green one by fixing the source
-# first. Measured at the time of writing, on the committed tree of this branch, both discovered
-# suites pass — so there is no red state today for a fatal gate to block. If that ever inverts, the
-# fix is to fix the source and re-vendor again, not to downgrade this to a warning: a knob that lets
-# a red suite exit 0 is the skip-reported-as-success shape this file exists to keep out.
+# A FAILING SUITE IS FATAL TO THE PROCESS. Which SCOPE it is fatal in is a second question, and the
+# first version of this block got it wrong by answering only the first.
+#
+# The ordering objection was checked rather than waved past. The precedent in this file is the drift
+# gate (see reason 2 in the options comment): a gate is defaulted OFF when it would be red for the
+# very change that clears it. That reasoning does not transfer here, and the difference is which side
+# of the change the gate runs on. The drift exists BEFORE the re-vendor and is cleared BY it, so the
+# re-vendor card's own `./verify.sh` would be red through no fault of its work. A failing vendored
+# suite generally appears in a tree a re-vendor has already produced, and the same re-vendor can
+# produce a green one by fixing the source first. So: no default-off flag, and no opt-out flag —
+# a knob that lets a red suite exit 0 is the skip-reported-as-success shape this file exists to keep
+# out.
+#
+# WHAT THAT ARGUMENT DOES NOT COVER, AND THE FIRST VERSION OF THIS COMMENT ASSERTED ANYWAY: it said a
+# failing vendored suite "can ONLY appear in a tree a re-vendor has already produced", i.e. that the
+# failure is always repository-attributable and always fixable from inside this repository. The
+# suites themselves contradict that. `execution-methodology/tests/test_repo_sync.py` executes
+# `$HOME/.claude/skills/progressive-disclosure/scripts/validate_disclosure.py` and asserts its stderr
+# is empty; `progressive-disclosure`'s suite reaches into `$HOME` in four of its seven files. Land a
+# new finding kind in the INSTALLED validator, or upgrade the interpreter so it emits one
+# DeprecationWarning on stderr, and a pristine untouched clone goes red — for a reason living
+# entirely outside the clone.
+#
+# THE RULE THAT SETTLES IT IS ALREADY IN THIS FILE, as reason 3 of the drift-gate comment above:
+# "one of the two operands is $HOME", therefore the answer is a property of the machine and never a
+# move back into the repository verdict. That is a precedent, not a new policy, and it is applied
+# here rather than re-derived: a suite whose own sources reach into $HOME has its FAILURES and its
+# COULD-NOT-RUNS counted in the MACHINE scope. It is still fatal to the process — env failures always
+# were, exactly like `only N skills in ~/.codex/skills` two hundred lines below — so nothing becomes
+# silently green. What changes is which verdict line wears it, and a stranger cloning this repository
+# onto a machine with a different ~/.claude no longer reads "FAIL this repository" for their machine.
+#
+# Whether a suite reaches into $HOME is DISCOVERED from its own sources, not listed here, for the
+# same reason the skills are: a list is a second copy of a fact that moves with every re-vendor.
 #
 # NO OPT-OUT FLAG, and the cost is real: the suites take roughly forty seconds together. A flag to
 # skip them would be a flag to make the gate green without the evidence, which is the same shape.
+#
+# THE INTERPRETER IS A MACHINE PROPERTY THIS GATE CANNOT CONTROL. `python3` from PATH is whatever
+# this machine put first, so the green below is green UNDER THAT INTERPRETER and no other. The
+# version is printed with the results for exactly that reason. Detecting that a user's default
+# interpreter differs from the one a green was recorded under is a real gap and is one layer above
+# this check; what is in scope here is that the output must never let a reader assume otherwise.
 SUITE_PY="${VERIFY_SUITE_PY:-python3}"
 
-suites_found=0; suites_with=0; suites_none=0
-suites_pass=0;  suites_fail=0;  suites_cnr=0; suites_tests=0
+suites_found=0; suites_with=0; suites_none=0; suites_excluded=0
+suites_pass=0;  suites_fail=0;  suites_cnr=0; suites_vacuous=0
+suites_tests=0; suites_skipped=0
 
-# run_one_suite NAME SKILL_DIR — run SKILL_DIR/tests from inside SKILL_DIR. Calls ok/bad/cnr itself,
-# so every line it prints is counted by the scope in force.
+# suite_reaches_home TESTS_DIR — does this suite's own source read $HOME? Discovered, never listed.
+# The answer decides which SCOPE a failure or a could-not-run is counted in; see the long comment
+# above. Deliberately over-inclusive: a false positive moves a failure to the machine line, where it
+# is still printed and still fatal to the process, while a false negative would put a machine fact
+# back into the repository verdict — which is the thing reason 3 of the drift-gate comment forbids.
+# grep's own failure is treated as "yes" for the same fail-safe reason.
+suite_reaches_home() {
+  grep -rqE 'Path\.home\(\)|expanduser|HOME' "$1" --include='*.py' 2>/dev/null && return 0
+  [ $? -eq 1 ] && return 1
+  return 0
+}
+
+# has_test_file DIR — does DIR, or anything beneath it, hold a file matching `test*.py`?
+#
+# PURE BASH, AND THAT IS NOT STYLE. The first version of this used
+# `find "$dir" -name 'test*.py' -print -quit`, which introduced an external-binary dependency into
+# the one predicate that decides whether a suite gets run at all — and its failure mode when `find`
+# is unavailable is to return nothing, i.e. a SILENT FALSE "NOT TESTED HERE". That is the exact
+# defect this function was being changed to remove, reintroduced one layer down by the fix for it.
+# Caught by running the gate under a PATH that did not resolve `find`. Recursion by plain glob has
+# no such mode: a directory that cannot be read simply contributes no match, and the floor guard
+# below turns "nothing at all has a suite" into a loud finding either way.
+#
+# `test*.py` and recursive, matching what `unittest discover` collects, NOT the old
+# `tests/test_*.py` non-recursive glob — which called `tests/unit/test_x.py` and `tests/tests_x.py`
+# no suite at all. Over-matching is the safe direction: a directory that matches and then discovers
+# nothing is already a loud `bad`, whereas under-matching is a silent skip.
+has_test_file() {
+  local d="$1" f
+  for f in "$d"/test*.py; do [ -f "$f" ] && return 0; done
+  for f in "$d"/*/; do
+    [ -d "$f" ] || continue
+    has_test_file "${f%/}" && return 0
+  done
+  return 1
+}
+
+# run_one_suite NAME SKILL_DIR — run SKILL_DIR/tests from inside SKILL_DIR. Calls ok/bad/cnr/skip
+# itself, so every line it prints is counted by the scope in force at that moment.
+#
+# SKIPS ARE PARSED AND SURFACED, AND THIS IS THE CARD'S OWN DEFECT CLASS ONE LEVEL DOWN. This
+# function used to discriminate on `Ran N` plus the return code alone. `TestResult.startTest`
+# increments `testsRun` BEFORE the skip check, so a skipped test is inside `Ran N`, and the run still
+# exits 0 with `OK (skipped=K)` — which meant `98 vendored test(s) passed` over a 10-test class that
+# never executed an assertion. Both vendored suites carry live conditional skips keyed on
+# `Path.home()` state this repository does not own, so the first green recorded for this gate was
+# obtained on a machine where none of those guards fire, and the output did not say so.
+#   * skipped tests are subtracted from the passed count and reported as `K of N ... NOT TESTED HERE`
+#   * they are routed to `skip`, so they reach the verdict as checks that DID NOT RUN
+#   * a suite where EVERY test skipped is not a pass at all: it is the whole suite NOT TESTED HERE
+# The word "passed" now only ever appears over tests that actually executed an assertion.
 run_one_suite() {
-  local name="$1" dir="$2" out rc ran="" ln tail_line="" first_line=""
+  local name="$1" dir="$2" out rc ran="" ln tail_line="" first_line="" sk=0 execd
+  local home=0 saved_scope="$SCOPE"
+  suite_reaches_home "$dir/tests" && home=1
   # PYTHONDONTWRITEBYTECODE: the gate must not leave __pycache__ behind in the vendored tree. It is
   # gitignored, but a verification script that dirties the thing it verifies is a bad neighbour to
   # every hook that inspects the worktree.
@@ -549,23 +668,50 @@ run_one_suite() {
       "Ran "*" test"*) ran="${ln#Ran }"; ran="${ran%% *}" ;;
     esac
   done <<< "$out"
+  # The skip count lives in unittest's trailing line — `OK (skipped=10)`, or
+  # `FAILED (failures=1, skipped=2)`. Pure bash for the reason above: macOS sed dies on the em dashes
+  # these suites emit, so a parse of the result would become an error message about the parse.
+  case "$tail_line" in
+    *"skipped="*) sk="${tail_line#*skipped=}"; sk="${sk%%[!0-9]*}"; sk="${sk:-0}" ;;
+  esac
+
+  # $HOME-reaching suites: failures and could-not-runs are MACHINE facts. See the block comment.
+  [ "$home" -eq 1 ] && SCOPE="env"
 
   if [ -z "$ran" ]; then
     suites_cnr=$((suites_cnr+1))
     cnr "$name: the vendored suite COULD NOT RUN — \`$SUITE_PY\` produced no test result (rc=$rc). No verdict about this suite exists either way. First output line: ${first_line:-(no output)}"
+    SCOPE="$saved_scope"
     return
   fi
   suites_tests=$((suites_tests+ran))
+  suites_skipped=$((suites_skipped+sk))
+  execd=$((ran - sk))
   if [ "$ran" -eq 0 ]; then
+    # Discovery reached the suite and found nothing to run. That is a fact about the tree, so it is
+    # reported in the scope in force before the $HOME routing above — restored first, deliberately.
+    SCOPE="$saved_scope"
     suites_fail=$((suites_fail+1))
     bad "$name: the vendored suite has a tests/ directory but discovery ran 0 tests — a suite that runs nothing is not a passing suite"
   elif [ "$rc" -ne 0 ]; then
     suites_fail=$((suites_fail+1))
-    bad "$name: the vendored suite FAILED — $ran test(s) ran, rc=$rc, ${tail_line:-(no summary line)}"
+    bad "$name: the vendored suite FAILED — $execd of $ran test(s) executed, $sk skipped, rc=$rc, ${tail_line:-(no summary line)}$([ "$home" -eq 1 ] && printf ' [counted against THIS MACHINE, not this repository: this suite reads $HOME, so its result is not a property of the vendored tree alone]')"
+  elif [ "$execd" -le 0 ]; then
+    # Every test skipped. `OK (skipped=N)` over zero executed assertions is not a pass, and it is not
+    # a repository failure either — the guards that fired are keyed on $HOME state. It is the whole
+    # suite NOT TESTED HERE, in those words, counted as a skip.
+    suites_vacuous=$((suites_vacuous+1))
+    skip "$name: NOT TESTED HERE — all $ran vendored test(s) were SKIPPED by the suite's own guards, so 0 of $ran executed an assertion. \`${tail_line:-?}\` is not evidence"
   else
     suites_pass=$((suites_pass+1))
-    ok "$name: $ran vendored test(s) passed"
+    ok "$name: $execd of $ran vendored test(s) passed"
+    if [ "$sk" -gt 0 ]; then
+      # Surfaced as its own counted skip, never folded into the sentence above. This is the row that
+      # made the first green machine-dependent without saying so.
+      skip "$name: $sk of $ran vendored test(s) NOT TESTED HERE — SKIPPED by the suite's own guards (\`${tail_line:-?}\`), typically keyed on \$HOME state this repository does not own"
+    fi
   fi
+  SCOPE="$saved_scope"
 }
 
 # check_vendored_suites SKILLS_ROOT — discover every vendored skill under SKILLS_ROOT and apply
@@ -573,22 +719,57 @@ run_one_suite() {
 # it against constructed fixtures; a fixture built on a REAL suite's test count would be broken
 # already, because another card may re-vendor this tree at any time.
 check_vendored_suites() {
-  local root="$1" d name f has_suite
-  suites_found=0; suites_with=0; suites_none=0
-  suites_pass=0;  suites_fail=0;  suites_cnr=0; suites_tests=0
+  local root="$1" d name has_suite
+  suites_found=0; suites_with=0; suites_none=0; suites_excluded=0
+  suites_pass=0;  suites_fail=0;  suites_cnr=0; suites_vacuous=0
+  suites_tests=0; suites_skipped=0
 
   if [ ! -d "$root" ]; then
     bad "no vendored skills directory at $root — there is nothing to discover, which is a finding and not an empty pass"
     return
   fi
+
+  # WHICH INTERPRETER RAN THEM, printed INSIDE this function rather than at the call site. It lived
+  # at the single call site before, which put a hard requirement of the card outside everything
+  # --self-test can reach: deleting the line left the whole suite green. It is now emitted by the
+  # function under test and pinned by an assertion.
+  ctx "interpreter: $(command -v "$SUITE_PY" 2>/dev/null || echo "$SUITE_PY (not on PATH)") — $("$SUITE_PY" -V 2>&1 || echo 'version unavailable') (whatever this machine puts first on PATH; a green below is green under THIS interpreter and no other)"
+
+  # THE REPOSITORY ALREADY DECLARES WHAT IT PUBLISHES, and discovery must read the same declaration
+  # the rest of the toolchain does. `install/skills/.gitignore` is an allowlist — "ignore everything
+  # at the top level, then name the skills this repository owns" — written because this directory is
+  # also where vendor skills install THEMSELVES (graphify arrives via `uv tool` on its own schedule).
+  # `check_toolchain.py` honours it. This loop did not, so a wholesale re-vendor leaving an untracked
+  # `graphify/` here would have added a seventh discovered skill and, if it shipped tests, run a
+  # third party's suite fatally against a skill this repository declares it does not publish.
+  #
+  # git itself is the authority, so no second gitignore parser is introduced. If git cannot answer —
+  # not installed, or this is an unpacked tarball rather than a checkout — the declaration is
+  # UNREADABLE, which is not the same as empty: it is reported, and discovery proceeds over
+  # everything, because testing more than declared is the safe direction and testing less is not.
+  local can_read_decl=1
+  if ! command -v git >/dev/null 2>&1 || ! git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    can_read_decl=0
+    # MACHINE scope: the declaration is a repository artifact, but every reason it cannot be read is
+    # machine-side — git not installed, or this tree was unpacked from a tarball rather than cloned.
+    # Same rule as everywhere else in this file: if the answer depends on the machine, it does not
+    # belong in the repository verdict.
+    local decl_scope="$SCOPE"; SCOPE="env"
+    note "the publication declaration (install/skills/.gitignore) could NOT be read — no git, or this is not a checkout — so discovery below cannot tell a skill this repository publishes from one a vendor installed here on its own"
+    SCOPE="$decl_scope"
+  fi
+
   for d in "$root"/*/; do
     [ -f "${d}SKILL.md" ] || continue
     name=$(basename "$d")
+    if [ "$can_read_decl" -eq 1 ] && git -C "$root" check-ignore -q "$d" 2>/dev/null; then
+      suites_excluded=$((suites_excluded+1))
+      ctx "$name: EXCLUDED and not discovered — install/skills/.gitignore declares this repository does not publish it"
+      continue
+    fi
     suites_found=$((suites_found+1))
     has_suite=0
-    for f in "${d}tests"/test_*.py; do
-      [ -f "$f" ] && { has_suite=1; break; }
-    done
+    if [ -d "${d}tests" ] && has_test_file "${d}tests"; then has_suite=1; fi
     if [ "$has_suite" -eq 1 ]; then
       suites_with=$((suites_with+1))
       run_one_suite "$name" "${d%/}"
@@ -605,15 +786,25 @@ check_vendored_suites() {
     # A discovered total of zero is a finding about the DISCOVERY, not a clean run. "0 suites
     # failed" and "the loop matched nothing" are indistinguishable without this.
     bad "discovery matched no vendored skills under $root — a discovered total of zero means discovery reached nothing, which is a finding and not a clean result"
+  elif [ "$suites_with" -eq 0 ]; then
+    # THE FLOOR, and the zero-guard above does not supply it. `suites_found` is not the
+    # evidence-bearing quantity; `suites_with` is. Delete every vendored `tests/` directory and the
+    # old check printed "6 discovered, 0 with a vendored suite, 6 NOT TESTED HERE" and exited 0 —
+    # the published tests silently stop being evidence and nothing says so. Same argument as the
+    # zero-discovery guard, applied to the quantity that actually carries the evidence.
+    bad "$suites_found vendored skill(s) discovered under $root and NOT ONE has a test suite — this repository publishes tests as evidence, so zero runnable suites is a finding and not a clean result"
   fi
 
   # EVERY FILTERED COUNT CARRIES ITS TOTAL. "0 suites failed" is indistinguishable from "nothing was
   # discovered"; "0 of 2" is not. Printed as ctx because it is a description of the run, not a
-  # finding — the findings above it are already counted.
-  ctx "$(printf 'suites: %d skill(s) discovered, %d with a vendored suite, %d NOT TESTED HERE; %d of %d suite(s) passed, %d of %d failed, %d of %d could not run; %d test(s) executed' \
-    "$suites_found" "$suites_with" "$suites_none" \
+  # finding — the findings above it are already counted. Two lines: suites, then tests, because the
+  # test-level skip count is the one this gate was previously silent about.
+  ctx "$(printf 'suites: %d skill(s) discovered (%d excluded by the publication declaration), %d with a vendored suite, %d NOT TESTED HERE; %d of %d suite(s) passed, %d of %d failed, %d of %d could not run, %d of %d ran only skips' \
+    "$suites_found" "$suites_excluded" "$suites_with" "$suites_none" \
     "$suites_pass" "$suites_with" "$suites_fail" "$suites_with" "$suites_cnr" "$suites_with" \
-    "$suites_tests")"
+    "$suites_vacuous" "$suites_with")"
+  ctx "$(printf 'tests:  %d of %d vendored test(s) actually executed an assertion; %d of %d were SKIPPED and are NOT TESTED HERE' \
+    "$((suites_tests - suites_skipped))" "$suites_tests" "$suites_skipped" "$suites_tests")"
 }
 
 # ── self-test ────────────────────────────────────────────────────────────────────────────────────
@@ -796,23 +987,72 @@ class T(unittest.TestCase):
     def test_b(self):
         self.assertEqual(1, 2)
 '
+  # One passing test and one SKIPPED test -> `Ran 2 tests` + `OK (skipped=1)`, which is exactly the
+  # shape that used to be printed as "2 vendored test(s) passed".
+  st_skip_body='import unittest
+
+
+class T(unittest.TestCase):
+    def test_a(self):
+        self.assertTrue(True)
+
+    @unittest.skip("guard fired")
+    def test_b(self):
+        self.assertEqual(1, 1)
+'
+  # EVERY test skipped -> `Ran 2 tests` + `OK (skipped=2)`, exit 0, zero assertions executed.
+  st_allskip_body='import unittest
+
+
+@unittest.skip("guard fired")
+class T(unittest.TestCase):
+    def test_a(self):
+        self.assertTrue(True)
+
+    def test_b(self):
+        self.assertEqual(1, 1)
+'
+  # A FAILING suite whose own source reads $HOME. `pathlib.Path.home()` is never called — its mere
+  # presence in the source is what `suite_reaches_home` detects, and detecting it from the source
+  # rather than from behaviour is the point: the check must work without running anything.
+  st_home_fail_body='import unittest
+from pathlib import Path
+
+_WHERE = Path.home()
+
+
+class T(unittest.TestCase):
+    def test_a(self):
+        self.assertEqual(1, 2)
+'
   # mk_skill ROOT NAME — a skill with a SKILL.md and no suite.
   mk_skill() { mkdir -p "$1/$2"; printf '# %s\n' "$2" > "$1/$2/SKILL.md"; }
   # mk_suite ROOT NAME BODY — give an existing fixture skill a suite.
   mk_suite() { mkdir -p "$1/$2/tests"; printf '%s' "$3" > "$1/$2/tests/test_fixture.py"; }
 
   # expect_suites NAME ROOT WANT_FAIL WANT_SKIP WANT_CNR WANT_ARM [MUST_CONTAIN] [MUST_NOT_CONTAIN]
+  #               [WANT_ENV_FAIL] [WANT_ENV_SKIP]
+  #
+  # THE ENV DELTAS ARE ASSERTED TOO, AND DEFAULT TO ZERO. Without them a mutation that routed every
+  # suite finding into the machine scope would leave every assertion here green while the repository
+  # verdict went permanently silent — and $HOME-scope routing is precisely what this block now
+  # contains, so the counter it moves has to be pinned on BOTH sides.
   expect_suites() {
     local name="$1" root="$2" wf="$3" ws="$4" wc="$5" wa="$6" needle="${7:-}" absent="${8:-}"
-    local f0=$repo_fail s0=$repo_skip c0=$could_not_run df ds dc arm why="" st_ln
+    local wef="${9:-0}" wes="${10:-0}"
+    local f0=$repo_fail s0=$repo_skip c0=$could_not_run ef0=$env_fail es0=$env_skip
+    local df ds dc def des arm why="" st_ln
     check_vendored_suites "$root" > "$st_dir/rendered" 2>&1
     df=$((repo_fail - f0)); ds=$((repo_skip - s0)); dc=$((could_not_run - c0))
-    arm=$(exit_arm "$df" "$dc")
+    def=$((env_fail - ef0)); des=$((env_skip - es0))
+    arm=$(exit_arm "$((df + def))" "$dc")
     # ASCII `!=` and braced parameters, for the reason documented on expect_route: a multibyte
     # character here made `set -u` kill the whole suite on the first delta mismatch.
     [ "$df" = "$wf" ] || why="$why fail(${df}!=${wf})"
     [ "$ds" = "$ws" ] || why="$why skip(${ds}!=${ws})"
     [ "$dc" = "$wc" ] || why="$why cnr(${dc}!=${wc})"
+    [ "$def" = "$wef" ] || why="$why envfail(${def}!=${wef})"
+    [ "$des" = "$wes" ] || why="$why envskip(${des}!=${wes})"
     [ "$arm" = "$wa" ] || why="$why exit(${arm}!=${wa})"
     if [ -n "$needle" ] && ! grep -q -- "$needle" "$st_dir/rendered"; then
       why="$why missing:\"$needle\""
@@ -821,7 +1061,8 @@ class T(unittest.TestCase):
       why="$why must-not-contain:\"$absent\""
     fi
     if [ -z "$why" ]; then
-      printf '  \033[32mok\033[0m    %s → fail+%s skip+%s cnr+%s exit %s\n' "$name" "$df" "$ds" "$dc" "$arm"
+      printf '  \033[32mok\033[0m    %s → fail+%s skip+%s cnr+%s envfail+%s envskip+%s exit %s\n' \
+        "$name" "$df" "$ds" "$dc" "$def" "$des" "$arm"
       st_pass=$((st_pass+1))
     else
       printf '  \033[31mFAIL\033[0m  %s →%s\n' "$name" "$why"
@@ -845,21 +1086,94 @@ class T(unittest.TestCase):
   mk_skill "$st_ok_root" alpha
   mk_suite "$st_ok_root" alpha "$st_pass_body"
   expect_suites "a passing vendored suite runs and is reported as passing" "$st_ok_root" \
-    0 0 0 0 "alpha: 2 vendored test(s) passed" "NOT TESTED HERE — no vendored test suite"
+    0 0 0 0 "alpha: 2 of 2 vendored test(s) passed" "NOT TESTED HERE — no vendored test suite"
   # The absence above is only worth anything with a positive control, which the NOT-TESTED-HERE
   # assertion below supplies: the same needle must be PRESENT there.
 
   # ── the summary carries the total beside every filtered count.
   expect_suites "the summary reports each count against its total" "$st_ok_root" \
-    0 0 0 0 "1 skill(s) discovered, 1 with a vendored suite, 0 NOT TESTED HERE"
+    0 0 0 0 "1 skill(s) discovered (0 excluded by the publication declaration), 1 with a vendored suite, 0 NOT TESTED HERE"
+  # The test-level line is a SECOND summary and needs its own pin: `suites_tests` was never asserted
+  # at all before, so deleting the accumulator left every assertion green.
+  expect_suites "the test-level summary reports executed against total, with a real value" "$st_ok_root" \
+    0 0 0 0 "tests:  2 of 2 vendored test(s) actually executed an assertion; 0 of 2 were SKIPPED"
+  # ── the interpreter-provenance line is a hard requirement of the card, so it is pinned. It used to
+  #    live at the production call site, outside everything this block can reach.
+  expect_suites "the interpreter that ran the suites is named in the output" "$st_ok_root" \
+    0 0 0 0 "interpreter: "
 
   # ── (b) a skill with NO suite: NOT TESTED HERE, in those words, never a pass.
   st_none_root="$st_dir/skills_none"
   mk_skill "$st_none_root" gamma
+  # fail+1/exit 1 because this root is ALSO the floor case (row 5): one skill, none with a suite.
+  # Both findings are expected here, and pinning the pair together is what proves the NOT-TESTED-HERE
+  # skip is not quietly standing in for the floor finding or vice versa.
   expect_suites "a skill with no vendored suite is NOT TESTED HERE and never a pass" "$st_none_root" \
-    0 1 0 0 "gamma: NOT TESTED HERE — no vendored test suite" "vendored test(s) passed"
+    1 1 0 1 "gamma: NOT TESTED HERE — no vendored test suite" "vendored test(s) passed"
   # ^ the positive control for the previous assertion's absence claim, and its own absence claim
   #   ("vendored test(s) passed") is controlled by the passing assertion above.
+
+  # ── A MIXED ROOT. Every sub-count of the summary is pinned NON-ZERO here, which is what the
+  #    single-skill roots above cannot do. `suites_none` was pinned only at 0, so the mutation
+  #    `suites_none=$((suites_none+0))` survived all thirty assertions while production printed
+  #    "0 NOT TESTED HERE" over four untested skills. A counter no assertion pins non-zero is not
+  #    covered, and that is the vacuity rule this card already carried, applied to counters.
+  st_mixed_root="$st_dir/skills_mixed"
+  mk_skill "$st_mixed_root" alpha; mk_suite "$st_mixed_root" alpha "$st_pass_body"
+  mk_skill "$st_mixed_root" gamma
+  expect_suites "a mixed root pins discovered, with-a-suite and NOT-TESTED-HERE all non-zero" \
+    "$st_mixed_root" 0 1 0 0 "2 skill(s) discovered (0 excluded by the publication declaration), 1 with a vendored suite, 1 NOT TESTED HERE"
+
+  # ── (row 10) DISCOVERY MATCHES WHAT `unittest discover` MATCHES. `tests_x.py` at the top level and
+  #    `tests/unit/test_x.py` nested are both suites; the old `tests/test_*.py` non-recursive glob
+  #    called them NO SUITE AT ALL — a false NOT TESTED HERE with no finding attached.
+  st_shape_root="$st_dir/skills_shape"
+  mk_skill "$st_shape_root" delta
+  mkdir -p "$st_shape_root/delta/tests"
+  printf '%s' "$st_pass_body" > "$st_shape_root/delta/tests/tests_oddly_named.py"
+  expect_suites "a suite named tests_x.py is discovered, not reported as having none" "$st_shape_root" \
+    0 0 0 0 "delta: 2 of 2 vendored test(s) passed" "no vendored test suite"
+  st_nest_root="$st_dir/skills_nested"
+  mk_skill "$st_nest_root" epsilon
+  mkdir -p "$st_nest_root/epsilon/tests/unit"
+  printf '%s' "$st_pass_body" > "$st_nest_root/epsilon/tests/unit/test_x.py"
+  # It is counted as HAVING a suite. Whether unittest then collects it depends on the nested
+  # directory being an importable package — which is why over-matching is safe: the miss becomes the
+  # loud "ran 0 tests" finding below instead of a silent skip. Either outcome is a non-zero delta,
+  # so the assertion pins the thing that matters: it is NOT reported as having no suite.
+  expect_suites "a nested suite is counted as a suite, never as NOT TESTED HERE" "$st_nest_root" \
+    1 0 0 1 "1 with a vendored suite, 0 NOT TESTED HERE"
+
+  # ── (row 1, THE FINDING OF THIS ROUND) A SKIPPED TEST IS SURFACED, NEVER ABSORBED INTO "passed".
+  #    `TestResult.startTest` increments `testsRun` before the skip check, so a skipped test is
+  #    inside `Ran N` and the run still exits 0 with `OK (skipped=K)`. The old code discriminated on
+  #    `Ran N` + rc alone and printed "2 vendored test(s) passed" over it.
+  #
+  #    The fixture is the SAME fixture as the passing root, with one decorator added — so the
+  #    positive control for "this is what the same suite looks like without the skip" is the
+  #    `st_ok_root` assertion above, which pins `2 of 2 ... passed` and, below, the ABSENCE of the
+  #    skip sentence. Two roots, one differing line.
+  st_skip_root="$st_dir/skills_skip"
+  mk_skill "$st_skip_root" alpha; mk_suite "$st_skip_root" alpha "$st_skip_body"
+  expect_suites "a skipped test is counted and named, not folded into the passed count" \
+    "$st_skip_root" 0 1 0 0 "alpha: 1 of 2 vendored test(s) NOT TESTED HERE — SKIPPED"
+  expect_suites "the passed sentence covers only tests that executed an assertion" \
+    "$st_skip_root" 0 1 0 0 "alpha: 1 of 2 vendored test(s) passed"
+  expect_suites "the test-level summary carries the skip count" \
+    "$st_skip_root" 0 1 0 0 "tests:  1 of 2 vendored test(s) actually executed an assertion; 1 of 2 were SKIPPED"
+  # POSITIVE CONTROL for that absence: the identical fixture WITHOUT the skip decorator says none of
+  # it, and says `2 of 2 ... passed` instead.
+  expect_suites "control: the same fixture without the skip says nothing about skips" "$st_ok_root" \
+    0 0 0 0 "alpha: 2 of 2 vendored test(s) passed" "SKIPPED by the suite's own guards"
+
+  # ── a suite where EVERY test skipped: `OK (skipped=2)`, exit 0, zero assertions executed. That is
+  #    not a pass. It is the whole suite NOT TESTED HERE, and the passed sentence must be absent.
+  st_allskip_root="$st_dir/skills_allskip"
+  mk_skill "$st_allskip_root" alpha; mk_suite "$st_allskip_root" alpha "$st_allskip_body"
+  expect_suites "a suite where every test skipped is NOT TESTED HERE, never a pass" \
+    "$st_allskip_root" 0 1 0 0 "alpha: NOT TESTED HERE — all 2 vendored test(s) were SKIPPED" "vendored test(s) passed"
+  expect_suites "and the summary counts it as ran-only-skips, not as passed" \
+    "$st_allskip_root" 0 1 0 0 "0 of 1 suite(s) passed, 0 of 1 failed, 0 of 1 could not run, 1 of 1 ran only skips"
 
   # ── a FAILING suite. Built by MUTATING a fixture that is first proven to pass, so the failure can
   #    only come from the mutation — and the mutation is proven to have changed the file.
@@ -891,10 +1205,58 @@ class T(unittest.TestCase):
   SUITE_PY="$st_dir/notexec"
   expect_suites "a non-executable interpreter yields COULD NOT RUN too" "$st_ok_root" \
     0 1 1 2 "0 of 1 suite(s) passed" "vendored test(s) passed"
+  # `suites_cnr` was pinned only at 0: the two assertions above pin the CNR bucket via the
+  # `could_not_run` delta, which `cnr()` moves, not via this counter. Deleting `suites_cnr` left the
+  # summary printing "0 of 1 could not run" beside a COULD NOT RUN line, with everything green.
+  expect_suites "the summary counts the could-not-run against its total" "$st_ok_root" \
+    0 1 1 2 "0 of 1 suite(s) passed, 0 of 1 failed, 1 of 1 could not run"
   SUITE_PY="$st_saved_py"
   # Control for the two absences above: with the interpreter restored, the phrase comes back.
   expect_suites "control: with the interpreter restored the same root passes again" "$st_ok_root" \
     0 0 0 0 "vendored test(s) passed" "COULD NOT RUN"
+
+  # ── (row 7) DISCOVERY HONOURS THE PUBLICATION DECLARATION, the same one check_toolchain.py reads.
+  #    This fixture is a real git checkout because git itself is the parser — the alternative was a
+  #    second gitignore implementation in bash, which would be a second copy of the truth. git is a
+  #    declared prerequisite of this gate (see --help), so requiring it here is not a new dependency.
+  st_decl_root="$st_dir/skills_decl"
+  mk_skill "$st_decl_root" alpha;    mk_suite "$st_decl_root" alpha "$st_pass_body"
+  mk_skill "$st_decl_root" graphify; mk_suite "$st_decl_root" graphify "$st_fail_body"
+  printf '/*\n!/.gitignore\n!/alpha\n' > "$st_decl_root/.gitignore"
+  git -C "$st_decl_root" init -q >/dev/null 2>&1
+  # graphify is declared unpublished, so its FAILING suite must never be discovered, never run, and
+  # never reach a counter. Without the declaration it would be a fatal failure over a skill this
+  # repository says it does not publish.
+  expect_suites "a skill the declaration excludes is not discovered and its suite is not run" \
+    "$st_decl_root" 0 0 0 0 "graphify: EXCLUDED and not discovered" "the vendored suite FAILED"
+  expect_suites "and the excluded count is reported beside the discovered total" \
+    "$st_decl_root" 0 0 0 0 "1 skill(s) discovered (1 excluded by the publication declaration), 1 with a vendored suite"
+  # POSITIVE CONTROL: with the declaration removed, the same tree discovers graphify and its failing
+  # suite goes red. Without this, a mutation that simply skipped every skill would pass the two above.
+  rm "$st_decl_root/.gitignore"
+  expect_suites "control: remove the declaration and the same excluded suite is discovered and fails" \
+    "$st_decl_root" 1 0 0 1 "graphify: the vendored suite FAILED" "EXCLUDED and not discovered"
+  # And the DEGRADED path: outside a checkout the declaration cannot be read, which is reported
+  # rather than silently treated as "nothing is excluded". Every other fixture root in this block is
+  # a bare mktemp directory, so this warning was firing throughout, unpinned by anything.
+  expect_suites "an unreadable declaration is reported, not treated as an empty one" "$st_ok_root" \
+    0 0 0 0 "publication declaration (install/skills/.gitignore) could NOT be read"
+
+  # ── (row 2) A SUITE WHOSE OWN SOURCE READS $HOME IS NOT FATAL TO THE *REPOSITORY* VERDICT.
+  #    Reason 3 of the drift-gate comment, applied: one operand is $HOME, so the answer is a property
+  #    of the machine. The failure is still counted and still selects exit 1 — it moves scope, it
+  #    does not soften. The pair of assertions below is the whole claim: repo_fail must NOT move,
+  #    env_fail MUST, and the arm must still be 1.
+  st_home_root="$st_dir/skills_home"
+  mk_skill "$st_home_root" zeta; mk_suite "$st_home_root" zeta "$st_home_fail_body"
+  expect_suites "a \$HOME-reaching suite's failure lands on the MACHINE line, not the repository's" \
+    "$st_home_root" 0 0 0 1 "zeta: the vendored suite FAILED" "" 1 0
+  expect_suites "and it says why it was attributed to the machine" \
+    "$st_home_root" 0 0 0 1 "counted against THIS MACHINE, not this repository" "" 1 0
+  # POSITIVE CONTROL: the same failure shape in a suite that does NOT read $HOME stays on the
+  # repository line. Without this, routing everything to env would satisfy the two above.
+  expect_suites "control: a failing suite that does not read \$HOME stays on the repository line" \
+    "$st_fail_root" 1 0 0 1 "beta: the vendored suite FAILED" "counted against THIS MACHINE" 0 0
 
   # ── discovery that reaches nothing is a FINDING, not an empty pass.
   st_empty_root="$st_dir/skills_empty"; mkdir -p "$st_empty_root"
@@ -902,6 +1264,13 @@ class T(unittest.TestCase):
     1 0 0 1 "discovered total of zero"
   expect_suites "a missing skills root is a finding, not a clean run" "$st_dir/no-such-root" \
     1 0 0 1 "nothing to discover"
+  # ── (row 5) THE FLOOR. `suites_found` is not the evidence-bearing quantity; `suites_with` is.
+  #    Skills discovered but NOT ONE with a suite was a clean exit 0 — delete every vendored tests/
+  #    directory and 392 published tests silently stop being evidence with nothing saying so.
+  st_floor_root="$st_dir/skills_floor"
+  mk_skill "$st_floor_root" gamma; mk_skill "$st_floor_root" delta
+  expect_suites "skills discovered but NOT ONE with a suite is a finding, not a clean pass" \
+    "$st_floor_root" 1 2 0 1 "NOT ONE has a test suite"
 
   rm -rf "$st_dir"
   echo
@@ -941,11 +1310,20 @@ else
 fi
 
 echo "── vendored skill test suites (run from install/skills, not from ~/.claude)"
-# WHICH INTERPRETER RAN THEM, stated in the output rather than assumed. A green gate is only as good
-# as the interpreter it invoked: this machine can have a 3.9 at /usr/bin/python3 alongside a newer
-# python3 on PATH, and some of these scripts need 3.10+. The line below says which one was used, so
-# a green result is attributable.
-ctx "interpreter: $(command -v "$SUITE_PY" 2>/dev/null || echo "$SUITE_PY (not on PATH)") — $("$SUITE_PY" -V 2>/dev/null || echo 'version unavailable')"
+# The interpreter-provenance line is emitted by `check_vendored_suites` itself, not here, so that
+# --self-test constrains it. It was at this call site and therefore deletable with the suite green.
+#
+# git IS A DECLARED PREREQUISITE OF THESE SUITES, and the first pass cleared this stop condition on
+# evidence that did not bear on it: `grep -L unittest` proves each file IMPORTS unittest and says
+# nothing about external binaries. Measured properly, the vendored progressive-disclosure suite has
+# 19 `subprocess.run(["git", ...], check=True)` call sites with no guard, so on a machine without git
+# those tests raise and the suite goes red. Absence is reported as a MACHINE fact, before the suites
+# run, so a red suite is not the first thing that tells you.
+if ! command -v git >/dev/null 2>&1; then
+  SCOPE="env"
+  note "git is NOT on PATH — it is a required prerequisite of the vendored suites (19 unguarded \`git\` subprocess call sites), so the failures reported below are attributable to this machine, not to the vendored tree"
+  SCOPE="repo"
+fi
 check_vendored_suites "$VENDOR/skills"
 
 echo "── vendored hooks"
@@ -1154,11 +1532,11 @@ verdict_line() {
     printf '  \033[32mPASS\033[0m  %s — every check ran and passed (%s warning(s))\n' "$what" "$warns"
   fi
 }
-# Every could-not-run so far is a vendored suite, which is a repository fact, so the whole tally is
-# attributed to the repository verdict line. If a machine-scope check ever grows a could-not-run,
-# split this the way the counters above are split rather than letting one line speak for both.
-verdict_line "this repository — vendored tree" "$repo_fail" "$repo_warn" "$repo_skip" "$could_not_run"
-verdict_line "this machine    — installed layer" "$env_fail" "$env_warn" "$env_skip"
+# Each line wears its own could-not-run tally. The previous version attributed the whole tally to
+# the repository line with a note saying to split it if a machine-scope check ever grew one; a
+# vendored suite whose sources read $HOME now routes there, so it has.
+verdict_line "this repository — vendored tree" "$repo_fail" "$repo_warn" "$repo_skip" "$repo_cnr"
+verdict_line "this machine    — installed layer" "$env_fail" "$env_warn" "$env_skip" "$env_cnr"
 
 total_fail=$((repo_fail + env_fail))
 total_warn=$((repo_warn + env_warn))
