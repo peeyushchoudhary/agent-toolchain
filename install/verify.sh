@@ -97,23 +97,6 @@ CLAUDE="$HOME/.claude"
 CODEX="$HOME/.codex"
 IPD="$CLAUDE/skills/progressive-disclosure/scripts"
 
-# declared_skills — the published-skill names, DISCOVERED from install/skills/.gitignore rather than
-# listed a second time in this script. That file is this repository's own declaration of what
-# install/skills/ contains (see docs/README.md, "What is published, and what is not"): an allowlist
-# that ignores everything in the directory and re-includes each published skill by a `!/name` line.
-# TC-51 found the presence loop below hardcoding four of the six names — a second copy of the same
-# fact, disagreeing with install.sh's own separate hardcoded list, and disagreeing with itself about
-# which two names were missing. Reading the declaration means the presence check and install.sh's
-# install set are the SAME source, so they cannot drift apart again by hand-editing one of two lists.
-# A function rather than a global: it is read after the anchoring block runs but before the
-# `--self-test` early-exit, so nothing calls it, and computing it unconditionally at parse time would
-# do file I/O `--self-test` and `--help` never need. Absence of the file is reported by the caller,
-# not here, because the two call sites want it worded for their own scope ("this repository" vs
-# "this machine").
-declared_skills() {
-  grep -E '^!/' "$1" 2>/dev/null | sed -E 's#^!/##' | grep -vE '^(\.gitignore|README\.md)$'
-}
-
 # ── options ──────────────────────────────────────────────────────────────────────────────────────
 # The vendored-vs-installed drift gate is OFF by default, and the ORDER here is deliberate rather
 # than deferred. Three reasons, listed with their expiry dates because two of them have one.
@@ -1123,6 +1106,201 @@ run_one_suite() {
   SCOPE="$saved_scope"
 }
 
+# ── the published-skill roster, and the two checks that read it ──────────────────────────────────
+#
+# THE DECLARATION IS `install/skills/.gitignore`, and it is read here rather than re-listed. That
+# file is this repository's own statement of what install/skills/ publishes (see docs/README.md,
+# "What is published, and what is not"): an allowlist that ignores everything at the top level and
+# re-includes each published skill by a `!/name` line. TC-51 found the presence loop below
+# hardcoding four of the six names, disagreeing with install.sh's own separate hardcoded five, and
+# nothing able to notice either.
+#
+# WHY A READER HERE AND NOT `git check-ignore`, WHICH IS THE AUTHORITY 30 LINES BELOW. MEASURED on
+# git 2.50.1: `git check-ignore` consults the index and REFUSES TO CALL A TRACKED PATH IGNORED.
+# Every published skill is tracked, so deleting a skill's `!/` line does not change git's answer at
+# all — a fixture with `!/beta` removed still reports `beta/` as not-ignored; only `--no-index`
+# sees the change. git can therefore answer "should this UNTRACKED arrival be excluded from
+# discovery", which is the only question check_vendored_suites asks it and the reason its comment
+# about not writing a second parser is still true. It cannot answer "what does the declaration
+# name", which is the question a presence check has to ask. So this is a reader, and it is strict.
+#
+# STRICT MEANS LOUD, NOT PERMISSIVE. gitignore negation syntax is larger than the `!/name` form
+# this allowlist actually uses — `!name` without the slash and `!/name/` with a trailing one are
+# both legal and both mean something this reader would get wrong. The previous `grep -E '^!/'`
+# missed the first entirely (a published-and-gated skill silently dropped from the roster: TC-51's
+# own defect, restored, at exit 0) and mangled the second into `name/`, which install.sh installs
+# and this check then reports NOT installed. So one `if` decides what the strict form is, and the
+# SAME `if` emits everything it rejects — the two modes are complementary by construction, and an
+# entry cannot fall into the gap between two independently-written patterns.
+skill_roster_scan() {
+  awk -v mode="$2" '
+    /^!/ {
+      if ($0 ~ /^!\/[A-Za-z0-9._-]+$/ && $0 !~ /^!\/\.\.?$/) {
+        if (mode == "names") print substr($0, 3)
+      } else if (mode == "rejects") print
+    }
+  ' "$1" 2>/dev/null
+}
+
+# skill_roster DECL_DIR — the declared SKILL names, one per line.
+#
+# NOT EVERY ALLOWLIST ENTRY IS A SKILL: `!/.gitignore` and `!/README.md` are files that live beside
+# the skills. The previous version excluded those two BY NAME, in both scripts — itself a hardcoded
+# roster, of which entries are not skills, and one that fails on the next such file: declare
+# `!/LICENSE`, commit `install/skills/LICENSE`, and the presence check hard-FAILS looking for
+# `LICENSE/SKILL.md` on a correct repository. Filtered by TYPE instead: an entry that exists as a
+# regular file in the declaration's own directory is not a skill directory. A declared name with
+# NOTHING on disk stays in the roster on purpose — that is the missing-skill case this check exists
+# to catch, and a filter keyed on the directory existing would delete the check along with the list.
+skill_roster() {
+  skill_roster_scan "$1/.gitignore" names | while IFS= read -r _e; do
+    [ -n "$_e" ] || continue
+    [ -f "$1/$_e" ] || printf '%s\n' "$_e"
+  done
+}
+
+# check_skill_presence CHECK_ROOT DECL_DIR WHERE CROSSCHECK — every declared skill is present under
+# CHECK_ROOT, and (when CROSSCHECK is 1) the declaration and the directory agree in BOTH directions.
+#
+# TAKES ITS ROOTS AS ARGUMENTS FOR THE REASON check_vendored_suites DOES: `--self-test` exits ~1,500
+# lines above the two production call sites, so anything written inline there is unreachable from
+# every assertion in this file. That is not a hypothetical — the first version of this check was
+# written inline at both call sites, and MEASURED, two mutations survived the suite at 108 of 108
+# green: replacing the roster derivation with two hardcoded names, and reverting install.sh to its
+# stale five-name literal. `exit_arm`, `verdict_line` and `render_verdicts` were each hoisted here
+# for exactly this, each after the same defect got through a review.
+#
+# CROSSCHECK EXISTS BECAUSE "N of M" IS ONLY EVIDENCE WHEN M IS MEASURED INDEPENDENTLY OF N. The
+# first version derived both from the roster, so the total could not disagree with the count: delete
+# one `!/` line from the declaration and both scripts printed a clean `5 of 5` full house, exit 0,
+# on a tree where a published skill had silently stopped being installed and checked. The honest
+# denominator is the DIRECTORY. So repository scope counts `CHECK_ROOT/*/SKILL.md` as well, and both
+# disagreements are findings: declared-with-no-directory (the `want_file` below) and
+# directory-with-no-declaration.
+#
+# CROSSCHECK IS 0 FOR THE MACHINE SCOPE, and that is not a weaker check, it is the only correct one:
+# `~/.claude/skills` legitimately holds skills this repository never published (graphify installs
+# itself there via `uv tool`), so its directory count is not a denominator for anything. The
+# roster's own integrity is established once, in repository scope, against the tree that owns it.
+check_skill_presence() {
+  local check_root="$1" decl_dir="$2" where="$3" crosscheck="$4"
+  local decl="$decl_dir/.gitignore" roster rejects s d dn found
+  local declared=0 present=0 dirs=0 undeclared=0
+
+  if [ ! -f "$decl" ]; then
+    bad "$where: the publication declaration $decl_dir/.gitignore is missing, so there is nothing to check presence AGAINST — this is not an empty pass"
+    return
+  fi
+  # AN ENTRY THIS READER CANNOT INTERPRET IS A FAILURE, NOT AN OMISSION. Silently skipping it is how
+  # a published skill leaves the roster without anyone finding out, which is the defect above.
+  rejects=$(skill_roster_scan "$decl" rejects)
+  if [ -n "$rejects" ]; then
+    while IFS= read -r s; do
+      [ -n "$s" ] || continue
+      bad "$where: cannot interpret the allowlist line \`$s\` in $decl_dir/.gitignore — this check reads a strict \`!/name\` form only, and refuses to guess rather than leave an entry silently out of the roster"
+    done <<< "$rejects"
+  fi
+  roster=$(skill_roster "$decl_dir")
+  if [ -z "$roster" ]; then
+    bad "$where: $decl_dir/.gitignore names no skills — the declaration reached nothing, which is a finding and not a clean zero"
+    return
+  fi
+
+  # The roster admits no whitespace and no glob metacharacter, so this word-split is safe and a
+  # declared entry can never undergo pathname expansion against the caller's working directory.
+  for s in $roster; do
+    declared=$((declared + 1))
+    # graph-navigation is declared like the rest but stays a WARNING here rather than a failure: it
+    # is useful only alongside the third-party `graphify` CLI (see install.sh), which is a statement
+    # about usefulness, not about whether this repository published it — so its severity is
+    # deliberately different from the other five even though its name comes from the same
+    # declaration. Whether that is right for the REPOSITORY scope specifically (as opposed to the
+    # machine scope, where it plainly is) is a live question carded separately; it is unchanged here.
+    if [ "$s" = "graph-navigation" ]; then
+      opt_file "$check_root/$s/SKILL.md" "graph-navigation (optional)" \
+        "graph-navigation absent from $where — only matters if you use graphify"
+    else
+      want_file "$check_root/$s/SKILL.md" "$s" "$s missing from $where"
+    fi
+    [ -f "$check_root/$s/SKILL.md" ] && present=$((present + 1))
+  done
+
+  if [ "$crosscheck" -eq 1 ]; then
+    for d in "$check_root"/*/; do
+      [ -f "${d}SKILL.md" ] || continue
+      dirs=$((dirs + 1))
+      dn=$(basename "$d")
+      found=0
+      for s in $roster; do [ "$s" = "$dn" ] && { found=1; break; }; done
+      # A FAILURE HERE, THOUGH check_vendored_suites CALLS THE SAME SITUATION MERELY EXCLUDED, and
+      # the two are consistent because they are asked about different trees. That function's
+      # informational treatment is for an untracked vendor arrival, and the declaration's own header
+      # says where those arrive: "graphify arrives via `uv tool` and writes into both
+      # ~/.claude/skills and ~/.codex/skills". Neither is a checkout. A SKILL.md under this
+      # repository's OWN install/skills/ that no `!/` line names is a re-vendor that forgot the
+      # line — TC-51's defect in mirror image, and the direction nothing was watching.
+      [ "$found" -eq 1 ] || {
+        undeclared=$((undeclared + 1))
+        bad "$where: $dn/ ships a SKILL.md but no \`!/$dn\` line declares it in $decl_dir/.gitignore — it is neither published nor installed; declare it or remove it"
+      }
+    done
+    # EVERY FILTERED COUNT CARRIES ITS TOTAL, and here it carries the INDEPENDENT one too. The
+    # declaration count and the directory count come from different places and are printed side by
+    # side, so a reader can see them agree rather than being told a number that cannot disagree.
+    ctx "$present of $declared declared skill(s) present in $where; the directory holds $dirs with a SKILL.md, $undeclared of them undeclared"
+  else
+    ctx "$present of $declared declared skill(s) present in $where (total from the repository's declaration, cross-checked against the vendored directory in section 1)"
+  fi
+}
+
+# check_installer_agrees INSTALLER DECL_DIR — the installer's OWN skill set, obtained by running it,
+# equals the roster derived above.
+#
+# THE ONE MUTATION A ROSTER CHECK INSIDE THIS FILE CANNOT SEE. install.sh derives its set from the
+# same declaration with its own copy of the same strict reader; nothing in verify.sh reads
+# install.sh, so reverting install.sh to a stale hardcoded list changes nothing any assertion here
+# touches — MEASURED, the five-name literal came back and both scopes stayed green, because machine
+# scope checks `~/.claude`, where the sixth skill was already installed by an earlier correct run.
+# An installed layer cannot testify about the installer that will next write to it.
+#
+# So the installer is EXECUTED, in the dry run that writes nothing (every write in install.sh is
+# behind `run`, `[ "$DRY" -eq 1 ]`, or `[ "$DRY" -eq 0 ]`), and the names it says it would install
+# are compared as a set. Its exit code is deliberately NOT the assertion: a fixture installer fails
+# on absent hooks/ for reasons that are not about skills, and in production an unrelated installer
+# failure belongs to its own check, not to this one.
+check_installer_agrees() {
+  local installer="$1" decl_dir="$2" out roster want got s
+  if [ ! -f "$installer" ]; then
+    bad "no installer at $installer — the install set cannot be compared with what this repository declares it publishes"
+    return
+  fi
+  roster=$(skill_roster "$decl_dir")
+  if [ -z "$roster" ]; then
+    # Already reported by check_skill_presence; do not count the same fact twice.
+    ctx "installer agreement not checked — the declaration named no skills (reported above)"
+    return
+  fi
+  out=$(bash "$installer" --dry-run --no-codex 2>&1)
+  # BOUNDED TO THE `skills` SECTION FIRST. The hooks loop below it prints `would install <file>` in
+  # the identical wording, and reading the whole output swept four hook filenames into the skill set
+  # — caught on the first real run, because the check compares SETS and said exactly which extra
+  # names it had. The section runs from the `skills` header to the next column-0 header.
+  #
+  # `would install X`, `installed X`, and `SKIP X (not in this package)` — the installer's INTENT,
+  # which is the set under comparison. A declared skill whose directory is absent is a package fact
+  # the presence check above already owns; it must not read here as the installer disagreeing.
+  got=$(printf '%s\n' "$out" \
+    | awk '/^skills$/ { inblock = 1; next } inblock && /^[^ ]/ { exit } inblock' \
+    | sed -n -e 's/^  would install \(.*\)$/\1/p' -e 's/^  installed \(.*\)$/\1/p' -e 's/^  SKIP \(.*\) (not in this package)$/\1/p' \
+    | sort)
+  want=$(printf '%s\n' "$roster" | sort)
+  if [ "$got" = "$want" ]; then
+    ok "install.sh would install exactly the $(printf '%s\n' "$want" | grep -c .) declared skill(s)"
+  else
+    bad "install.sh's skill set does not match the declaration — it would act on [$(printf '%s' "$got" | tr '\n' ' ')] while $decl_dir/.gitignore declares [$(printf '%s' "$want" | tr '\n' ' ')]; the installer and this gate are reading different answers, which is how the sixth skill went unpublished the first time"
+  fi
+}
+
 # check_vendored_suites SKILLS_ROOT — discover every vendored skill under SKILLS_ROOT and apply
 # whichever of the two treatments it earns. Takes the root as an argument so --self-test can drive
 # it against constructed fixtures; a fixture built on a REAL suite's test count would be broken
@@ -1152,19 +1330,30 @@ check_vendored_suites() {
   # `graphify/` here would have added a seventh discovered skill and, if it shipped tests, run a
   # third party's suite fatally against a skill this repository declares it does not publish.
   #
-  # git itself is the authority, so no second gitignore parser is introduced. If git cannot answer —
-  # not installed, or this is an unpacked tarball rather than a checkout — the declaration is
-  # UNREADABLE, which is not the same as empty: it is reported, and discovery proceeds over
-  # everything, because testing more than declared is the safe direction and testing less is not.
+  # git itself is the authority FOR THIS QUESTION, and it is the right authority for exactly this
+  # one: "is this arrival something the repository excludes". No second gitignore parser is
+  # introduced HERE. Note what git cannot be asked, because the qualifier used to be missing and a
+  # maintainer reading only this line would look in the wrong place: `git check-ignore` consults the
+  # index and will not call a TRACKED path ignored, so it cannot enumerate the declaration or notice
+  # a tracked skill losing its `!/` line. That question belongs to `skill_roster` above, which reads
+  # a deliberately strict subset of the syntax and fails loudly on anything outside it.
+  #
+  # If git cannot answer — not installed, or this is an unpacked tarball rather than a checkout —
+  # the EXCLUSION cannot be applied, which is not the same as empty: it is reported, and discovery
+  # proceeds over everything, because testing more than declared is the safe direction and testing
+  # less is not. The wording below says "the exclusion could not be applied" rather than "the
+  # declaration could not be read", because the latter was false in the same run that printed it:
+  # the presence check a few hundred lines down reads that same file with no git at all and prints a
+  # count from it. One run, one file, two sentences that contradicted each other.
   local can_read_decl=1
   if ! command -v git >/dev/null 2>&1 || ! git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     can_read_decl=0
-    # MACHINE scope: the declaration is a repository artifact, but every reason it cannot be read is
+    # MACHINE scope: the exclusion is a repository question, but every reason it cannot be applied is
     # machine-side — git not installed, or this tree was unpacked from a tarball rather than cloned.
     # Same rule as everywhere else in this file: if the answer depends on the machine, it does not
     # belong in the repository verdict.
     local decl_scope="$SCOPE"; SCOPE="env"
-    note "the publication declaration (install/skills/.gitignore) could NOT be read — no git, or this is not a checkout — so discovery below cannot tell a skill this repository publishes from one a vendor installed here on its own"
+    note "git could not apply install/skills/.gitignore to this tree — no git, or this is not a checkout — so discovery below cannot tell a skill this repository publishes from one a vendor installed here on its own. The declaration is still READ, by the presence check; only the exclusion is unavailable"
     SCOPE="$decl_scope"
   fi
 
@@ -1986,9 +2175,13 @@ class Runs(unittest.TestCase):
     0 0 0 0 "vendored test(s) passed" "COULD NOT RUN"
 
   # ── (row 7) DISCOVERY HONOURS THE PUBLICATION DECLARATION, the same one check_toolchain.py reads.
-  #    This fixture is a real git checkout because git itself is the parser — the alternative was a
-  #    second gitignore implementation in bash, which would be a second copy of the truth. git is a
-  #    declared prerequisite of this gate (see --help), so requiring it here is not a new dependency.
+  #    This fixture is a real git checkout because git itself is the parser FOR THE EXCLUSION
+  #    QUESTION discovery asks — a bash reimplementation of gitignore matching would be a second
+  #    copy of the truth. git is a declared prerequisite of this gate (see --help), so requiring it
+  #    here is not a new dependency. It is NOT the parser for the roster: `git check-ignore` will
+  #    not call a tracked path ignored, so `skill_roster` reads the declaration itself, in a strict
+  #    `!/name` subset that refuses what it cannot interpret. Two questions, two readers, and the
+  #    reason they are not one is measured rather than assumed — see the comment on skill_roster.
   #
   #    GIT IS A PREREQUISITE OF THESE THREE ASSERTIONS, AND ITS ABSENCE IS NOW REPORTED AS ONE. It
   #    used to arrive as arithmetic: no git meant `git init` failed silently, `can_read_decl=0`,
@@ -2035,8 +2228,15 @@ class Runs(unittest.TestCase):
   # holds for every fixture root in this block rather than for this one assertion. The round that
   # guarded it HERE fixed one spurious FAIL and left the forty-five assertions with the inverse
   # premise unprotected; a guard that could never fire now would be worse than none.
-  expect_suites "an unreadable declaration is reported, not treated as an empty one" "$st_ok_root" \
-    0 0 0 0 "publication declaration (install/skills/.gitignore) could NOT be read"
+  #
+  # THE NEEDLE SAYS "COULD NOT APPLY", NOT "COULD NOT BE READ", and the change is the point rather
+  # than a rewording. The old sentence was false in the same run that printed it: the presence check
+  # reads that same declaration with no git involved and prints a count from it, so one run said
+  # both "the declaration could NOT be read" and "6 of 6 declared skill(s) present". What git cannot
+  # do here is APPLY the exclusion; reading is a separate faculty and it still works.
+  expect_suites "an inapplicable declaration is reported, not treated as an empty one" "$st_ok_root" \
+    0 0 0 0 "git could not apply install/skills/.gitignore to this tree" \
+    "could NOT be read"
 
   # ── (row 2) A SUITE WHOSE OWN SOURCE READS $HOME IS NOT FATAL TO THE *REPOSITORY* VERDICT.
   #    Reason 3 of the drift-gate comment, applied: one operand is $HOME, so the answer is a property
@@ -2629,6 +2829,185 @@ STUB
   st_assert "the header carries the recipe that derives that list, rather than a prose copy of it" \
     "$st_rc" "the derivation recipe is missing from the header comment (the ${#st_hdr} bytes above \`set -uo pipefail\`), so a reader has no way to enumerate the sites and the enumeration will be reintroduced as prose"
 
+  echo
+  echo "════ self-test — the published-skill roster, its presence check, and the installer's agreement"
+  # THIS SECTION EXISTS BECAUSE THE FIRST VERSION OF THE CHECK IT DRIVES HAD NO ASSERTIONS AT ALL.
+  # The presence loop was written inline at the two call sites ~150 lines below the `exit` at the
+  # end of this block, so the suite could not reach it, and the count stayed at 108 of 108 across
+  # the whole change — a number that read as "nothing regressed" and actually meant "the fix is
+  # invisible to the suite". Two mutations were then MEASURED to survive it green: replacing the
+  # roster derivation with two hardcoded names, and reverting install.sh to its stale five-name
+  # literal. Both are assertions below.
+
+  # mk_decl DIR ENTRY… — a skills root whose allowlist declares exactly the lines given.
+  mk_decl() {
+    local dir="$1"; shift
+    mkdir -p "$dir"
+    { printf '/*\n!/.gitignore\n'; printf '%s\n' "$@"; } > "$dir/.gitignore"
+  }
+
+  # expect_presence NAME ROOT DECL_DIR CROSS WANT_FAIL WANT_WARN [MUST_CONTAIN] [MUST_NOT_CONTAIN]
+  #
+  # Counter deltas, not just needles, for the reason expect_suites gives: a message that says the
+  # right words while counting nothing leaves the verdict and the exit code untouched, and the
+  # verdict is what an operator acts on.
+  expect_presence() {
+    local name="$1" root="$2" decl="$3" cross="$4" wf="$5" ww="$6" needle="${7:-}" absent="${8:-}"
+    local f0=$repo_fail w0=$repo_warn df dw why="" st_ln
+    check_skill_presence "$root" "$decl" "fixture" "$cross" > "$st_dir/rendered" 2>&1
+    df=$((repo_fail - f0)); dw=$((repo_warn - w0))
+    [ "$df" = "$wf" ] || why="$why fail(${df}!=${wf})"
+    [ "$dw" = "$ww" ] || why="$why warn(${dw}!=${ww})"
+    if [ -n "$needle" ] && ! grep -qF -- "$needle" "$st_dir/rendered"; then why="$why missing:\"$needle\""; fi
+    if [ -n "$absent" ] && grep -qF -- "$absent" "$st_dir/rendered"; then why="$why must-not-contain:\"$absent\""; fi
+    if [ -z "$why" ]; then
+      printf '  \033[32mok\033[0m    %s → fail+%s warn+%s\n' "$name" "$df" "$dw"; st_pass=$((st_pass+1))
+    else
+      printf '  \033[31mFAIL\033[0m  %s →%s\n' "$name" "$why"
+      printf '        rendered as:\n'
+      while IFS= read -r st_ln; do printf '          | %s\n' "$st_ln"; done < "$st_dir/rendered"
+      st_fail=$((st_fail+1))
+    fi
+  }
+
+  # expect_installer NAME INSTALLER DECL_DIR WANT_FAIL [MUST_CONTAIN]
+  expect_installer() {
+    local name="$1" inst="$2" decl="$3" wf="$4" needle="${5:-}"
+    local f0=$repo_fail df why="" st_ln
+    check_installer_agrees "$inst" "$decl" > "$st_dir/rendered" 2>&1
+    df=$((repo_fail - f0))
+    [ "$df" = "$wf" ] || why="$why fail(${df}!=${wf})"
+    if [ -n "$needle" ] && ! grep -qF -- "$needle" "$st_dir/rendered"; then why="$why missing:\"$needle\""; fi
+    if [ -z "$why" ]; then
+      printf '  \033[32mok\033[0m    %s → fail+%s\n' "$name" "$df"; st_pass=$((st_pass+1))
+    else
+      printf '  \033[31mFAIL\033[0m  %s →%s\n' "$name" "$why"
+      printf '        rendered as:\n'
+      while IFS= read -r st_ln; do printf '          | %s\n' "$st_ln"; done < "$st_dir/rendered"
+      st_fail=$((st_fail+1))
+    fi
+  }
+
+  # ── (a) THE POSITIVE CONTROL: declaration and directory agree, and both numbers are printed.
+  st_pres_root="$st_dir/pres_ok"
+  mk_skill "$st_pres_root" alpha; mk_skill "$st_pres_root" beta; mk_skill "$st_pres_root" gamma
+  mk_decl "$st_pres_root" '!/alpha' '!/beta' '!/gamma'
+  expect_presence "declaration and directory agreeing is a clean pass, with the directory total stated beside the declared one" \
+    "$st_pres_root" "$st_pres_root" 1 0 0 \
+    "3 of 3 declared skill(s) present in fixture; the directory holds 3 with a SKILL.md, 0 of them undeclared"
+
+  # ── (b) THE FINDING THIS WHOLE SECTION IS FOR: a published skill loses its `!/` line.
+  #    MEASURED on the version without this assertion — exit 0, `5 of 5` in both scopes, verdict
+  #    lines byte-identical to a clean run, a four-line diff none of which says anything is wrong.
+  #    `N of M` was not evidence because M was the length of N.
+  st_pres_gap="$st_dir/pres_gap"
+  mk_skill "$st_pres_gap" alpha; mk_skill "$st_pres_gap" beta; mk_skill "$st_pres_gap" gamma
+  mk_decl "$st_pres_gap" '!/alpha' '!/beta' '!/gamma'
+  cp "$st_pres_gap/.gitignore" "$st_dir/decl_before"
+  mk_decl "$st_pres_gap" '!/alpha' '!/beta'
+  st_rc=1; cmp -s "$st_dir/decl_before" "$st_pres_gap/.gitignore" || st_rc=0
+  st_assert "control: deleting the negation really did change the fixture declaration" "$st_rc" \
+    "the mutated declaration is byte-identical to the baseline, so the assertion below would prove nothing"
+  expect_presence "a published directory whose \`!/\` line was deleted is a FAILURE, not a clean full house" \
+    "$st_pres_gap" "$st_pres_gap" 1 1 0 \
+    "gamma/ ships a SKILL.md but no \`!/gamma\` line declares it" "3 of 3 declared"
+  expect_presence "and the count says 2 declared against 3 on disk — the denominator moved because it is measured elsewhere" \
+    "$st_pres_gap" "$st_pres_gap" 1 1 0 \
+    "2 of 2 declared skill(s) present in fixture; the directory holds 3 with a SKILL.md, 1 of them undeclared"
+
+  # ── (c) THE OTHER DIRECTION, which was already loud and must not regress.
+  st_pres_miss="$st_dir/pres_miss"
+  mk_skill "$st_pres_miss" alpha; mk_skill "$st_pres_miss" beta
+  mk_decl "$st_pres_miss" '!/alpha' '!/beta' '!/delta'
+  expect_presence "a declared skill with no directory is still a FAILURE that names it" \
+    "$st_pres_miss" "$st_pres_miss" 1 1 0 \
+    "delta missing from fixture"
+
+  # ── (d) MUTATION A, DIRECTLY. Replace the roster with hardcoded names and this goes red: the
+  #    fixture declares three, a two-name stand-in leaves the third looking undeclared and the
+  #    printed declaration total no longer matches the directory total.
+  expect_presence "the roster is DERIVED — a hardcoded stand-in cannot satisfy a fixture that declares its own names" \
+    "$st_pres_root" "$st_pres_root" 1 0 0 "the directory holds 3 with a SKILL.md, 0 of them undeclared" \
+    "1 of them undeclared"
+
+  # ── (e) THE STRICT READER IS LOUD. Both legal negation forms it does not accept are named, rather
+  #    than silently absent from the roster (`!name`) or silently mangled into `name/` (`!/name/`).
+  st_pres_odd="$st_dir/pres_odd"
+  mk_skill "$st_pres_odd" alpha
+  mk_decl "$st_pres_odd" '!/alpha' '!beta' '!/gamma/'
+  expect_presence "an allowlist line the reader cannot interpret is a FAILURE naming the line, not an omission" \
+    "$st_pres_odd" "$st_pres_odd" 1 2 0 \
+    "cannot interpret the allowlist line \`!beta\`"
+  expect_presence "and the trailing-slash form is named too, rather than becoming an entry that installs and then fails equality" \
+    "$st_pres_odd" "$st_pres_odd" 1 2 0 \
+    "cannot interpret the allowlist line \`!/gamma/\`"
+
+  # ── (f) A DECLARED ENTRY THAT IS A FILE IS NOT A SKILL, and the filter is by type rather than by
+  #    a hardcoded list of the two filenames that happen to be there today.
+  st_pres_file="$st_dir/pres_file"
+  mk_skill "$st_pres_file" alpha
+  mk_decl "$st_pres_file" '!/alpha' '!/LICENSE' '!/README.md'
+  printf 'x\n' > "$st_pres_file/LICENSE"; printf 'x\n' > "$st_pres_file/README.md"
+  expect_presence "a declared entry that exists as a regular file is not looked up as a skill directory" \
+    "$st_pres_file" "$st_pres_file" 1 0 0 \
+    "1 of 1 declared skill(s) present in fixture" "LICENSE/SKILL.md"
+
+  # ── (g) MACHINE SCOPE DOES NOT CROSS-CHECK, and that is correct: ~/.claude/skills holds skills this
+  #    repository never published, so its directory count is not a denominator for anything.
+  expect_presence "with CROSSCHECK off an undeclared directory is not a finding, and no directory total is claimed" \
+    "$st_pres_gap" "$st_pres_gap" 0 0 0 \
+    "2 of 2 declared skill(s) present in fixture (total from the repository's declaration" "undeclared"
+
+  # ── (h) graph-navigation KEEPS ITS WARNING SEVERITY, pinned so that the separate card that may
+  #    change it has to change an assertion rather than discover the behaviour by accident.
+  st_pres_gn="$st_dir/pres_gn"
+  mk_decl "$st_pres_gn" '!/graph-navigation'
+  expect_presence "graph-navigation absent is a WARNING and not a failure, in both scopes, unchanged by this card" \
+    "$st_pres_gn" "$st_pres_gn" 1 0 1 \
+    "only matters if you use graphify"
+
+  # ── (i) NO DECLARATION AT ALL is a finding, not an empty pass.
+  st_pres_nodecl="$st_dir/pres_nodecl"
+  mk_skill "$st_pres_nodecl" alpha
+  expect_presence "a missing declaration is a FAILURE — there is nothing to check presence against" \
+    "$st_pres_nodecl" "$st_pres_nodecl" 1 1 0 \
+    "is missing, so there is nothing to check presence AGAINST"
+
+  # ── (j) MUTATION B: THE INSTALLER'S OWN SET, obtained by running it. Nothing inside this file can
+  #    see install.sh revert to a hardcoded list; only executing it can. The first fixture runs the
+  #    REAL installer, which also pins the output wording the comparison parses; the second is a stub
+  #    that names a subset, which is exactly what the stale five-name literal was.
+  if command -v python3 >/dev/null 2>&1; then
+    st_inst="$st_dir/inst"
+    mkdir -p "$st_inst"
+    cp "$VENDOR/install.sh" "$st_inst/install.sh"
+    mk_skill "$st_inst/skills" alpha; mk_skill "$st_inst/skills" beta
+    mk_decl "$st_inst/skills" '!/alpha' '!/beta'
+    expect_installer "the real installer, run, installs exactly what the declaration names" \
+      "$st_inst/install.sh" "$st_inst/skills" 0 \
+      "install.sh would install exactly the 2 declared skill(s)"
+    cat > "$st_dir/stub_installer" <<'STUB'
+#!/usr/bin/env bash
+echo "skills"
+echo "  would install alpha"
+echo "hooks"
+echo "  would install alpha"
+echo "  would install beta"
+STUB
+    chmod 755 "$st_dir/stub_installer"
+    st_rc=1; cmp -s "$st_inst/install.sh" "$st_dir/stub_installer" || st_rc=0
+    st_assert "control: the stub installer is not the real one" "$st_rc" \
+      "the stub is byte-identical to the real installer, so the assertion below would prove nothing"
+    expect_installer "an installer naming a SUBSET of the declaration is a FAILURE that prints both sets" \
+      "$st_dir/stub_installer" "$st_inst/skills" 1 \
+      "install.sh's skill set does not match the declaration"
+    expect_installer "and the hooks section, which prints the identical wording, is not swept into the skill set" \
+      "$st_dir/stub_installer" "$st_inst/skills" 1 \
+      "it would act on [alpha]"
+  else
+    st_skip "the installer-agreement assertions" 5 "python3 is absent, and install.sh exits on its own precondition before it reaches the skills block — that is the installer reporting a machine fact, not a defect in this comparison"
+  fi
+
   rm -rf "$st_dir"
   echo
   # EVERY FILTERED COUNT CARRIES ITS TOTAL, and the not-run count is printed even at zero — "N
@@ -2652,30 +3031,11 @@ echo "════ 1. THIS REPOSITORY — the vendored tree at $VENDOR"
 SCOPE="repo"
 
 echo "── vendored skills"
-vendor_skills=$(declared_skills "$VENDOR/skills/.gitignore")
-if [ -z "$vendor_skills" ]; then
-  bad "install/skills/.gitignore is missing or names no skills — the published-skill declaration could not be read, so presence cannot be checked"
-else
-  vs_present=0; vs_total=0
-  for s in $vendor_skills; do
-    vs_total=$((vs_total + 1))
-    # graph-navigation is declared like the rest but stays a WARNING here rather than a failure: it
-    # is useful only alongside the third-party `graphify` CLI (see install.sh), which is a statement
-    # about usefulness, not about whether this repository published it — so its severity is deliberately
-    # different from the other five even though its name comes from the same declaration.
-    if [ "$s" = "graph-navigation" ]; then
-      opt_file "$VENDOR/skills/$s/SKILL.md" "graph-navigation (optional)" \
-        "graph-navigation absent from install/skills — only matters if you use graphify"
-    else
-      want_file "$VENDOR/skills/$s/SKILL.md" "$s" "$s missing from install/skills"
-    fi
-    [ -f "$VENDOR/skills/$s/SKILL.md" ] && vs_present=$((vs_present + 1))
-  done
-  # EVERY FILTERED COUNT CARRIES ITS TOTAL. "0 skills missing" cannot be told apart from "the
-  # declaration named nothing" without this — see the check_vendored_suites floor a few hundred
-  # lines below, which exists for the identical reason.
-  ctx "$vs_present of $vs_total declared skill(s) present in install/skills"
-fi
+# Repository scope cross-checks: this is the tree the declaration belongs to, so declaration and
+# directory must agree in both directions. The whole check is a function call, not a loop written
+# here, because everything on this line and below it is unreachable from `--self-test`.
+check_skill_presence "$VENDOR/skills" "$VENDOR/skills" "install/skills" 1
+check_installer_agrees "$VENDOR/install.sh" "$VENDOR/skills"
 
 echo "── vendored scripts run"
 for s in validate_disclosure check_github check_toolchain push_guard install_hooks identifier_guard promote_lesson; do
@@ -2803,25 +3163,11 @@ echo "════ 2. THIS MACHINE — the installed layer at $CLAUDE"
 SCOPE="env"
 
 echo "── installed skills"
-# Same declaration as the repository section above ($vendor_skills, from install/skills/.gitignore)
-# — the installed layer is checked against what THIS REPOSITORY says it publishes, not against a
-# second list of installed-skill names that could name a different set.
-if [ -z "$vendor_skills" ]; then
-  bad "install/skills/.gitignore is missing or names no skills — the published-skill declaration could not be read, so installed presence cannot be checked"
-else
-  is_present=0; is_total=0
-  for s in $vendor_skills; do
-    is_total=$((is_total + 1))
-    if [ "$s" = "graph-navigation" ]; then
-      opt_file "$CLAUDE/skills/$s/SKILL.md" "graph-navigation (optional)" \
-        "graph-navigation absent — only matters if you use graphify"
-    else
-      want_file "$CLAUDE/skills/$s/SKILL.md" "$s" "$s missing from ~/.claude/skills"
-    fi
-    [ -f "$CLAUDE/skills/$s/SKILL.md" ] && is_present=$((is_present + 1))
-  done
-  ctx "$is_present of $is_total declared skill(s) present in ~/.claude/skills"
-fi
+# Same declaration as the repository section above — the installed layer is checked against what
+# THIS REPOSITORY says it publishes, not against a second list of installed-skill names that could
+# name a different set. CROSSCHECK is 0: `~/.claude/skills` legitimately holds skills this
+# repository never published, so its directory count is not a denominator. See check_skill_presence.
+check_skill_presence "$CLAUDE/skills" "$VENDOR/skills" "~/.claude/skills" 0
 
 echo "── installed scripts run"
 for s in validate_disclosure check_github check_toolchain push_guard install_hooks identifier_guard promote_lesson; do

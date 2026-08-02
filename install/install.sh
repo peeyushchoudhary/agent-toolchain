@@ -99,18 +99,60 @@ say "target: $CLAUDE$([ "$DO_CODEX" -eq 1 ] && echo " and $CODEX")"
 # the directory and then re-includes each published skill by a `!/name` line. A hardcoded SKILLS
 # string here was a second copy of that same fact, and it went stale: it named five of the six
 # skills and nothing caught the sixth (`execution-methodology`) going unpublished by this installer
-# while verify.sh's own vendored-suite runner was already executing its tests. Reading the
-# declaration instead of re-listing it means there is exactly one place that says what
-# install/skills/ contains, and it is the same place the rest of the toolchain already reads.
+# while verify.sh's own vendored-suite runner was already executing its tests.
+#
+# THIS IS NOT THE ONLY PLACE THE SIX ARE WRITTEN DOWN, and an earlier version of this comment
+# claimed it was. `docs/README.md` names all six in prose — the very document this comment sends the
+# reader to. What is true is narrower and is the thing that matters: neither SCRIPT carries a list,
+# so a re-vendor cannot drift install.sh and verify.sh apart by hand-editing one of them, and
+# verify.sh executes this installer's dry run and compares the two sets rather than trusting that
+# both copies of the reader below agree. The doc remains a second copy, checked by a human.
+#
+# THE READER IS STRICT AND LOUD, DELIBERATELY. gitignore negation syntax is larger than the `!/name`
+# form this allowlist uses: `!name` without the slash is legal and a permissive `grep -E '^!/'`
+# misses it entirely — dropping a published skill from the install set silently, which is precisely
+# the defect this block was written to fix. `!/name/` with a trailing slash is legal too and yields
+# an entry that installs and then fails every equality check downstream. So one `if` decides what
+# the strict form is, the SAME `if` emits everything it rejects, and a rejected line is a FAILURE
+# rather than an absence. This mirrors `skill_roster_scan` in verify.sh, whose header records the
+# measurement behind not using `git check-ignore` for this: it consults the index and will not call
+# a tracked path ignored, so it cannot see a tracked skill lose its `!/` line.
 #
 # graph-navigation is declared like every other skill and installed the same way; it is included
 # even though it is only useful alongside the third-party `graphify` CLI, because it is inert
 # without that CLI, so installing it costs nothing.
+skill_roster_scan() {
+  awk -v mode="$2" '
+    /^!/ {
+      if ($0 ~ /^!\/[A-Za-z0-9._-]+$/ && $0 !~ /^!\/\.\.?$/) {
+        if (mode == "names") print substr($0, 3)
+      } else if (mode == "rejects") print
+    }
+  ' "$1" 2>/dev/null
+}
+
 GITIGNORE="$HERE/skills/.gitignore"
+SKILLS=""
 if [ -f "$GITIGNORE" ]; then
-  SKILLS=$(grep -E '^!/' "$GITIGNORE" | sed -E 's#^!/##' | grep -vE '^(\.gitignore|README\.md)$')
+  while IFS= read -r badline; do
+    [ -n "$badline" ] || continue
+    fail "skills: install/skills/.gitignore line \`$badline\` is not the \`!/name\` form this reader accepts — refusing to guess what it publishes rather than silently leaving it out of the install set"
+  done < <(skill_roster_scan "$GITIGNORE" rejects)
+  # NOT EVERY ALLOWLIST ENTRY IS A SKILL — `!/.gitignore` and `!/README.md` are files beside the
+  # skills. Filtered by TYPE, not by a hardcoded list of the two names, which was itself a second
+  # roster duplicated into verify.sh and would hard-fail the next such file (`!/LICENSE`). An entry
+  # that names a regular file here is not a skill directory. An entry with NOTHING on disk stays in:
+  # that is the missing-skill case, and it must reach the SKIP line below rather than vanish.
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    [ -f "$HERE/skills/$entry" ] && continue
+    SKILLS="${SKILLS}${SKILLS:+ }$entry"
+  done < <(skill_roster_scan "$GITIGNORE" names)
+  # A declaration that names no skill is not an empty install, it is an unreadable declaration, and
+  # saying so HERE is what stops the catch-all at the end of this block from blaming skills/.
+  [ -n "$SKILLS" ] ||
+    fail "skills: install/skills/.gitignore declares no skills — the declaration is empty or names only non-skill files, so nothing is known to install; skills/ itself is not the problem"
 else
-  SKILLS=""
   fail "skills: install/skills/.gitignore is missing — the published-skill declaration could not be read, so nothing is known to install"
 fi
 
@@ -118,6 +160,8 @@ echo "skills"
 run mkdir -p "$CLAUDE/skills" || fail "skills: could not create $CLAUDE/skills"
 skills_installed=0
 skills_declared=0
+# The roster admits no whitespace and no glob metacharacter, so this word-split is safe and a
+# declared entry cannot undergo pathname expansion against the caller's working directory.
 for s in $SKILLS; do
   skills_declared=$((skills_declared + 1))
   [ -d "$HERE/skills/$s" ] || { say "SKIP $s (not in this package)"; continue; }
@@ -131,14 +175,16 @@ for s in $SKILLS; do
     fail "skill $s: could not install into $CLAUDE/skills"
   fi
 done
-# EVERY FILTERED COUNT CARRIES ITS TOTAL. "skills_installed" alone cannot distinguish "all of them
-# landed" from "the declaration named nothing" — this line says both numbers, always, at zero too.
+# EVERY FILTERED COUNT CARRIES ITS TOTAL — but note that BOTH numbers on this line come from the
+# declaration, so neither can contradict it, and this line is therefore not evidence that the
+# declaration is right. The independent total is the directory, and comparing the two is verify.sh's
+# job (`check_skill_presence … 1`), where a disagreement in either direction is a FAILURE. The loop
+# below is this installer's half of that: it is what makes an undeclared directory visible here.
 say "$skills_installed of $skills_declared declared skill(s) installed"
-# A directory under skills/ that the declaration does NOT name is not installed — same treatment
-# verify.sh's own vendored-suite discovery already gives it (EXCLUDED, not a failure): a re-vendor
-# that drops an undeclared tree here (graphify arrives via `uv tool` on its own schedule and could
-# land in a checkout) must not have this installer copy it into ~/.claude on the strength of its
-# presence alone. Reported so the gap is visible rather than silent.
+# A directory under skills/ that the declaration does NOT name is not installed — this installer
+# must never copy a tree into ~/.claude on the strength of its presence alone. It is a `note` HERE
+# and a FAILURE in verify.sh, which is not an inconsistency: an installer's job is to refuse it and
+# say so, a gate's job is to refuse the tree. Reported so the gap is visible rather than silent.
 for d in "$HERE"/skills/*/; do
   [ -f "${d}SKILL.md" ] || continue
   dn="$(basename "$d")"
@@ -148,9 +194,19 @@ for d in "$HERE"/skills/*/; do
     say "note: $dn is present under install/skills but not declared in install/skills/.gitignore — NOT installed"
 done
 # A skill missing from the package is a statement about package contents, not a failure — but ALL of
-# them missing means this package has no skills/ at all, and then the installer wired nothing.
-[ "$skills_installed" -gt 0 ] ||
-  fail "skills: no skill was installed — is skills/ missing from this package?"
+# them missing means the installer wired nothing, and WHICH cause it names decides which file the
+# reader opens. This used to be one sentence blaming skills/ unconditionally, so a declaration that
+# named nothing printed `0 of 0 declared skill(s) installed` as ordinary progress and then
+# `is skills/ missing from this package?` — false, on an intact skills/ directory, sending the
+# reader to the one place that was fine. The empty-declaration case now fails above, by name; this
+# catch-all covers only what is left.
+if [ "$skills_installed" -eq 0 ] && [ "$skills_declared" -gt 0 ]; then
+  if [ ! -d "$HERE/skills" ]; then
+    fail "skills: no skill was installed — skills/ is missing from this package"
+  else
+    fail "skills: no skill was installed — the declaration names $skills_declared skill(s) and not one of their directories is present under skills/, so this package is incomplete rather than empty"
+  fi
+fi
 
 # ── Hooks ────────────────────────────────────────────────────────────────────────────────────────
 echo "hooks"
