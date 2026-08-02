@@ -98,16 +98,30 @@ personas, so running it here repairs global drift as a side effect.
 
 Run it **once per clone** — git hooks live in `.git/hooks` and are never shared through git.
 
-### 5 — Specialists — optional
+### 5 — Record the project-persona decision
 
-Only once the project has guardrails worth encoding. Use `agent-persona-factory`; it proposes 2–4
-specialists citing the invariant justifying each, writes only to `docs/agents/personas/`, then:
+This decision is mandatory; specialists are not. Read the current guardrails, architecture, and
+product criteria, then stop and propose one of these outcomes:
+
+1. **Project specialists are justified.** Use `agent-persona-factory`; it proposes 2–4 specialists
+   citing the invariant justifying each and writes only to `docs/agents/personas/`. Add
+   `docs/agents/personas.md`, route it directly from `docs/agents/README.md`, then run:
 
 ```bash
-sync_personas.py --repo .
+python3 "$HOME/.claude/skills/agent-personas/scripts/sync_personas.py" --repo .
 ```
 
-Commit the overlays **and** the generated `.claude/agents/` + `.codex/agents/`.
+   Commit the sources, guide, route, and generated `.claude/agents/` + `.codex/agents/`.
+
+2. **The shared base pool is sufficient.** Record one exact marker in
+   `docs/agents/README.md`, with a non-empty project-specific reason:
+
+```html
+<!-- agent-personas: {"mode":"base-only","reason":"domain-neutral library; base reviewers cover its risks"} -->
+```
+
+Never infer or generate a `base-only` reason. Missing both outcomes is an onboarding warning, not a
+healthy default.
 
 ## Verify
 
@@ -116,6 +130,7 @@ validate_disclosure.py . --readme --standard
 install_hooks.py . --check
 check_github.py . --refresh
 check_toolchain.py
+python3 "$HOME/.claude/skills/agent-personas/scripts/sync_personas.py" --repo . --check
 make check
 ```
 

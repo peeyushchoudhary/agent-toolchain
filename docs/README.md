@@ -16,6 +16,38 @@
 
 Installation lives in [../install/README.md](../install/README.md).
 
+## What is published, and what is not
+
+`install/skills/` is a vendored copy of the installed shared layer. It is not automatically
+everything that layer contains — each skill is a decision, and the decisions are recorded here
+because a skill that is silently absent is indistinguishable from one that was forgotten.
+
+Six skills are published: `progressive-disclosure`, `agent-personas`, `agent-persona-factory`,
+`execution-methodology`, `graph-navigation`, and `project-onboarding`. The list is enforced by
+`install/skills/.gitignore`, which ignores its own directory and then re-includes those six by
+name, so adding a seventh is a deliberate line in a file rather than a side effect of a copy.
+
+**`execution-methodology` is published.** It is the pipeline this repository describes — the
+artifacts, the three human gates, the task card, the ledger contract — and until now it was the one
+part of the process that existed only on a single machine. The vendored copy is the only disaster
+recovery this toolchain has; an unpublished skill is one disk failure from gone. Against that, the
+public-repo invariant costs nothing here: the skill describes a process, not the work it was
+applied to, and it names no project, path, or person. Weighed together, the recovery argument wins
+uncontested, because the objection it had to beat turned out to be empty rather than merely
+smaller.
+
+**`graphify` is deliberately not published**, and this is the opposite decision on purpose. It is a
+third-party vendor skill that installs itself into `~/.claude/skills` on its own schedule, not
+something this toolchain authors, versions, or fixes. Every argument for publishing
+`execution-methodology` fails for it: republishing it is not disaster recovery, because the vendor
+is the recovery path and a stale copy here would be worse than none; and redistributing someone
+else's work under this repository's licence is a question this repository has no standing to
+answer. `check_toolchain.py` already excludes it from the Codex mirror on the same reasoning —
+its presence is not something this toolchain manages. `--vendored` will therefore keep reporting
+`graphify` as absent from the vendored copy. That finding is expected and is the recorded decision
+above, not drift to be fixed. The checker reports facts and has no published-skills manifest; this
+section is that manifest.
+
 ## Authority order
 
 1. The tooling in `install/` — it is what actually runs.

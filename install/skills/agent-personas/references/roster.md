@@ -35,7 +35,13 @@ returns essays.
 
 **`test-judge` — haiku / luna, low.** Runs a gate, reports the output. The failure mode is
 dishonesty — calling a cached `UP-TO-DATE` a pass, or paraphrasing a failure into "some tests
-failed" — and that is fixed by instruction and by read-only tools, not by reasoning depth.
+failed" — and that is fixed by instruction and by tool restriction, not by reasoning depth.
+
+It is the only non-writing persona with `Bash`, added after it was observed being assigned gate
+execution it could not perform and chaining to a sub-subagent instead of reporting the problem. A
+persona that cannot do its one job does not fail loudly; it improvises. Write, Edit, and
+NotebookEdit stay disallowed, so it still cannot author a fix, and Codex's `read-only` sandbox
+already had exactly the right shape — execute, never write.
 
 **`docs-steward` — sonnet / terra, medium.** Prose that has to match code. Needs care, not depth,
 and a wrong doc is cheap to correct.
@@ -90,6 +96,41 @@ cost in testing.
 
 **`acceptance` — opus / sol, xhigh.** Runs once per milestone, so aggregate cost is irrelevant and
 being wrong means shipping something unfinished. The one place to over-invest.
+
+**`product-steward` — opus / sol, high.** Runs about twice per milestone, so cost barely registers.
+The work is finding what a specification does not say — the empty case, the concurrent case, the
+horizontal obligation nobody remembered — which is the same adversarial completeness reasoning that
+puts `reviewer` at `high`. A cheap tier here writes a spec that reads well and is missing the
+sections that cause rework.
+
+**`chief-of-staff` — opus / sol, high.** The one persona whose cost is dominated by its *own*
+context rather than by its run count, because it is a long-running loop that pays its accumulated
+conversation as input on every turn.
+
+Modelled over a 20-task plan, its cost is almost entirely a function of discipline, not of model:
+
+| Orchestrator discipline | Cost per 20-task plan |
+|---|---|
+| Reports read inline | ~$114 |
+| Reports to file, verdicts returned | ~$46 |
+| + 1-hour prompt cache | ~$14 |
+| + compaction every 5 tasks | ~$11 |
+
+For comparison, all 156 worker runs in a milestone total about $22. So an undisciplined orchestrator
+costs five times the entire fleet it manages, and a disciplined one costs half of it. That is why
+the context rules in its body are written as hard requirements rather than advice — they are worth
+more than every model-selection decision in this document combined.
+
+The honest accounting: a chief-of-staff **cannot** pay for itself in tokens or in avoided fix
+rounds. Pure token payback would need it to prevent ~26 fix rounds per milestone when only about
+eight occur. It pays for itself in founder attention — roughly 160 dispatch decisions, about four
+hours per milestone — and only if disciplined. Adding one without the file-and-verdict rule does not
+replace an expensive accumulating context; it adds a second one.
+
+Effort `high` rather than `medium` because tier escalation, adjudicating findings at the fix cap,
+and detecting that a plan's shape is wrong are genuine judgement. A cheaper driver is viable once
+the plan's task cards reliably settle the tier decision — that is a measurement worth taking, and it
+would save roughly $7 per milestone.
 
 ## Cross-harness dispatch: measured and rejected
 

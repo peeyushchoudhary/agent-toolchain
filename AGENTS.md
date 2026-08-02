@@ -17,6 +17,12 @@ A description of a working setup, not a proposal. Every claim should be true of 
 3. This is a public repository. It must contain no project names, personal paths, account
    identifiers, or anything specific to one person's work.
 
+This repository is public on purpose, and the marker below is that decision — see
+[docs/progressive-disclosure.md](docs/progressive-disclosure.md) for what it means and how the
+forge check reads it.
+
+<!-- public-exception: {"reason":"documentation and tooling repo, deliberately public so the setup is checkable by anyone; no project names or personal data belong here by invariant","date":"2026-07-30"} -->
+
 ## Invariants
 
 - **No identifying content.** No usernames, absolute home paths, real project names, or business

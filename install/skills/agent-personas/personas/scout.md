@@ -4,7 +4,7 @@ description: Use when you need to find where something lives in a codebase — w
 writes: no
 claude.model: haiku
 claude.effort: low
-claude.disallowedTools: Write, Edit, NotebookEdit
+claude.disallowedTools: Write, Edit, NotebookEdit, Bash
 codex.model: gpt-5.4-mini
 codex.effort: low
 codex.sandbox: read-only

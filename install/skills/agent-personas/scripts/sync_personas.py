@@ -34,6 +34,21 @@ SKILL = Path(__file__).resolve().parent.parent
 POOL = SKILL / "personas"
 CLAUDE_AGENTS = Path.home() / ".claude" / "agents"
 CODEX_AGENTS = Path.home() / ".codex" / "agents"
+BASE_PERSONA_NAMES = frozenset({
+    "acceptance",
+    "architect",
+    "chief-of-staff",
+    "contract-architect",
+    "developer",
+    "docs-steward",
+    "planner",
+    "product-steward",
+    "reviewer",
+    "scout",
+    "security-validator",
+    "senior-developer",
+    "test-judge",
+})
 
 
 def codex_present() -> bool:
@@ -60,6 +75,30 @@ class PersonaError(Exception):
     pass
 
 
+def pool_sources() -> list[Path]:
+    """Return the canonical base pool or reject global specialist leakage."""
+    sources = sorted(
+        p for p in POOL.glob("*.md") if p.name.lower() != "readme.md"
+    )
+    if not sources:
+        raise PersonaError(f"no personas in {POOL}")
+    actual_names = {p.stem for p in sources}
+    if actual_names != BASE_PERSONA_NAMES:
+        details = []
+        missing = sorted(BASE_PERSONA_NAMES - actual_names)
+        unexpected = sorted(actual_names - BASE_PERSONA_NAMES)
+        if missing:
+            details.append("missing: " + ", ".join(missing))
+        if unexpected:
+            details.append("unexpected: " + ", ".join(unexpected))
+        raise PersonaError(
+            "base persona pool must contain exactly the canonical 13 ("
+            + "; ".join(details)
+            + ")"
+        )
+    return sources
+
+
 def parse(path: Path) -> tuple[dict, str]:
     """Split `---` frontmatter from the body. Values are plain strings; no type coercion."""
     text = path.read_text(encoding="utf-8")
@@ -83,6 +122,10 @@ def parse(path: Path) -> tuple[dict, str]:
     for required in ("name", "description"):
         if not meta.get(required):
             raise PersonaError(f"{path.name}: missing required `{required}`")
+    if meta["name"] != path.stem:
+        raise PersonaError(
+            f"{path.name}: filename must match persona name `{meta['name']}.md`"
+        )
     return meta, body.lstrip("\n")
 
 
@@ -130,7 +173,7 @@ def overlay_body(base: str, extra: str, project: str) -> str:
 
 
 def prune(dirs: list[Path], expected: set[Path], check: bool,
-          removed: list, stale: list) -> None:
+          removed: list, stale: list, *, require_sourced: bool = False) -> None:
     """Delete generated agents whose persona no longer exists.
 
     Without this, renaming or removing a persona leaves its rendered files behind and they stay
@@ -148,7 +191,9 @@ def prune(dirs: list[Path], expected: set[Path], check: bool,
                 continue
             try:
                 if GENERATED not in f.read_text(encoding="utf-8", errors="replace"):
-                    continue          # not ours
+                    if check and require_sourced:
+                        stale.append(f"{f} (unmanaged — no persona source)")
+                    continue          # preserve hand-written files; the check reports them
             except OSError:
                 continue
             if check:
@@ -174,9 +219,10 @@ def sync(repo: Path | None, check: bool) -> int:
     if not POOL.is_dir():
         print(f"no persona pool at {POOL}", file=sys.stderr)
         return 2
-    sources = sorted(POOL.glob("*.md"))
-    if not sources:
-        print(f"no personas in {POOL}", file=sys.stderr)
+    try:
+        sources = pool_sources()
+    except PersonaError as e:
+        print(e, file=sys.stderr)
         return 2
 
     changed: list[str] = []
@@ -185,6 +231,7 @@ def sync(repo: Path | None, check: bool) -> int:
     expected: set[Path] = set()
     overlays_dir = (repo / "docs" / "agents" / "personas") if repo else None
     project_specific = 0
+    check_global = not (check and repo is not None)
 
     def expect(p: Path) -> Path:
         expected.add(p.resolve())
@@ -198,10 +245,12 @@ def sync(repo: Path | None, check: bool) -> int:
             return 2
         name = meta["name"]
 
-        write(expect(CLAUDE_AGENTS / f"{name}.md"), render_claude(meta, body), check, changed, stale)
-        if codex_present():
-            write(expect(CODEX_AGENTS / f"{name}.toml"), render_codex(meta, body),
+        if check_global:
+            write(expect(CLAUDE_AGENTS / f"{name}.md"), render_claude(meta, body),
                   check, changed, stale)
+            if codex_present():
+                write(expect(CODEX_AGENTS / f"{name}.toml"), render_codex(meta, body),
+                      check, changed, stale)
 
         if overlays_dir and (overlays_dir / f"{name}.md").is_file():
             try:
@@ -214,9 +263,8 @@ def sync(repo: Path | None, check: bool) -> int:
             m = {**meta, **{k: v for k, v in o_meta.items() if v}}
             write(expect(repo / ".claude" / "agents" / f"{name}.md"), render_claude(m, merged),
                   check, changed, stale)
-            if codex_present():
-                write(expect(repo / ".codex" / "agents" / f"{name}.toml"), render_codex(m, merged),
-                      check, changed, stale)
+            write(expect(repo / ".codex" / "agents" / f"{name}.toml"), render_codex(m, merged),
+                  check, changed, stale)
             project_specific += 1
 
     # A specialist the factory produced for this repo only: an overlay with no base persona behind
@@ -224,6 +272,8 @@ def sync(repo: Path | None, check: bool) -> int:
     if overlays_dir and overlays_dir.is_dir():
         base_names = {parse(s)[0]["name"] for s in sources}
         for ov in sorted(overlays_dir.glob("*.md")):
+            if ov.name.lower() == "readme.md":
+                continue
             try:
                 meta, body = parse(ov)
             except PersonaError as e:
@@ -233,20 +283,21 @@ def sync(repo: Path | None, check: bool) -> int:
                 continue
             write(expect(repo / ".claude" / "agents" / f"{meta['name']}.md"), render_claude(meta, body),
                   check, changed, stale)
-            if codex_present():
-                write(expect(repo / ".codex" / "agents" / f"{meta['name']}.toml"),
-                      render_codex(meta, body), check, changed, stale)
+            write(expect(repo / ".codex" / "agents" / f"{meta['name']}.toml"),
+                  render_codex(meta, body), check, changed, stale)
             project_specific += 1
 
-    targets = [CLAUDE_AGENTS] + ([CODEX_AGENTS] if codex_present() else [])
+    global_targets = []
+    if check_global:
+        global_targets = [CLAUDE_AGENTS] + ([CODEX_AGENTS] if codex_present() else [])
+    prune(global_targets, expected, check, removed, stale)
     if repo:
-        targets += [repo / ".claude" / "agents"]
-        if codex_present():
-            targets += [repo / ".codex" / "agents"]
-    prune(targets, expected, check, removed, stale)
+        project_targets = [repo / ".claude" / "agents", repo / ".codex" / "agents"]
+        prune(project_targets, expected, check, removed, stale, require_sourced=True)
 
     print(f"personas: {len(sources)} in the pool"
-          + (f", {project_specific} specialised for {repo.name}" if repo else ""))
+          + (f", {project_specific} project persona source"
+             f"{'' if project_specific == 1 else 's'} for {repo.name}" if repo else ""))
     if check:
         if stale:
             print(f"  STALE — {len(stale)} generated file(s) do not match the persona source:")
@@ -267,10 +318,15 @@ def sync(repo: Path | None, check: bool) -> int:
 
 def show_roster() -> int:
     rows = []
-    for src in sorted(POOL.glob("*.md")):
-        m, _ = parse(src)
-        rows.append((m["name"], m.get("writes", "?"), m.get("claude.model", "-"),
-                     m.get("claude.effort", "-"), m.get("codex.model", "-")))
+    try:
+        sources = pool_sources()
+        for src in sources:
+            m, _ = parse(src)
+            rows.append((m["name"], m.get("writes", "?"), m.get("claude.model", "-"),
+                         m.get("claude.effort", "-"), m.get("codex.model", "-")))
+    except PersonaError as e:
+        print(e, file=sys.stderr)
+        return 2
     w = max((len(r[0]) for r in rows), default=4)
     print(f"{'persona':<{w}}  {'writes':<6} {'claude':<10} {'effort':<7} codex")
     for n, wr, cm, ce, xm in rows:
