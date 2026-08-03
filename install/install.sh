@@ -271,10 +271,38 @@ WANT = [
 
 if mode == "list":
     # One name per WANT entry, printed for the shell guard to read — never a second, hand-typed copy.
+    #
+    # AND THE EXTRACTION FAILS CLOSED, WHICH IT DID NOT. This was `if m: print(...)`, so an entry
+    # whose command the regex did not match was DROPPED IN SILENCE and the guard below never learned
+    # it existed. MEASURED, by respelling WANT's third command as `$HOME/.claude/hooks/…` — the form
+    # this same file uses everywhere else, so the spelling a maintainer would actually reach for:
+    # this list yielded 2 names, `missing_hooks` never inspected the third, and the merge wrote a
+    # settings.json entry naming a script it had never checked was installed. That is the exact
+    # damage the section comment above calls "the real damage", arriving through the guard added to
+    # prevent it. `./verify.sh` stayed rc 0 and `--self-test` stayed green throughout.
+    #
+    # So a non-matching entry is an ERROR, not an omission — the same rule verify.sh's
+    # `check_settings_wired` applies to its own extraction: reaching nothing is a finding, never a
+    # clean zero.
+    names = []
     for _, _, command in WANT:
         m = re.search(r"~/\.claude/hooks/([A-Za-z0-9._-]+)", command)
-        if m:
-            print(m.group(1))
+        if not m:
+            print(f"  REFUSED: a WANT entry names no ~/.claude/hooks/<script>: {command!r}",
+                  file=sys.stderr)
+            print("  The guard that checks each script is installed reads this list, so this entry",
+                  file=sys.stderr)
+            print("  would be merged into settings.json without ever being checked. Nothing merged.",
+                  file=sys.stderr)
+            raise SystemExit(1)
+        names.append(m.group(1))
+    # THE TOTAL COMES FROM A DIFFERENT SOURCE THAN THE COUNT, which is the whole of why it is worth
+    # printing: `declared` is `len(WANT)` — the list literal — while the names below are what the
+    # per-entry regex actually extracted. The two can only disagree if an extraction was lossy, so
+    # the shell can detect that rather than merely report a number it derived from itself.
+    print(f"#declared {len(WANT)}")
+    for n in names:
+        print(n)
     raise SystemExit(0)
 
 data = {}
@@ -308,12 +336,36 @@ path.write_text(json.dumps(data, indent=2) + "\n")
 print(f"  {added} hook entr{'y' if added == 1 else 'ies'} added, {len(WANT) - added} already present")
 PY
 
-WANT_HOOKS="$(python3 "$HOOK_MERGE_SCRIPT" "$CLAUDE/settings.json" list)" ||
+# THE GUARD NOW GATES THE MERGE INSTEAD OF ONLY REPORTING ON IT. `fail` records and returns — it
+# does not stop the script — so every check below used to fall through into the merge regardless of
+# what it found: a `list` invocation that exited non-zero, and an empty WANT list, both printed
+# FAILED and then merged anyway. `hook_want_ok` is what a refusal now means, and the merge branch
+# reads it.
+hook_want_ok=1
+WANT_HOOKS_RAW="$(python3 "$HOOK_MERGE_SCRIPT" "$CLAUDE/settings.json" list)" || {
   fail "settings.json: the merge script's WANT list could not be read — nothing was merged"
-if [ -z "$WANT_HOOKS" ]; then
-  fail "settings.json: the merge script names no hook — refusing to merge nothing rather than passing silently"
-fi
+  hook_want_ok=0
+}
+# `#declared N` is the merge script's own `len(WANT)`, printed on a line the name loop must not see.
+want_declared=$(printf '%s\n' "$WANT_HOOKS_RAW" | sed -n 's/^#declared //p')
+WANT_HOOKS=$(printf '%s\n' "$WANT_HOOKS_RAW" | grep -v '^#declared ')
 want_count=$(printf '%s\n' "$WANT_HOOKS" | grep -c .)
+# Guarded on the invocation having SUCCEEDED, so one cause produces one finding: a `list` that
+# exited non-zero has already been reported above and its empty output is that same fact, not a
+# second one. MEASURED — without this guard the respelled-WANT-entry case printed both.
+if [ "$hook_want_ok" -eq 1 ] && [ -z "$WANT_HOOKS" ]; then
+  fail "settings.json: the merge script names no hook — refusing to merge nothing rather than passing silently"
+  hook_want_ok=0
+fi
+# THE COUNT IS CHECKED AGAINST A TOTAL FROM A DIFFERENT SOURCE, not merely against zero. A non-empty
+# list is not evidence of a COMPLETE one: with the old `if m:` extraction, respelling one WANT
+# command dropped that entry and left this guard inspecting two of three scripts while reporting
+# nothing amiss. `want_declared` is `len(WANT)`; `want_count` is what the extraction produced. They
+# are the same fact derived two ways, so they can disagree, which is the point.
+if [ -n "$WANT_HOOKS_RAW" ] && { [ -z "$want_declared" ] || [ "$want_count" -ne "$want_declared" ]; }; then
+  fail "settings.json: the merge script declares ${want_declared:-no} WANT entr$([ "${want_declared:-0}" = "1" ] && echo y || echo ies) but named $want_count hook script(s) — an entry's command yielded no \`~/.claude/hooks/<name>\`, so the guard below would not check whether its script is installed. Nothing was merged."
+  hook_want_ok=0
+fi
 missing_hooks=""
 for hb in $WANT_HOOKS; do
   [ -f "$CLAUDE/hooks/$hb" ] || missing_hooks="$missing_hooks $hb"
@@ -321,7 +373,11 @@ done
 # THE BACKUP CLAIM USED TO BE UNCONDITIONAL even in the dry-run line, where a first-ever install has
 # no settings.json to back up — the opposite ruling this file already makes 60-odd lines later for
 # config.toml ("there is nothing to back up, so the success line must not claim a backup was taken").
-if [ "$DRY" -eq 1 ]; then
+if [ "$hook_want_ok" -eq 0 ]; then
+  # Already reported by whichever guard set the flag, in both modes. Said once more here so the
+  # section does not simply end without a line, which is how a skipped merge used to read.
+  say "settings.json: NOT merged — the WANT list above could not be trusted"
+elif [ "$DRY" -eq 1 ]; then
   entry_word="entr$([ "$want_count" -eq 1 ] && echo y || echo ies)"
   if [ -f "$CLAUDE/settings.json" ]; then
     say "would merge $want_count hook $entry_word into $CLAUDE/settings.json (backup taken first)"

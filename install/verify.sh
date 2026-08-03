@@ -1424,14 +1424,41 @@ HOOKS_REQUIRED="disclosure-check.sh preflight.sh"
 # wires is missing (see `missing_hooks` in install.sh's settings.json section), so `./verify.sh` was
 # exiting 0 in silence on a tree install.sh itself refuses to finish installing.
 #
-# DERIVED FROM install.sh's OWN WANT LIST, UNION HOOKS_REQUIRED — not restated. This is the same
-# extraction `check_settings_wired` performs against the installed settings.json, applied here
-# against the vendored directory instead: one fact read twice, not a second roster. `disclosure-
-# check.sh` and `preflight.sh` are already in HOOKS_REQUIRED and FAIL (via `check_hook_presence`)
-# when missing; the two graphify names are new to this set, and MACHINE-SCOPE SEVERITY FOR THEM
-# STAYS WARN — they are an optional dependency, and that is a repository fact, not a machine one, so
+# DERIVED FROM install.sh's OWN WANT LIST — not restated. This is the same extraction
+# `check_settings_wired` performs against the installed settings.json, applied here against the
+# vendored directory instead: one fact read twice, not a second roster. `disclosure-check.sh` and
+# `preflight.sh` are already in HOOKS_REQUIRED and FAIL (via `check_hook_presence`) when missing;
+# the two graphify names are new to this set, and MACHINE-SCOPE SEVERITY FOR THEM STAYS WARN — they
+# are an optional dependency, and that is a repository fact, not a machine one, so
 # `check_hook_named` below checks it exactly once, at repository scope, rather than making them fail.
-HOOKS_NAMED="$HOOKS_REQUIRED $(grep -oE '~/\.claude/hooks/[A-Za-z0-9._-]+' "$VENDOR/install.sh" 2>/dev/null | sed 's#.*/##' | sort -u)"
+#
+# hooks_wired_by INSTALLER — the hook script names INSTALLER's settings.json merge wires into
+# ~/.claude/hooks/, one per line.
+#
+# A FUNCTION RATHER THAN THE INLINE SUBSTITUTION IT REPLACED, for the reason `check_hook_presence`
+# gives: a derivation written at file scope is unreachable from every assertion in this file, so
+# nothing could pin it against the real install.sh. It had NO EMPTINESS GUARD AT ALL, unlike the
+# twin extraction in `check_settings_wired` — and the emptiness is silent rather than loud, because
+# an empty extraction leaves `HOOKS_NAMED` exactly equal to `HOOKS_REQUIRED`, every name in it is
+# then skipped as already-required, and `check_hook_named` prints nothing whatever. MEASURED, by
+# respelling install.sh's third WANT command as `$HOME/.claude/hooks/…`: this grep yielded two names
+# instead of three, deleting `install/hooks/graphify-query-advisor.py` went silent again — the
+# regression `check_hook_named` was added to close, fully restored — and `./verify.sh` stayed rc 0
+# with `--self-test` green throughout.
+#
+# The emptiness is REPORTED by the consumer, not here: `bad` at file scope would print and count on
+# every `--self-test` run too. See `check_hook_named`'s guard.
+hooks_wired_by() {
+  grep -oE '~/\.claude/hooks/[A-Za-z0-9._-]+' "$1" 2>/dev/null | sed 's#.*/##' | sort -u
+}
+#
+# AND THE UNION WITH HOOKS_REQUIRED IS GONE, because it never did anything. The value passed to
+# `check_hook_named` used to be `$HOOKS_REQUIRED $HOOKS_WIRED`, and that function's first act on
+# every name is to skip it if it is in `HOOKS_REQUIRED` — so the required half was added and then
+# discarded, one name at a time. Keeping it would also have defeated the guard below: a wholly
+# empty extraction still produced a non-empty NAMED set, which is precisely why the emptiness was
+# invisible. What is passed now is what is actually consumed.
+HOOKS_WIRED=$(hooks_wired_by "$VENDOR/install.sh")
 
 # hook_roster DIR — the hooks this repository ships, one per line.
 #
@@ -1508,19 +1535,29 @@ check_hook_presence() {
   ctx "$present of $total vendored hook(s) present in $where; the required set names $req_total, $req_absent of which install/hooks/ does not carry"
 }
 
-# check_hook_named VENDOR_HOOKS NAMED — every name in NAMED that VENDOR_HOOKS (install/hooks/) does
+# check_hook_named VENDOR_HOOKS WIRED — every name in WIRED that VENDOR_HOOKS (install/hooks/) does
 # not carry is REPORTED, once, here, at repository scope — install/hooks/ is a repository directory,
 # and whether it ships an optional hook is a repository fact, not a machine one, so unlike
 # check_hook_presence this is not run once per scope.
 #
 # A name already in HOOKS_REQUIRED is skipped: check_hook_presence's own req_absent loop already
 # fails it by name, and reporting it again here would turn one missing file into two findings. Every
-# other name in NAMED is the optional-dependency case this function exists for, and its absence is a
-# WARNING, never a failure — the invariant HOOKS_NAMED's header records.
+# other name in WIRED is the optional-dependency case this function exists for, and its absence is a
+# WARNING, never a failure — the invariant `hooks_wired_by`'s header records.
+#
+# AN EMPTY WIRED SET IS A FAILURE, NOT A CLEAN ZERO — the same rule `check_settings_wired` has always
+# applied to its own extraction, and the one this side was missing entirely. It is a `bad` rather
+# than the `note` the rest of this function emits, and deliberately so: the optional-dependency
+# invariant says a missing graphify HOOK is not a failure, and says nothing at all about a
+# derivation that reached nothing. This finding is about install.sh, which is not optional.
 check_hook_named() {
-  local vend="$1" named="$2" roster n f found
+  local vend="$1" wired="$2" roster n f found
+  if [ -z "$wired" ]; then
+    bad "could not derive which hook scripts install.sh wires into settings.json — no \`~/.claude/hooks/<name>\` reference was found in install/install.sh, so this check had nothing to look for and must not pass vacuously. Every name it would have checked is silently unchecked, which is the regression it exists to close"
+    return
+  fi
   roster=$(hook_roster "$vend")
-  for n in $named; do
+  for n in $wired; do
     found=0
     for f in $HOOKS_REQUIRED; do [ "$f" = "$n" ] && { found=1; break; }; done
     [ "$found" -eq 1 ] && continue
@@ -2655,10 +2692,27 @@ class Runs(unittest.TestCase):
   #    first on PATH" unconditionally, which is false on exactly the runs that set `VERIFY_SUITE_PY`.
   #    Each arm's MUST-NOT-CONTAIN is the other arm's MUST-CONTAIN, which is what makes this a pair
   #    rather than two assertions that could both be satisfied by printing both sentences.
-  expect_suites "with VERIFY_SUITE_PY unset the interpreter line says PATH chose it, and does not claim the variable did" \
-    "$st_ok_root" 0 0 0 0 "chosen by PATH default" "chosen by VERIFY_SUITE_PY"
+  #
+  #    AND E1'S PRECONDITION IS ESTABLISHED HERE RATHER THAN INHERITED FROM THE CALLER, WHICH IS A
+  #    FIX FOR A CONFIDENTLY WRONG RED. E1 asserts the UNSET arm and used to read whatever
+  #    `VERIFY_SUITE_PY` the invoking shell exported: `SUITE_PY="${VERIFY_SUITE_PY:-python3}"` and
+  #    the `case` that renders the provenance line both see that value, so the production line
+  #    correctly printed `chosen by VERIFY_SUITE_PY` and E1 reported it as a defect — the assertion
+  #    calling the line broken at exactly the moment the line is doing the thing it was added to do.
+  #    Not hypothetical, and not an exotic invocation: this file's own divergence note ends
+  #    `Measure the other with: VERIFY_SUITE_PY=$SYSTEM_PY ./verify.sh`, so the gate failed under the
+  #    invocation it prescribes. MEASURED: `VERIFY_SUITE_PY=/usr/bin/python3 ./verify.sh --self-test`
+  #    gave `SELF-TEST FAIL — 1 of 176 assertion(s) FAILED`, rc 1, against `176 of 176`, rc 0, with
+  #    the variable unset.
+  #
+  #    THE SAVE/RESTORE BLOCK IS NOT NEW — IT MOVED. It sat BELOW E1 and therefore owned only E2's
+  #    precondition; E1's was unowned. It now wraps BOTH arms: save, unset, E1, set, E2, restore. No
+  #    assertion was added or removed, so the pinned total is unchanged.
   st_saved_vsp="${VERIFY_SUITE_PY-}"; st_had_vsp=0
   [ -n "${VERIFY_SUITE_PY+set}" ] && st_had_vsp=1
+  unset VERIFY_SUITE_PY
+  expect_suites "with VERIFY_SUITE_PY unset the interpreter line says PATH chose it, and does not claim the variable did" \
+    "$st_ok_root" 0 0 0 0 "chosen by PATH default" "chosen by VERIFY_SUITE_PY"
   VERIFY_SUITE_PY="$SUITE_PY"
   expect_suites "with VERIFY_SUITE_PY set the interpreter line credits the variable, and drops the PATH claim that would now be false" \
     "$st_ok_root" 0 0 0 0 "chosen by VERIFY_SUITE_PY" "chosen by PATH default"
@@ -3818,17 +3872,25 @@ STUB
   # output no longer contains a name that is not on disk, and every loop keyed off that output has
   # nothing left to say. See HOOKS_NAMED's header for the full account and why severity stays warn.
 
-  # expect_hook_named NAME VENDOR_HOOKS NAMED WANT_WARN [MUST_CONTAIN] [MUST_NOT_CONTAIN]
+  # expect_hook_named NAME VENDOR_HOOKS WIRED WANT_WARN [MUST_CONTAIN] [MUST_NOT_CONTAIN] [WANT_FAIL]
+  #
+  # WANT_FAIL IS LAST AND DEFAULTS TO ZERO, for the reason `expect_suites`'s WANT_ENV_WARN is: this
+  # helper moved exactly one counter and pinned exactly one, so every existing call site said
+  # nothing at all about `repo_fail`. A mutation turning the optional-hook `note` into a `bad` —
+  # which is the optional-dependency invariant inverted, and the easy wrong fix for the regression
+  # HN2 covers — left all four green. Defaulting it to 0 pins the severity of every existing
+  # assertion in the same stroke as giving the new empty-extraction case somewhere to be counted.
   expect_hook_named() {
-    local name="$1" vend="$2" named="$3" ww="$4" needle="${5:-}" absent="${6:-}"
-    local w0=$repo_warn dw why="" st_ln
-    check_hook_named "$vend" "$named" > "$st_dir/rendered" 2>&1
-    dw=$((repo_warn - w0))
+    local name="$1" vend="$2" wired="$3" ww="$4" needle="${5:-}" absent="${6:-}" wf="${7:-0}"
+    local w0=$repo_warn f0=$repo_fail dw df why="" st_ln
+    check_hook_named "$vend" "$wired" > "$st_dir/rendered" 2>&1
+    dw=$((repo_warn - w0)); df=$((repo_fail - f0))
     [ "$dw" = "$ww" ] || why="$why warn(${dw}!=${ww})"
+    [ "$df" = "$wf" ] || why="$why fail(${df}!=${wf})"
     if [ -n "$needle" ] && ! grep -qF -- "$needle" "$st_dir/rendered"; then why="$why missing:\"$needle\""; fi
     if [ -n "$absent" ] && grep -qF -- "$absent" "$st_dir/rendered"; then why="$why must-not-contain:\"$absent\""; fi
     if [ -z "$why" ]; then
-      printf '  \033[32mok\033[0m    %s → warn+%s\n' "$name" "$dw"; st_pass=$((st_pass+1))
+      printf '  \033[32mok\033[0m    %s → warn+%s fail+%s\n' "$name" "$dw" "$df"; st_pass=$((st_pass+1))
     else
       printf '  \033[31mFAIL\033[0m  %s →%s\n' "$name" "$why"
       printf '        rendered as:\n'
@@ -3861,6 +3923,44 @@ STUB
   #    one missing file into two findings on the same line count.
   expect_hook_named "a NAMED hook that is also in HOOKS_REQUIRED is skipped here, not double-reported" \
     "$st_hn_gone" "disclosure-check.sh" 0 "" "disclosure-check.sh"
+
+  # ── (HN5) AN EXTRACTION THAT REACHED NOTHING IS A FAILURE, NOT SILENCE. This side had no emptiness
+  #    guard at all, while the twin extraction in `check_settings_wired` has had one since it was
+  #    extracted — and here the silence is total rather than merely wrong: with the old
+  #    `HOOKS_REQUIRED $(grep …)` union, an empty grep still produced a non-empty set, every name in
+  #    it was skipped as already-required, and the function printed nothing on a tree whose
+  #    installer wires hooks this gate could no longer name.
+  #
+  #    THE MUTATION THAT REDDENS IT: delete the `[ -z "$wired" ]` guard from `check_hook_named`.
+  #    Without HN5 that deletion costs nothing — MEASURED, the suite stayed green.
+  expect_hook_named "an extraction that named no hook at all is a FAILURE, not a vacuous pass" \
+    "$st_hn_gone" "" 0 \
+    "could not derive which hook scripts install.sh wires into settings.json" "" 1
+
+  # ── (HN6) AND THE DERIVATION REACHES THE REAL install.sh. Every assertion above runs on
+  #    hand-written fixture strings, so `hooks_wired_by` could return nothing against the real file
+  #    and leave all five green — H8's reasoning one roster over, and the hole TC-60 measured.
+  #
+  #    THE MUTATION THAT REDDENS IT, AND IT IS THE ONE THIS ASSERTION EXISTS FOR: respell install.sh's
+  #    third WANT command as `$HOME/.claude/hooks/graphify-query-advisor.py` — the form that file
+  #    uses everywhere else, so the spelling a maintainer would reach for rather than a contrived
+  #    mutation. The grep then yields two names, this assertion fails by NAME, and the third hook
+  #    stops being checked in every direction at once.
+  #
+  #    NAMED, NOT COUNTED. `2 of 2` over a list that lost an entry is exactly what this file keeps
+  #    finding: a filtered count whose total moves with it. There is no independent total available
+  #    for this set — the only other place the three names are written is install.sh itself, which is
+  #    the source under test — so the assertion pins the NAME whose loss was silent, which is the
+  #    part that was measured to be loud. Emptiness is pinned beside it because a grep that reaches
+  #    nothing is the other half of the same failure.
+  #
+  #    THE SEARCH SPACE IS install.sh, NOT THIS FILE, so this assertion's own text cannot satisfy it:
+  #    `HOOKS_WIRED` is derived by grepping `$VENDOR/install.sh` and nothing here contributes to it.
+  st_hw_n=$(printf '%s\n' "$HOOKS_WIRED" | grep -c .)
+  st_rc=1
+  [ "${st_hw_n:-0}" -gt 0 ] && printf '%s\n' "$HOOKS_WIRED" | grep -qx 'graphify-query-advisor.py' && st_rc=0
+  st_assert "the wired-hook derivation reaches the real install.sh, and finds graphify-query-advisor.py" "$st_rc" \
+    "\`hooks_wired_by $VENDOR/install.sh\` returned ${st_hw_n:-0} name(s) — [$(printf '%s' "$HOOKS_WIRED" | tr '\n' ' ')] — and either reached nothing at all or lost a name. install.sh's WANT list is the only source for this set, so a command respelled out of the \`~/.claude/hooks/\` form drops out of it silently and the hook it names stops being checked anywhere"
 
   echo
   echo "════ self-test — the published-skill roster, its presence check, and the installer's agreement"
@@ -4391,6 +4491,193 @@ PY
     "$st_sw_installer" "/nonexistent/st_dry_control/settings.json" 1 \
     "no fixture-settings.json" "/nonexistent/st_dry_control"
 
+  echo
+  echo "════ self-test — the production call sites, driven through the real entry point"
+  # WHAT THIS SECTION MEASURES THAT NOTHING ELSE IN THIS FILE CAN: which ARGUMENT a production call
+  # site passes. Every assertion above drives a FUNCTION against a fixture root it chooses itself, so
+  # all of them stay green when the production line hands the function a different root. That is not
+  # a theoretical gap — it is the one this file's own record blames for letting the published suite
+  # drift to 10 tests unnoticed, and the previous round wrote the warning down and left the barrier
+  # unbuilt.
+  #
+  # MEASURED ON THE REAL TREE, in a clone, before any of this existed: substituting `$CLAUDE/skills`
+  # for `$VENDOR/skills` at the suite call site left `./verify.sh` at rc 0 and PASS, and made the
+  # output read BETTER — `449 of 449 vendored test(s)` became `573 of 573`, two suites became four,
+  # and the verdict gained a check. An operator would read that as an improvement. `--self-test`
+  # stayed green because it never runs the entry point.
+  #
+  # SO THE ENTRY POINT IS RUN. A copy of this script is placed in a fixture repository whose VENDORED
+  # tree and whose $HOME tree hold DIFFERENTLY NAMED contents, and the rendered output is asked which
+  # of the two it walked. `verify.sh` anchors `VENDOR` to its own location and `CLAUDE` to `$HOME`, so
+  # a copy plus a redirected `HOME` is the whole of the isolation; nothing is written outside
+  # `$st_dir`, and the real `~/.claude` is never read by the child.
+  #
+  # THE FIXTURE SKILLS CARRY NO SUITE, DELIBERATELY. The question a call site's argument answers is
+  # WHICH ROOT WAS WALKED, and discovery names the skill before any interpreter is involved — so the
+  # needles below are `NOT TESTED HERE` lines rather than test counts. That drops python3 out of this
+  # section's prerequisites entirely, which is why it needs no ST_DRY guard, and it keeps the child
+  # run at well under a second.
+  #
+  # WHAT THIS COSTS: two extra `verify.sh` processes against a tiny fixture. MEASURED at 0.76s each
+  # on this machine, against the ~40s the real vendored suites take, so the card's slowness stop
+  # condition is not approached.
+  #
+  # ── WHERE THE NEW UNTESTABLE BOUNDARY IS, WHICH IS THIS SECTION'S ACTUAL DELIVERABLE.
+  #
+  # It has MOVED, not closed, and it is now the FIXTURE-CONSTRUCTION lines directly below — the `cp`
+  # that decides WHICH file is run as the entry point, and the `sed` that decides which token the
+  # mutant changes. Nothing asserts that `$st_cs_self` names this file rather than some other; if it
+  # were repointed, every assertion here would go on passing about a file nobody ships. That is the
+  # third turn of the regress this card names: round 2 moved a function so it could be asserted and
+  # relocated the unpinned thing to its invocation; round 3 removed the invocation's arguments and
+  # relocated it to the call site; this round runs the call site and relocates it to the harness that
+  # chooses what to run.
+  #
+  # ONE HALF OF IT IS PINNED AND THE OTHER HALF IS NOT, and the split is worth stating precisely. The
+  # copy's CONTENT is pinned — CS1 requires it byte-identical to `$st_cs_self`, so a copy that was
+  # edited, truncated or staged from somewhere else fails. The copy's SOURCE is not, because an
+  # assertion written in this file cannot establish which file this file is without asking the same
+  # `BASH_SOURCE` the harness already asked. That is the boundary. It is smaller than the one it
+  # replaced — a wrong `cp` source is a visible edit to a line whose only purpose is to name this
+  # script, whereas the substitution it now catches is one token in a line that reads correctly.
+  st_cs_self="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"
+  st_cs_root="$st_dir/callsite"
+  st_cs_install="$st_cs_root/repo/install"
+  st_cs_home="$st_cs_root/home"
+  mkdir -p "$st_cs_install" "$st_cs_home/.claude"
+  cp "$st_cs_self" "$st_cs_install/verify.sh" 2>/dev/null && chmod 755 "$st_cs_install/verify.sh" 2>/dev/null
+
+  # The two trees, named so that the rendered output can only contain a name it actually discovered.
+  # NEITHER NAME APPEARS IN ANY OTHER RENDERED LINE: the machine-scope skill check reads the
+  # REPOSITORY's declaration (absent in this fixture) and so never enumerates `$HOME`'s directories,
+  # and the machine-scope hook check reads the VENDORED roster and so never names an installed-only
+  # hook. Both halves were measured on the fixture output before these assertions were written.
+  mk_skill "$st_cs_install/skills" callsitevendored
+  mk_skill "$st_cs_home/.claude/skills" callsiteinstalled
+  mk_hooks "$st_cs_install/hooks" disclosure-check.sh preflight.sh callsitevendoredhook.sh
+  mk_hooks "$st_cs_home/.claude/hooks" disclosure-check.sh preflight.sh callsiteinstalledhook.sh
+  # A STUB INSTALLER, PRESENT ONLY SO `check_hook_named` HAS A NON-EMPTY WIRED SET. Without it
+  # `hooks_wired_by` reaches nothing, the new empty-extraction guard fires, and the third call site
+  # renders identically whichever root it is given — the assertion would pass under its own mutation.
+  # MEASURED: with no installer here, the `$VENDOR/hooks` -> `$CLAUDE/hooks` substitution at
+  # `check_hook_named` left this suite at 185 of 185. It is never EXECUTED: `check_installer_agrees`
+  # returns at the empty declaration before it would run the dry run.
+  printf '#!/usr/bin/env bash\n# wires bash ~/.claude/hooks/callsitevendoredhook.sh\n' \
+    > "$st_cs_install/install.sh"
+
+  # st_cs_run VARIANT — run the fixture copy through its REAL entry point and leave the rendered
+  # output in `$st_dir/cs_VARIANT`. The exit code is deliberately not asserted: this fixture is a
+  # deliberately incomplete repository, so its rc is a fact about the fixture and not about any call
+  # site. What the call sites decide is which tree gets named, and that is what is read.
+  st_cs_run() {
+    ( cd "$st_cs_root" && HOME="$st_cs_home" "$1/verify.sh" ) > "$st_dir/cs_$2" 2>&1
+    return 0
+  }
+
+  # THE MUTANTS ARE SEPARATE COPIES, one call site each. Folding both substitutions into one copy
+  # would leave a red run unable to say which site produced it, and this whole section exists because
+  # a finding that does not name the site is what the counts already fail to do.
+  st_cs_mut_suites="$st_cs_root/mut_suites/install"
+  st_cs_mut_hooks="$st_cs_root/mut_hooks/install"
+  st_cs_mut_named="$st_cs_root/mut_named/install"
+  for st_cs_m in "$st_cs_mut_suites" "$st_cs_mut_hooks" "$st_cs_mut_named"; do
+    mkdir -p "$st_cs_m"
+    ln -s "$st_cs_install/skills"     "$st_cs_m/skills"     2>/dev/null
+    ln -s "$st_cs_install/hooks"      "$st_cs_m/hooks"      2>/dev/null
+    ln -s "$st_cs_install/install.sh" "$st_cs_m/install.sh" 2>/dev/null
+  done
+  # Anchored to the start of the line, which is what makes the substitution reach the PRODUCTION call
+  # site and not this file's own text: every occurrence of these names inside `--self-test` is
+  # indented, and the production section is the only place they sit in column 0.
+  sed 's|^check_vendored_suites "$VENDOR/skills"$|check_vendored_suites "$CLAUDE/skills"|' \
+    "$st_cs_install/verify.sh" > "$st_cs_mut_suites/verify.sh"
+  sed 's|^check_hook_presence "$VENDOR/hooks" "$VENDOR/hooks" |check_hook_presence "$VENDOR/hooks" "$CLAUDE/hooks" |' \
+    "$st_cs_install/verify.sh" > "$st_cs_mut_hooks/verify.sh"
+  sed 's|^check_hook_named "$VENDOR/hooks" |check_hook_named "$CLAUDE/hooks" |' \
+    "$st_cs_install/verify.sh" > "$st_cs_mut_named/verify.sh"
+  chmod 755 "$st_cs_mut_suites/verify.sh" "$st_cs_mut_hooks/verify.sh" "$st_cs_mut_named/verify.sh" 2>/dev/null
+
+  # ── (CS1) THE COPY IS THIS FILE. Everything below is a claim about `verify.sh`'s production lines,
+  #    and it is worth exactly as much as the copy being the file those lines live in. See the
+  #    boundary note above for what this does and does not establish.
+  st_rc=1; cmp -s "$st_cs_self" "$st_cs_install/verify.sh" && st_rc=0
+  st_assert "the fixture entry point is a byte-identical copy of this script" "$st_rc" \
+    "\`$st_cs_install/verify.sh\` differs from \`$st_cs_self\`, so every assertion below is about some other file — the copy failed, or it was staged from somewhere that is not this script"
+
+  # ── (CS2/CS3) THE MUTANTS REALLY DIFFER. A `sed` whose pattern stopped matching — because the
+  #    production line was reformatted, or the call moved, or a quote changed — produces a mutant
+  #    identical to the original, and every catch assertion below would then be asserting that the
+  #    ORIGINAL fails, which it does not. Without these two controls that reads as a green suite.
+  st_rc=1; cmp -s "$st_cs_install/verify.sh" "$st_cs_mut_suites/verify.sh" || st_rc=0
+  st_assert "control: the suite-call-site mutant really differs from the original" "$st_rc" \
+    "the substitution produced a byte-identical file — \`check_vendored_suites \"\$VENDOR/skills\"\` is no longer a column-0 line in this script, so CS5 below would prove nothing"
+  st_rc=1; cmp -s "$st_cs_install/verify.sh" "$st_cs_mut_hooks/verify.sh" || st_rc=0
+  st_assert "control: the hook-call-site mutant really differs from the original" "$st_rc" \
+    "the substitution produced a byte-identical file — the column-0 \`check_hook_presence \"\$VENDOR/hooks\" \"\$VENDOR/hooks\" …\` line is gone, so CS7 below would prove nothing"
+
+  st_rc=1; cmp -s "$st_cs_install/verify.sh" "$st_cs_mut_named/verify.sh" || st_rc=0
+  st_assert "control: the named-hook-call-site mutant really differs from the original" "$st_rc" \
+    "the substitution produced a byte-identical file — the column-0 \`check_hook_named \"\$VENDOR/hooks\" …\` line is gone, so CS9 below would prove nothing"
+
+  st_cs_run "$st_cs_install" orig
+  st_cs_run "$st_cs_mut_suites" mut_suites
+  st_cs_run "$st_cs_mut_hooks" mut_hooks
+  st_cs_run "$st_cs_mut_named" mut_named
+
+  # ── (CS4/CS5) THE SUITE CALL SITE — the substitution this card exists for. The pair is mutual: the
+  #    name CS4 requires present is the one CS5 requires absent and vice versa, so neither can pass
+  #    vacuously and neither is satisfied by a run that names both trees.
+  #
+  #    THE SEARCH SPACE IS THE CHILD'S RENDERED OUTPUT, not this file, so no assertion here can be
+  #    satisfied by its own text: `callsiteinstalled` can only reach that output by being discovered
+  #    under the fixture's `$HOME`, which happens on exactly one condition — the call site passing
+  #    `$CLAUDE/skills`.
+  st_rc=1
+  grep -qF 'callsitevendored: NOT TESTED HERE' "$st_dir/cs_orig" \
+    && ! grep -qF 'callsiteinstalled:' "$st_dir/cs_orig" && st_rc=0
+  st_assert "the real entry point runs the vendored suite discovery against the VENDORED tree" "$st_rc" \
+    "a full run against the fixture repository did not name \`callsitevendored\`, or it named \`callsiteinstalled\` — the production \`check_vendored_suites\` call is walking \$HOME's skills, or is not running at all"
+  st_rc=1
+  grep -qF 'callsiteinstalled: NOT TESTED HERE' "$st_dir/cs_mut_suites" \
+    && ! grep -qF 'callsitevendored:' "$st_dir/cs_mut_suites" && st_rc=0
+  st_assert "and substituting \$CLAUDE for \$VENDOR at that call site is CAUGHT — it measures the installed tree" "$st_rc" \
+    "with \`check_vendored_suites \"\$CLAUDE/skills\"\` the run still named \`callsitevendored\`, or failed to name \`callsiteinstalled\` — this section cannot see which tree the call site selects, and the substitution that let the published suite drift to 10 tests is unpinned again"
+
+  # ── (CS6/CS7) THE HOOK PRESENCE CALL SITE, WHICH IS THE OTHER SILENT ONE. Measured against the real
+  #    tree alongside the suite site: `install/hooks/` and `~/.claude/hooks/` carry the same four
+  #    names on any installed machine, so swapping the vendored root there is green and says nothing.
+  #    The other two production sites are NOT pinned here and that is a measured decision, not an
+  #    omission — see the note at the production call sites for which are self-announcing and why.
+  #
+  #    PINNED ON THE `ok` LABEL, WHICH ONLY THE REPOSITORY SCOPE EMITS FOR THIS HOOK. `opt_file`
+  #    prints `<name> (optional)` when the file is present and a differently worded warning when it
+  #    is not, and the machine-scope call warns for this name — so the label is a repository-scope
+  #    fact and cannot be borrowed from section 2.
+  st_rc=1
+  grep -qF 'callsitevendoredhook.sh (optional)' "$st_dir/cs_orig" \
+    && ! grep -qF 'callsiteinstalledhook.sh' "$st_dir/cs_orig" && st_rc=0
+  st_assert "the real entry point checks hook presence against the VENDORED hook directory" "$st_rc" \
+    "a full run against the fixture repository did not report \`callsitevendoredhook.sh (optional)\` as present, or it named \`callsiteinstalledhook.sh\` — the production \`check_hook_presence\` call is discovering \$HOME's hooks"
+  st_rc=1
+  grep -qF 'callsiteinstalledhook.sh absent from install/hooks' "$st_dir/cs_mut_hooks" \
+    && ! grep -qF 'callsitevendoredhook.sh (optional)' "$st_dir/cs_mut_hooks" && st_rc=0
+  st_assert "and substituting \$CLAUDE for \$VENDOR at THAT call site is CAUGHT too" "$st_rc" \
+    "with the vendored root replaced by \$HOME's, the run did not report \`callsiteinstalledhook.sh\` against install/hooks, or still reported the vendored hook as present — the hook roster's source is unpinned, and on a real machine both directories carry the same names, so the substitution is silent"
+
+  # ── (CS8/CS9) THE THIRD SILENT SITE. `check_hook_named` was measured byte-identical under the
+  #    substitution on the real tree — not merely rc-identical, IDENTICAL OUTPUT — because
+  #    `install/hooks/` and `~/.claude/hooks/` carry the same names on an installed machine. It is
+  #    pinned on the WARNING TEXT rather than on presence, because this function is silent in the
+  #    passing case by design and has no `ok` line to look for.
+  st_rc=1
+  ! grep -qF 'install/hooks/ does not carry `callsitevendoredhook.sh`' "$st_dir/cs_orig" && st_rc=0
+  st_assert "the real entry point asks the named-hook check about the VENDORED hook directory" "$st_rc" \
+    "the unmutated run warned that install/hooks/ does not carry \`callsitevendoredhook.sh\` — it does; the production \`check_hook_named\` call is being handed \$HOME's hooks, or the fixture installer stopped being read"
+  st_rc=1
+  grep -qF 'install/hooks/ does not carry `callsitevendoredhook.sh`' "$st_dir/cs_mut_named" && st_rc=0
+  st_assert "and substituting \$CLAUDE for \$VENDOR at the named-hook call site is CAUGHT" "$st_rc" \
+    "with \`check_hook_named \"\$CLAUDE/hooks\"\` the run said nothing about \`callsitevendoredhook.sh\`, which is absent from \$HOME's hooks — the roster this check reads is unpinned, and on a real machine the two directories agree, so the substitution changes nothing an operator can see"
+
   # ── (F7, LIVE HALF) THE FIVE SHORT-CIRCUITS, EXERCISED. The static range check above says what a
   #    dry region CONTAINS; it says nothing about whether `ST_DRY=1` makes those lines decline to
   #    run. Nothing else in a green run does either — every guard in this suite is false on a machine
@@ -4527,7 +4814,7 @@ PY
   # machine" on every machine, over five assertions that were set up perfectly and declined on
   # purpose. So
   # `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer|expect_hooks|expect_hook_named|expect_persona_count|expect_settings_wired) '`
-  # over this file reads exactly FIVE more than the literal below — 181 against 176 today — and those
+  # over this file reads exactly FIVE more than the literal below — 193 against 188 today — and those
   # five are the probe. THE PAIR MOVES TOGETHER: this sentence carried `170 against 165` for two
   # commits after the literal had gone to 169, which is the stale-claim shape this file keeps
   # removing from everything except itself. Both numbers, or neither.
@@ -4547,7 +4834,15 @@ PY
   # 169 -> 176: seven assertions for the environment declaration (E1-E6 plus its restore control) —
   # two arms of the interpreter-provenance line, the inherited-HOME line, and all three arms of the
   # second-interpreter comparison.
-  st_expected_total=176
+  # 178 -> 188: ten assertions for the production call sites, driven through the real entry point
+  # (CS1-CS9) — one that the fixture entry point IS this script, three fixture-difference controls,
+  # and three mutual pairs, one per SILENT call site. The other two production sites are measured
+  # self-announcing and are documented rather than pinned; see the note at the call sites.
+  # 176 -> 178: two assertions for the wired-hook derivation — HN5, an extraction that reached
+  # nothing is a FAILURE rather than total silence, and HN6, the derivation pinned against the real
+  # install.sh by the one name whose loss was measured to be silent. (E1's precondition fix moved
+  # the save/unset block above it and added no assertion.)
+  st_expected_total=188
   st_total=$((st_pass + st_fail + st_skipped))
   st_total_ok=1
   if [ "$st_total" -ne "$st_expected_total" ]; then
@@ -4625,9 +4920,9 @@ echo "── vendored hooks"
 # assertion in this file, which is how three hardcoded names survived against a directory of four.
 check_hook_presence "$VENDOR/hooks" "$VENDOR/hooks" "install/hooks" 1 "$HOOKS_REQUIRED"
 # THE DIRECTION check_hook_presence CANNOT SEE EVEN WITH HOOKS_REQUIRED: a name that is optional, not
-# required, and gets deleted from the directory outright. See HOOKS_NAMED's header for the regression
-# this closes and why severity for the two graphify names must stay warn.
-check_hook_named "$VENDOR/hooks" "$HOOKS_NAMED"
+# required, and gets deleted from the directory outright. See `hooks_wired_by`'s header for the
+# regression this closes and why severity for the two graphify names must stay warn.
+check_hook_named "$VENDOR/hooks" "$HOOKS_WIRED"
 hook_produces_output "$VENDOR/hooks/disclosure-check.sh" "vendored hook"
 
 echo "── installer"
