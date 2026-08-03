@@ -7,6 +7,8 @@ Built and used by one person across a dozen projects on one laptop, with Claude 
 parallel. Everything here is in daily use rather than proposed. Where a decision came from a
 measurement, the number is included; where it came from a mistake, the mistake is written down.
 
+[Quickstart](#quickstart) · [Architecture](#architecture) · [Documentation](#documentation) · [Weekly improvements](#weekly-improvements)
+
 ## The problem
 
 Agent setup rots invisibly. An `AGENTS.md` written in month one describes a repository that no
@@ -42,34 +44,20 @@ Then open a project and run the **`project-onboarding`** skill. Requirements and
 | **A vendored-drift check** | Compares the installed layer against this repository's published copy, so the two cannot silently disagree |
 | **Drift detection** | Session start reports a broken route, an unsynced persona, an unmirrored rule, a stale graph |
 
-## How it fits together
+## Architecture
 
-```mermaid
-flowchart TD
-    subgraph global["installed once, applies everywhere"]
-        S["skills<br/>route · personas · onboarding"]
-        H["session hooks<br/>report, never write"]
-        P["persona pool"]
-    end
-    subgraph gen["generated"]
-        CA["~/.claude/agents"]
-        XA["~/.codex/agents"]
-    end
-    subgraph repo["per repository"]
-        R["AGENTS.md + docs/agents/<br/>the route"]
-        G["git hooks<br/>pre-commit · pre-push"]
-        O["persona overlays"]
-    end
-    P -->|sync_personas| CA & XA
-    S --> R & O
-    H -->|reports drift in| R & G & P
-    O -->|merged with pool| CA & XA
-    G -->|validates| R
-```
+![SWE Agent architecture and data flow](docs/assets/swe-agent-architecture.png)
 
-The split is deliberate: **knowledge lives in the repository** so every harness reads the same
-thing, and **skills and hooks are accelerators for one harness**. A rule that lives only in a skill
-silently does not apply to the other agent, and that failure is invisible.
+| Flow | Meaning |
+|---|---|
+| Repository knowledge → Claude Code and Codex | `AGENTS.md` and `docs/agents/` give both harnesses the same durable route. |
+| Shared skills → Claude Code and Codex | Shared skills accelerate work in both harnesses. |
+| Session hooks → Claude Code only | Claude-specific session hooks report drift and environment facts. |
+| Persona pool → Claude Code and Codex | The shared persona sources generate harness-specific agents for both harnesses. |
+| Repository changes → local Git checks | Local hooks validate repository work before commit or push. |
+
+Repository knowledge is the durable source of truth. Shared skills accelerate both harnesses;
+session hooks are Claude-specific. Neither replaces repository knowledge.
 
 ## Documentation
 
@@ -86,6 +74,21 @@ silently does not apply to the other agent, and that failure is invisible.
 | [full-adoption.md](docs/full-adoption.md) | The long version, with guard-testing |
 | [codex.md](docs/codex.md) | The Codex side, and what it does not get |
 | [what-gets-installed.md](docs/what-gets-installed.md) | Every file the installer places, and why |
+
+## Weekly improvements
+
+A concise record of one material repository improvement each week, newest first. Current tooling
+remains the authority for behaviour; each entry points to the implementation it describes.
+
+### Week of 3 August 2026 — local verification proves what ran
+
+[`verify.sh`](install/verify.sh) now executes the published vendored suites and reports what each
+proved—tests run, skips or not-tested status, failures, or inability to run. Missing or
+unrecognizable attempted-suite output and test counts the parser cannot read as non-negative
+integers are treated as unknown rather than success; a corpus where no suite demonstrates an
+assertion is not accepted as evidence. The
+[installer](install/install.sh) wires environment preflight so machine gaps are visible earlier and
+derives the published skill roster from its declaration instead of maintaining a second count.
 
 ## What this is not
 
