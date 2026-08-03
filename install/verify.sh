@@ -1310,6 +1310,121 @@ check_skill_presence() {
   fi
 }
 
+# ── the vendored hook roster ──────────────────────────────────────────────────────────────────────
+#
+# THIS IS THE SKILL DEFECT ONE DIRECTORY OVER, and it was found by review rather than by this gate.
+# Both hook sections used to name THREE files as literals — `disclosure-check.sh` required, the two
+# `graphify-*` ones optional — against an `install/hooks/` that holds FOUR. The fourth,
+# `preflight.sh`, is vendored, is installed by install.sh's `hooks/*` glob loop, and is routed to by
+# the PUBLISHED progressive-disclosure/SKILL.md. Neither scope checked it: delete it and
+# `./verify.sh` exited 0 in silence while every agent reading that SKILL.md was sent to a hook that
+# no longer installs. This file already knew the real number — the comment in `check_installer_agrees`
+# says reading past the skills block "swept four hook filenames into the skill set" — and still
+# checked three.
+#
+# SO THE ROSTER IS DISCOVERED FROM THE DIRECTORY, exactly as the skill roster is discovered from the
+# declaration: every regular file directly under install/hooks/ is a hook this repository ships, and
+# both scopes check every one of them. install.sh installs by the same rule (`for h in "$HERE"/hooks/*`
+# with an `[ -f ]` filter), so the gate's roster and the installer's roster are the same fact read
+# the same way, and a re-vendor that adds a fifth hook is picked up by both with no edit here.
+#
+# AND A DISCOVERED ROSTER NEEDS A SECOND, INDEPENDENT SOURCE, WHICH IS WHAT `required` IS FOR. This
+# was MEASURED on the skill side of the same card and is the reason the pin exists rather than being
+# a preference: deleting a skill's `!/` line left the counter reading a clean `5 of 5`, because the
+# denominator was derived from the same place as the numerator and could not disagree with it. What
+# made that case loud was not the count — it was a separate check that NAMED the missing skill. A
+# hook roster read only from the directory has precisely that hole: delete `install/hooks/preflight.sh`
+# and the roster becomes three, `3 of 3` is printed, and the gate is green over a published route
+# that no longer resolves.
+#
+# `required` closes it, and it is a hardcoded list ON PURPOSE — a hardcoded list that is MECHANICALLY
+# CHECKED is not the defect this card is about; a hardcoded list nobody checks is. It is checked in
+# both directions against the directory: a required name the directory does not carry is a FAILURE
+# that names it, and a directory entry the pin does not name is not a failure at all, because that is
+# the optional case (the graphify hooks are inert without the third-party `graphify` CLI, which the
+# optional-dependency contract requires stay non-required).
+#
+# WHICH NAMES ARE PINNED, AND WHY THOSE TWO. Not "the ones that exist today" — the ones whose absence
+# breaks something this repository PUBLISHES. `disclosure-check.sh` is the SessionStart hook the
+# installer wires into settings.json; `preflight.sh` is what progressive-disclosure/SKILL.md tells
+# every agent to run. Both are load-bearing for a documented route, so neither may go missing quietly.
+HOOKS_REQUIRED="disclosure-check.sh preflight.sh"
+
+# hook_roster DIR — the hooks this repository ships, one per line.
+#
+# Regular files only, one level deep, which is install.sh's own rule. With no directory at all the
+# glob stays literal, `[ -f ]` is false, and this prints nothing — the caller treats an empty roster
+# as a finding rather than as a clean zero, for the same reason `skill_roster` does.
+hook_roster() {
+  local d="$1" f
+  for f in "$d"/*; do
+    [ -f "$f" ] || continue
+    printf '%s\n' "${f##*/}"
+  done
+}
+
+# check_hook_presence CHECK_ROOT VENDOR_HOOKS WHERE OWNS_DIR REQUIRED — every vendored hook is
+# present under CHECK_ROOT, and every REQUIRED name is one the vendored directory actually carries.
+#
+# TAKES ITS ROOTS AS ARGUMENTS FOR THE REASON `check_skill_presence` DOES, and the reason is measured
+# rather than stylistic: `--self-test` exits ~2,300 lines above the two production call sites, so a
+# loop written inline at those sites is unreachable from every assertion in this file. That is how
+# the three-name roster survived every green run it was ever part of.
+#
+# OWNS_DIR IS 1 ONLY FOR THE REPOSITORY SCOPE, and it governs the same thing the skill check's
+# OWNS_DECL governs: whether a fact about `install/hooks/` — a REPOSITORY directory — is charged as a
+# finding here. This function runs twice against that one directory, once per scope, so firing the
+# required-set findings in both would make ONE missing hook print TWO problems and charge the second
+# to the MACHINE, which is this file's cardinal rule inverted.
+check_hook_presence() {
+  local check_root="$1" vend="$2" where="$3" owns_dir="$4" required="$5"
+  local roster h r found present=0 total=0 req_total=0 req_absent=0
+
+  roster=$(hook_roster "$vend")
+  if [ -z "$roster" ]; then
+    if [ "$owns_dir" -eq 1 ]; then
+      bad "$where: install/hooks/ carries no hook at all, so there is nothing to check presence AGAINST — this is not an empty pass"
+    else
+      ctx "$where: presence not checked — install/hooks/ carries no hook (reported against the repository, which owns that directory; not counted twice)"
+    fi
+    return
+  fi
+
+  # The vendored tree carries no filename with whitespace or a glob metacharacter — install.sh's
+  # `chmod_scripts` records the same constraint — so this word-split is safe.
+  for h in $roster; do
+    total=$((total + 1))
+    found=0
+    for r in $required; do [ "$r" = "$h" ] && { found=1; break; }; done
+    if [ "$found" -eq 1 ]; then
+      want_exec "$check_root/$h" "$h" "$h missing from $where, or not executable"
+    else
+      opt_file "$check_root/$h" "$h (optional)" \
+        "$h absent from $where — it is vendored but not in the required set; the graphify hooks are inert without the third-party \`graphify\` CLI, so their absence is not a failure"
+    fi
+    [ -f "$check_root/$h" ] && present=$((present + 1))
+  done
+
+  # THE DIRECTION A DISCOVERED ROSTER CANNOT SEE. Everything above is measured against the vendored
+  # directory, so a hook DELETED from that directory leaves the loop above with nothing to say.
+  for r in $required; do
+    req_total=$((req_total + 1))
+    found=0
+    for h in $roster; do [ "$h" = "$r" ] && { found=1; break; }; done
+    [ "$found" -eq 1 ] && continue
+    req_absent=$((req_absent + 1))
+    if [ "$owns_dir" -eq 1 ]; then
+      bad "$where: \`$r\` is a REQUIRED hook and install/hooks/ does not carry it — it is wired by the installer or routed to by a published SKILL.md, so its absence breaks a documented route rather than merely shrinking this roster; restore it or stop publishing the route"
+    else
+      ctx "$where: \`$r\` is required and install/hooks/ does not carry it (reported against the repository, which owns that directory; not counted twice) — the count below is short by that hook"
+    fi
+  done
+
+  # EVERY FILTERED COUNT CARRIES ITS TOTAL, and the required tally is printed beside it because the
+  # first total comes from the directory and so cannot contradict the directory. The second one can.
+  ctx "$present of $total vendored hook(s) present in $where; the required set names $req_total, $req_absent of which install/hooks/ does not carry"
+}
+
 # check_installer_agrees INSTALLER DECL_DIR — the installer's OWN skill set, obtained by running it,
 # equals the roster derived above.
 #
@@ -3135,6 +3250,131 @@ STUB
   #    the suite, immediately before the accounting block, and covers all five helpers.
 
   echo
+  echo "════ self-test — the vendored hook roster and its presence check"
+  # THIS SECTION EXISTS BECAUSE THE CHECK IT DRIVES HAD NO ASSERTIONS AT ALL, and the roster it
+  # replaced was three literal filenames against a directory of four. Nothing in this suite could see
+  # that: both hook loops were written inline ~2,300 lines below the `exit` at the end of this block.
+  # The fourth hook, `preflight.sh`, is vendored, installed and routed to by a PUBLISHED SKILL.md, and
+  # deleting it left `./verify.sh` at exit 0 in silence.
+
+  # mk_hooks DIR NAME… — a hooks root carrying exactly the executable files named, and nothing else.
+  mk_hooks() {
+    local dir="$1" n; shift
+    rm -rf "$dir"; mkdir -p "$dir"
+    for n in "$@"; do printf '#!/usr/bin/env bash\n' > "$dir/$n"; chmod 755 "$dir/$n"; done
+  }
+
+  # expect_hooks NAME CHECK_ROOT VENDOR_HOOKS OWNS_DIR REQUIRED WANT_FAIL WANT_WARN [MUST_CONTAIN]
+  #              [MUST_NOT_CONTAIN]
+  #
+  # Counter deltas rather than needles alone, for the reason `expect_presence` gives: a message that
+  # says the right words while counting nothing leaves the verdict and the exit code untouched.
+  #
+  # NO `ST_DRY` SHORT-CIRCUIT, DELIBERATELY, AND IT IS NOT THE SIXTH HELPER THE F7 CONTROL COVERS.
+  # The five that have one are called inside dry regions, because their fixtures depend on a machine
+  # fact that may be absent — git, python3 3.10+, a filesystem that honours `chmod 000`. Nothing here
+  # does: every fixture below is files this function creates, and no assertion depends on a file being
+  # NON-executable, which is the only direction a mode-bit-ignoring filesystem breaks. So this helper
+  # is never called inside a dry region, and adding a short-circuit it can never take would make the
+  # F7 control's "all five" claim false without buying a single covered line.
+  expect_hooks() {
+    local name="$1" root="$2" vend="$3" owns="$4" req="$5" wf="$6" ww="$7" needle="${8:-}" absent="${9:-}"
+    local f0=$repo_fail w0=$repo_warn df dw why="" st_ln
+    check_hook_presence "$root" "$vend" "fixture" "$owns" "$req" > "$st_dir/rendered" 2>&1
+    df=$((repo_fail - f0)); dw=$((repo_warn - w0))
+    [ "$df" = "$wf" ] || why="$why fail(${df}!=${wf})"
+    [ "$dw" = "$ww" ] || why="$why warn(${dw}!=${ww})"
+    if [ -n "$needle" ] && ! grep -qF -- "$needle" "$st_dir/rendered"; then why="$why missing:\"$needle\""; fi
+    if [ -n "$absent" ] && grep -qF -- "$absent" "$st_dir/rendered"; then why="$why must-not-contain:\"$absent\""; fi
+    if [ -z "$why" ]; then
+      printf '  \033[32mok\033[0m    %s → fail+%s warn+%s\n' "$name" "$df" "$dw"; st_pass=$((st_pass+1))
+    else
+      printf '  \033[31mFAIL\033[0m  %s →%s\n' "$name" "$why"
+      printf '        rendered as:\n'
+      while IFS= read -r st_ln; do printf '          | %s\n' "$st_ln"; done < "$st_dir/rendered"
+      st_fail=$((st_fail+1))
+    fi
+  }
+
+  # ── (H1) THE POSITIVE CONTROL: a complete mirror is clean, and both totals are printed.
+  st_hook_full="$st_dir/hooks_full"
+  mk_hooks "$st_hook_full" a-required.sh b-optional.sh
+  expect_hooks "a hooks directory whose every file is present is a clean pass, with the required tally stated beside the roster total" \
+    "$st_hook_full" "$st_hook_full" 1 "a-required.sh" 0 0 \
+    "2 of 2 vendored hook(s) present in fixture; the required set names 1, 0 of which install/hooks/ does not carry"
+
+  # ── (H2) THE FINDING THIS SECTION IS FOR, DIRECTION ONE: a shipped hook is not installed.
+  st_hook_inst="$st_dir/hooks_installed"
+  mk_hooks "$st_hook_inst" b-optional.sh
+  expect_hooks "a vendored hook missing from the installed layer is a FAILURE that NAMES it" \
+    "$st_hook_inst" "$st_hook_full" 0 "a-required.sh" 1 0 \
+    "a-required.sh missing from fixture, or not executable"
+
+  # ── (H3) AND AN OPTIONAL ONE IS A WARNING, not a failure — the optional-dependency contract.
+  st_hook_noopt="$st_dir/hooks_noopt"
+  mk_hooks "$st_hook_noopt" a-required.sh
+  expect_hooks "a vendored hook outside the required set is a WARNING when absent, not a failure" \
+    "$st_hook_noopt" "$st_hook_full" 0 "a-required.sh" 0 1 \
+    "b-optional.sh absent from fixture"
+
+  # ── (H4) DIRECTION TWO, WHICH A DISCOVERED ROSTER CANNOT SEE ON ITS OWN, and the reason the
+  #    required set is pinned. Delete the hook from the VENDORED directory and the roster shrinks with
+  #    it: the count reads a clean full house over a published route that no longer resolves. This is
+  #    the same defect MEASURED on the skill side of this card, where `5 of 5` stayed green after a
+  #    `!/` line was deleted, and what made THAT loud was a separate check naming the skill.
+  st_hook_gone="$st_dir/hooks_gone"
+  mk_hooks "$st_hook_gone" b-optional.sh
+  st_rc=1; [ -f "$st_hook_full/a-required.sh" ] && [ ! -f "$st_hook_gone/a-required.sh" ] && st_rc=0
+  st_assert "control: the baseline fixture really does carry the required hook and the mutated one really does not" "$st_rc" \
+    "the two hook fixtures do not differ in the required file, so the two assertions below would prove nothing"
+  expect_hooks "a required hook deleted from the vendored directory is a FAILURE that NAMES it, not a shrunken denominator" \
+    "$st_hook_gone" "$st_hook_gone" 1 "a-required.sh" 1 0 \
+    "\`a-required.sh\` is a REQUIRED hook and install/hooks/ does not carry it"
+  expect_hooks "and the count says so too — 1 of 1 present, and the required set short by one" \
+    "$st_hook_gone" "$st_hook_gone" 1 "a-required.sh" 1 0 \
+    "1 of 1 vendored hook(s) present in fixture; the required set names 1, 1 of which install/hooks/ does not carry"
+
+  # ── (H5) AND THAT FACT IS NOT CHARGED TWICE. `install/hooks/` is a REPOSITORY directory and this
+  #    function runs against it in both scopes; firing it in both would make one missing hook print
+  #    two problems and attribute the second to the MACHINE.
+  expect_hooks "a required hook the repository does not carry is not charged to the machine scope a second time" \
+    "$st_hook_gone" "$st_hook_gone" 0 "a-required.sh" 0 0 \
+    "(reported against the repository, which owns that directory; not counted twice)" \
+    "FAIL"
+
+  # ── (H6) A ROSTER THAT REACHED NOTHING IS A FINDING, NOT A CLEAN ZERO — the same rule the skill
+  #    roster follows, and the reason `0 hooks missing` may never be printed on its own.
+  expect_hooks "a hooks directory that carries nothing is a FAILURE in the scope that owns it, not an empty pass" \
+    "$st_dir/hooks_absent" "$st_dir/hooks_absent" 1 "a-required.sh" 1 0 \
+    "carries no hook at all, so there is nothing to check presence AGAINST"
+  expect_hooks "and it is not charged to the machine scope a second time either" \
+    "$st_dir/hooks_absent" "$st_dir/hooks_absent" 0 "a-required.sh" 0 0 \
+    "presence not checked — install/hooks/ carries no hook (reported against the repository, which owns that directory; not counted twice)" \
+    "FAIL"
+
+  # ── (H7) THE PIN ITSELF, ASSERTED RATHER THAN LEFT TO A COMMENT. `preflight.sh` is the hook this
+  #    whole section was written for: 30KB, vendored, installed by the glob loop, and named at three
+  #    places in the PUBLISHED progressive-disclosure/SKILL.md. Dropping it from the required set
+  #    would restore the exact silence this fixes, so removing it must cost an assertion.
+  st_rc=1; case " $HOOKS_REQUIRED " in *' preflight.sh '*) st_rc=0 ;; esac
+  st_assert "the production required-hook set names preflight.sh" "$st_rc" \
+    "HOOKS_REQUIRED is \`$HOOKS_REQUIRED\` and does not name preflight.sh — the hook a published SKILL.md routes to would be optional again, and deleting it would be silent"
+
+  # ── (H8) AND DISCOVERY REACHES THE REAL DIRECTORY. Every assertion above runs on fixtures; a
+  #    `hook_roster` that returned nothing against `install/hooks/` would leave all of them green and
+  #    the production check vacuous. A discovered total of zero is itself a finding.
+  st_hook_real=$(hook_roster "$VENDOR/hooks")
+  st_hook_realn=$(printf '%s\n' "$st_hook_real" | grep -c . )
+  #    NO NUMERIC THRESHOLD HERE, and that is the finding this card is closing wearing its own name:
+  #    the Codex gate two hundred lines below was `-ge 4` against a set of six, a literal nobody
+  #    derived and nobody could keep true. So this asserts the two things that are actually knowable —
+  #    the roster is not empty, and it contains the name whose absence was silent.
+  st_rc=1
+  [ "${st_hook_realn:-0}" -gt 0 ] && printf '%s\n' "$st_hook_real" | grep -qx 'preflight.sh' && st_rc=0
+  st_assert "hook discovery over the real install/hooks/ reaches it, and finds preflight.sh" "$st_rc" \
+    "\`hook_roster $VENDOR/hooks\` returned ${st_hook_realn:-0} name(s) — [$(printf '%s' "$st_hook_real" | tr '\n' ' ')] — and either reached nothing at all or did not find preflight.sh, so the production hook check is running against a roster that reached nothing or reached the wrong thing"
+
+  echo
   echo "════ self-test — the published-skill roster, its presence check, and the installer's agreement"
   # THIS SECTION EXISTS BECAUSE THE FIRST VERSION OF THE CHECK IT DRIVES HAD NO ASSERTIONS AT ALL.
   # The presence loop was written inline at the two call sites ~150 lines below the `exit` at the
@@ -3561,8 +3801,10 @@ STUB
   #    assertions that were set up perfectly and declined on purpose — a false sentence in the
   #    summary line, bought to preserve an accounting identity. These are therefore the five call
   #    sites the pinned total does not include:
-  #    `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer) '` reads
-  #    exactly FIVE more than `st_expected_total`, and they are the five below.
+  #    `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer|expect_hooks) '`
+  #    reads exactly FIVE more than `st_expected_total`, and they are the five below. (`expect_hooks`
+  #    is in that alternation because it is an assertion helper the total counts; it is NOT a sixth
+  #    short-circuit — see its header for why it needs none and is absent from the region below.)
   st_dc0=$st_skipped; st_dp0=$st_pass; st_df0=$st_fail
   # The offset the paragraph above explains. Any non-zero constant does; 11 is not 5 and not a
   # multiple of it, so a printed count that picked up the base instead of the delta cannot land on
@@ -3643,9 +3885,9 @@ STUB
   # after measuring it, because leaving it counted would print "5 of N could NOT be set up on this
   # machine" on every machine, over five assertions that were set up perfectly and declined on
   # purpose. So
-  # `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer) '` over
-  # this file reads exactly FIVE more than the literal below — 146 against 141 today — and those five
-  # are the probe.
+  # `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer|expect_hooks) '`
+  # over this file reads exactly FIVE more than the literal below — 157 against 152 today — and those
+  # five are the probe.
   #
   # WHAT HAPPENS WHEN SOMEONE LEGITIMATELY ADDS AN ASSERTION: this one line changes, in the same
   # commit, and the diff shows `+N assertions, total 141 -> 142`. That is the entire cost, and it is
@@ -3654,7 +3896,8 @@ STUB
   #
   # IT IS NOT ITSELF COUNTED. Incrementing `st_pass` or `st_fail` here would change the very total
   # it is comparing, so it reports through a separate flag that only the exit arm reads.
-  st_expected_total=141
+  # 141 -> 152: eleven assertions for the vendored hook roster (H1-H8), which had none at all.
+  st_expected_total=152
   st_total=$((st_pass + st_fail + st_skipped))
   st_total_ok=1
   if [ "$st_total" -ne "$st_expected_total" ]; then
@@ -3721,11 +3964,11 @@ fi
 check_vendored_suites "$VENDOR/skills"
 
 echo "── vendored hooks"
-want_exec "$VENDOR/hooks/disclosure-check.sh" "disclosure-check.sh" \
-  "install/hooks/disclosure-check.sh missing or not executable"
-for h in graphify-query-advisor.py graphify-session-lessons.sh; do
-  opt_file "$VENDOR/hooks/$h" "$h (optional)" "install/hooks/$h absent — graphify integration only"
-done
+# Repository scope: this is the directory the roster is discovered from, so it owns the required-set
+# findings. The whole check is a function call rather than a loop written here, for the reason the
+# skills line above gives — everything below the `--self-test` exit is unreachable from every
+# assertion in this file, which is how three hardcoded names survived against a directory of four.
+check_hook_presence "$VENDOR/hooks" "$VENDOR/hooks" "install/hooks" 1 "$HOOKS_REQUIRED"
 hook_produces_output "$VENDOR/hooks/disclosure-check.sh" "vendored hook"
 
 echo "── installer"
@@ -3828,29 +4071,55 @@ else
 fi
 
 echo "── installed hooks on disk"
-want_exec "$CLAUDE/hooks/disclosure-check.sh" "disclosure-check.sh" \
-  "disclosure-check.sh missing or not executable"
-for h in graphify-query-advisor.py graphify-session-lessons.sh; do
-  opt_file "$CLAUDE/hooks/$h" "$h (optional)" "$h absent — graphify integration only"
-done
+# Same roster as the repository section — the installed layer is checked against what THIS
+# REPOSITORY ships, not against a second list of hook names that could name a different set. OWNS_DIR
+# is 0: `install/hooks/` is a repository directory, and a required hook missing from it is reported
+# once, in the scope that owns it.
+check_hook_presence "$CLAUDE/hooks" "$VENDOR/hooks" "~/.claude/hooks" 0 "$HOOKS_REQUIRED"
 
 echo "── hooks wired into settings.json"
-if [ ! -f "$CLAUDE/settings.json" ]; then
+# ONE OF THE THREE ENTRIES install.sh MERGES WAS CHECKED. This block asserted `disclosure-check.sh`
+# and nothing else, so the two graphify entries could be dropped from the merge, or fail to merge,
+# and the gate said "disclosure-check wired" and moved on — a single-name check standing in for a
+# three-name fact, which is this card's defect in its smallest form.
+#
+# THE EXPECTED SET IS READ OUT OF install.sh RATHER THAN WRITTEN AGAIN HERE. The installer's `WANT`
+# list is the only place that decides what gets merged; a copy of it in this file would be a second
+# roster that drifts exactly as the skill list did. Every `~/.claude/hooks/<name>` reference in that
+# file is a path the merge wires, so they are extracted and each one is looked for. A regex that
+# matched nothing would make this check vacuous, so an empty extraction is a FAILURE rather than a
+# clean zero — the same rule the skill and hook rosters follow.
+settings_want=$(grep -oE '~/\.claude/hooks/[A-Za-z0-9._-]+' "$VENDOR/install.sh" 2>/dev/null | sort -u)
+if [ -z "$settings_want" ]; then
+  bad "could not derive which hook entries install.sh merges — no \`~/.claude/hooks/<name>\` reference was found in install/install.sh, so this check had nothing to look for and must not pass vacuously"
+elif [ ! -f "$CLAUDE/settings.json" ]; then
   bad "no ~/.claude/settings.json"
-elif python3 - "$CLAUDE/settings.json" <<'PY'
+elif ! settings_cmds=$(python3 - "$CLAUDE/settings.json" <<'PY'
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))
 except Exception as e:
     print(f"settings.json is not valid JSON: {e}", file=sys.stderr); raise SystemExit(1)
-cmds = [h.get("command", "") for ev in d.get("hooks", {}).values()
-        for e in ev for h in e.get("hooks", [])]
-raise SystemExit(0 if any("disclosure-check.sh" in c for c in cmds) else 1)
+for ev in d.get("hooks", {}).values():
+    for e in ev:
+        for h in e.get("hooks", []):
+            print(h.get("command", ""))
 PY
-then
-  ok "disclosure-check wired"
+); then
+  bad "~/.claude/settings.json could not be read as JSON, so not one hook entry could be checked — a malformed settings.json disables every setting in it"
 else
-  bad "disclosure-check.sh is not wired into ~/.claude/settings.json (or settings.json is unreadable)"
+  sw_total=0
+  sw_wired=0
+  for w in $settings_want; do
+    sw_total=$((sw_total + 1))
+    if printf '%s\n' "$settings_cmds" | grep -qF -- "$w"; then
+      ok "wired: ${w##*/}"
+      sw_wired=$((sw_wired + 1))
+    else
+      bad "${w##*/} is not wired into ~/.claude/settings.json — install.sh merges an entry naming \`$w\` and this settings.json has none; re-run ./install.sh"
+    fi
+  done
+  ctx "$sw_wired of $sw_total hook entr$([ "$sw_total" -eq 1 ] && echo y || echo ies) install.sh merges are wired into ~/.claude/settings.json"
 fi
 
 echo "── the installed hook actually produces output"
@@ -3870,13 +4139,36 @@ if [ ! -d "$CODEX" ]; then
   # had just introduced `skip` for exactly this. Absent Codex is not a warning about Codex; it is
   # three checks that did not run, and the verdict now counts them that way.
   echo "   ~/.codex does not exist — the three Codex checks below did not run"
-  skip "Codex skill mirror NOT CHECKED — no ~/.codex"
+  # The mirror skip stands for the whole per-skill presence check below, which is one CHECK made of
+  # as many assertions as the declaration names. Three skips, not N, because what did not run is
+  # three questions about Codex, and the number of skills is not one of them.
+  skip "Codex skill mirror NOT CHECKED (every declared skill) — no ~/.codex"
   skip "Codex personas NOT CHECKED — no ~/.codex"
   skip "Codex [agents] config NOT CHECKED — no ~/.codex"
 else
-  m=$(find "$CODEX/skills" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
-  if [ "${m:-0}" -ge 4 ]; then ok "$m skills mirrored"
-  else bad "only ${m:-0} skills in ~/.codex/skills"; fi
+  # THE THIRD CALL SITE `check_skill_presence` WAS PARAMETERISED OVER ITS ROOT FOR. This was
+  # `m=$(find "$CODEX/skills" -mindepth 1 -maxdepth 1 …)` against `[ "$m" -ge 4 ]`, and it was wrong
+  # in three separate ways at once:
+  #
+  #   * THE THRESHOLD WAS A LITERAL NOBODY DERIVED, and this card made it staler rather than fixing
+  #     it — it raised the installer's mirror set from five skills to six and left the gate at four.
+  #     A number that has to be edited by hand every time the roster moves is a number that is stale
+  #     between the two edits, and nothing announces the gap.
+  #   * THE COUNT HAD NO TOTAL. `ok "$m skills mirrored"` — of how many? The rule this file states
+  #     everywhere else is that a filtered count carries its denominator, and this one did not.
+  #   * THE NUMERATOR WAS NOT FILTERED TO SKILLS AT ALL. `-mindepth 1 -maxdepth 1` counts ANY entry,
+  #     and `install/skills/.gitignore`'s own header records that graphify installs itself into
+  #     `~/.codex/skills`. So four vendor arrivals and ZERO published skills was a green check.
+  #
+  # MEASURED before the change: deleting `execution-methodology` and `graph-navigation` from
+  # `~/.codex/skills` left `ok  4 skills mirrored`, exit 0, and no name printed — while the identical
+  # deletion under `~/.claude/skills` was caught BY NAME. That positive control is what settles the
+  # remedy: what makes a missing mirror detectable is a check that names it, not a count with a total.
+  #
+  # OWNS_DECL IS 0, as it is for `~/.claude/skills` and for the same reason: the declaration's own
+  # integrity is established once, in repository scope, and `~/.codex/skills` legitimately holds
+  # skills this repository never published, so its directory count is not a denominator for anything.
+  check_skill_presence "$CODEX/skills" "$VENDOR/skills" "~/.codex/skills" 0
 
   a=$(find "$CODEX/agents" -name '*.toml' 2>/dev/null | wc -l | tr -d ' ')
   if [ "${a:-0}" -gt 0 ]; then ok "$a persona(s) in ~/.codex/agents"
