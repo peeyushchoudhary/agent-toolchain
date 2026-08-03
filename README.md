@@ -85,11 +85,16 @@ silently does not apply to the other agent, and that failure is invisible.
 | [onboarding-a-project.md](docs/onboarding-a-project.md) | Five steps to bring a project under the standard |
 | [full-adoption.md](docs/full-adoption.md) | The long version, with guard-testing |
 | [codex.md](docs/codex.md) | The Codex side, and what it does not get |
+| [what-gets-installed.md](docs/what-gets-installed.md) | Every file the installer places, and why |
 
 ## What this is not
 
 **Not a framework.** There is no runtime, no package, no API. It is a set of markdown conventions,
-five skills, three hooks, and six Python scripts with no dependencies outside the standard library.
+a handful of skills and session hooks, and Python scripts with no dependencies outside the standard
+library. Every file the installer places is enumerated in
+[what-gets-installed.md](docs/what-gets-installed.md) rather than counted here — a count restated in
+prose is the first thing to go stale, and the published skills are named and enforced in one place:
+[docs/README.md](docs/README.md), "What is published, and what is not".
 
 **Not model-agnostic in its details.** The persona roster names specific models at specific effort
 levels. Those were chosen from measurements taken in one week of 2026 and will age. The *principles*
