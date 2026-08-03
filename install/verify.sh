@@ -1428,7 +1428,7 @@ HOOKS_REQUIRED="disclosure-check.sh preflight.sh"
 # graphify hooks were named literals checked in both scopes, and deleting either one WARNED. After,
 # deleting `install/hooks/graphify-query-advisor.py` produces NOTHING — not even the warn it used to
 # — because `hook_roster`'s output no longer contains the name and every loop below is keyed off that
-# output. Meanwhile install.sh HARD-FAILS its settings.json merge when any of the three scripts it
+# output. Meanwhile install.sh HARD-FAILS its settings.json merge when any of the four scripts it
 # wires is missing (see `missing_hooks` in install.sh's settings.json section), so `./verify.sh` was
 # exiting 0 in silence on a tree install.sh itself refuses to finish installing.
 #
@@ -4869,7 +4869,7 @@ PY
   # machine" on every machine, over five assertions that were set up perfectly and declined on
   # purpose. So
   # `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer|expect_hooks|expect_hook_named|expect_persona_count|expect_settings_wired) '`
-  # over this file reads exactly FIVE more than the literal below — 194 against 189 today — and those
+  # over this file reads exactly FIVE more than the literal below — 195 against 190 today — and those
   # five are the probe. THE PAIR MOVES TOGETHER: this sentence carried `170 against 165` for two
   # commits after the literal had gone to 169, which is the stale-claim shape this file keeps
   # removing from everything except itself. Both numbers, or neither.
