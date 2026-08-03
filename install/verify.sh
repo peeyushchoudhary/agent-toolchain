@@ -188,7 +188,17 @@ Requirements for the vendored skill suites:
 Environment:
   VERIFY_VENDORED_DRIFT=1 same as --check-vendored-drift.
   VERIFY_SUITE_PY=PATH    interpreter used to run the vendored skill suites (default: python3).
-                          The interpreter actually used is printed beside their results.
+                          The interpreter actually used is printed beside their results, together
+                          with whether PATH or this variable chose it.
+  VERIFY_SYSTEM_PY=PATH   the OTHER interpreter, the one a caller who installed nothing would get
+                          (default: the system python3). It is never RUN; it is compared against the
+                          one above so that a divergence is reported rather than left silent. Set it
+                          only to test that comparison — production has no reason to.
+
+The suites also inherit HOME, which their own guards key on. It is printed with the results because
+the skip counts are conditioned on it; `HOME=$(mktemp -d) ./verify.sh` shows what a machine with no
+installed toolchain sees, and THE ENVIRONMENT DECISION comment in this file says why that is not the
+default.
 USAGE
 }
 
@@ -752,15 +762,65 @@ toolchain_report() {
 # Whether a suite reaches into $HOME is DISCOVERED from its own sources, not listed here, for the
 # same reason the skills are: a list is a second copy of a fact that moves with every re-vendor.
 #
-# NO OPT-OUT FLAG, and the cost is real: the suites take roughly forty seconds together. A flag to
-# skip them would be a flag to make the gate green without the evidence, which is the same shape.
+# ── THE ENVIRONMENT DECISION ─────────────────────────────────────────────────────────────────────
 #
-# THE INTERPRETER IS A MACHINE PROPERTY THIS GATE CANNOT CONTROL. `python3` from PATH is whatever
-# this machine put first, so the green below is green UNDER THAT INTERPRETER and no other. The
-# version is printed with the results for exactly that reason. Detecting that a user's default
-# interpreter differs from the one a green was recorded under is a real gap and is one layer above
-# this check; what is in scope here is that the output must never let a reader assume otherwise.
+# The suites run in an environment this script does not own: an interpreter PATH supplies and a
+# `$HOME` the caller happens to have. Three consequences were carded together as one defect — the
+# gate INHERITS its environment instead of DECLARING one. What follows is the ruling and the
+# measurement behind it, so the next maintainer meets the reasoning instead of re-deriving it.
+#
+# (1) DOES THE RUN WRITE OUTSIDE THE REPOSITORY? IT DID; IT NO LONGER DOES. The original finding was
+#     that `scripts/check_github.py` builds its cache under `Path.home()`, and a suite launching it
+#     without pinning the child's `HOME` therefore CREATED A DIRECTORY IN THE REAL `$HOME`. That was
+#     closed upstream, in the vendored suites rather than here: `tests/hermetic.py` derives every
+#     escaping call site and fails closed on a launch it cannot resolve, so the launches now pin
+#     `HOME`. RE-MEASURED after the re-vendor, by running the whole gate with `HOME` pointed at a
+#     fresh empty temp directory and listing that directory afterwards: it was still empty, and a
+#     full before/after stat of the real `~/.claude` and `~/.codex` showed no path this gate touched.
+#     The invariant "a gate must not mutate the machine it is judging" therefore HOLDS TODAY, and it
+#     holds because of a barrier in the vendored tree, not because of anything in this file.
+#
+# (2) THE INTERPRETER. `python3` from PATH is whatever this machine put first, so the green below is
+#     green UNDER THAT INTERPRETER and no other. That much was already printed. What was missing is
+#     that the DIVERGENCE was invisible: on a machine carrying both a package-manager python3 and the
+#     system one, the gate exercised exactly one of them and said nothing about the other, so nobody
+#     could tell whether a green was evidence for the interpreter a user without that package manager
+#     would get. `SYSTEM_PY` below closes that: the two are compared, and a difference is reported as
+#     a MACHINE finding — which interpreters exist on PATH is a property of the machine, never of the
+#     tree — naming both versions and the command that measures the other one. MEASURED here at the
+#     time of writing: the two differ by five minor versions and the vendored suites are green under
+#     BOTH. The gap was in the reporting, not in the code; it is now reported rather than assumed.
+#
+# (3) `$HOME`, AND WHY THIS GATE STILL INHERITS IT. The suites' own guards key on `$HOME`, so the
+#     skip count is machine-dependent: on a machine with the toolchain installed every guard stays
+#     shut and the run reports zero skip events, while under an empty `HOME` a double-digit number of
+#     them fire and one suite fails outright. A hermetic default — running the suites under a
+#     disposable `HOME` — was considered and REJECTED, and not because it was the red option:
+#
+#       - It buys nothing on (1) any more. The side effect it was designed to remove is already gone,
+#         measured above, so hermeticity would be paying a cost for a property already held.
+#       - It makes the gate state something FALSE. The one failure a clean `HOME` produces is a suite
+#         asserting a clean report from a checker that warns when the persona tool is not installed —
+#         honest about the environment, and a fact about no tree at all. The `$HOME` routing a few
+#         hundred lines down would then file it against THIS MACHINE, on a machine where that tool IS
+#         installed. Trading a machine-dependent green for a confidently wrong red is not a trade.
+#       - Making the routing correct in both modes needs a third scope — neither the tree nor this
+#         machine, but the synthetic environment the gate itself built. That is a structural change
+#         and it is not one to make inside a seal.
+#
+#     So: DECLARE, DO NOT CONTROL. The `HOME` the suites ran under is printed beside the interpreter
+#     and beside the counts it conditions, and the command that reproduces the hermetic run is
+#     printed with it. A reader who sees `0 skipped` can see what that zero was conditioned on, which
+#     is the part that was actually missing — the counts were always machine-dependent, and only the
+#     output pretended otherwise.
+#
+# NO OPT-OUT FLAG for any of this, and the cost is real: the suites take roughly forty seconds
+# together. A flag to skip them would be a flag to make the gate green without the evidence.
 SUITE_PY="${VERIFY_SUITE_PY:-python3}"
+# The interpreter a caller who set nothing and installed nothing would get. Overridable ONLY so that
+# `--self-test` can drive both arms of the comparison; production never sets it, and a machine
+# without this path is a normal case handled below rather than an error.
+SYSTEM_PY="${VERIFY_SYSTEM_PY:-/usr/bin/python3}"
 
 suites_found=0; suites_with=0; suites_none=0; suites_excluded=0
 suites_pass=0;  suites_fail=0;  suites_cnr=0; suites_vacuous=0
@@ -1712,6 +1772,7 @@ PY
 # already, because another card may re-vendor this tree at any time.
 check_vendored_suites() {
   local root="$1" d name has_suite
+  local suite_py_path suite_py_ver suite_py_src system_py_path system_py_ver saved_scope
   suites_found=0; suites_with=0; suites_none=0; suites_excluded=0
   suites_pass=0;  suites_fail=0;  suites_cnr=0; suites_vacuous=0
   suites_tests=0; suites_skipevents=0; suites_exec_lo=0
@@ -1721,11 +1782,57 @@ check_vendored_suites() {
     return
   fi
 
-  # WHICH INTERPRETER RAN THEM, printed INSIDE this function rather than at the call site. It lived
-  # at the single call site before, which put a hard requirement of the card outside everything
-  # --self-test can reach: deleting the line left the whole suite green. It is now emitted by the
-  # function under test and pinned by an assertion.
-  ctx "interpreter: $(command -v "$SUITE_PY" 2>/dev/null || echo "$SUITE_PY (not on PATH)") — $("$SUITE_PY" -V 2>&1 || echo 'version unavailable') (whatever this machine puts first on PATH; a green below is green under THIS interpreter and no other)"
+  # ── WHAT ENVIRONMENT THE SUITES RAN IN, declared rather than left to be assumed. See THE
+  # ENVIRONMENT DECISION above `SUITE_PY`, which is where the reasoning lives.
+  #
+  # PRINTED INSIDE THIS FUNCTION rather than at the call site. It lived at the single call site
+  # before, which put a hard requirement of the card outside everything --self-test can reach:
+  # deleting the line left the whole suite green. It is emitted by the function under test and pinned
+  # by assertions, and so are the two lines added beside it.
+  suite_py_path=$(command -v "$SUITE_PY" 2>/dev/null || echo "$SUITE_PY (not on PATH)")
+  # FIRST LINE ONLY, and the emptiness guard rather than `||`. An interpreter that is absent, or that
+  # is present but is not a python, answers on stderr and over several lines — `$(cmd 2>&1 || echo X)`
+  # would then emit BOTH the usage text and the fallback, and a multi-line value spliced into a
+  # one-line finding is how a finding stops being greppable by the assertion that pins it.
+  suite_py_ver=$("$SUITE_PY" -V 2>&1 | head -1); [ -n "$suite_py_ver" ] || suite_py_ver='version unavailable'
+  # WHERE THE CHOICE CAME FROM, because the previous wording asserted "whatever this machine puts
+  # first on PATH" UNCONDITIONALLY — and that sentence is false on precisely the runs that set
+  # `VERIFY_SUITE_PY`, which are the runs someone performs when they are checking a second
+  # interpreter. A provenance line that is wrong exactly when it is being relied on is worse than
+  # none, so the two cases are distinguished and both are asserted, each as the other's control.
+  case "${VERIFY_SUITE_PY:-}" in
+    "") suite_py_src="chosen by PATH default \`python3\` — whatever this machine puts first" ;;
+    *)  suite_py_src="chosen by VERIFY_SUITE_PY — NOT necessarily what this machine puts first on PATH" ;;
+  esac
+  ctx "interpreter: $suite_py_path — $suite_py_ver ($suite_py_src; a green below is green under THIS interpreter and no other)"
+  ctx "HOME:        $HOME — INHERITED, not declared. The suites' own guards key on it, so every count below is conditioned on this HOME and is not reproducible without it; \`HOME=\$(mktemp -d) ./verify.sh\` is what a machine with no installed toolchain sees"
+
+  # ── THE SECOND INTERPRETER, WHICH IS THE ONE NOBODY MEASURES. A machine carrying both a
+  # package-manager python3 and the system one runs the suites under exactly one of them, and until
+  # this comparison existed it said nothing at all about the other — so a green here could not be
+  # read as evidence for the interpreter a user without that package manager would get.
+  #
+  # SCOPED TO THE MACHINE, by the same ruling the $HOME-reaching suites are routed under: which
+  # interpreters exist on PATH is a property of the machine and of no tree. It is a `note` and not a
+  # `bad` because the divergence itself is not a defect — two interpreters is a normal state — and
+  # what is being reported is that only one of them was measured.
+  #
+  # NOT ROUTED THROUGH `repo_attributed_out`. That counter says "the repository line is short by this
+  # many findings"; this finding was never a repository finding, so adding to it would state a
+  # shortfall that does not exist.
+  saved_scope="$SCOPE"; SCOPE="env"
+  if [ ! -x "$SYSTEM_PY" ]; then
+    ctx "second interpreter: $SYSTEM_PY is not present on this machine, so there is no divergence to report — this machine has one interpreter for this gate, not two"
+  else
+    system_py_path=$(cd / && "$SYSTEM_PY" -c 'import sys; print(sys.executable)' 2>/dev/null || echo "$SYSTEM_PY")
+    system_py_ver=$("$SYSTEM_PY" -V 2>&1 | head -1); [ -n "$system_py_ver" ] || system_py_ver='version unavailable'
+    if [ "$system_py_path" = "$(cd / && "$SUITE_PY" -c 'import sys; print(sys.executable)' 2>/dev/null || echo "$suite_py_path")" ]; then
+      ctx "second interpreter: $SYSTEM_PY resolves to the same interpreter as the one above, so the results below cover every interpreter this gate knows to look for"
+    else
+      note "INTERPRETER DIVERGENCE, and only one side of it was measured: the suites below ran under $suite_py_path ($suite_py_ver), but a user with nothing installed gets $SYSTEM_PY ($system_py_ver). The suites were NOT run under the second, so whatever the results below say, they say it about one of the two interpreters this machine has. Measure the other with: VERIFY_SUITE_PY=$SYSTEM_PY ./verify.sh"
+    fi
+  fi
+  SCOPE="$saved_scope"
 
   # THE REPOSITORY ALREADY DECLARES WHAT IT PUBLISHES, and discovery must read the same declaration
   # the rest of the toolchain does. `install/skills/.gitignore` is an allowlist — "ignore everything
@@ -1985,6 +2092,24 @@ if [ "$SELF_TEST" = "1" ]; then
       "$st_dry_name" "$((st_skipped - st_dry_n0))" "$st_dry_reason"
   }
   st_dir=$(mktemp -d) || { echo "self-test: no temp dir"; exit 2; }
+
+  # THE SECOND INTERPRETER IS NEUTRALISED FOR THE WHOLE SUITE, for the same reason the fixture root is
+  # proven outside a work tree once rather than guarded per call. `check_vendored_suites` compares
+  # `SUITE_PY` against `SYSTEM_PY` and files a MACHINE warning when they differ, and whether they
+  # differ is a fact about the developer's laptop: on a machine carrying a package-manager python3
+  # the note fires on every one of the forty-odd `expect_suites` calls, and on a machine carrying
+  # only the system one it fires on none. Either way the suite would be measuring the laptop.
+  #
+  # SO `expect_suites` BINDS `SYSTEM_PY` TO WHATEVER `SUITE_PY` IS AT THE MOMENT OF THE CALL, and puts
+  # it back. Binding it once here would not have been enough: four blocks below swap `SUITE_PY` for a
+  # stub or a missing path to reach the could-not-run arms, and a `SYSTEM_PY` left pointing at the
+  # real python3 would then differ from it and fire the note in thirteen places that are testing
+  # something else entirely. Measured — those were exactly the thirteen.
+  #
+  # `ST_DIVERGENCE=1` opts out of the lockstep, and only the three assertions that drive the
+  # comparison's own arms set it. It is a flag rather than a parameter because it changes the
+  # ENVIRONMENT of the call rather than an expectation about it.
+  ST_DIVERGENCE=0
 
   # THE FIXTURE ROOT MUST BE OUTSIDE ANY GIT WORK TREE, AND IT IS PROVEN ONCE HERE RATHER THAN
   # GUARDED AT ONE CALL SITE. Round 2 guarded the single assertion whose premise is "the declaration
@@ -2384,7 +2509,27 @@ class Runs(unittest.TestCase):
   mk_suite() { mkdir -p "$1/$2/tests"; printf '%s' "$3" > "$1/$2/tests/test_fixture.py"; }
 
   # expect_suites NAME ROOT WANT_FAIL WANT_SKIP WANT_CNR WANT_ARM [MUST_CONTAIN] [MUST_NOT_CONTAIN]
-  #               [WANT_ENV_FAIL] [WANT_ENV_SKIP] [WANT_ENV_CNR] [WANT_ATTRIBUTED_OUT]
+  #               [WANT_ENV_FAIL] [WANT_ENV_SKIP] [WANT_ENV_CNR] [WANT_ATTRIBUTED_OUT] [WANT_ENV_WARN]
+  #
+  # WANT_ENV_WARN IS LAST AND DEFAULTS TO ZERO, and it exists because `check_vendored_suites` now has
+  # a second branch that calls `note` — the interpreter-divergence report. `warn` was the one bucket
+  # this function moves that was pinned on NEITHER side, so a mutation that turned any other finding
+  # into a warning, or that emitted the divergence note unconditionally, would have left every
+  # assertion here green. `repo_warn` is not a parameter at all: it is pinned at 0 unconditionally,
+  # because a warning about the machine's git or the machine's interpreter inventory has no business
+  # on the repository line and no branch here produces any other kind. If one ever does, this is what
+  # refuses it.
+  #
+  # THE PARAMETER COUNTS THE DIVERGENCE NOTE ONLY, AND THE DECLARATION NOTE IS RE-DERIVED HERE. Every
+  # fixture root in this block is outside a git work tree — proven once by `st_root_ok`, which refuses
+  # to continue otherwise — so `check_vendored_suites` emits its "could not apply the declaration"
+  # warning on every one of these calls, and folding that into each call site's literal would put the
+  # same 1 in forty-odd places for a reason unrelated to what any of them is testing.
+  #
+  # DELIBERATELY RE-EVALUATED RATHER THAN SHARED WITH PRODUCTION. The two conditions below are the
+  # same QUESTIONS production asks — is this a directory, and is git able to treat it as a checkout —
+  # asked again, independently. A shared helper would make the expectation agree with the code by
+  # construction, which is the one thing an expectation may not do.
   #
   # THE ENV DELTAS ARE ASSERTED TOO, AND DEFAULT TO ZERO. Without them a mutation that routed every
   # suite finding into the machine scope would leave every assertion here green while the repository
@@ -2403,15 +2548,25 @@ class Runs(unittest.TestCase):
   expect_suites() {
     [ "$ST_DRY" -eq 0 ] || { st_skipped=$((st_skipped+1)); return 0; }
     local name="$1" root="$2" wf="$3" ws="$4" wc="$5" wa="$6" needle="${7:-}" absent="${8:-}"
-    local wef="${9:-0}" wes="${10:-0}" wec="${11:-0}" wao="${12:-0}"
+    local wef="${9:-0}" wes="${10:-0}" wec="${11:-0}" wao="${12:-0}" wew="${13:-0}"
     local f0=$repo_fail s0=$repo_skip c0=$could_not_run ef0=$env_fail es0=$env_skip
-    local rc0=$repo_cnr ec0=$env_cnr ao0=$repo_attributed_out
-    local df ds dc def des drc dec dao arm why="" st_ln wrc
+    local rc0=$repo_cnr ec0=$env_cnr ao0=$repo_attributed_out ew0=$env_warn rw0=$repo_warn
+    local df ds dc def des drc dec dao dew drw arm why="" st_ln wrc decl_warn sp0="$SYSTEM_PY"
+    [ "$ST_DIVERGENCE" -eq 1 ] || SYSTEM_PY=$(command -v "$SUITE_PY" 2>/dev/null || printf '%s' "$SUITE_PY")
     check_vendored_suites "$root" > "$st_dir/rendered" 2>&1
+    SYSTEM_PY="$sp0"
     df=$((repo_fail - f0)); ds=$((repo_skip - s0)); dc=$((could_not_run - c0))
     def=$((env_fail - ef0)); des=$((env_skip - es0))
     drc=$((repo_cnr - rc0)); dec=$((env_cnr - ec0)); dao=$((repo_attributed_out - ao0))
+    dew=$((env_warn - ew0)); drw=$((repo_warn - rw0))
     wrc=$((wc - wec))
+    decl_warn=0
+    if [ -d "$root" ] \
+       && { ! command -v git >/dev/null 2>&1 \
+            || ! git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; }; then
+      decl_warn=1
+    fi
+    wew=$((wew + decl_warn))
     arm=$(exit_arm "$((df + def))" "$dc")
     # ASCII `!=` and braced parameters, for the reason documented on expect_route: a multibyte
     # character here made `set -u` kill the whole suite on the first delta mismatch.
@@ -2423,6 +2578,8 @@ class Runs(unittest.TestCase):
     [ "$drc" = "$wrc" ] || why="$why repocnr(${drc}!=${wrc})"
     [ "$dec" = "$wec" ] || why="$why envcnr(${dec}!=${wec})"
     [ "$dao" = "$wao" ] || why="$why attributedout(${dao}!=${wao})"
+    [ "$dew" = "$wew" ] || why="$why envwarn(${dew}!=${wew})"
+    [ "$drw" = "0" ] || why="$why repowarn(${drw}!=0)"
     [ "$arm" = "$wa" ] || why="$why exit(${arm}!=${wa})"
     if [ -n "$needle" ] && ! grep -q -- "$needle" "$st_dir/rendered"; then
       why="$why missing:\"$needle\""
@@ -2431,8 +2588,8 @@ class Runs(unittest.TestCase):
       why="$why must-not-contain:\"$absent\""
     fi
     if [ -z "$why" ]; then
-      printf '  \033[32mok\033[0m    %s → fail+%s skip+%s cnr+%s(repo %s/env %s) envfail+%s envskip+%s away+%s exit %s\n' \
-        "$name" "$df" "$ds" "$dc" "$drc" "$dec" "$def" "$des" "$dao" "$arm"
+      printf '  \033[32mok\033[0m    %s → fail+%s skip+%s cnr+%s(repo %s/env %s) envfail+%s envskip+%s envwarn+%s away+%s exit %s\n' \
+        "$name" "$df" "$ds" "$dc" "$drc" "$dec" "$def" "$des" "$dew" "$dao" "$arm"
       st_pass=$((st_pass+1))
     else
       printf '  \033[31mFAIL\033[0m  %s →%s\n' "$name" "$why"
@@ -2488,6 +2645,59 @@ class Runs(unittest.TestCase):
   #    live at the production call site, outside everything this block can reach.
   expect_suites "the interpreter that ran the suites is named in the output" "$st_ok_root" \
     0 0 0 0 "interpreter: "
+
+  # ── (a2) THE ENVIRONMENT DECLARATION. Six assertions, because the card's ruling is that this gate
+  #    DECLARES the environment it could not control, and a declaration nothing checks is a comment.
+  #    Each of the three lines is driven in both directions; the absence claims below all have the
+  #    matching presence claim as their control, and vice versa, so none of them can pass vacuously.
+  #
+  #    (E1/E2) INTERPRETER PROVENANCE, both arms. The old wording asserted "whatever this machine puts
+  #    first on PATH" unconditionally, which is false on exactly the runs that set `VERIFY_SUITE_PY`.
+  #    Each arm's MUST-NOT-CONTAIN is the other arm's MUST-CONTAIN, which is what makes this a pair
+  #    rather than two assertions that could both be satisfied by printing both sentences.
+  expect_suites "with VERIFY_SUITE_PY unset the interpreter line says PATH chose it, and does not claim the variable did" \
+    "$st_ok_root" 0 0 0 0 "chosen by PATH default" "chosen by VERIFY_SUITE_PY"
+  st_saved_vsp="${VERIFY_SUITE_PY-}"; st_had_vsp=0
+  [ -n "${VERIFY_SUITE_PY+set}" ] && st_had_vsp=1
+  VERIFY_SUITE_PY="$SUITE_PY"
+  expect_suites "with VERIFY_SUITE_PY set the interpreter line credits the variable, and drops the PATH claim that would now be false" \
+    "$st_ok_root" 0 0 0 0 "chosen by VERIFY_SUITE_PY" "chosen by PATH default"
+  if [ "$st_had_vsp" -eq 1 ]; then VERIFY_SUITE_PY="$st_saved_vsp"; else unset VERIFY_SUITE_PY; fi
+  #
+  #    (E3) THE HOME THE SUITES RAN UNDER. `0 of N were SKIPPED` above is conditioned on it, and a
+  #    reader on another machine seeing a different number has no way to know why unless it is stated.
+  #    Pinned on the word INHERITED rather than on the path, because the path is the machine's.
+  expect_suites "the HOME the suites ran under is declared, and declared as inherited" "$st_ok_root" \
+    0 0 0 0 "HOME:        $HOME — INHERITED, not declared"
+  #
+  #    (E4/E5/E6) THE SECOND INTERPRETER, all three arms, driven with `ST_DIVERGENCE=1` so that the
+  #    helper's usual lockstep does not neutralise the very comparison being tested. E4 is the arm
+  #    every other assertion in this block runs under; E5 is the machine that simply has no second
+  #    interpreter; E6 is the real divergence. E4 and E5 are also E6's controls and E6 is theirs —
+  #    without E6 a mutation deleting the comparison outright would satisfy both absence claims, and
+  #    without E4 a mutation warning unconditionally would satisfy E6's presence claim.
+  st_saved_syspy="$SYSTEM_PY"
+  ST_DIVERGENCE=1
+  SYSTEM_PY=$(command -v "$SUITE_PY" 2>/dev/null || printf '%s' "$SUITE_PY")
+  expect_suites "two names for the same interpreter is not a divergence, and is not warned about" \
+    "$st_ok_root" 0 0 0 0 "resolves to the same interpreter as the one above" "INTERPRETER DIVERGENCE" 0 0 0 0 0
+  SYSTEM_PY="$st_dir/no-such-system-interpreter"
+  expect_suites "a machine with no second interpreter says so, and does not invent a divergence" \
+    "$st_ok_root" 0 0 0 0 "is not present on this machine, so there is no divergence to report" "INTERPRETER DIVERGENCE" 0 0 0 0 0
+  # A second interpreter that IS executable and IS a different file. `env` is the shortest binary
+  # guaranteed to be present and guaranteed not to be the python3 above; it cannot answer `-V` or
+  # `-c`, and that is deliberately part of what this arm exercises — a divergence must be reported
+  # even when the other side cannot be interrogated, or the loudest case would be the quietest. The
+  # note is a MACHINE warning: envwarn+1, while repo_warn is pinned at 0 by the helper.
+  SYSTEM_PY=$(command -v env 2>/dev/null || printf '/usr/bin/env')
+  expect_suites "a genuinely different second interpreter is reported as a MACHINE divergence, naming the command that measures it" \
+    "$st_ok_root" 0 0 0 0 "INTERPRETER DIVERGENCE, and only one side of it was measured" "resolves to the same interpreter" 0 0 0 0 1
+  SYSTEM_PY="$st_saved_syspy"; ST_DIVERGENCE=0
+  # The restore is asserted rather than assumed: every assertion after this point runs under the
+  # helper's lockstep, and an `ST_DIVERGENCE` left at 1 would silently hand all of them whatever
+  # `SYSTEM_PY` was left holding.
+  expect_suites "control: with the lockstep restored the divergence note is gone again" "$st_ok_root" \
+    0 0 0 0 "resolves to the same interpreter as the one above" "INTERPRETER DIVERGENCE" 0 0 0 0 0
 
   # ── (b) a skill with NO suite: NOT TESTED HERE, in those words, never a pass.
   st_none_root="$st_dir/skills_none"
@@ -4317,8 +4527,10 @@ PY
   # machine" on every machine, over five assertions that were set up perfectly and declined on
   # purpose. So
   # `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer|expect_hooks|expect_hook_named|expect_persona_count|expect_settings_wired) '`
-  # over this file reads exactly FIVE more than the literal below — 170 against 165 today — and those
-  # five are the probe.
+  # over this file reads exactly FIVE more than the literal below — 181 against 176 today — and those
+  # five are the probe. THE PAIR MOVES TOGETHER: this sentence carried `170 against 165` for two
+  # commits after the literal had gone to 169, which is the stale-claim shape this file keeps
+  # removing from everything except itself. Both numbers, or neither.
   #
   # WHAT HAPPENS WHEN SOMEONE LEGITIMATELY ADDS AN ASSERTION: this one line changes, in the same
   # commit, and the diff shows `+N assertions, total 141 -> 142`. That is the entire cost, and it is
@@ -4332,7 +4544,10 @@ PY
   # for the named-but-not-required hook regression (HN1-HN4), four for the persona count against an
   # independent total (PC1-PC4), and four for hooks-wired-into-settings.json now being a testable
   # function instead of ~30 lines of unreached inline logic (SW1-SW4).
-  st_expected_total=169
+  # 169 -> 176: seven assertions for the environment declaration (E1-E6 plus its restore control) —
+  # two arms of the interpreter-provenance line, the inherited-HOME line, and all three arms of the
+  # second-interpreter comparison.
+  st_expected_total=176
   st_total=$((st_pass + st_fail + st_skipped))
   st_total_ok=1
   if [ "$st_total" -ne "$st_expected_total" ]; then
