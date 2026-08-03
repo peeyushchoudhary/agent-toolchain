@@ -2007,9 +2007,24 @@ if [ "$SELF_TEST" = "1" ]; then
   # meaning for 2 is "something that had to run could not run at all", and a self-test that cannot
   # construct an independent fixture root is exactly that. A skip would be a filtered count over a
   # denominator nobody could act on.
+  #
+  # IT READS GIT'S OUTPUT, NOT GIT'S EXIT STATUS, AND ASKS FROM A CLEAN GIT ENVIRONMENT. Both halves
+  # are fixes for a FALSE exit 2 — the branch below refuses to continue, so a probe that answers "yes,
+  # inside a work tree" when the truth is "no" aborts the whole self-test naming a cause that does not
+  # exist. `git rev-parse --is-inside-work-tree` EXITS 0 FOR BOTH ANSWERS: it prints `true` or `false`
+  # and reserves a non-zero exit for "not a repository at all". MEASURED on git 2.50.1, each half
+  # independently, and each has its own control in the assertion pair below:
+  #   * inside a bare repository's gitdir — rc 0, output `false`. A status-keyed probe reads the rc and
+  #     rejects the root.
+  #   * ANY directory whatever, with `GIT_DIR` exported and no `GIT_WORK_TREE` — rc 0, output `true`.
+  #     That is the standard git-hook environment, and it rejects the mktemp root AND `/tmp`, so the
+  #     branch below exits 2 on a machine where nothing is wrong. `env -u` is what removes this, not
+  #     the output read: the output really does say `true` there.
+  # `env -u` on an unset variable is a no-op, so no guard is needed around it.
   st_root_ok() {
     command -v git >/dev/null 2>&1 || return 0
-    git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1 && return 1
+    [ "$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$1" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] \
+      && return 1
     return 0
   }
   if ! st_root_ok "$st_dir"; then
@@ -2667,6 +2682,65 @@ class Runs(unittest.TestCase):
   expect_suites "control: remove the declaration and the same excluded suite is discovered and fails" \
     "$st_decl_root" 1 0 0 1 "graphify: the vendored suite FAILED" "EXCLUDED and not discovered"
   st_dry_end
+  # ── THE FIXTURE-ROOT PROBE ITSELF, WHICH DECIDES WHETHER THIS BLOCK RUNS AT ALL AND HAD NO
+  #    COVERAGE. `st_root_ok` gates an `exit 2`, so a wrong answer is not a wrong assertion, it is the
+  #    whole self-test refusing to run and naming a cause that is false. The two ways it was wrong are
+  #    argued at its definition; each is measured here against a real git, in both directions — a
+  #    control establishing that the OLD status-keyed form really would have been fooled by this
+  #    fixture, then the assertion that the current form is not. Without the control the pair would
+  #    stay green over a fixture that never reproduced the condition, which is how the first version of
+  #    the marker assertions above passed while measuring themselves.
+  #    THE FIXTURES ARE BUILT ABOVE THE GUARD AND ONLY WHEN GIT EXISTS. `git init` on a machine without
+  #    git is the silent failure that turned a missing prerequisite into misleading assertion output
+  #    forty lines above, so the same `st_have_git` that guards that region guards this one.
+  st_probe_bare="$st_dir/probe_bare.git"
+  st_probe_wt="$st_dir/probe_wt"
+  st_probe_plain="$st_dir/probe_plain"
+  st_probe_bare_out=""; st_probe_env_out=""
+  st_probe_bare_ctl=1; st_probe_env_ctl=1; st_probe_bare_new=1; st_probe_env_new=1
+  # EVERY FIXTURE COMMAND HERE RUNS UNDER `env -u`, AND THAT IS NOT A COPY OF THE FIX — IT IS WHAT
+  # MAKES THE FIXTURE INDEPENDENT OF THE ENVIRONMENT IT IS MEASURING. Run under an already-exported
+  # `GIT_DIR` (the exact condition arm (b) is about), an unstripped `git init`/`rev-parse` answers
+  # about the AMBIENT repository instead of the fixture: MEASURED, the bare-gitdir probe then prints
+  # `true` and its control fails saying the disagreement did not reproduce. A fixture that only builds
+  # when the bug is absent cannot measure the bug.
+  if [ "$st_have_git" -eq 1 ]; then
+    mkdir -p "$st_probe_wt" "$st_probe_plain"
+    env -u GIT_DIR -u GIT_WORK_TREE git init --bare -q "$st_probe_bare" >/dev/null 2>&1
+    env -u GIT_DIR -u GIT_WORK_TREE git -C "$st_probe_wt" init -q >/dev/null 2>&1
+    # (a) OUTPUT vs STATUS. Inside a bare repository's gitdir the two disagree: rc 0, output `false`.
+    st_probe_bare_out=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$st_probe_bare" rev-parse --is-inside-work-tree 2>/dev/null)
+    env -u GIT_DIR -u GIT_WORK_TREE git -C "$st_probe_bare" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+      && [ "$st_probe_bare_out" != true ] && st_probe_bare_ctl=0
+    st_root_ok "$st_probe_bare" && st_probe_bare_new=0
+    # (b) AMBIENT GIT ENV. `$st_probe_plain` is inside `$st_dir`, which `st_root_ok` proved is outside
+    #     every work tree at creation, and it is a sibling of `$st_probe_wt` rather than a child — so
+    #     the true answer is "not inside a work tree" and any `true` here comes from the environment.
+    #     Subshells, not command prefixes: a prefix assignment on a FUNCTION call persists in bash
+    #     after the function returns, which would leak `GIT_DIR` into every assertion after this one.
+    #     `GIT_WORK_TREE` is unset alongside, not merely left alone: an ambient one pointing elsewhere
+    #     turns the same probe's answer to `false` (measured), which would make the control fail rather
+    #     than the fixture reproduce. The environment this arm needs is EXACTLY `GIT_DIR` and nothing
+    #     else, so it is constructed, not inherited.
+    st_probe_env_out=$( unset GIT_WORK_TREE; export GIT_DIR="$st_probe_wt/.git"
+                        git -C "$st_probe_plain" rev-parse --is-inside-work-tree 2>/dev/null )
+    ( unset GIT_WORK_TREE; export GIT_DIR="$st_probe_wt/.git"
+      git -C "$st_probe_plain" rev-parse --is-inside-work-tree >/dev/null 2>&1 ) \
+      && [ "$st_probe_env_out" = true ] && st_probe_env_ctl=0
+    ( unset GIT_WORK_TREE; export GIT_DIR="$st_probe_wt/.git"
+      st_root_ok "$st_probe_plain" ) && st_probe_env_new=0
+  fi
+  [ "$st_have_git" -eq 1 ] || st_dry_begin "the fixture-root probe reads git's output and ignores ambient git env" \
+    "git is unavailable or could not initialise a checkout, so neither the bare-gitdir fixture nor the exported-GIT_DIR fixture can be built — and with no git \`st_root_ok\` returns 0 unconditionally, so neither failure mode exists on this machine"
+  st_assert "control: inside a bare repository's gitdir git really does exit 0 while printing something other than \`true\`" \
+    "$st_probe_bare_ctl" "this git does not reproduce the output/status disagreement (it printed \`${st_probe_bare_out:-(nothing)}\`), so the assertion below would pass under the old status-keyed form too and proves nothing"
+  st_assert "st_root_ok accepts a bare repository's gitdir, reading git's output rather than its exit status" \
+    "$st_probe_bare_new" "the probe rejected \`$st_probe_bare\`, which is not inside a work tree — it is keying on the exit status again, and the branch beneath it turns that into \`SELF-TEST COULD NOT RUN\` and exit 2 over a cause that does not exist"
+  st_assert "control: with GIT_DIR exported the status-keyed probe really does report a directory outside every work tree as being inside one" \
+    "$st_probe_env_ctl" "this git does not reproduce the ambient-env failure (it printed \`${st_probe_env_out:-(nothing)}\` for a directory outside every work tree), so the assertion below is not exercising the git-hook environment"
+  st_assert "st_root_ok accepts that directory anyway, answering with GIT_DIR and GIT_WORK_TREE removed from the environment" \
+    "$st_probe_env_new" "the probe inherited the ambient \`GIT_DIR\` and called a directory outside every work tree a work tree — under a git hook that rejects the mktemp root AND /tmp, and the self-test exits 2 saying no fixture root exists anywhere"
+  st_dry_end
   # And the DEGRADED path: outside a checkout the declaration cannot be read, which is reported
   # rather than silently treated as "nothing is excluded". Every other fixture root in this block is
   # a bare mktemp directory, so this warning was firing throughout, unpinned by anything.
@@ -3039,6 +3113,17 @@ STUB
   #    THE FIXTURE'S PREMISE IS ASSERTED FIRST. If this interpreter emitted `Ran 2 tests` instead, the
   #    assertions below would be measuring the ordinary all-skipped path and proving nothing about
   #    this branch. Measured on CPython 3.14.6: `Ran 0 tests` / `OK (skipped=1)` / rc 0.
+  #
+  #    AND IT IS A HARD `st_assert`, NOT AN `st_skip`, WHICH IS DELIBERATE AND IS THE OPPOSITE OF THE
+  #    CHMOD PREMISES FORTY LINES ABOVE. Those guard on a MACHINE property that no production code
+  #    path depends on: a filesystem that ignores `chmod 000` cannot host the fixture, and verify.sh is
+  #    still correct there, so the honest verdict is NOT RUN. This premise is different in kind,
+  #    because the shape it asserts is the shape PRODUCTION PARSES — `run_one_suite` discriminates on
+  #    `Ran N test…` and on `skipped=` in the result line, and the `Ran 0` + `skipped=` branch exists
+  #    solely to read this output. An interpreter that emits a different shape has not made the fixture
+  #    unbuildable; it has made the parser wrong, on this machine, for every real suite. Red is the
+  #    correct verdict for that and NOT RUN would suppress it. The same argument covers the two further
+  #    premise controls in this section, which follow this one rather than restating it.
   st_guard_root="$st_dir/skills_classguard"
   mk_skill "$st_guard_root" alpha; mk_suite "$st_guard_root" alpha "$st_classguard_body"
   st_guard_out=$( cd "$st_guard_root/alpha" && PYTHONDONTWRITEBYTECODE=1 "$SUITE_PY" -m unittest discover -s tests -t tests 2>&1 )
@@ -3290,7 +3375,11 @@ STUB
     st_hdr="$st_hdr$st_ln3"$'\n'
   done < "$st_self"
   st_rc=1
-  printf '%s' "$st_hdr" | grep -qE "^#[[:space:]]+grep -n 'UNMIGRATED-CNR:' install/verify\.sh" && st_rc=0
+  # A HERE-STRING, NOT A PIPE. `printf … | grep -q` has `grep` exiting on its first match while
+  # `printf` is still writing, which SIGPIPEs the writer, and `set -o pipefail` surfaces that as a
+  # non-zero pipeline status and a spurious assertion failure. It cannot fire at today's ~5 KB header,
+  # which is far under any pipe buffer, so this is removing the class rather than fixing a defect.
+  grep -qE "^#[[:space:]]+grep -n 'UNMIGRATED-CNR:' install/verify\.sh" <<< "$st_hdr" && st_rc=0
   st_assert "the header carries the recipe that derives that list, rather than a prose copy of it" \
     "$st_rc" "the derivation recipe is missing from the header comment (the ${#st_hdr} bytes above \`set -uo pipefail\`), so a reader has no way to enumerate the sites and the enumeration will be reintroduced as prose"
   #    AND THE HEADER'S OTHER FALSIFIABLE CLAIM — HOW MANY THINGS RAISE 2 — IS PINNED THE SAME WAY.
@@ -4243,7 +4332,7 @@ PY
   # for the named-but-not-required hook regression (HN1-HN4), four for the persona count against an
   # independent total (PC1-PC4), and four for hooks-wired-into-settings.json now being a testable
   # function instead of ~30 lines of unreached inline logic (SW1-SW4).
-  st_expected_total=165
+  st_expected_total=169
   st_total=$((st_pass + st_fail + st_skipped))
   st_total_ok=1
   if [ "$st_total" -ne "$st_expected_total" ]; then
