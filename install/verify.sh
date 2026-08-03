@@ -1159,8 +1159,9 @@ skill_roster() {
   done
 }
 
-# check_skill_presence CHECK_ROOT DECL_DIR WHERE CROSSCHECK — every declared skill is present under
-# CHECK_ROOT, and (when CROSSCHECK is 1) the declaration and the directory agree in BOTH directions.
+# check_skill_presence CHECK_ROOT DECL_DIR WHERE OWNS_DECL — every declared skill is present under
+# CHECK_ROOT, and (when OWNS_DECL is 1) the declaration and the directory agree in BOTH directions
+# and the declaration's own integrity is reported as a finding.
 #
 # TAKES ITS ROOTS AS ARGUMENTS FOR THE REASON check_vendored_suites DOES: `--self-test` exits ~1,500
 # lines above the two production call sites, so anything written inline there is unreachable from
@@ -1178,17 +1179,32 @@ skill_roster() {
 # disagreements are findings: declared-with-no-directory (the `want_file` below) and
 # directory-with-no-declaration.
 #
-# CROSSCHECK IS 0 FOR THE MACHINE SCOPE, and that is not a weaker check, it is the only correct one:
+# OWNS_DECL IS 0 FOR THE MACHINE SCOPE, and that is not a weaker check, it is the only correct one:
 # `~/.claude/skills` legitimately holds skills this repository never published (graphify installs
 # itself there via `uv tool`), so its directory count is not a denominator for anything. The
 # roster's own integrity is established once, in repository scope, against the tree that owns it.
+#
+# WHICH IS WHY ONE FLAG GOVERNS BOTH THE CROSS-CHECK AND THE INTEGRITY REPORTING, and why it is
+# named for the tree rather than for one of the two behaviours. Three findings below — a missing
+# declaration, an uninterpretable allowlist line, an allowlist that names nothing — are facts about
+# `install/skills/.gitignore`, a REPOSITORY file, and this function is called twice against that one
+# file: once for the repository tree and once for `~/.claude/skills`. Firing them in both scopes
+# made ONE syntax error print TWO problems and charged the second to the MACHINE, which is this
+# file's cardinal rule inverted. `check_installer_agrees` already refuses to double-count exactly
+# this fact ("Already reported by check_skill_presence"); the same principle now holds here. Both
+# behaviours answer the same question — is this the tree that owns the declaration — so they take
+# the same flag rather than a second one that could only ever be set to the same value.
 check_skill_presence() {
-  local check_root="$1" decl_dir="$2" where="$3" crosscheck="$4"
+  local check_root="$1" decl_dir="$2" where="$3" owns_decl="$4"
   local decl="$decl_dir/.gitignore" roster rejects s d dn found
   local declared=0 present=0 dirs=0 undeclared=0
 
   if [ ! -f "$decl" ]; then
-    bad "$where: the publication declaration $decl_dir/.gitignore is missing, so there is nothing to check presence AGAINST — this is not an empty pass"
+    if [ "$owns_decl" -eq 1 ]; then
+      bad "$where: the publication declaration $decl_dir/.gitignore is missing, so there is nothing to check presence AGAINST — this is not an empty pass"
+    else
+      ctx "$where: presence not checked — $decl_dir/.gitignore is missing (reported against the repository, which owns that file; not counted twice)"
+    fi
     return
   fi
   # AN ENTRY THIS READER CANNOT INTERPRET IS A FAILURE, NOT AN OMISSION. Silently skipping it is how
@@ -1197,12 +1213,20 @@ check_skill_presence() {
   if [ -n "$rejects" ]; then
     while IFS= read -r s; do
       [ -n "$s" ] || continue
-      bad "$where: cannot interpret the allowlist line \`$s\` in $decl_dir/.gitignore — this check reads a strict \`!/name\` form only, and refuses to guess rather than leave an entry silently out of the roster"
+      if [ "$owns_decl" -eq 1 ]; then
+        bad "$where: cannot interpret the allowlist line \`$s\` in $decl_dir/.gitignore — this check reads a strict \`!/name\` form only, and refuses to guess rather than leave an entry silently out of the roster"
+      else
+        ctx "$where: the allowlist line \`$s\` in $decl_dir/.gitignore cannot be interpreted (reported against the repository, which owns that file; not counted twice) — the roster below is therefore short by at least that entry"
+      fi
     done <<< "$rejects"
   fi
   roster=$(skill_roster "$decl_dir")
   if [ -z "$roster" ]; then
-    bad "$where: $decl_dir/.gitignore names no skills — the declaration reached nothing, which is a finding and not a clean zero"
+    if [ "$owns_decl" -eq 1 ]; then
+      bad "$where: $decl_dir/.gitignore names no skills — the declaration reached nothing, which is a finding and not a clean zero"
+    else
+      ctx "$where: presence not checked — $decl_dir/.gitignore names no skills (reported against the repository, which owns that file; not counted twice)"
+    fi
     return
   fi
 
@@ -1225,7 +1249,7 @@ check_skill_presence() {
     [ -f "$check_root/$s/SKILL.md" ] && present=$((present + 1))
   done
 
-  if [ "$crosscheck" -eq 1 ]; then
+  if [ "$owns_decl" -eq 1 ]; then
     for d in "$check_root"/*/; do
       [ -f "${d}SKILL.md" ] || continue
       dirs=$((dirs + 1))
@@ -1266,10 +1290,31 @@ check_skill_presence() {
 # So the installer is EXECUTED, in the dry run that writes nothing (every write in install.sh is
 # behind `run`, `[ "$DRY" -eq 1 ]`, or `[ "$DRY" -eq 0 ]`), and the names it says it would install
 # are compared as a set. Its exit code is deliberately NOT the assertion: a fixture installer fails
-# on absent hooks/ for reasons that are not about skills, and in production an unrelated installer
-# failure belongs to its own check, not to this one.
+# on absent hooks/ for reasons that are not about skills, so failing on rc alone would report a
+# package fact as a disagreement about the roster.
+#
+# BUT "IGNORE THE EXIT CODE" IS NOT "COMPARE WHATEVER CAME BACK", AND THE FIRST VERSION MADE THAT
+# EXACT MISTAKE. `install.sh:83-87` exits 1 BEFORE it prints `skills` when python3 is absent or
+# older than 3.10 — Apple's `/usr/bin/python3` through macOS 12, and many minimal images. `got` was
+# then EMPTY, the set comparison ran anyway, and the check printed a REPOSITORY FAIL naming all six
+# declared skills as an installer disagreement. `./verify.sh` exited 1 for a repository reason
+# caused entirely by the machine's interpreter, and sent the maintainer to install.sh's roster
+# reader, which was fine. An earlier comment here waved that away as belonging to "its own check";
+# no such check existed anywhere in this file. So the two cases are now told apart: an installer
+# that REACHED the skills section and named a different set is a repository finding, and an
+# installer that never reached it produced no set to compare and is a COULD NOT RUN against the
+# MACHINE, quoting the installer's own first line so the real reason is on screen.
+#
+# AND IT CANNOT WEDGE THE GATE. The subprocess gets `</dev/null` and, where the platform has one, a
+# `timeout`. install.sh reads no stdin and makes no network call today — every branch checked — so
+# this is not a fix for a live hang; it is a bound on a surface that did not exist before this check
+# ran another script, and that now exists twice, because `--self-test` runs the real vendored
+# installer too. A future `read -r` in install.sh would otherwise hang the gate AND its own suite
+# with no output saying why. A non-completion lands in the same COULD NOT RUN arm as above, never in
+# the set comparison. `timeout` is optional, like every other third-party binary this file touches:
+# without it the call is exactly what it was before.
 check_installer_agrees() {
-  local installer="$1" decl_dir="$2" out roster want got s
+  local installer="$1" decl_dir="$2" out roster want got s rc=0 runner="" first prev_scope
   if [ ! -f "$installer" ]; then
     bad "no installer at $installer — the install set cannot be compared with what this repository declares it publishes"
     return
@@ -1280,7 +1325,24 @@ check_installer_agrees() {
     ctx "installer agreement not checked — the declaration named no skills (reported above)"
     return
   fi
-  out=$(bash "$installer" --dry-run --no-codex 2>&1)
+  if command -v timeout >/dev/null 2>&1; then runner="timeout 120"
+  elif command -v gtimeout >/dev/null 2>&1; then runner="gtimeout 120"; fi
+  # $runner is unquoted ON PURPOSE: it is either empty or a fixed two-word literal set four lines up,
+  # never anything derived from the environment, so the word split is the whole point of it.
+  # shellcheck disable=SC2086
+  out=$($runner bash "$installer" --dry-run --no-codex </dev/null 2>&1) || rc=$?
+  if ! printf '%s\n' "$out" | grep -q '^skills$'; then
+    first=$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | head -n 1)
+    [ -n "$first" ] || first="(it printed nothing)"
+    prev_scope="$SCOPE"; SCOPE="env"
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+      cnr "the installer agreement could not be checked — $installer did not finish within 120s and was killed (rc $rc), so it never printed its \`skills\` section; nothing about the declaration is claimed either way"
+    else
+      cnr "the installer agreement could not be checked — $installer exited $rc before reaching its \`skills\` section, saying: \`$first\`. That is the installer reporting a fact about THIS MACHINE (it requires python3 3.10+), not a disagreement about what $decl_dir/.gitignore declares; no set was produced, so none was compared"
+    fi
+    SCOPE="$prev_scope"
+    return
+  fi
   # BOUNDED TO THE `skills` SECTION FIRST. The hooks loop below it prints `would install <file>` in
   # the identical wording, and reading the whole output swept four hook filenames into the skill set
   # — caught on the first real run, because the check compares SETS and said exactly which extra
@@ -2870,16 +2932,23 @@ STUB
     fi
   }
 
-  # expect_installer NAME INSTALLER DECL_DIR WANT_FAIL [MUST_CONTAIN]
+  # expect_installer NAME INSTALLER DECL_DIR WANT_REPO_FAIL WANT_ENV_CNR [MUST_CONTAIN]
+  #
+  # THE ENV DELTA IS ASSERTED BESIDE THE REPO ONE, not inferred from it, because the defect this
+  # pair exists to catch was a finding landing in the WRONG BUCKET rather than a finding going
+  # missing: an installer that never reached its `skills` section printed a repository FAIL, and a
+  # harness watching only `repo_fail` would call that a green assertion.
   expect_installer() {
-    local name="$1" inst="$2" decl="$3" wf="$4" needle="${5:-}"
-    local f0=$repo_fail df why="" st_ln
+    local name="$1" inst="$2" decl="$3" wf="$4" wc="$5" needle="${6:-}"
+    local f0=$repo_fail c0=$env_cnr ef0=$env_fail df dc def why="" st_ln
     check_installer_agrees "$inst" "$decl" > "$st_dir/rendered" 2>&1
-    df=$((repo_fail - f0))
+    df=$((repo_fail - f0)); dc=$((env_cnr - c0)); def=$((env_fail - ef0))
     [ "$df" = "$wf" ] || why="$why fail(${df}!=${wf})"
+    [ "$dc" = "$wc" ] || why="$why envcnr(${dc}!=${wc})"
+    [ "$def" = 0 ]    || why="$why envfail(${def}!=0)"
     if [ -n "$needle" ] && ! grep -qF -- "$needle" "$st_dir/rendered"; then why="$why missing:\"$needle\""; fi
     if [ -z "$why" ]; then
-      printf '  \033[32mok\033[0m    %s → fail+%s\n' "$name" "$df"; st_pass=$((st_pass+1))
+      printf '  \033[32mok\033[0m    %s → fail+%s envcnr+%s\n' "$name" "$df" "$dc"; st_pass=$((st_pass+1))
     else
       printf '  \033[31mFAIL\033[0m  %s →%s\n' "$name" "$why"
       printf '        rendered as:\n'
@@ -2889,6 +2958,13 @@ STUB
   }
 
   # ── (a) THE POSITIVE CONTROL: declaration and directory agree, and both numbers are printed.
+  #    THIS IS ALSO THE ASSERTION THAT KILLS MUTATION A — replacing the roster derivation with two
+  #    hardcoded names. The fixture declares its own three, so a two-name stand-in leaves the third
+  #    looking undeclared and this needle's `0 of them undeclared` becomes `1 of them undeclared`.
+  #    A separate assertion (d) used to say so a second time with the same fixture, the same
+  #    arguments, the same expected counters and a needle that was a SUBSTRING of this one — it
+  #    could not go red in any run where this one was green, and its `must-not-contain` was
+  #    unfalsifiable given its own needle. It has been removed rather than kept as a count.
   st_pres_root="$st_dir/pres_ok"
   mk_skill "$st_pres_root" alpha; mk_skill "$st_pres_root" beta; mk_skill "$st_pres_root" gamma
   mk_decl "$st_pres_root" '!/alpha' '!/beta' '!/gamma'
@@ -2923,12 +2999,7 @@ STUB
     "$st_pres_miss" "$st_pres_miss" 1 1 0 \
     "delta missing from fixture"
 
-  # ── (d) MUTATION A, DIRECTLY. Replace the roster with hardcoded names and this goes red: the
-  #    fixture declares three, a two-name stand-in leaves the third looking undeclared and the
-  #    printed declaration total no longer matches the directory total.
-  expect_presence "the roster is DERIVED — a hardcoded stand-in cannot satisfy a fixture that declares its own names" \
-    "$st_pres_root" "$st_pres_root" 1 0 0 "the directory holds 3 with a SKILL.md, 0 of them undeclared" \
-    "1 of them undeclared"
+  # ── (d) was here; it is subsumed by (a), which now records why.
 
   # ── (e) THE STRICT READER IS LOUD. Both legal negation forms it does not accept are named, rather
   #    than silently absent from the roster (`!name`) or silently mangled into `name/` (`!/name/`).
@@ -2948,15 +3019,21 @@ STUB
   mk_skill "$st_pres_file" alpha
   mk_decl "$st_pres_file" '!/alpha' '!/LICENSE' '!/README.md'
   printf 'x\n' > "$st_pres_file/LICENSE"; printf 'x\n' > "$st_pres_file/README.md"
+  #    THE ABSENCE NEEDLE IS THE RENDERED FAILURE, NOT THE PATH. It used to be `LICENSE/SKILL.md`,
+  #    which the rendered text never contains in EITHER direction: `want_file` prints its third
+  #    argument, `LICENSE missing from fixture`, so the old needle could not fire under the mutation
+  #    it claimed to exclude and had no possible positive control. The text below is what a
+  #    regression actually prints.
   expect_presence "a declared entry that exists as a regular file is not looked up as a skill directory" \
     "$st_pres_file" "$st_pres_file" 1 0 0 \
-    "1 of 1 declared skill(s) present in fixture" "LICENSE/SKILL.md"
+    "1 of 1 declared skill(s) present in fixture" "LICENSE missing from"
 
   # ── (g) MACHINE SCOPE DOES NOT CROSS-CHECK, and that is correct: ~/.claude/skills holds skills this
   #    repository never published, so its directory count is not a denominator for anything.
-  expect_presence "with CROSSCHECK off an undeclared directory is not a finding, and no directory total is claimed" \
+  expect_presence "with OWNS_DECL off an undeclared directory is not a finding, and no directory total is claimed" \
     "$st_pres_gap" "$st_pres_gap" 0 0 0 \
     "2 of 2 declared skill(s) present in fixture (total from the repository's declaration" "undeclared"
+
 
   # ── (h) graph-navigation KEEPS ITS WARNING SEVERITY, pinned so that the separate card that may
   #    change it has to change an assertion rather than discover the behaviour by accident.
@@ -2973,20 +3050,55 @@ STUB
     "$st_pres_nodecl" "$st_pres_nodecl" 1 1 0 \
     "is missing, so there is nothing to check presence AGAINST"
 
+  # ── (i2) AND NONE OF THE THREE DECLARATION-INTEGRITY FINDINGS IS CHARGED TWICE. This function runs
+  #    against ONE `install/skills/.gitignore` in both scopes; firing these in both made a single
+  #    syntax error print two problems and attributed the second to the MACHINE. Each fixture below
+  #    already has its repository-scope positive control above — (e) for the uninterpretable line,
+  #    (i) for the missing declaration — so these three assert only that the SECOND count is gone,
+  #    with `must-not-contain "FAIL"` proving the line is context rather than a re-worded finding.
+  #    The empty-declaration case has no control above, so it gets one here.
+  expect_presence "an uninterpretable allowlist line is not charged to the machine scope a second time" \
+    "$st_pres_odd" "$st_pres_odd" 0 0 0 \
+    "cannot be interpreted (reported against the repository, which owns that file; not counted twice)" \
+    "FAIL"
+  expect_presence "nor is a missing declaration" \
+    "$st_pres_nodecl" "$st_pres_nodecl" 0 0 0 \
+    "is missing (reported against the repository, which owns that file; not counted twice)" \
+    "FAIL"
+  st_pres_empty="$st_dir/pres_empty"
+  mk_decl "$st_pres_empty" '!/.gitignore'
+  expect_presence "control: a declaration that names no skills IS a FAILURE in the scope that owns it" \
+    "$st_pres_empty" "$st_pres_empty" 1 1 0 \
+    "names no skills — the declaration reached nothing"
+  expect_presence "nor is a declaration that names no skills, in the scope that does not own it" \
+    "$st_pres_empty" "$st_pres_empty" 0 0 0 \
+    "names no skills (reported against the repository, which owns that file; not counted twice)" \
+    "FAIL"
+
   # ── (j) MUTATION B: THE INSTALLER'S OWN SET, obtained by running it. Nothing inside this file can
   #    see install.sh revert to a hardcoded list; only executing it can. The first fixture runs the
   #    REAL installer, which also pins the output wording the comparison parses; the second is a stub
   #    that names a subset, which is exactly what the stale five-name literal was.
-  if command -v python3 >/dev/null 2>&1; then
-    st_inst="$st_dir/inst"
-    mkdir -p "$st_inst"
-    cp "$VENDOR/install.sh" "$st_inst/install.sh"
-    mk_skill "$st_inst/skills" alpha; mk_skill "$st_inst/skills" beta
-    mk_decl "$st_inst/skills" '!/alpha' '!/beta'
+  #
+  #    ONLY THE REAL-INSTALLER ASSERTION NEEDS AN INTERPRETER, and the guard is now around that one
+  #    line rather than around the whole section. It used to wrap all four, so three assertions that
+  #    are pure bash — a `cmp` control and two stub runs — went unrun on a machine without python3
+  #    for no reason. The guard also tests the version install.sh actually requires, not merely that
+  #    the binary exists: on 3.9 the real installer exits before its `skills` section, which is the
+  #    COULD NOT RUN path asserted in (j2), not this one.
+  st_inst="$st_dir/inst"
+  mkdir -p "$st_inst"
+  cp "$VENDOR/install.sh" "$st_inst/install.sh"
+  mk_skill "$st_inst/skills" alpha; mk_skill "$st_inst/skills" beta
+  mk_decl "$st_inst/skills" '!/alpha' '!/beta'
+  if python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' >/dev/null 2>&1; then
     expect_installer "the real installer, run, installs exactly what the declaration names" \
-      "$st_inst/install.sh" "$st_inst/skills" 0 \
+      "$st_inst/install.sh" "$st_inst/skills" 0 0 \
       "install.sh would install exactly the 2 declared skill(s)"
-    cat > "$st_dir/stub_installer" <<'STUB'
+  else
+    st_skip "the real-installer agreement assertion" 1 "python3 3.10+ is absent, so install.sh exits on its own precondition before it reaches the skills block — that is the installer reporting a machine fact, and (j2) below asserts what this check does with it"
+  fi
+  cat > "$st_dir/stub_installer" <<'STUB'
 #!/usr/bin/env bash
 echo "skills"
 echo "  would install alpha"
@@ -2994,19 +3106,56 @@ echo "hooks"
 echo "  would install alpha"
 echo "  would install beta"
 STUB
-    chmod 755 "$st_dir/stub_installer"
-    st_rc=1; cmp -s "$st_inst/install.sh" "$st_dir/stub_installer" || st_rc=0
-    st_assert "control: the stub installer is not the real one" "$st_rc" \
-      "the stub is byte-identical to the real installer, so the assertion below would prove nothing"
-    expect_installer "an installer naming a SUBSET of the declaration is a FAILURE that prints both sets" \
-      "$st_dir/stub_installer" "$st_inst/skills" 1 \
-      "install.sh's skill set does not match the declaration"
-    expect_installer "and the hooks section, which prints the identical wording, is not swept into the skill set" \
-      "$st_dir/stub_installer" "$st_inst/skills" 1 \
-      "it would act on [alpha]"
-  else
-    st_skip "the installer-agreement assertions" 5 "python3 is absent, and install.sh exits on its own precondition before it reaches the skills block — that is the installer reporting a machine fact, not a defect in this comparison"
-  fi
+  chmod 755 "$st_dir/stub_installer"
+  st_rc=1; cmp -s "$st_inst/install.sh" "$st_dir/stub_installer" || st_rc=0
+  st_assert "control: the stub installer is not the real one" "$st_rc" \
+    "the stub is byte-identical to the real installer, so the assertion below would prove nothing"
+  expect_installer "an installer naming a SUBSET of the declaration is a FAILURE that prints both sets" \
+    "$st_dir/stub_installer" "$st_inst/skills" 1 0 \
+    "install.sh's skill set does not match the declaration"
+  expect_installer "and the hooks section, which prints the identical wording, is not swept into the skill set" \
+    "$st_dir/stub_installer" "$st_inst/skills" 1 0 \
+    "it would act on [alpha]"
+
+  # ── (j2) AN INSTALLER THAT NEVER REACHED ITS `skills` SECTION IS A MACHINE FACT, NOT A ROSTER
+  #    DISAGREEMENT. `install.sh:83-87` exits 1 before printing `skills` when python3 is absent or
+  #    older than 3.10 — Apple's /usr/bin/python3 through macOS 12, and many minimal images. The
+  #    first version compared the empty set anyway and printed a REPOSITORY FAIL naming all six
+  #    declared skills; `./verify.sh` exited 1 for a repository reason caused by the interpreter.
+  #    The stub below is that installer: it prints install.sh's own 3.9 message to stderr and exits
+  #    1 without a `skills` line. The positive control is directly above — the subset stub DOES
+  #    reach its skills section and IS still a repository FAIL, so this arm has not swallowed the
+  #    finding it exists to distinguish.
+  cat > "$st_dir/stub_old_python" <<'STUB'
+#!/usr/bin/env bash
+echo "python3 3.9 found; 3.10 or newer is required (the tools use PEP 604 type syntax)" >&2
+exit 1
+STUB
+  chmod 755 "$st_dir/stub_old_python"
+  expect_installer "an installer that exits before its skills section is COULD NOT RUN against the MACHINE, not a repository FAIL" \
+    "$st_dir/stub_old_python" "$st_inst/skills" 0 1 \
+    "exited 1 before reaching its \`skills\` section"
+  expect_installer "and it quotes the installer's own first line rather than sending the reader to the roster reader" \
+    "$st_dir/stub_old_python" "$st_inst/skills" 0 1 \
+    "3.10 or newer is required"
+  expect_installer "and it claims nothing about the declaration in either direction" \
+    "$st_dir/stub_old_python" "$st_inst/skills" 0 1 \
+    "no set was produced, so none was compared"
+
+  # AND THE STDIN WEDGE IS CLOSED, in the one place that can be asserted without waiting for a
+  # timeout: an installer that reads stdin gets EOF instead of the gate's terminal. Without
+  # `</dev/null` this stub consumes verify.sh's own stdin and the suite hangs with no output.
+  cat > "$st_dir/stub_reads_stdin" <<'STUB'
+#!/usr/bin/env bash
+read -r _line
+echo "skills"
+echo "  would install alpha"
+echo "  would install beta"
+STUB
+  chmod 755 "$st_dir/stub_reads_stdin"
+  expect_installer "an installer that reads stdin gets EOF and completes, rather than wedging the gate" \
+    "$st_dir/stub_reads_stdin" "$st_inst/skills" 0 0 \
+    "install.sh would install exactly the 2 declared skill(s)"
 
   rm -rf "$st_dir"
   echo
@@ -3017,14 +3166,40 @@ STUB
   # AND THE TOTAL IS INVARIANT, which it was not, in the very line that asserts the rule. `st_skipped`
   # moved by one per GROUP while the groups cover 3 and 2 assertions, so a machine without git printed
   # `67 of 68` against a real total of 70 — a denominator that MOVES WITH THE NUMERATOR, which is the
-  # one thing a denominator may not do. `st_skip` now takes the count, so `pass + fail + skipped` is
-  # the same number on every machine and every count below is stated against it.
+  # one thing a denominator may not do. `st_skip` takes the count, so `pass + fail + skipped` is the
+  # same number on every machine and every count below is stated against it.
+  #
+  # AND THE INVARIANT IS NOW CHECKED RATHER THAN ASSERTED IN THIS COMMENT, because the comment did
+  # not hold: the very change that wrote it declared `st_skip … 5` over a branch containing 4
+  # counted assertions, so the total was 124 with python3 and 125 without — the identical defect,
+  # four lines above the paragraph saying it was impossible. A hand-maintained count guarded by
+  # prose is not a check. So the total is PINNED to a literal, and a mismatch is a hard failure
+  # whatever the assertions did.
+  #
+  # WHAT HAPPENS WHEN SOMEONE LEGITIMATELY ADDS AN ASSERTION: this one line changes, in the same
+  # commit, and the diff shows `+N assertions, total 133 -> 134`. That is the entire cost, and it is
+  # the point — the number a reviewer must agree with becomes visible in the diff instead of living
+  # in a `st_skip` argument nobody recomputes. Anyone who changes it without changing the count is
+  # doing so deliberately and in the open.
+  #
+  # IT IS NOT ITSELF COUNTED. Incrementing `st_pass` or `st_fail` here would change the very total
+  # it is comparing, so it reports through a separate flag that only the exit arm reads.
+  st_expected_total=131
   st_total=$((st_pass + st_fail + st_skipped))
-  if [ "$st_fail" -eq 0 ]; then
-    echo "SELF-TEST PASS — $st_pass of $st_total assertion(s) ran and passed; $st_skipped of $st_total could NOT be set up on this machine"
+  st_total_ok=1
+  if [ "$st_total" -ne "$st_expected_total" ]; then
+    st_total_ok=0
+    printf '  \033[31mFAIL\033[0m  harness: this suite ran %s assertion(s) (%s passed, %s failed, %s not set up on this machine) but is PINNED at %s\n' \
+      "$st_total" "$st_pass" "$st_fail" "$st_skipped" "$st_expected_total"
+    printf '        Either an assertion was added or removed without updating `st_expected_total`, or a `st_skip`\n'
+    printf '        count does not match the number of assertions in the branch it stands in — which makes the\n'
+    printf '        denominator below move with the machine. Fix the cause, then set the literal in the same commit.\n'
+  fi
+  if [ "$st_fail" -eq 0 ] && [ "$st_total_ok" -eq 1 ]; then
+    echo "SELF-TEST PASS — $st_pass of $st_total assertion(s) ran and passed; $st_skipped of $st_total could NOT be set up on this machine (total pinned at $st_expected_total)"
     exit 0
   fi
-  echo "SELF-TEST FAIL — $st_fail of $st_total assertion(s) FAILED; $st_pass of $st_total passed, $st_skipped of $st_total could NOT be set up on this machine"; exit 1
+  echo "SELF-TEST FAIL — $st_fail of $st_total assertion(s) FAILED; $st_pass of $st_total passed, $st_skipped of $st_total could NOT be set up on this machine (total pinned at $st_expected_total)"; exit 1
 fi
 
 echo "════ 1. THIS REPOSITORY — the vendored tree at $VENDOR"
