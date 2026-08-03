@@ -30,6 +30,7 @@ import ast
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -72,12 +73,23 @@ def run(root: Path, *flags: str) -> tuple[int, str]:
     it is the thing a hook sees. Output is combined and the code is captured from the process
     itself — never from the tail of a pipeline, which reports the last command's status and not
     this one's.
+
+    `HOME` IS REDIRECTED to an empty scratch directory. `validate_disclosure.py` reaches
+    `Path.home()`, and `installed_methodology_version()` runs BEFORE the early return, so every
+    one of these fixture runs otherwise stats the real `~/.claude/skills/execution-methodology/`
+    and the answer depends on what this machine happens to have installed. Every assertion here is
+    about the FIXTURE ROOT, so an empty home is the honest input; the alternative is a suite whose
+    result changes when an unrelated skill is installed.
     """
-    proc = subprocess.run(
-        [sys.executable, str(VALIDATOR), str(root), *flags],
-        capture_output=True, text=True, timeout=120,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-    )
+    home = Path(tempfile.mkdtemp(prefix="pd-reads-home-"))
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(VALIDATOR), str(root), *flags],
+            capture_output=True, text=True, timeout=120,
+            env={**os.environ, "HOME": str(home), "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
     return proc.returncode, proc.stdout + proc.stderr
 
 

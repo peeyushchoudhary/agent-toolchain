@@ -46,6 +46,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from hermetic import reaches_home
+
 
 SKILL = Path(__file__).resolve().parents[1]
 SCRIPTS = SKILL / "scripts"
@@ -953,6 +955,12 @@ class ChokepointTest(unittest.TestCase):
         vacuously and the whole structural layer would be theatre."""
         self.assertGreaterEqual(len(self.hook_templates()), 4, self.hook_templates())
 
+    @reaches_home(
+        "ARITHMETIC ONLY — it opens nothing under HOME. `block_dependencies()` returns absolute "
+        "paths rooted at `Path.home()`, and this test strips that root to compare them against the "
+        "`$HOME/...` literals in the template. Both sides use the same base, so the comparison is "
+        "identical on every machine; declaring it is how the derivation stays exact rather than "
+        "gaining an exemption for a shape that is genuinely fine.")
     def test_every_hook_template_names_its_dependency_where_the_resolver_can_see_it(self):
         offenders = []
         for name, text in self.hook_templates():

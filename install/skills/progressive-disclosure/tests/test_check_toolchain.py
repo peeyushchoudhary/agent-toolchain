@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import fnmatch
 import importlib.util
 import io
 import json
@@ -26,6 +27,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import hermetic
+from hermetic import reaches_home, synthetic_home
 
 
 SKILL = Path(__file__).resolve().parents[1]
@@ -276,8 +280,15 @@ __pycache__/
 .DS_Store
 """
 
-# The paragraph's claim, as data: relative path -> is it trackable when newly authored?
-# FALSE is a surface the sweep does not cover; TRUE is a control that keeps the test non-vacuous.
+# The allow-lists' claim, as data: relative path -> is it trackable when newly authored?
+# FALSE is a DEFAULT-INVISIBLE surface; TRUE is a control that keeps the test non-vacuous.
+#
+# THIS IS A STATEMENT ABOUT THE ALLOW-LISTS, NOT ABOUT COVERAGE, and the distinction became
+# load-bearing at TC-49. Under TC-47 every FALSE row was also a surface the sweep did not ask
+# about, so one table said both things. TC-49 closes surfaces 1 and 2 — a FALSE row there is now
+# swept and produces a finding — while surface 3 stays deferred for the noise reason argued in
+# `check_tracking`. The rows below do not move: `git add --dry-run` still answers exactly this,
+# and whether the sweep ASKS is a separate assertion in `TrackedContentTest`.
 GAP_SURFACES = {
     "docs/NEW-LESSON.md": False,              # surface 1 — per-file allow-list under /docs/*
     "skills/NOTES.md": False,                 # surface 2 — the SECOND per-file allow-list
@@ -1073,6 +1084,14 @@ class ExitContractTest(unittest.TestCase):
         `--vendored` must exit 1 for ANY finding. Reverting to the shared `any critical` rule is
         invisible while belt 1 holds, so the only way to see it is to hand `main()` a finding that
         belt 1 would never produce.
+
+        HERMETIC SINCE TC-57. It used to rebind `CLAUDE_SKILLS` alone, which is all that
+        `--vendored` reads TODAY — but `main()` is one `elif` away from `collect()`, and a mode
+        that fell through to it would have read this machine's plugins and this machine's git
+        index while the test read as fixture-driven. `synthetic_home` rebinds all ten home-derived
+        globals at once, so the reach cannot widen underneath this test. Note it plants nothing:
+        `tmp / "home" / ".claude" / "skills"` is where `CLAUDE_SKILLS` lands by construction, which
+        the assertion below states rather than assumes.
         """
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
@@ -1080,18 +1099,19 @@ class ExitContractTest(unittest.TestCase):
             (installed / "alpha").mkdir(parents=True)
             (tmp / "repo" / "install" / "skills" / "alpha").mkdir(parents=True)
 
-            saved_skills, saved_argv = toolchain.CLAUDE_SKILLS, sys.argv
-            toolchain.CLAUDE_SKILLS = installed
+            saved_argv = sys.argv
             saved_check = toolchain.check_vendored
             toolchain.check_vendored = (
                 lambda _root, _rules=(): ([("warn", "synthetic non-critical finding")], []))
             sys.argv = ["check_toolchain.py", "--vendored", str(tmp / "repo")]
             buffer = io.StringIO()
             try:
-                with contextlib.redirect_stdout(buffer):
-                    rc = toolchain.main()
+                with synthetic_home(toolchain, tmp / "home"):
+                    self.assertEqual(toolchain.CLAUDE_SKILLS, installed,
+                                     "the rebind did not land on the tree this test built")
+                    with contextlib.redirect_stdout(buffer):
+                        rc = toolchain.main()
             finally:
-                toolchain.CLAUDE_SKILLS = saved_skills
                 toolchain.check_vendored = saved_check
                 sys.argv = saved_argv
 
@@ -1260,7 +1280,7 @@ class NotRunStateTest(unittest.TestCase):
             # gives about widening an assertion to accommodate a new value.
             self.assertEqual({item["check"] for item in payload["not_evaluated"]},
                              {"personas", "instruction mirror", "Codex skill mirror",
-                              "plugin surface", "skill tracking"})
+                              "plugin surface", toolchain.TRACKING_LABEL})
 
     def test_drift_is_machine_visible_while_the_exit_code_stays_zero(self) -> None:
         """FACE 1. Real Codex-mirror drift, `warn`, exit 0 — and now impossible to miss.
@@ -1326,40 +1346,66 @@ class NotRunStateTest(unittest.TestCase):
 
         Rank governs visibility; the BLOCKING set governs the exit code. An advisory level added
         next year must sort to the top of the report and must NOT start failing sessions.
+
+        THIS IS THE TEST TC-57 WAS WRITTEN FOR, and what it did wrong is worth keeping on the page.
+        It replaced `DEFAULT_CHECKS` with a synthetic pair, made an empty `tmp/.claude`, and called
+        `main()` — believing the synthetic table was the whole run. It is not: `collect()` calls
+        `check_plugins()` and `check_tracking()` UNCONDITIONALLY, outside that table, and both read
+        module globals frozen from `Path.home()` at import. So the run reached this developer's
+        real `~/.claude/plugins` and real `~/.codex/config.toml`, found them, added no `not-run`,
+        and returned 1. Unpack a COMPLETE `git archive HEAD` of this repository under a redirected
+        HOME and the same test returns 2, with two `not-run` findings about the replica's absent
+        plugin surface — a confident, specific failure about a machine, presented as a defect in
+        the exit-code contract. TC-48 made the half-TREE unconstructible; nothing stopped a test
+        from stepping outside the tree entirely.
+
+        THE HOME IS NOW BUILT AND REBOUND. `synthetic_home` points all ten home-derived globals at
+        `tmp`, and the two inputs whose ABSENCE is a `not-run` rather than an empty answer are
+        planted with the same helpers the neighbouring drift test uses and for the same recorded
+        reasons: `plant_codex_config` (absent is UNKNOWN on the Codex side, not empty) and
+        `git_init` (a HOME that is not a work tree cannot be asked whether git would commit its
+        skills). `~/.claude/plugins` is deliberately NOT planted — absent there is a legitimate
+        EMPTY surface, and planting it would be the fixture drifting past what the check needs.
+
+        AND THE BASELINE IS ASSERTED, not assumed. With NO synthetic findings at all the run must
+        be clean and exit 0. Without that control, "rc == 1" cannot distinguish the critical this
+        test planted from a `not-run` the fixture leaked, which is the exact confusion above.
         """
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
-            (tmp / ".claude").mkdir()
-            saved = (toolchain.DEFAULT_CHECKS, sys.argv)
-            toolchain.DEFAULT_CHECKS = (
-                ("synthetic", "synthetic fine", lambda: [("advisory", "a brand new level"),
-                                                         ("critical", "a known one")]),
-            )
-            sys.argv = ["check_toolchain.py"]
-            buffer = io.StringIO()
-            try:
-                with contextlib.redirect_stdout(buffer):
-                    rc = toolchain.main()
-            finally:
-                toolchain.DEFAULT_CHECKS, sys.argv = saved
+            (tmp / ".claude" / "skills").mkdir(parents=True)
+            plant_persona_source(tmp / ".claude" / "skills")
+            plant_codex_config(tmp)
+            git_init(tmp / ".claude")
 
-            out = buffer.getvalue()
+            saved = (toolchain.DEFAULT_CHECKS, sys.argv)
+
+            def run(*findings) -> tuple[int, str]:
+                toolchain.DEFAULT_CHECKS = (
+                    ("synthetic", "synthetic fine", lambda: list(findings)),
+                )
+                sys.argv = ["check_toolchain.py"]
+                buffer = io.StringIO()
+                try:
+                    with synthetic_home(toolchain, tmp), contextlib.redirect_stdout(buffer):
+                        return toolchain.main(), buffer.getvalue()
+                finally:
+                    toolchain.DEFAULT_CHECKS, sys.argv = saved
+
+            # THE POSITIVE CONTROL, first: this fixture contributes no finding of its own, so every
+            # exit code below is attributable to the synthetic severities and to nothing else.
+            rc, out = run()
+            self.assertEqual(rc, 0, out)
+            self.assertNotIn(toolchain.NOT_RUN, out)
+
+            rc, out = run(("advisory", "a brand new level"), ("critical", "a known one"))
             self.assertEqual(rc, 1, out)  # from the critical, never from the unknown level
             self.assertLess(out.index("a brand new level"), out.index("a known one"),
                             "an unrecognised severity must sort loudest, above critical")
 
             # And alone, it must not be fatal.
-            toolchain.DEFAULT_CHECKS = (
-                ("synthetic", "synthetic fine", lambda: [("advisory", "a brand new level")]),
-            )
-            sys.argv = ["check_toolchain.py"]
-            buffer = io.StringIO()
-            try:
-                with contextlib.redirect_stdout(buffer):
-                    rc = toolchain.main()
-            finally:
-                toolchain.DEFAULT_CHECKS, sys.argv = saved
-            self.assertEqual(rc, 0, buffer.getvalue())
+            rc, out = run(("advisory", "a brand new level"))
+            self.assertEqual(rc, 0, out)
 
 
 class DeclaredUnpublishedTest(unittest.TestCase):
@@ -2803,6 +2849,11 @@ class PluginSurfaceTest(GreenHomeMixin, unittest.TestCase):
 
     # ---- no second copy of the roster, and no conforming set ------------------------------
 
+    @reaches_home(
+        "READS THE REAL MACHINE, and the property under test is exactly that: the checker holds no "
+        "second copy of the roster. A synthetic `sync_personas.py` could not tell reading the "
+        "source of truth apart from reading a literal that happens to match it. Skips when "
+        "`toolchain.SYNC` is absent, which is what a replica sees.")
     def test_persona_names_come_from_sync_personas(self) -> None:
         """The names are READ, not copied. Asserted against the real module, on purpose.
 
@@ -3016,6 +3067,11 @@ class PluginSurfaceTest(GreenHomeMixin, unittest.TestCase):
 
     # ---- the real machine -----------------------------------------------------------------
 
+    @reaches_home(
+        "READS THE REAL MACHINE, as its name says: the claim is that THIS machine's plugin surface "
+        "is enumerable and that no plugin here shadows a base persona. On a synthetic surface it "
+        "would assert nothing about the machine anyone actually runs on. Skips when "
+        "`~/.claude/plugins` is absent, which is what a replica under a redirected HOME sees.")
     def test_the_real_machine_is_enumerable_and_its_clear_result_is_a_compared_one(self) -> None:
         """The current true answer — no plugin agent shadows a base persona — must be reported as a
         result, not as the absence of a check.
@@ -3095,9 +3151,17 @@ class TrackedContentTest(GreenHomeMixin, unittest.TestCase):
 
         Reproduced rather than simplified, because the negation is exactly what makes
         `git check-ignore` answer the wrong question — see the trap test below.
+
+        `!/.gitignore` IS EMITTED, and leaving it out was a real defect this fixture carried until
+        TC-49's per-entry sweep reported it. The real `skills/.gitignore` names itself on its second
+        negation line; a replica that omits it describes an allow-list that would not survive its
+        own commit — the invisible-authored-work state, planted by accident, in the fixture for a
+        test about something else. The old version excluded the name because it enumerated the
+        directory it was about to write into; it is now added back explicitly.
         """
         entries = sorted(p.name for p in self.skills(home).iterdir() if p.name != ".gitignore")
-        return "/*\n" + "".join(f"!/{name}\n" for name in (*entries, *extra_allowed))
+        return "/*\n" + "".join(f"!/{name}\n"
+                                for name in (".gitignore", *entries, *extra_allowed))
 
     # ---- the state that occurred three times ----------------------------------------------
 
@@ -3279,8 +3343,15 @@ class TrackedContentTest(GreenHomeMixin, unittest.TestCase):
                          "the control went trackable — the fixture now tracks everything and the "
                          "TRUE row above proves nothing")
 
-    def test_the_three_uncovered_surfaces_are_what_the_docstring_says_they_are(self) -> None:
-        """FIX ROUND 3, FINDING 3. The KNOWN GAP paragraph, as an executable assertion.
+    def test_the_three_default_invisible_surfaces_are_what_the_module_says_they_are(self) -> None:
+        """FIX ROUND 3, FINDING 3. The allow-list paragraph, as an executable assertion.
+
+        RENAMED AT TC-49, because "uncovered" stopped being true of two of the three and a test
+        name that lies is worse than no test. What it asserts is unchanged and is about the
+        ALLOW-LISTS: which newly authored paths git would refuse. Two of these three are now SWEPT
+        — that is asserted separately, by the cases at the end of this class — and the third is
+        declared deferred. The distinction matters because a future reader who conflates them will
+        read a green run here as proof the top level is covered.
 
         Three versions of that paragraph were written from throwaway replicas and two were wrong —
         the second because its replica omitted `skills/.gitignore` and therefore measured a tree on
@@ -3307,6 +3378,11 @@ class TrackedContentTest(GreenHomeMixin, unittest.TestCase):
             self.assertEqual(state, toolchain.IGNORED,
                              "a new skill DIRECTORY must be ignored, or sweep one could never fire")
 
+    @reaches_home(
+        "READS THE REAL MACHINE: it is the drift detector for the committed allow-list literals, "
+        "and comparing them against a synthetic allow-list would be a tautology. It reads "
+        "~/.claude/.gitignore and ~/.claude/skills/.gitignore and never writes to the live tree. "
+        "The skip is already loud on stderr, which is what a replica sees.")
     def test_the_committed_allowlists_still_decide_the_surfaces_the_real_ones_do(self) -> None:
         """The literals above are a STAND-IN, and a stand-in that has drifted is the r1 defect again.
 
@@ -3373,11 +3449,18 @@ class TrackedContentTest(GreenHomeMixin, unittest.TestCase):
         planted first, and the run is asserted to have classified it `trackable` — which is only
         reachable through a `git add --dry-run` that exited 0. Measuring "no mutation" on a tree
         where every probe was refused would be a control broken in the exonerating direction.
+
+        BOTH PROBE LOOPS MUST RUN, since TC-49. The per-DIRECTORY sweep and the per-ENTRY sweep are
+        separate call sites, and a fixture with no `docs/` would exercise only the first — leaving
+        the newer loop's no-mutation property resting on the older loop's evidence. So an untracked
+        NON-ignored document is planted too, and both classifications are asserted before the index
+        comparison is believed.
         """
         with tempfile.TemporaryDirectory() as t:
             home = self.green_home(Path(t))
             (self.skills(home) / "unstaged-skill").mkdir()
             (self.skills(home) / "unstaged-skill" / "SKILL.md").write_text("x\n", encoding="utf-8")
+            self.plant_docs(home, "unstaged-doc.md")
             index = home / ".claude" / ".git" / "index"
 
             before = (index.read_bytes() if index.exists() else None,
@@ -3390,9 +3473,11 @@ class TrackedContentTest(GreenHomeMixin, unittest.TestCase):
                      git(home / ".claude", "ls-files", "-s").stdout,
                      git(home / ".claude", "status", "--porcelain").stdout)
 
-            # Positive control FIRST: the add path ran and reached a verdict on the new skill.
+            # Positive control FIRST: BOTH add paths ran and reached a verdict.
             self.assertEqual(payload["tracking"]["claude"]["results"]["unstaged-skill"],
                              "trackable", payload["tracking"])
+            self.assertEqual(self.entry_results(payload)["docs/unstaged-doc.md"], "trackable",
+                             payload["tracking"])
             self.assertEqual(rc, 0, err)
             self.assertEqual(before[1], after[1], "git ls-files changed — the run staged something")
             self.assertEqual(before[2], after[2], "git status changed — the run staged something")
@@ -3495,6 +3580,321 @@ class TrackedContentTest(GreenHomeMixin, unittest.TestCase):
 
             self.assertEqual(state, toolchain.UNKNOWN, (state, why))
             self.assertIn("retries", why)
+
+    # ---- TC-49: the surfaces where a NEW file is invisible by default -------------------------
+    #
+    # TC-47 swept skill DIRECTORIES, which is the surface where `!/skills/` makes a new file
+    # trackable by default. These cases cover the inverse: `!/docs/` re-closed by `/docs/*`, and
+    # `skills/.gitignore`'s own `/*`, where a newly authored file is IGNORED by default and
+    # `git status` reports clean while it sits there. That is not an analogue of the measured
+    # incident — `docs/fleet-lessons.md` invisible for two days — it is the same mechanism.
+
+    def plant_docs(self, home: Path, *names: str) -> Path:
+        """Author files under `~/.claude/docs`, asserting each one actually landed."""
+        docs = home / ".claude" / "docs"
+        docs.mkdir(parents=True, exist_ok=True)
+        for name in names:
+            path = docs / name
+            self.assertFalse(path.exists(), f"fixture would not mutate: {name} already exists")
+            path.write_text("authored\n", encoding="utf-8")
+            self.assertTrue(path.is_file(), f"fixture did not mutate: {name} was not written")
+        return docs
+
+    def write_top_allowlist(self, home: Path, body: str) -> Path:
+        """Plant `~/.claude/.gitignore` and assert the rules actually changed."""
+        path = home / ".claude" / ".gitignore"
+        before = path.read_text(encoding="utf-8") if path.is_file() else None
+        path.write_text(body, encoding="utf-8")
+        self.assertNotEqual(path.read_text(encoding="utf-8"), before, "fixture did not mutate")
+        return path
+
+    @staticmethod
+    def entry_results(payload: dict) -> dict[str, str]:
+        """Every per-ENTRY answer across every swept surface, flattened by relative path."""
+        out: dict[str, str] = {}
+        for surface in payload["tracking"]["claude"]["entry_surfaces"].values():
+            out.update(surface["results"])
+        return out
+
+    def test_a_new_document_under_docs_is_a_finding_naming_it(self) -> None:
+        """THE REPRODUCED INCIDENT. A lessons file written after the allow-list named its siblings.
+
+        Baseline and mutation are printed together and share one tree: the same home answers
+        `clean` with only the NAMED survivor present and `findings` the moment an unnamed document
+        is written beside it. So the finding is attributable to the state, not to the fixture — and
+        the named survivor next to it stays silent, which is what stops this from being a check
+        that simply flags `docs/`.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+            self.plant_docs(home, "LEDGER.md")
+            # The real shape, reduced to the rule that decides this surface: `!/docs/` opens the
+            # directory, `/docs/*` closes it again, and only what is named after that survives.
+            self.write_top_allowlist(home, "/docs/*\n!/docs/LEDGER.md\n")
+
+            base_rc, base_payload, err = self.run_json(home)
+            self.assertEqual(base_rc, 0, err)
+            self.assertEqual(base_payload["status"], "clean", base_payload["summary"])
+            self.assertEqual(self.entry_results(base_payload)["docs/LEDGER.md"], "trackable",
+                             "fixture did not reproduce the named-survivor state")
+
+            self.plant_docs(home, "fleet-lessons.md")
+
+            rc, payload, err = self.run_json(home)
+
+            self.assertNotEqual(payload["summary"], base_payload["summary"],
+                                "the invisible document renders identically to the tracked one")
+            hits = [f for f in payload["findings"] if "docs/fleet-lessons.md" in f["detail"]]
+            self.assertEqual(len(hits), 1, payload["findings"])
+            self.assertEqual(hits[0]["severity"], "warn", hits[0])
+            self.assertIn("would NOT be committed", hits[0]["detail"])
+            self.assertIn("MACHINE-GLOBAL", hits[0]["detail"])
+            self.assertEqual(payload["status"], "findings")
+            # TC-06 again: visible, not fatal, and the same ruling the skill sweep carries.
+            self.assertEqual(rc, 0, err)
+            self.assertEqual(self.entry_results(payload)["docs/fleet-lessons.md"], "ignored")
+            self.assertEqual([f for f in payload["findings"] if "docs/LEDGER.md" in f["detail"]], [],
+                             "a named survivor was flagged — the sweep is firing on the directory "
+                             "rather than on the allow-list's answer")
+
+    def test_both_invisible_surfaces_fire_and_a_whole_directory_negation_does_not(self) -> None:
+        """The two swept surfaces against the faithful two-allow-list replica, with the control.
+
+        The TRUE rows are the point. A sweep that had simply started flagging every new file would
+        satisfy both FALSE rows and prove nothing, so `hooks/new.sh`, `agents/new.md` and a file
+        INSIDE a negated skill directory are planted in the same run and asserted trackable by the
+        same probe — and silent.
+
+        Probed on an UNCOMMITTED replica, for the reason `plant_allowlisted_home` records: `git add
+        --dry-run` exits 0 for anything already in the index whatever the rules say, so a committed
+        tree would measure trackedness instead of the allow-list.
+        """
+        invisible = ("docs/NEW-LESSON.md", "skills/NOTES.md")
+        controls = ("hooks/new.sh", "agents/new.md", "skills/agent-personas/NOTES.md")
+        with tempfile.TemporaryDirectory() as t:
+            home = plant_allowlisted_home(Path(t) / "claude", commit=False)
+            with self.roots(home / "skills", Path(t) / "codex" / "skills"):
+                _, base_findings, _ = toolchain.check_tracking()
+                self.assertEqual(base_findings, [],
+                                 f"baseline was not silent, so nothing below is attributable to "
+                                 f"the mutation: {base_findings}")
+
+                for rel in (*invisible, *controls):
+                    path = home / rel
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    self.assertFalse(path.exists(), f"fixture would not mutate: {rel} exists")
+                    path.write_text("authored\n", encoding="utf-8")
+                    self.assertTrue(path.is_file(), f"fixture did not mutate: {rel}")
+
+                surface, findings, _ = toolchain.check_tracking()
+
+                # The control is only a control if git really would commit these.
+                for rel in controls:
+                    state, why = toolchain.git_probe(home, rel)
+                    self.assertEqual(state, toolchain.TRACKABLE, (rel, state, why))
+
+            self.assertEqual(sorted(s for s, _ in findings), ["warn", "warn"], findings)
+            named = " ".join(d for _, d in findings)
+            for rel in invisible:
+                self.assertIn(rel, named, findings)
+            for rel in controls:
+                self.assertNotIn(rel, named,
+                                 f"`{rel}` is trackable and was flagged anyway — the sweep started "
+                                 f"reporting everything")
+            entries = {}
+            for s in surface["claude"]["entry_surfaces"].values():
+                entries.update(s["results"])
+            self.assertEqual(entries["docs/NEW-LESSON.md"], "ignored", entries)
+            self.assertEqual(entries["skills/NOTES.md"], "ignored", entries)
+            # `.gitignore` at the top level of skills/ is hidden, authored, and NAMED — the standing
+            # refutation of "hidden means uninteresting", now swept rather than merely documented.
+            self.assertEqual(entries["skills/.gitignore"], "trackable", entries)
+
+    def test_each_surfaces_remedy_addresses_the_allowlist_that_actually_governs_it(self) -> None:
+        """FIX ROUND 1. The printed remedy must name the file that can CLEAR the finding.
+
+        Per gitignore(5) the closest `.gitignore` wins for paths beneath it, so `skills/NOTES.md`
+        is decided by `skills/.gitignore` — `check-ignore -v` attributes it to
+        `skills/.gitignore:10:/*` — while `docs/NEW-LESSON.md` is decided by the top-level list.
+        The first version of this loop hardcoded the top-level file for both, so a reader following
+        the instruction for surface 2 would have added a line to the machine's most
+        safety-sensitive allow-list, watched the finding survive, and learned to ignore the check.
+        `tree()`'s KNOWN GAP already records why an untrue remedy is the expensive kind of wrong.
+
+        DELETING THE FIX CLAUSE MUST FAIL SOMETHING, which is the gap this closes: the two covering
+        cases asserted only that the path was named, so the entire remedy could be replaced with an
+        empty string and stay green.
+
+        BOTH DIRECTIONS ARE PINNED. Asserting only that surface 2 names the skills list would be
+        satisfied by a fix that swung the other way and sent every surface there, so surface 1 is
+        asserted to still address the top-level file, and each is asserted NOT to name the other's.
+
+        AND THE REMEDY IS EXECUTED, not merely read. The strongest form of "this instruction is
+        true" is to follow it: each printed negation is appended to the file it names, and both
+        findings are asserted to clear. That is what makes this a test of the ADVICE rather than of
+        today's string.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = plant_allowlisted_home(Path(t) / "claude", commit=False)
+            top_list, skills_list = home / ".gitignore", home / "skills" / ".gitignore"
+            planted = {"docs/NEW-LESSON.md": (top_list, "!/docs/NEW-LESSON.md"),
+                       "skills/NOTES.md": (skills_list, "!/NOTES.md")}
+            for rel in planted:
+                path = home / rel
+                self.assertFalse(path.exists(), f"fixture would not mutate: {rel} exists")
+                path.write_text("authored\n", encoding="utf-8")
+
+            with self.roots(home / "skills", Path(t) / "codex" / "skills"):
+                _, findings, _ = toolchain.check_tracking()
+
+                self.assertEqual(sorted(s for s, _ in findings), ["warn", "warn"], findings)
+                detail = {rel: [d for _, d in findings if rel in d] for rel in planted}
+                for rel, (allowlist, negation) in planted.items():
+                    self.assertEqual(len(detail[rel]), 1, findings)
+                    said = detail[rel][0]
+                    # BOTH HALVES, because they can drift apart. The first mutation run against
+                    # this test changed only the DIAGNOSIS sentence and the suite stayed green —
+                    # the remedy was pinned and the sentence saying which allow-list was consulted
+                    # was not, so the finding could have named one file and prescribed another.
+                    self.assertIn(f"and {allowlist} does not name it", said)
+                    self.assertIn(f"Fix: add `{negation}` to {allowlist} ", said)
+                    # ...and NOT the other surface's list, which is the defect this round fixed.
+                    other = skills_list if allowlist == top_list else top_list
+                    self.assertNotIn(f"to {other} ", said,
+                                     f"the remedy for `{rel}` addresses {other}, which cannot "
+                                     f"clear it — gitignore(5) gives {allowlist} precedence")
+
+                # FOLLOW THE INSTRUCTION. If it is true, both findings go away.
+                for allowlist, negation in planted.values():
+                    before = allowlist.read_text(encoding="utf-8")
+                    allowlist.write_text(f"{before}{negation}\n", encoding="utf-8")
+                    self.assertNotEqual(allowlist.read_text(encoding="utf-8"), before,
+                                        f"fixture did not mutate: {allowlist}")
+
+                surface, cleared, _ = toolchain.check_tracking()
+
+            self.assertEqual(cleared, [],
+                             f"the printed remedy did not clear the finding it was printed for: "
+                             f"{cleared}")
+            entries = {}
+            for s in surface["claude"]["entry_surfaces"].values():
+                entries.update(s["results"])
+            for rel in planted:
+                self.assertEqual(entries[rel], "trackable", entries)
+
+    def test_the_repository_top_level_is_declared_deferred_rather_than_swept_or_silent(self) -> None:
+        """STOP CONDITION 1. The third surface is NOT closed here, and it says so where it is read.
+
+        Enumerating the top level of `~/.claude` per entry means enumerating `projects/` (a 2.6 GB
+        transcript store), `plugins/`, `shell-snapshots/` and every cache the harness writes, all
+        legitimately and permanently ignored. Measured on this machine: 33 entries, 11 trackable,
+        22 ignored. Probed with no authored-set that is 22 unclearable findings at every session
+        start in every directory — the cry-wolf pathology this milestone exists to remove, and a
+        finding the reader learns to skip is worse than the gap.
+
+        So it is DECLARED, on exactly the terms the Codex tree is: `asked` is false, the reason
+        travels in `--json`, and the exclusion is named on the summary line. What must never happen
+        is the third possibility — the surface quietly absent, so that a clean run reads as though
+        the top level had been asked about.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+            _, payload, err = self.run_json(home)
+
+            surfaces = payload["tracking"]["claude"]["entry_surfaces"]
+            self.assertIn(toolchain.TOP_LEVEL_SURFACE, surfaces, sorted(surfaces))
+            top = surfaces[toolchain.TOP_LEVEL_SURFACE]
+            self.assertFalse(top["asked"])
+            self.assertEqual(top["results"], {})
+            self.assertIn("authored-set", (top["why_not_asked"] or "").lower(), top)
+            names = [e["name"] for e in payload["excluded"]]
+            self.assertIn(toolchain.TOP_LEVEL_EXCLUSION[0], names, names)
+            # ...and declaring it costs the run nothing, which is why it is not a finding.
+            self.assertEqual(payload["status"], "clean", payload["summary"])
+
+    def test_sweeping_the_top_level_per_entry_would_fire_on_ordinary_machine_state(self) -> None:
+        """The evidence UNDER the deferral above, measured rather than asserted.
+
+        A deferral justified by prose is a deferral nobody can re-check. This plants the ordinary,
+        benign top-level state every machine carries — a transcript store, a plugin tree, a shell
+        snapshot directory, two caches — and shows the probe answers IGNORED for every one of them
+        while the allow-list declares none of them. Those are the findings a per-entry sweep would
+        emit at every session start, with no line anyone could add to clear them.
+        """
+        noise = ("projects", "plugins", "shell-snapshots", "history.jsonl", "stats-cache.json")
+        with tempfile.TemporaryDirectory() as t:
+            home = plant_allowlisted_home(Path(t) / "claude", commit=False)
+            for name in noise:
+                path = home / name
+                self.assertFalse(path.exists(), f"fixture would not mutate: {name} exists")
+                if Path(name).suffix:
+                    path.write_text("{}\n", encoding="utf-8")
+                else:
+                    path.mkdir()
+                    (path / "x").write_text("x\n", encoding="utf-8")
+
+            states = {name: toolchain.git_probe(home, name)[0] for name in noise}
+
+            self.assertEqual(states, {name: toolchain.IGNORED for name in noise}, states)
+            # Non-vacuity: on the same tree, a NAMED top-level survivor answers the other way, so
+            # the rows above are the allow-list's verdict and not a probe that refuses everything.
+            self.assertEqual(toolchain.git_probe(home, "CLAUDE.md")[0], toolchain.TRACKABLE)
+
+    def test_an_unanswerable_entry_probe_is_could_not_run_and_differs_from_clean(self) -> None:
+        """A symlinked document, and the same fail-closed ruling `skill_dirs` already makes.
+
+        `git add` on a link records the LINK — a blob holding a target path — so exit 0 would say
+        "git would commit this" about a document whose content lives where git has never looked.
+        That is the invisible-authored-work case wearing a green tick, which is the exact failure
+        this sweep exists to prevent, so it answers UNKNOWN. Both halves are asserted: the run
+        cannot be trusted (exit 2) AND it does not render like the clean one.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+            self.plant_docs(home, "LEDGER.md")
+            clean_rc, clean_payload, err = self.run_json(home)
+            self.assertEqual((clean_rc, clean_payload["status"]), (0, "clean"), err)
+
+            elsewhere = Path(t) / "outside"
+            elsewhere.mkdir()
+            (elsewhere / "NOTE.md").write_text("real content\n", encoding="utf-8")
+            link = home / ".claude" / "docs" / "linked.md"
+            link.symlink_to(elsewhere / "NOTE.md")
+            self.assertTrue(link.is_symlink(), "fixture did not mutate")
+
+            rc, payload, err = self.run_json(home)
+
+            self.assertEqual(rc, 2, err)
+            self.assertEqual(payload["status"], toolchain.NOT_RUN)
+            self.assertNotEqual(payload["summary"], clean_payload["summary"])
+            self.assertEqual(self.entry_results(payload)["docs/linked.md"], "unknown")
+            self.assertIn(toolchain.TRACKING_LABEL, [i["check"] for i in payload["not_evaluated"]])
+            self.assertNotIn(toolchain.TRACKING_LABEL, payload["evaluated"])
+
+    def test_os_noise_inside_a_swept_surface_is_held_out_rather_than_reported(self) -> None:
+        """`.DS_Store` in `docs/` is an ordinary state on any machine that opened it in Finder.
+
+        Both allow-lists exclude the four OS-noise names "never, anywhere", so each one is ignored
+        AND undeclared AND would be a finding under the plain rule — a permanent, unclearable
+        finding produced by a file nobody authored. Held out by name, which the card's own scoping
+        calls a list rather than a model. The authored file planted beside it keeps the assertion
+        non-vacuous: the sweep is still looking.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            home = self.green_home(Path(t))
+            self.plant_docs(home, "LEDGER.md", ".DS_Store", "NEW-LESSON.md")
+            self.write_top_allowlist(home, "/docs/*\n!/docs/LEDGER.md\n.DS_Store\n")
+
+            rc, payload, err = self.run_json(home)
+
+            results = self.entry_results(payload)
+            self.assertNotIn("docs/.DS_Store", results, results)
+            self.assertEqual([f for f in payload["findings"] if ".DS_Store" in f["detail"]], [])
+            # ...and the authored file next to it is still reported, so this is a hold-out and not
+            # a sweep that quietly stopped looking at `docs/`.
+            self.assertEqual(results["docs/NEW-LESSON.md"], "ignored", results)
+            self.assertEqual(len([f for f in payload["findings"]
+                                  if "docs/NEW-LESSON.md" in f["detail"]]), 1, payload["findings"])
 
     # ---- the declared-vendor list -----------------------------------------------------------
 
@@ -3686,8 +4086,8 @@ class TrackedContentTest(GreenHomeMixin, unittest.TestCase):
             self.assertEqual(rc, 2, err)
             self.assertEqual(payload["status"], toolchain.NOT_RUN)
             self.assertNotEqual(payload["summary"], clean_payload["summary"])
-            self.assertIn("skill tracking", [i["check"] for i in payload["not_evaluated"]])
-            self.assertNotIn("skill tracking", payload["evaluated"])
+            self.assertIn(toolchain.TRACKING_LABEL, [i["check"] for i in payload["not_evaluated"]])
+            self.assertNotIn(toolchain.TRACKING_LABEL, payload["evaluated"])
             self.assertFalse(payload["tracking"]["claude"]["asked"])
             self.assertTrue(payload["tracking"]["claude"]["why_not_asked"])
 
@@ -3704,7 +4104,7 @@ class TrackedContentTest(GreenHomeMixin, unittest.TestCase):
             payload = json.loads(r.stdout)
             self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
             self.assertEqual(payload["status"], toolchain.NOT_RUN)
-            self.assertIn("skill tracking", [i["check"] for i in payload["not_evaluated"]])
+            self.assertIn(toolchain.TRACKING_LABEL, [i["check"] for i in payload["not_evaluated"]])
             why = payload["tracking"]["claude"]["why_not_asked"] or ""
             self.assertIn("git", why.lower(), why)
 
@@ -3778,6 +4178,12 @@ class TrackedContentTest(GreenHomeMixin, unittest.TestCase):
 
     # ---- the real machine, with its tree named ----------------------------------------------
 
+    @reaches_home(
+        "READS THE REAL MACHINE, as its name says: the claim is that THIS machine's skill "
+        "directories and entry surfaces are all askable and all classified. Skips when "
+        "~/.claude/skills is absent or ~/.claude is not a work tree. NOTE that a complete replica "
+        "IS a work tree with skills in it, so this one RUNS there and passes — it is marked "
+        "because it reads the machine, not because it breaks on a replica.")
     def test_the_real_machine_is_askable_and_its_clear_result_is_an_asked_one(self) -> None:
         """The current true answer must be reported as a result, not as the absence of a check.
 
@@ -3807,6 +4213,32 @@ class TrackedContentTest(GreenHomeMixin, unittest.TestCase):
         for severity, detail in findings:
             self.assertIn(severity, toolchain.SEVERITY_RANK, detail)
 
+        # TC-49, and the same positive control one level down. An entry surface that answered
+        # nothing reads exactly like one with nothing wrong, so assert the sweep reached every
+        # entry the walk can see — and that the deferred surface is present and honest about being
+        # unasked rather than absent.
+        surfaces = claude["entry_surfaces"]
+        deferred = surfaces[toolchain.TOP_LEVEL_SURFACE]
+        self.assertFalse(deferred["asked"])
+        self.assertTrue(deferred["why_not_asked"])
+        root = toolchain.CLAUDE_SKILLS.parent
+        for label, rel_dir, files_only, allowlist_rel in toolchain.ENTRY_SURFACES:
+            entry = surfaces[label]
+            base = root / rel_dir
+            self.assertEqual(entry["allowlist"], str(root / allowlist_rel), label)
+            if not base.is_dir():
+                self.assertFalse(entry["present"], label)
+                continue
+            self.assertTrue(entry["asked"], entry)
+            on_disk = sorted(f"{rel_dir}/{p.name}" for p in base.iterdir()
+                             if not (files_only and p.is_dir())
+                             and not any(fnmatch.fnmatch(p.name, pattern)
+                                         for pattern in toolchain.TRACKING_OS_NOISE))
+            self.assertEqual(sorted(entry["results"]), on_disk,
+                             f"the {label} sweep did not ask about every entry on disk")
+            self.assertEqual([n for n, v in entry["results"].items()
+                              if v not in ("trackable", "ignored", "unknown")], [])
+
 
 class ReviewArtifactTest(unittest.TestCase):
     """TC-47, sweep two. Same class of defect: authored work that no gate can see.
@@ -3823,10 +4255,20 @@ class ReviewArtifactTest(unittest.TestCase):
     """
 
     def run_reviews(self, workspace: Path):
+        """HOME PINNED BESIDE THE WORKSPACE, since TC-57.
+
+        `--reviews` is a workspace-scoped mode and returns before `collect()`, so on the evidence
+        of today's source it never opens anything under HOME. That is a fact about one `elif`
+        branch, not a property of the process: the child is `check_toolchain.py`, whose module body
+        freezes ten paths off `Path.home()` the moment it imports. Pinning HOME costs nothing,
+        changes no assertion here (every one is about the workspace), and means this mode cannot
+        start reading the developer's machine without someone deleting this line.
+        """
         r = subprocess.run(
             [sys.executable, str(SCRIPTS / "check_toolchain.py"), "--json",
              "--reviews", str(workspace)],
-            capture_output=True, text=True)
+            capture_output=True, text=True,
+            env={**dict(os.environ), "HOME": str(Path(workspace).parent)})
         return r.returncode, (json.loads(r.stdout) if r.stdout.strip() else None), r.stdout + r.stderr
 
     def test_a_card_with_a_report_and_no_review_is_a_finding_naming_it(self) -> None:
@@ -3944,7 +4386,8 @@ class ReviewArtifactTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             r = subprocess.run(
                 [sys.executable, str(SCRIPTS / "check_toolchain.py"), "--json",
-                 "--reviews", str(Path(t) / "nope")], capture_output=True, text=True)
+                 "--reviews", str(Path(t) / "nope")], capture_output=True, text=True,
+                env={**dict(os.environ), "HOME": t})
 
             self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
             self.assertEqual(r.stdout.strip(), "")
@@ -3956,7 +4399,8 @@ class ReviewArtifactTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             r = subprocess.run(
                 [sys.executable, str(SCRIPTS / "check_toolchain.py"),
-                 "--vendored", t, "--reviews", t], capture_output=True, text=True)
+                 "--vendored", t, "--reviews", t], capture_output=True, text=True,
+                env={**dict(os.environ), "HOME": t})
 
             self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
             self.assertEqual(r.stdout.strip(), "")
@@ -4175,6 +4619,11 @@ class AllowlistReplicaTest(unittest.TestCase):
             self.assertEqual(len(governing) + len(inert), 5,
                              "the split lost or invented a file; the total must be the walk's")
 
+    @reaches_home(
+        "READS THE REAL MACHINE by design — it is the detector that stops `REQUIRED_GITIGNORES` "
+        "drifting from the allow-lists this machine actually carries, and its total must come from "
+        "a full walk of the tree rather than from the constant under test. The skip is already "
+        "loud on stderr, which is what a tree with no `.git` sees.")
     def test_every_gitignore_the_real_tree_has_is_planted_by_the_builder(self) -> None:
         """The derivation, checked against a FULL WALK of the machine. TC-48 round 1, finding 1.
 
@@ -4236,6 +4685,299 @@ class AllowlistReplicaTest(unittest.TestCase):
                          f"if git should not be consulting it, say why here. The next replica "
                          f"would otherwise measure a tree that does not exist, which is the TC-47 "
                          f"defect verbatim")
+
+
+# A hermetic pair and its escaping twin, for each of the three mechanisms AND FOR EACH SPELLING OF
+# THE SUBPROCESS ONE THAT IS ACTUALLY IN USE HERE — see the two rows at the end. Held as SOURCE TEXT and
+# written into a scratch directory the analyser has never seen, which is what keeps this module's
+# own text out of the search space — the trap that let two mutations survive a suite measuring
+# itself here. Each pair differs in ONE line, named in `differs`, so a plant that is caught proves
+# the mechanism was detected rather than that the file was noticed.
+PLANTS = (
+    ("an in-process call to check_toolchain.main()",
+     "toolchain.main()",
+     "with synthetic_home(toolchain, root):\n            toolchain.main()"),
+    ("an in-process read of a home-derived global",
+     "self.assertTrue(toolchain.CLAUDE_PLUGINS.is_dir())",
+     "with synthetic_home(toolchain, root):\n            "
+     "self.assertTrue(toolchain.CLAUDE_PLUGINS.is_dir())"),
+    ("a subprocess launch of a home-reading script",
+     'subprocess.run([sys.executable, str(SCRIPTS / "check_toolchain.py")])',
+     'subprocess.run([sys.executable, str(SCRIPTS / "check_toolchain.py")], '
+     'env={"HOME": str(root)})'),
+    ("a direct Path.home() in the test body",
+     'self.assertTrue((Path.home() / ".claude").is_dir())',
+     'self.assertTrue((root / ".claude").is_dir())'),
+    # TC-57 fix round. THE FOUR ABOVE WERE SHAPE-BIASED: the only subprocess row among them writes
+    # `str(SCRIPTS / "check_toolchain.py")`, and a string constant inside argv is the ONE spelling
+    # the original walk could see. Two real sites in this directory — `run_checker` in
+    # `test_check_github_git_failure.py` and `run` in `test_validate_disclosure_reads.py` — are
+    # spelled `str(NAME)` against a module-level binding, carry no string constant at all, and
+    # were therefore invisible while the suite reported a clean two-way equality. A planted
+    # mutation only ever proves the detector sees the shapes that were planted, so choosing all
+    # four from the working shape proved nothing about the one that mattered.
+    ("a subprocess launch named through a module-level binding, not a literal",
+     'subprocess.run([sys.executable, str(CHECKER)])',
+     'subprocess.run([sys.executable, str(CHECKER)], env={"HOME": str(root)})'),
+    # And the fail-closed direction, which is new behaviour and would otherwise be untested. An
+    # argv the walk cannot resolve to a script must be reported, not waved through: "the analyser
+    # did not understand this" and "this is hermetic" are different answers, and treating the
+    # first as the second is exactly how the two sites above survived.
+    ("an interpreter launch on a script the walk cannot resolve at all",
+     'subprocess.run([sys.executable, str(whatever_this_is)])',
+     'subprocess.run([sys.executable, str(whatever_this_is)], env={"HOME": str(root)})'),
+)
+
+PLANT_TEMPLATE = """\
+import subprocess, sys
+from pathlib import Path
+SCRIPTS = Path("/nowhere")
+CHECKER = SCRIPTS / "check_toolchain.py"
+class PlantedTest:
+    def test_planted(self):
+        root = Path("/tmp/x")
+        {body}
+"""
+
+
+class ReachesHomeTest(unittest.TestCase):
+    """TC-57. Nothing in this directory reads the machine it runs on without saying so.
+
+    THE PREMISE, reproduced before any of this was written: a COMPLETE `git archive HEAD` of
+    `~/.claude`, unpacked into a redirected HOME and git-initialised, ran the whole of this
+    directory and failed exactly one test — `test_unknown_severity_is_loud_but_not_fatal`, with two
+    `not-run` findings about the replica's absent `~/.claude/plugins` and `~/.codex/config.toml`.
+    Nothing was missing from the tree. The test was not looking at the tree.
+
+    So the property is not completeness, which TC-48 already made unfalsifiable, but HERMETICITY:
+    a test either builds what it measures, or it declares that it is measuring this machine. The
+    derivation lives in `hermetic.py`; what is here is the enforcement and the proof that the
+    derivation can see.
+
+    WHY THE SETS ARE COMPARED IN BOTH DIRECTIONS. A one-way check ("every escape is declared")
+    leaves a mark behind on a test that has since been made hermetic, and a stale declaration is
+    the same defect as a missing one wearing a machine-readable hat — the next reader trusts it.
+    """
+
+    def loaded_test_modules(self) -> list:
+        """Import every `test_*.py` here, so `hermetic.MARKED` holds every mark and not only this
+        file's. Modules already loaded (this one, under whatever name) are reused rather than
+        re-executed: a second execution would reload `check_toolchain.py` and re-register the same
+        keys, which is harmless but slow and would hide an import error behind a duplicate."""
+        by_file = {}
+        for module in list(sys.modules.values()):
+            path = getattr(module, "__file__", None)
+            if path:
+                by_file[str(Path(path).resolve())] = module
+        modules = []
+        for path in sorted(hermetic.TESTS.glob("test_*.py")):
+            existing = by_file.get(str(path.resolve()))
+            modules.append(existing if existing is not None
+                           else load_module(f"_hermetic_scan_{path.stem}", path))
+        return modules
+
+    def test_every_escaping_test_is_declared_and_every_declaration_still_escapes(self) -> None:
+        self.loaded_test_modules()
+        derived = hermetic.escaping_tests()
+        declared = dict(hermetic.MARKED)
+
+        # POSITIVE CONTROL. An analyser that returned {} and a directory with nothing to declare
+        # produce the same empty diff, and one of those is a broken barrier. There are escapes
+        # here on purpose — the drift detectors — so a zero means the walk went blind.
+        self.assertGreaterEqual(len(derived), 5,
+                                f"the derivation found {len(derived)} escaping test(s); the "
+                                f"deliberate machine-readers alone are more than that, so this is "
+                                f"the walk failing rather than the directory being clean")
+
+        undeclared = {key: reasons for key, reasons in derived.items() if key not in declared}
+        self.assertEqual(undeclared, {},
+                         "these tests can read the machine they run on and do not say so. Either "
+                         "make them hermetic (synthetic_home, or pin HOME in the child's env) or "
+                         "mark them @reaches_home(reason) — and a complete replica under a "
+                         "redirected HOME will fail on them until one of the two happens")
+
+        stale = {key: why for key, why in declared.items() if key not in derived}
+        self.assertEqual(stale, {},
+                         "these tests are declared @reaches_home and no longer reach it. Remove "
+                         "the mark: a declaration nobody has to earn is what the next reader "
+                         "trusts instead of looking")
+
+    def test_the_declared_reasons_say_what_the_test_reaches_for(self) -> None:
+        """A mark with a reason nobody can act on is a mark with no reason. Cheap floor, not a
+        style rule: the empty string is refused at decoration time, and this catches `"tbd"`."""
+        self.loaded_test_modules()
+        self.assertTrue(hermetic.MARKED, "no marks registered at all — the import scan is broken")
+        for key, reason in sorted(hermetic.MARKED.items()):
+            with self.subTest(test=key):
+                self.assertGreater(len(reason), 80, f"{key}: {reason!r}")
+
+    def test_an_unreasoned_mark_is_refused_at_decoration_time(self) -> None:
+        with self.assertRaises(ValueError):
+            hermetic.reaches_home("   ")
+
+    # ---- proving the walk, rather than asserting it ------------------------------------------
+
+    def test_the_walk_sees_every_shape_a_home_derived_global_is_written_in(self) -> None:
+        """The matcher, not the constant. A grep-derived list in this repository was wrong on three
+        of seven entries the day it was committed, and a matcher elsewhere in this programme missed
+        `ast.IfExp` heads for three rounds — so the shapes are exercised rather than trusted.
+
+        Written as a SYNTHETIC module, so the assertion's search space is a file that exists only
+        inside this test and cannot be satisfied by this file's own text.
+        """
+        source = (
+            'from pathlib import Path\n'
+            'import os\n'
+            'HOME = Path.home()\n'                                   # the direct call
+            'A = HOME / ".claude"\n'                                 # one hop
+            'B = A / "skills" / "x"\n'                               # two hops
+            'C = Path.home() / "a" if os.environ else Path("/b")\n'  # an IfExp head
+            'D: Path = HOME / "annotated"\n'                         # an AnnAssign
+            'E = str(B)\n'                                           # through a call
+            'BEFORE = LATER / "x"\n'                                 # defined above its source
+            'LATER = HOME / "later"\n'
+            'NOPE = Path("/etc") / "passwd"\n'                       # the negative control
+            'ALSO_NOPE = Path(os.environ["X"]).expanduser()\n'       # expanduser is not a trigger
+        )
+        with tempfile.TemporaryDirectory() as t:
+            probe = Path(t) / "probe.py"
+            probe.write_text(source, encoding="utf-8")
+            found = hermetic.home_derived_globals(probe)
+
+        self.assertEqual(found, frozenset({"HOME", "A", "B", "C", "D", "E", "BEFORE", "LATER"}))
+        # Stated separately rather than resting on the equality above, because the two negative
+        # controls are the half most likely to be lost in a rewrite of the assertion.
+        self.assertNotIn("NOPE", found)
+        self.assertNotIn("ALSO_NOPE", found, "`.expanduser()` on caller input is not a HOME read")
+
+    def test_the_reach_of_a_checker_function_is_transitive_and_the_real_one_is_not_empty(self):
+        """`main()` reaches what `collect()` reaches. That is the whole mechanism of the reported
+        failure — `DEFAULT_CHECKS` was swapped out and `check_plugins()` ran anyway — so it is
+        asserted against the real checker rather than a fixture."""
+        reach = hermetic.checker_reach()
+        self.assertIn("main", reach)
+        # THE TRANSITIVE STEP ITSELF: `main` calls `collect` calls `check_plugins`, and none of
+        # those globals is named in `main`'s own body. Each link asserted, so a walk that stopped
+        # following calls fails here and names the hop it lost.
+        self.assertTrue(reach["check_plugins"], "check_plugins reaches nothing; the walk is blind")
+        self.assertLessEqual(set(reach["check_plugins"]), set(reach["collect"]))
+        self.assertLessEqual(set(reach["collect"]), set(reach["main"]))
+        for name in ("CLAUDE_PLUGINS", "CODEX_CONFIG", "INSTALLED_PLUGINS"):
+            self.assertIn(name, reach["main"],
+                          f"main() no longer reaches {name}; either the checker changed or the "
+                          f"transitive walk stopped following calls")
+        # The negative control: a function that touches no home-derived name must report none, or
+        # "everything reaches everything" would make the derivation vacuously complete.
+        self.assertEqual(reach["severity_sort_key"], frozenset())
+
+    def test_a_planted_escape_is_caught_and_its_hermetic_twin_is_not(self) -> None:
+        """MUTATION, one per mechanism, each with the negative control beside it.
+
+        A plant that is caught proves nothing on its own — a derivation returning every test it
+        parses would catch all four. So each escaping body is paired with a hermetic body
+        differing in one line, and BOTH directions are asserted. The bodies are asserted to differ
+        before either is believed.
+        """
+        for description, escaping, hermetic_twin in PLANTS:
+            with self.subTest(mechanism=description):
+                self.assertNotEqual(escaping, hermetic_twin,
+                                    "the plant and its control are the same text")
+                results = {}
+                for label, body in (("escaping", escaping), ("hermetic", hermetic_twin)):
+                    with tempfile.TemporaryDirectory() as t:
+                        planted = Path(t) / "test_planted.py"
+                        planted.write_text(PLANT_TEMPLATE.format(body=body), encoding="utf-8")
+                        results[label] = hermetic.escaping_tests(Path(t))
+
+                self.assertEqual(sorted(results["escaping"]),
+                                 [("test_planted.py", "PlantedTest.test_planted")],
+                                 f"{description} was planted and the derivation did not name it")
+                self.assertEqual(results["hermetic"], {},
+                                 f"the hermetic form of {description} was reported as an escape; "
+                                 f"a barrier that fires on the fix teaches people to delete it")
+
+    def test_a_directory_with_nothing_to_find_yields_nothing(self) -> None:
+        """The other end of the same control. If `escaping_tests` reported a finding here, every
+        assertion above would be measuring a matcher that says yes to everything."""
+        with tempfile.TemporaryDirectory() as t:
+            (Path(t) / "test_clean.py").write_text(
+                PLANT_TEMPLATE.format(body='self.assertTrue(root.is_dir())'), encoding="utf-8")
+            self.assertEqual(hermetic.escaping_tests(Path(t)), {})
+
+    # ---- the escape hatch cannot become a lie -------------------------------------------------
+
+    def test_synthetic_home_rebinds_every_home_derived_global(self) -> None:
+        """`synthetic_home` is credited by the derivation with rebinding EVERYTHING. The day it
+        rebinds nine of ten, every test inside it reads as hermetic and one of them is not — which
+        is this card's defect reappearing inside its own remedy.
+
+        The expected set comes from the CHECKER, and the observed set from the MODULE OBJECT after
+        the rebind. Two sources, so the comparison is not the constant checking itself.
+        """
+        expected = hermetic.home_derived_globals(hermetic.CHECKER)
+        self.assertGreaterEqual(len(expected), 5, f"the derivation went blind: {sorted(expected)}")
+        real = {name: getattr(toolchain, name) for name in expected}
+
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            with synthetic_home(toolchain, root):
+                inside = {name: Path(getattr(toolchain, name)) for name in expected}
+                for name, value in sorted(inside.items()):
+                    with self.subTest(name=name):
+                        self.assertTrue(value == root or root in value.parents,
+                                        f"{name} still points at {value}")
+                # The relative shape is preserved, or the rebind would be pointing every global at
+                # the same place and the checks under it would measure a tree of one directory.
+                self.assertEqual(
+                    sorted(str(v.relative_to(root)) for v in inside.values() if v != root),
+                    sorted(str(Path(v).relative_to(real["HOME"]))
+                           for n, v in real.items() if n != "HOME"))
+
+        self.assertEqual({name: getattr(toolchain, name) for name in expected}, real,
+                         "synthetic_home did not restore the globals it borrowed")
+
+    @reaches_home(
+        "READS THE REAL MACHINE'S HOME as the degenerate argument — pointing `synthetic_home` at "
+        "`Path.home()` is the one input for which the rebind lands everything back where it "
+        "started, and that is the case whose refusal is under test. It opens no file. This is also "
+        "the runtime half of the barrier: the static rule credits any `synthetic_home(...)` call "
+        "with rebinding everything, so the degenerate argument is caught here rather than there.")
+    def test_a_synthetic_home_that_rebound_nothing_is_refused(self) -> None:
+        """The self-assertion inside `synthetic_home`, exercised. Pointing it at the real HOME is
+        the degenerate case: every global lands back where it started, and yielding then would
+        hand the caller a block that reads the machine while reading as hermetic."""
+        with self.assertRaises(hermetic.NotHermetic):
+            with synthetic_home(toolchain, toolchain.HOME):
+                pass
+        self.assertEqual(toolchain.HOME, Path.home(), "the failed rebind was not undone")
+
+    @reaches_home(
+        "ARITHMETIC ONLY — it opens nothing. The annotation under test names the machine a marked "
+        "failure was measured on, so the expected text is literally `Path.home()`, and asserting "
+        "it against a synthetic value would only prove the fixture agrees with itself. Both of "
+        "these two marks were placed because the derivation caught tests written in this same "
+        "commit, which is the barrier applying to its own author.")
+    def test_a_declared_failure_names_the_machine_it_was_measured_on(self) -> None:
+        """The mark's second job. A `@reaches_home` test that fails on a replica must not read like
+        an ordinary defect — that misreading is how three implementers were nearly filed against
+        under TC-48, from a half-tree rather than a redirected HOME."""
+        class Host(unittest.TestCase):
+            @hermetic.reaches_home("a reason long enough to be actionable, stated for the probe "
+                                   "so that the length floor above is satisfied by this fixture "
+                                   "exactly as it is by a real mark")
+            def runTest(self):
+                self.fail("the underlying complaint")
+
+        with self.assertRaises(AssertionError) as caught:
+            Host().runTest()
+        message = str(caught.exception)
+        self.assertIn("the underlying complaint", message)
+        self.assertIn("@reaches_home", message)
+        self.assertIn(str(Path.home()), message)
+        # ...and the probe did NOT enter the registry. A locally-defined class is unreachable by a
+        # derivation that only walks module-level classes, so a key for it would be permanently
+        # stale and the set-equality test above would fail for a reason that is not a defect.
+        self.assertEqual([k for k in hermetic.MARKED if "<locals>" in k[1]], [])
 
 
 if __name__ == "__main__":

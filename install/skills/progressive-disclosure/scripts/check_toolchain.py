@@ -40,10 +40,18 @@ A fifth machine-global concern was added by TC-47, and it sits one floor BELOW e
      startup, a lessons file invisible for two days while `git status` reported clean, and an entire
      new skill directory a commit would have silently dropped. Each was found by a person and fixed
      by a person adding one line to an allow-list. `check_tracking` asks git the question instead,
-     once per skill directory, with `git add --dry-run` and emphatically NOT `git check-ignore` —
-     see the block comment on GIT_ENV for the measurement that rules the second one out. The Codex
-     side is a derived mirror and is declared out of scope rather than swept; see
-     CODEX_TRACKING_ASYMMETRY.
+     with `git add --dry-run` and emphatically NOT `git check-ignore` — see the block comment on
+     GIT_ENV for the measurement that rules the second one out. The Codex side is a derived mirror
+     and is declared out of scope rather than swept; see CODEX_TRACKING_ASYMMETRY.
+
+     TWO SHAPES OF QUESTION, and TC-49 added the second because the first was asking where the
+     answer was least interesting. PER DIRECTORY, once per skill — the surface where `!/skills/` is
+     a whole-directory negation and a new file is TRACKABLE by default. PER ENTRY, over `docs/` and
+     the top level of `skills/` — the surfaces where the allow-list narrows per FILE and a newly
+     authored one is IGNORED by default, which is the mechanism that hid a lessons file for two
+     days. The top level of the repository is the same shape again and is DECLARED rather than
+     swept, because sweeping it without an authored-set emits 22 unclearable findings on an
+     ordinary machine; see ENTRY_SURFACES and TOP_LEVEL_DEFERRAL.
 
 `--vendored` and `--reviews` add two REPOSITORY-SCOPED concerns; neither ever runs implicitly:
 
@@ -116,6 +124,20 @@ not run them — `tracking` in `--vendored` and `--reviews`, `reviews` everywher
                                the WORKING TREE holds, not by what HEAD carries. Do not reconcile
                                its length against `git ls-files`; they count different trees.
   tracking.claude.declared_vendor   name -> why. The exclusion list, quoted so it is visible.
+  tracking.claude.entry_surfaces    TC-49. label -> {"root", "present", "asked", "allowlist",
+                               "results", "why_not_asked"}, one per PER-ENTRY surface, with
+                               `results` keyed by a path RELATIVE TO THE REPOSITORY ROOT
+                               (`docs/LEDGER.md`) rather than by a bare name. `allowlist` is the
+                               file a remedy must be written INTO, and it differs per surface —
+                               gitignore(5) gives the closest file precedence, so `skills/` is
+                               governed by `skills/.gitignore` and not by the top-level one. It is
+                               absent on the deferred top-level surface, which has no remedy to
+                               address. CHECK `asked` FIRST here too, and note that it
+                               is false for the repository top level on every run BY DESIGN — that
+                               surface is declared, not swept. `present` is false for a surface
+                               whose directory does not exist, which is an EMPTY surface and not an
+                               unanswerable one; both give an empty `results`, so the two fields
+                               together are what tell them apart.
   tracking.codex.in_scope      always false, with `why_not_asked` carrying the reason.
   reviews.cards                card id -> {"reports", "reviews"}. The per-card counts; the zero
                                that is invisible in the aggregate is obvious here.
@@ -1441,10 +1463,120 @@ CODEX_TRACKING_ASYMMETRY = (
     "critical when a mirrored skill is missing there. Whether the Codex tree would be committed is "
     "therefore NOT ASKED, not known to be fine.")
 
+# ------------------------------------------------------------------------------------------------
+# TC-49. THE SWEEP ABOVE WAS INVERTED RELATIVE TO THE RISK, and this is the correction.
+#
+# `check_tracking` asked about SKILL DIRECTORIES. Under `~/.claude/.gitignore` that is a
+# WHOLE-DIRECTORY negation (`!/skills/`), so a new file underneath one is TRACKABLE by default —
+# the sweep was clean exactly where the risk was lowest. Where a new file is IGNORED by default it
+# asked nothing:
+#
+#     !/docs/ then /docs/*     a new document in docs/ is invisible          SWEPT HERE
+#     skills/.gitignore `/*`   a new file at the TOP LEVEL of skills/ is too  SWEPT HERE
+#     /* at the top level      a new top-level entry is invisible             DEFERRED, see below
+#
+# The first of those is not an ANALOGUE of the measured incident. `docs/fleet-lessons.md` was
+# invisible to git for two days while `git status` read clean, and the four lines of comment in
+# `.gitignore` recording it sit directly beneath the rule that caused it. Adding a skill is the
+# rare deliberate act that TC-47 covered; writing a document is the common one that it did not.
+#
+# NO NEW PRIMITIVE. `git_probe` already answers this question; the work was choosing what to point
+# it at and, for the third surface, deciding not to. Per ENTRY rather than per directory, because
+# on these surfaces the allow-list narrows per file — `!/docs/LEDGER.md` names one path, not a tree.
+#
+# WHAT COUNTS AS DECLARED, and there is deliberately no second list. A named survivor is a path the
+# allow-list re-includes, and the probe already reports that as TRACKABLE. So "ignored and not
+# declared" is simply "the probe said IGNORED": the declaration is READ from the allow-list by
+# asking git, and deleting a negation restores the finding without anything here changing. Inventing
+# a parallel roster of expected files would be the self-exonerating shape `DECLARED_VENDOR_SKILLS`
+# argues against, one surface over.
+
+# The check's name in `evaluated` / `not_evaluated`. A CONSTANT since TC-49, and renamed from
+# "skill tracking" in the same breath: this sweep no longer asks only about skills, and a label
+# that understates its scope teaches a reader that `docs/` is unasked when it is not.
+TRACKING_LABEL = "tracking"
+
+# Held out of the per-entry sweep by NAME — a list, not a model, and the only exclusion these two
+# surfaces need. Both allow-lists exclude these four "never, anywhere", so each one is ignored AND
+# undeclared AND would otherwise be a permanent finding produced by a file nobody authored.
+# `.DS_Store` appearing in `docs/` is one Finder window away on any machine.
+TRACKING_OS_NOISE = ("__pycache__", ".DS_Store", "*.pyc", "*.pyo")
+
+# The per-ENTRY surfaces, as `(label, directory relative to the repository root, files only,
+# THE ALLOW-LIST THAT GOVERNS THAT DIRECTORY)`.
+#
+# THE FOURTH ELEMENT IS THE REMEDY'S ADDRESS AND IT IS NOT THE SAME FILE FOR BOTH SURFACES. Per
+# gitignore(5) the CLOSEST `.gitignore` wins for paths beneath it, so `skills/NOTES.md` is decided
+# by `skills/.gitignore` — measured, `check-ignore -v` attributes it to `skills/.gitignore:10:/*` —
+# and the only line that clears it is a negation IN THAT FILE. The first version of this loop
+# hardcoded the top-level list for both surfaces, which was right for `docs/` and wrong for
+# `skills/`: a reader who followed the printed instruction would have added a line to the wrong
+# allow-list, watched the finding survive, and learned to ignore the check. `tree()` already
+# records why an untrue remedy is the expensive kind of wrong. It is DATA here, beside the surface
+# it belongs to, rather than two branches in the emission — the per-DIRECTORY loop above names its
+# own surface's list the same way, and this makes the new loop do what the old one already did.
+#
+# `files_only` is TRUE for `skills/` and the reason is non-obvious: its DIRECTORIES are already
+# swept, one per skill, by the loop above. Sweeping them again here would double every finding.
+# What that loop cannot see is the top level of `skills/` as FILES — `README.md` and `.gitignore`
+# today, a `NOTES.md` tomorrow — because `skill_dirs` keeps only directories and skips dotfiles.
+#
+# `docs/` takes everything, dotfiles included. `skill_dirs` skips a dotfile because a dotfile is
+# not a skill; that convention must not be inherited by a sweep of authored documents, where a
+# hidden entry is STRICTLY MORE invisible — ignored by the same rule and additionally passed over
+# by an enumerator that never looks. `~/.claude/.gitignore` is the standing counterexample: hidden,
+# authored, trackable, and the allow-list this whole sweep polices.
+ENTRY_SURFACES = (
+    ("docs/", "docs", False, ".gitignore"),
+    ("skills/ (top level)", "skills", True, "skills/.gitignore"),
+)
+
+# SURFACE 3, DECLARED RATHER THAN SWEPT — and declared is the operative word, exactly as it is for
+# the Codex tree. `asked` is false, the reason travels in `--json`, and the exclusion is named on
+# the summary line, so a clean run can never be read as "the top level was asked about".
+#
+# WHY NOT SWEPT. Detecting a NEW top-level entry means enumerating ALL of them, and the ordinary
+# state of this surface is overwhelmingly machine-generated. Measured on this machine with `ls -A`
+# — the enumerator is part of the figure, and two earlier measurements disagreed for want of saying
+# so: 33 entries, 11 trackable, 22 IGNORED. Every one of the 22 is ignored legitimately and
+# permanently; `projects/` alone is a 2.6 GB transcript store. With no authored-set to subtract,
+# that is 22 unclearable findings at every session start in every directory — the cry-wolf
+# pathology this milestone exists to remove, and a finding the reader learns to skip is worse than
+# the gap it announces.
+#
+# WHAT WOULD CLOSE IT is a DECLARED AUTHORED-SET, which is an exclusion model rather than a list of
+# probes, and it must not be bolted on as an extension of the cheap two. Two candidate shapes were
+# weighed and neither is adoptable here:
+#   - a deny-list of known machine paths (`projects/`, `plugins/`, `shell-snapshots/`, …). It is
+#     per-machine and per-harness-version, so it is red on the next machine and on the next release,
+#     which is the same cry-wolf failure arriving by a different route.
+#   - a type or extension heuristic. Measured: of the 22, SEVEN are regular files, so "files only"
+#     still fires seven times; ".md only" is silent today but would miss `.claudeignore`, which is
+#     precisely the kind of new hidden config this surface exists to catch. A narrowing that misses
+#     the named example is not a narrowing.
+# The honest remaining shape is an authored-set declared in the repository — a line someone writes
+# once per authored top-level path — and that is a deliberate act belonging to whoever owns it.
+TOP_LEVEL_SURFACE = "the repository top level"
+TOP_LEVEL_DEFERRAL = (
+    "A NEW top-level entry is ignored by default (`/*`, with CLAUDE.md, settings.json and a few "
+    "others surviving only because they are named), so this surface carries the same defect as "
+    "docs/. It is NOT ASKED, and not known to be fine. Detecting a new entry means enumerating all "
+    "of them, and the ordinary state here is overwhelmingly machine-generated: measured with "
+    "`ls -A`, 33 entries, 11 trackable, 22 legitimately and permanently ignored, `projects/` alone "
+    "a 2.6 GB transcript store. Swept with no declared authored-set that is 22 unclearable findings "
+    "at every session start, which is worse than the gap. Closing it needs an authored-set "
+    "declared in the repository, not another probe.")
+
+# SHORT, to the same L8 rule the two entries below it obey: `Run.summary` renders every exclusion
+# inline on every line this tool prints, so the reason a reader may need on the summary line is one
+# clause and the paragraph lives in `--json`.
+TOP_LEVEL_EXCLUSION = ("repository top level", "no authored-set yet; see --json")
+
 # Module-level DATA for the same reason `PLUGIN_EXCLUSIONS` is — see the note there. Short, because
 # `Run.summary` renders every exclusion inline on every line this tool prints.
 TRACKING_EXCLUSIONS = [("Codex skill tracking",
-                        "derived mirror, not authored; see tracking.codex in --json")]
+                        "derived mirror, not authored; see tracking.codex in --json"),
+                       TOP_LEVEL_EXCLUSION]
 
 # ------------------------------------------------------------------------------------------------
 # TC-47, sweep two. Same class one floor over: authored work that no gate can see.
@@ -1890,6 +2022,37 @@ def skill_dirs(root: Path) -> tuple[list[str], list[tuple[str, str]]]:
     return names, problems
 
 
+def surface_entries(root: Path, rel_dir: str,
+                    files_only: bool) -> tuple[list[str], list[tuple[str, str]]]:
+    """Entries of one per-ENTRY surface, `root`-relative, plus the ones that cannot be asked about.
+
+    THE SYMLINK RULING IS `skill_dirs`' AND IT IS INHERITED DELIBERATELY, not re-argued. `git add`
+    on a link records the LINK — a 120000 blob holding a target path — so the probe exits 0 and the
+    sweep would report "git would commit this" about a document whose content lives where git has
+    never looked. That is the invisible-authored-work case wearing a green tick, which is the exact
+    failure this sweep exists to prevent. Fail closed to UNKNOWN.
+
+    `files_only` DROPS DIRECTORIES, and it means "already asked elsewhere" rather than "not
+    interesting": the skill loop asks about every directory under `skills/`, so sweeping them here
+    too would double each finding. It does NOT drop dotfiles — see ENTRY_SURFACES for why that
+    convention must not travel from `skill_dirs` to a sweep of authored documents.
+    """
+    names: list[str] = []
+    problems: list[tuple[str, str]] = []
+    for p in sorted((root / rel_dir).iterdir(), key=lambda q: q.name):
+        rel = f"{rel_dir}/{p.name}"
+        if any(fnmatch.fnmatch(p.name, pattern) for pattern in TRACKING_OS_NOISE):
+            continue
+        if p.is_symlink():
+            problems.append((rel, "a symlink; git would record the link, not the content, so "
+                                  "whether the content would be committed is unknown"))
+            continue
+        if files_only and p.is_dir():
+            continue
+        names.append(rel)
+    return names, problems
+
+
 def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]]:
     """For every skill directory, ask git whether it would be committed. `(surface, findings, excluded)`.
 
@@ -1912,9 +2075,29 @@ def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]
     named per directory, in the summary line, in `--hook`, and structured in `--json` — and does not
     gate the exit.
 
-    KNOWN GAP — THIS SWEEP ASKS ABOUT SKILL DIRECTORIES AND NOTHING ELSE, AND THERE ARE THREE
-    UNCOVERED SURFACES ON WHICH A NEW AUTHORED FILE IS INVISIBLE BY DEFAULT. Carded as TC-49;
-    measured here so that card is scoped from fact rather than from this docstring.
+    THREE SURFACES ON WHICH A NEW AUTHORED FILE IS INVISIBLE BY DEFAULT. TC-47 asked about NONE of
+    them; TC-49 closed TWO and DECLARED the third. Read this paragraph as the map of that split —
+    it was written as a KNOWN GAP of three, and the two halves now have different statuses:
+
+        surface 1, entries under `docs/`         SWEPT, per entry — see ENTRY_SURFACES
+        surface 2, top level of `skills/`        SWEPT, per entry, files only
+        surface 3, top level of the repository   DECLARED, not swept — see TOP_LEVEL_DEFERRAL
+
+    RESIDUAL RISK IS SURFACE 3 AND ONLY SURFACE 3, and the sentence this paragraph used to carry —
+    that closing any of this "requires `git status --ignored=matching` plus an exclusion model" —
+    was wrong for surfaces 1 and 2 and is the reason they sat open for a milestone. It took no new
+    primitive: `git add --dry-run`, the probe already here, four probes for `docs/` and two for the
+    top level of `skills/`. Measured after the change, on this machine: SIX added probes, zero
+    added findings, no exclusion model. What surface 3 needs is genuinely different and it is
+    stated where the deferral is, not here.
+
+    WHY THE SPLIT IS NOT ARBITRARY, since an earlier version of this paragraph quoted one cost
+    figure — "four to six paths, nothing to exclude" — for all three, and its arithmetic failed
+    too: 4 in `docs/` plus the 5 named top-level survivors is 9 before enumerating anything to FIND
+    a new entry. The two cheap surfaces are bounded by what a person authored (4 files and 2 files
+    today, both fully allow-listed); the third is unbounded and dominated by what the harness
+    generates. That is the whole of the difference, and it is a difference in the TREE rather than
+    in the technique.
 
     TWO allow-lists apply, not one. An earlier version of this paragraph measured a replica that
     omitted the second, which is how it came to state the opposite of what this module detects:
@@ -1960,32 +2143,39 @@ def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]
     arithmetically two paragraphs down, and reconciled against neither the real file nor its own
     "10 trackable".
 
-    THE COST OF CLOSING THEM IS NOT UNIFORM, and an earlier version quoted one figure — "four to six
-    paths, nothing to exclude" — for all of it. Right for one surface, wrong for another, and the
-    arithmetic failed too: 4 in `docs/` plus the 5 named top-level survivors is 9 before enumerating
-    anything to FIND a new entry.
+    THE COST OF CLOSING THEM WAS NOT UNIFORM, which is why two are closed and one is not.
 
-      surface 1, `docs/` — CHEAP, and the one worth doing first. Four files, all four named in the
+      surface 1, `docs/` — CHEAP, and the one done first. Four files, all four named in the
         allow-list, four probes, `git_probe` unchanged. Measured: `docs/` holds exactly LEDGER.md,
         decisions.md, fleet-lessons.md, RESTORE.md and zero `.DS_Store` or `__pycache__`, so there
         is genuinely nothing to exclude. It is also where the measured incident happened —
         `docs/fleet-lessons.md` invisible for two days, with the `.gitignore` comment recording it
-        four lines below the rule that caused it.
+        four lines below the rule that caused it. SWEPT: an entry here that git refuses and the
+        allow-list does not name is a `warn` naming the path — and the remedy it prints addresses
+        `~/.claude/.gitignore`, which is the file that governs THIS surface.
 
       surface 2, top level of `skills/` — CHEAP. Measured `os.listdir("skills")`, non-directory
         entries, DOTFILES INCLUDED: two today, `README.md` and `.gitignore`, both allow-listed.
         (One, if dotfiles are skipped — see the enumerator note below.) Needs only the four OS-noise
-        names above held out — a list, not a model.
+        names held out — a list, not a model, and that list is `TRACKING_OS_NOISE`. SWEPT, files
+        only: the directories here are already asked about, one per skill, by the loop above. ITS
+        REMEDY ADDRESSES A DIFFERENT FILE FROM SURFACE 1's — `skills/.gitignore`, because
+        gitignore(5) gives the closest allow-list precedence for paths beneath it. Getting that
+        wrong sends the reader to add a line to the machine's most safety-sensitive allow-list for
+        a problem that file cannot solve; see ENTRY_SURFACES.
 
-      surface 3, top level of `~/.claude` — NOT CHEAP, and it needs the very thing this paragraph
-        once said was unnecessary. Detecting a NEW top-level entry means enumerating all of them.
-        Measured with `os.listdir("~/.claude")`, `.git` excluded as never-authored, DOTFILES
-        INCLUDED: 32 entries, 10 trackable, 22 IGNORED. Every one of the 22 is ignored legitimately
-        and permanently — `projects/` alone is 2.6 GB holding 22,796 `*.jsonl` transcripts (26,159
-        files in total; the transcript figure is the `*.jsonl` count, not the file count). Probed
-        with no exclusion model that is 22 unclearable findings at every session start, which is
-        exactly the cry-wolf pathology argued against twenty-five lines above. This surface needs a
-        DECLARED AUTHORED-SET first, and must not be attempted as an extension of the cheap two.
+      surface 3, top level of `~/.claude` — NOT CHEAP, and NOT SWEPT. Detecting a NEW top-level
+        entry means enumerating all of them. Measured with `os.listdir("~/.claude")`, `.git`
+        excluded as never-authored, DOTFILES INCLUDED: 32 entries, 10 trackable, 22 IGNORED. Every
+        one of the 22 is ignored legitimately and permanently — `projects/` alone is 2.6 GB holding
+        22,796 `*.jsonl` transcripts (26,159 files in total; the transcript figure is the `*.jsonl`
+        count, not the file count). Probed with no exclusion model that is 22 unclearable findings
+        at every session start, which is exactly the cry-wolf pathology argued against above. This
+        surface needs a DECLARED AUTHORED-SET first, and must not be attempted as an extension of
+        the cheap two. It is DECLARED instead — `asked: false` with the reason in `--json`, and an
+        exclusion on the summary line, so its absence is reported rather than silent. The two
+        narrowings that would let it ship without the authored-set were weighed and rejected on
+        measurement; TOP_LEVEL_DEFERRAL carries which and why.
 
     THE ENUMERATOR IS PART OF EVERY COUNT ABOVE, and saying so is not pedantry — an earlier version
     of this paragraph reported 28 / 9 / 19 for surface 3 and named no enumerator, which is the same
@@ -1994,8 +2184,10 @@ def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]
     28 / 9 / 19, dotfiles included gives 33 / 11 / 22, and excluding `.git` from that gives the
     32 / 10 / 22 quoted above.
 
-    HIDDEN ENTRIES ARE IN SCOPE FOR TC-49, and this is a scoping decision rather than an arithmetic
-    one. `skill_dirs` skips dotfiles because a dotfile is not a skill; that convention must NOT be
+    HIDDEN ENTRIES ARE IN SCOPE, and this is a scoping decision rather than an arithmetic one. It
+    is implemented on the two swept surfaces: `surface_entries` does NOT skip dotfiles, which is
+    why `skills/.gitignore` appears in `entry_surfaces` above with an answer beside it.
+    `skill_dirs` skips dotfiles because a dotfile is not a skill; that convention must NOT be
     inherited by a sweep of authored documents. A newly authored hidden top-level config is STRICTLY
     MORE INVISIBLE than the `MEMORY.md` case this gap describes — ignored by `/*` exactly the same
     way, and additionally passed over by an enumerator that never looks. A sweep built to 28 would
@@ -2014,10 +2206,11 @@ def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]
     deleting the `!/.gitignore` negation from the fixture or from the real file now fails a test
     rather than a review.
 
-    The in-skill FILE gap is a fourth thing and is nearly empty of risk: `skills/.gitignore` never
-    re-narrows INSIDE a negated directory, so the only exclusions reachable within a published skill
-    are those four OS-noise names. It remains true that a clean result here covers the skill and not
-    its contents — just do not read that as the reason the measured incidents are uncovered.
+    The in-skill FILE gap is a fourth thing, still open, and nearly empty of risk:
+    `skills/.gitignore` never re-narrows INSIDE a negated directory, so the only exclusions
+    reachable within a published skill are those four OS-noise names. It remains true that a clean
+    result here covers the skill and not its contents — just do not read that as the reason the
+    measured incidents happened.
 
     An escalation rule was considered and rejected on the evidence: promote to `critical` when the
     ignored directory is named in MIRRORED_SKILLS, i.e. known to be ours. It would have been WRONG
@@ -2086,6 +2279,70 @@ def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]
                                      f"Fix: declare it as a vendor skill, or add one line to "
                                      f"{CLAUDE_SKILLS / '.gitignore'} — a deliberate act belonging "
                                      f"to whoever owns that allow-list. {MACHINE_GLOBAL}"))
+
+    # TC-49. The per-ENTRY surfaces, kept in their OWN key rather than folded into `results`.
+    # `results` is keyed by SKILL DIRECTORY and consumers reconcile its length against the skill
+    # count — `project-conformance` does, and so does this suite. Mixing document paths into it
+    # would silently move a number three callers read.
+    root = CLAUDE_SKILLS.parent
+    surfaces: dict = {}
+    claude["entry_surfaces"] = surfaces
+    for label, rel_dir, files_only, allowlist_rel in ENTRY_SURFACES:
+        base = root / rel_dir
+        allowlist = root / allowlist_rel
+        # Where a negation for a path on this surface has to be WRITTEN, which is relative to the
+        # directory HOLDING the governing allow-list rather than to the repository root:
+        # `!/docs/NEW-LESSON.md` in the top-level file, `!/NOTES.md` in `skills/.gitignore`.
+        holder = str(Path(allowlist_rel).parent)
+        entry = {"root": str(base), "present": base.is_dir(), "asked": False,
+                 # Structured, so `project-conformance` can route the remedy without parsing the
+                 # prose below — and so a future surface cannot be added without saying which
+                 # allow-list decides it.
+                 "allowlist": str(allowlist),
+                 "results": {}, "why_not_asked": None}
+        surfaces[label] = entry
+        # AN ABSENT DIRECTORY IS AN EMPTY SURFACE, NOT AN UNANSWERABLE QUESTION. Nothing can be
+        # invisible in a directory that does not exist, so this is `asked` with no entries rather
+        # than a not-run — the three-state contract is about questions git REFUSED, and there is no
+        # question here to refuse. `present` carries the distinction for a consumer.
+        if not entry["present"]:
+            entry["asked"] = True
+            continue
+        try:
+            names, problems = surface_entries(root, rel_dir, files_only)
+        except OSError as e:
+            entry["why_not_asked"] = f"{base} could not be listed ({e})"
+            findings.append((NOT_RUN, f"the {label} surface was NOT SWEPT: {entry['why_not_asked']}"
+                                      f". No entry under it was asked whether git would commit it, "
+                                      f"so nothing here says any of them is safe. {MACHINE_GLOBAL}"))
+            continue
+        entry["asked"] = True
+        for rel, why in problems:
+            entry["results"][rel] = UNKNOWN
+            findings.append((NOT_RUN, f"`{rel}` was NOT ASKED whether git would commit it: it is "
+                                      f"{why}. {MACHINE_GLOBAL}"))
+        for rel in names:
+            state, why = git_probe(root, rel)
+            entry["results"][rel] = state
+            if state == UNKNOWN:
+                findings.append((NOT_RUN, f"`{rel}` was NOT ASKED whether git would commit it: "
+                                          f"{why}. {MACHINE_GLOBAL}"))
+            elif state == IGNORED:
+                negation = "!/" + (rel if holder == "." else rel[len(holder) + 1:])
+                findings.append(("warn", f"`{rel}` in {root} would NOT be committed — git excludes "
+                                         f"it, and {allowlist} does not name it. This is the "
+                                         f"mechanism that hid docs/fleet-lessons.md for two days "
+                                         f"while `git status` reported clean. Fix: add `{negation}` "
+                                         f"to {allowlist} — the allow-list that GOVERNS this path, "
+                                         f"which is not always the one at the top of the repository "
+                                         f"— a deliberate act belonging to whoever owns it, or move "
+                                         f"the file somewhere it already admits. {MACHINE_GLOBAL}"))
+
+    # Surface 3, declared rather than swept. Recorded on the SAME shape as the two above, so a
+    # consumer reads one structure and finds `asked: false` in it, instead of finding the surface
+    # missing and having to know it was ever considered. See TOP_LEVEL_DEFERRAL for the measurement.
+    surfaces[TOP_LEVEL_SURFACE] = {"root": str(root), "present": root.is_dir(), "asked": False,
+                                   "results": {}, "why_not_asked": TOP_LEVEL_DEFERRAL}
 
     # A declared vendor WAS asked and its answer IS recorded in `results`; what is excluded is the
     # FINDING, not the question. Both halves of that are now said in the output: the summary header
@@ -2295,10 +2552,23 @@ def collect(run: Run) -> None:
     trackable = sum(1 for state in asked.values() if state == TRACKABLE)
     exempt = sum(1 for name, state in asked.items()
                  if state == IGNORED and name in DECLARED_VENDOR_SKILLS)
-    run.add(tracking_findings, "skill tracking",
+    # TC-49's half, on the same terms: FILTERED COUNT ALONGSIDE THE TOTAL, and the surfaces named,
+    # because "N entries" without its tree is the number the reader reconciles against the wrong
+    # thing. Only surfaces that were actually ASKED may appear here — the deferred top level is
+    # `asked: false` and so contributes neither a count nor a name, which is what stops this
+    # sentence from implying the whole repository was swept.
+    surfaces = tracking["claude"].get("entry_surfaces", {})
+    swept = [(label, s) for label, s in surfaces.items() if s["asked"]]
+    entries = sum(len(s["results"]) for _, s in swept)
+    entries_trackable = sum(1 for _, s in swept
+                            for state in s["results"].values() if state == TRACKABLE)
+    where = ", ".join(label for label, _ in swept) or "no per-entry surface"
+    run.add(tracking_findings, TRACKING_LABEL,
             f"git would commit {trackable} of the {len(asked)} skill director(ies) on disk in "
-            f"{CLAUDE_SKILLS}, with {exempt} exempt as declared vendors "
-            f"(machine-global; the ~/.codex mirror is derived and out of scope, see excluded)")
+            f"{CLAUDE_SKILLS}, with {exempt} exempt as declared vendors, and "
+            f"{entries_trackable} of the {entries} entr(ies) under {where} "
+            f"(machine-global; the ~/.codex mirror is derived and out of scope, and the top level "
+            f"of {CLAUDE_SKILLS.parent} was not swept — see excluded)")
 
 
 def main() -> int:
