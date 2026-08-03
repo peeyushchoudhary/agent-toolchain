@@ -42,18 +42,21 @@
 #
 # WHAT RAISES 2 TODAY, STATED AS A FACT ABOUT THIS FILE RATHER THAN AS A PRINCIPLE — AND THE FACT IS
 # COUNTED RATHER THAN ASSERTED, BECAUSE THIS PARAGRAPH HAS NOW BEEN WRONG TWICE. `cnr` is called
-# from SIX places in TWO subsystems: five in the vendored-suite path (`run_one_suite` and
-# `check_vendored_suites`), and one in `check_installer_agrees`, where the installer subprocess this
-# gate executes did not get far enough to produce a set to compare. So 2 means what it always meant
-# — something that had to run could not run at all — and today that something is a vendored skill
-# suite that produced no test result, OR that installer subprocess.
+# from SEVEN places in TWO subsystems: five in the vendored-suite path (`run_one_suite` and
+# `check_vendored_suites`), and TWO in `check_installer_agrees`, where the installer subprocess this
+# gate executes did not get far enough to produce a set to compare — one for a not-run whose cause
+# this gate MEASURED and charged to the machine, one for a timeout, whose cause it cannot measure and
+# therefore attributes to neither line. So 2 means what it always meant — something that had to run
+# could not run at all — and today that something is a vendored skill suite that produced no test
+# result, OR that installer subprocess.
 #
 # THE SENTENCE ABOVE SAID "EXACTLY ONE PLACE" FOR ONE COMMIT AFTER IT STOPPED BEING TRUE: the change
 # that added the installer check added the sixth call site and left this paragraph standing, which
 # is the same stale-second-copy defect the paragraph below this one is entirely about. So the number
 # is PINNED — `--self-test` counts `^\s*cnr ` call sites in this file against a literal, the same
-# shape as the `UNMIGRATED-CNR` assertions below. A seventh `cnr` is a red suite rather than a false
-# header. WHAT IS PINNED IS THE COUNT, NOT THE PROSE: the assertion cannot tell you that the new
+# shape as the `UNMIGRATED-CNR` assertions below. An eighth `cnr` is a red suite rather than a false
+# header, and the pin did its job the very next round: splitting the timeout out of the machine arm
+# added the seventh site and the suite went red until this paragraph and the literal moved together. WHAT IS PINNED IS THE COUNT, NOT THE PROSE: the assertion cannot tell you that the new
 # site is in a third subsystem, so read the sites, not the number.
 #
 # An earlier version of this comment also justified the narrowness by claiming every other `skip` in
@@ -1347,10 +1350,22 @@ check_skill_presence() {
 # silently stopped running while the gate blamed the machine.
 #
 # So the interpreter precondition install.sh enforces at its top is RUN HERE, by this gate, on this
-# machine. python3 absent, or older than 3.10, or an rc of 124/137 — those are machine facts and the
-# not-run is attributed to the machine. python3 present AND >= 3.10 and the installer STILL never
-# reached `skills` is a REPOSITORY finding at exit 1, because nothing this gate can measure excuses
-# it. In neither arm does the message name a cause that was not tested.
+# machine. python3 absent, or older than 3.10 — each PROBED here, not inferred from the installer's
+# silence — is a machine fact and the not-run is attributed to the machine. python3 present AND
+# >= 3.10 and the installer STILL never reached `skills` is a REPOSITORY finding at exit 1, because
+# nothing this gate can measure excuses it.
+#
+# AND THE TIMEOUT ARM IS NEITHER, WHICH IS THE CORRECTION THIS ROUND MAKES. An rc of 124/137 was
+# routed into the machine arm and said "recorded against THIS MACHINE" — the same unmeasured
+# diagnosis the paragraph above was written to remove, surviving in the one arm that was not
+# rewritten, with a comment vouching for it. A TIMEOUT IS A FACT ABOUT THE INSTALLER'S RUNTIME, NOT
+# ABOUT THIS BOX. Put a hang in install.sh above `echo "skills"` and run anywhere a `timeout` binary
+# exists — every Linux box and every CI runner — and the gate blamed the machine, exited 2, and did
+# not run the roster comparison. Nothing here measures whether a 120s overrun is a slow machine or a
+# wedged script, so the third arm NAMES NEITHER: it is a COULD NOT RUN left on the entering
+# (repository) scope, saying in those words that the cause was not determined. It is not charged to
+# the machine, so `repo_attributed_out` is NOT incremented for it — the repository line carries the
+# finding itself rather than a marker pointing at another line. No arm names a cause it did not test.
 #
 # AND THE NOT-RUN IS MARKED ON THE REPOSITORY LINE. This is a repository-scope check; sending the
 # whole not-run to `env` left the repository verdict byte-identical to a clean run. The finding goes
@@ -1358,7 +1373,9 @@ check_skill_presence() {
 #
 # ON WEDGING, DOWNGRADED TO WHAT HOLDS. The subprocess gets `</dev/null`, and `timeout`/`gtimeout`
 # IF THE PLATFORM HAS ONE — on the machine this was written on it has NEITHER, so there stdin is the
-# only bound and the 124/137 arm is unreachable. The honest claim is therefore narrow: an installer
+# only bound and no real installer can REACH rc 124 here. The arm itself is still exercised on every
+# machine, by a stub that exits 124 on its own; see (j3) in the self-test. The honest claim is narrow:
+# an installer
 # that reads stdin gets EOF instead of the gate's terminal, and where a `timeout` exists a
 # long-running one is bounded too. install.sh reads no stdin and makes no network call today — every
 # branch checked — so this is not a fix for a live hang; it is a bound on a surface that did not
@@ -1387,12 +1404,19 @@ check_installer_agrees() {
   if ! printf '%s\n' "$out" | grep -q '^skills$'; then
     first=$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | head -n 1)
     [ -n "$first" ] || first="(it printed nothing)"
-    # THE THREE MACHINE CAUSES, EACH ONE MEASURED BEFORE IT IS NAMED. Anything else falls through to
+    # THE UNATTRIBUTABLE ARM FIRST, because it is the one that must not borrow either of the others'
+    # words. A 120s overrun is a fact about the installer's runtime; this gate measures nothing that
+    # separates a slow machine from a wedged script, so it diagnoses neither and says so. It stays in
+    # the ENTERING scope — the finding is not taken off the repository line, so there is nothing for
+    # `repo_attributed_out` to mark.
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+      cnr "the installer agreement could not be checked — $installer did not finish within 120s and was killed (rc $rc), so it never printed its \`skills\` section, and the last thing it said was: \`$first\`. THIS GATE CANNOT TELL WHETHER THAT IS THE MACHINE OR THE SCRIPT: a timeout is a fact about the installer's runtime, not about this machine, and nothing here measures which one produced it — so it is attributed to NEITHER and left on the $SCOPE line. Nothing about what $decl_dir/.gitignore declares is claimed in either direction, because no set was produced, so none was compared; the roster comparison — the only check in this file that can see install.sh revert to a hardcoded skill list — did not run"
+      return
+    fi
+    # THE TWO MACHINE CAUSES, EACH ONE MEASURED BEFORE IT IS NAMED. Anything else falls through to
     # the repository arm; "this gate could not find a machine reason" is the only thing that puts a
     # finding on the repository line here, and it is stated in those words rather than as a diagnosis.
-    if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
-      why="$installer did not finish within 120s and was killed (rc $rc), so it never printed its \`skills\` section"
-    elif ! command -v python3 >/dev/null 2>&1; then
+    if ! command -v python3 >/dev/null 2>&1; then
       why="$installer exited $rc before reaching its \`skills\` section, saying: \`$first\` — and python3 is NOT ON PATH here, probed by this gate, which is the precondition install.sh enforces at its top"
     elif ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' >/dev/null 2>&1; then
       pyv=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null)
@@ -1688,7 +1712,20 @@ if [ "$SELF_TEST" = "1" ]; then
   # run arm. The count therefore cannot disagree with the branch, because it IS the branch. What made
   # this cheap rather than a refactor: all five guarded bodies are assertion calls only — their
   # fixture setup already sits ABOVE the guard, because each guard exists to test whether that setup
-  # took. A dry walk touches no filesystem and repeats no `chmod`, `git init` or subprocess.
+  # took.
+  #
+  # WHAT A DRY WALK COSTS, STATED ONCE AND STATED TRUE. It repeats no `chmod`, no `git init` and no
+  # subprocess: those are the expensive and order-dependent operations, and every one of them sits
+  # above a guard. It is NOT free of the filesystem, and an earlier version of this line said it was
+  # — while three writes lived inside a dry region 1,000 lines below, which is exactly the shape of
+  # unchecked self-description this suite keeps removing. There are TWO documented exceptions, each
+  # marked at the line with `# ST_DRY-SIDE-EFFECT:` and each asserted by the range check in the
+  # self-test. (1) In `skills_deep_unreadable`, the `zz` sub-fixture — a `mkdir` and two small writes
+  # — cannot be hoisted above the guard, because the FIRST assertion in that region requires the tree
+  # WITHOUT it; a dry walk therefore does create three files under the temp root. (2) In the
+  # declaration region, one conditional `rm` of a fixture `.gitignore`, which no-ops in the dry walk
+  # because the fixture was never built. Nothing else in a dry region may touch the filesystem, and
+  # that is CHECKED rather than promised — see the `ST_DRY-SIDE-EFFECT` assertion.
   ST_DRY=0
   # st_dry_begin NAME REASON / st_dry_end — the not-run arm. The count is unknown at `begin`, so the
   # NOT RUN line is printed at `end`, from the delta the walk produced.
@@ -2375,6 +2412,9 @@ class Runs(unittest.TestCase):
   # suite goes red. Without this, a mutation that simply skipped every skill would pass the two above.
   # Guarded on the fixture rather than on `ST_DRY`: in the not-run walk the fixture was never built,
   # and `rm` on an absent path would print an error into a suite that is meant to be silent here.
+  # ST_DRY-SIDE-EFFECT: conditional, and its condition is FALSE on the dry walk — the fixture was
+  # never built, so this removes nothing. Marked anyway: the range check reads what the line IS, not
+  # what it does, and a marker is cheaper than a reader having to re-derive that argument.
   [ -f "$st_decl_root/.gitignore" ] && rm "$st_decl_root/.gitignore"
   expect_suites "control: remove the declaration and the same excluded suite is discovered and fails" \
     "$st_decl_root" 1 0 0 1 "graphify: the vendored suite FAILED" "EXCLUDED and not discovered"
@@ -2702,11 +2742,13 @@ STUB
   printf '%s' "$st_pass_body" > "$st_deep_root/beta/tests/unit/test_x.py"
   chmod 000 "$st_deep_root/beta/tests/unit" 2>/dev/null
   # Checked, not assumed, for the same reason as the top-level fixture above.
-  # THE ONE DRY WALK THAT IS NOT PURELY ASSERTIONS, said here rather than left to be discovered: the
-  # `zz` fixture below cannot be hoisted above the guard, because the FIRST assertion requires the
-  # tree without it. So a not-run walk of this branch does create three files under the temp root.
-  # That is a mkdir and two writes into a directory built above the guard — not the `chmod` this
-  # guard exists for, and not repeatable work — so the walk stays free of the condition it declined.
+  # THE ONE DRY WALK THAT WRITES, said here rather than left to be discovered: the `zz` fixture below
+  # cannot be hoisted above the guard, because the FIRST assertion requires the tree without it. So a
+  # not-run walk of this branch does create three files under the temp root. That is a mkdir and two
+  # writes into a directory built above the guard — not the `chmod` this guard exists for, and not
+  # repeatable work — so the walk stays free of the condition it declined. Each of the three carries
+  # an `# ST_DRY-SIDE-EFFECT:` marker, which is what makes this paragraph a claim the suite checks
+  # rather than one it merely states; the ST_DRY header names this exception and the one other.
   if [ -r "$st_deep_root/beta/tests/unit" ] && [ -x "$st_deep_root/beta/tests/unit" ]; then
     st_dry_begin "an unreadable subdirectory of tests/ is COULD NOT RUN, not 'no vendored test suite'" \
       "chmod 000 did not take on this filesystem (running as root, or mode bits ignored), so the fixture does not reproduce the condition"
@@ -2726,8 +2768,12 @@ STUB
     # — but discovery then collects nothing and the assertion would be measuring the resulting
     # `ran 0 tests` finding instead of the ordering it exists to pin. Measured: with the package
     # marker present, discovery runs the readable suite and steps over the mode-000 sibling cleanly.
+    # ST_DRY-SIDE-EFFECT: the one fixture that cannot be hoisted above its guard, so a dry walk of
+    # this region does create it. See the ST_DRY header for why that is disclosed rather than fixed.
     mkdir -p "$st_deep_root/beta/tests/zz"
+    # ST_DRY-SIDE-EFFECT: as above — an empty package marker under the same fixture.
     : > "$st_deep_root/beta/tests/zz/__init__.py"
+    # ST_DRY-SIDE-EFFECT: as above — the readable suite the ordering control needs.
     printf '%s' "$st_pass_body" > "$st_deep_root/beta/tests/zz/test_y.py"
     expect_suites "control: a readable suite AFTER the unreadable subdirectory still outranks it" \
       "$st_deep_root" 0 0 0 0 "2 of 2 suite(s) passed" "COULD NOT RUN"
@@ -2958,7 +3004,12 @@ STUB
   #    measuring itself. `^\s*#\s*MARKER` matches a tagged call site and matches neither the
   #    header's recipe line (`#  grep -n …`) nor these two lines (which do not begin with `#`).
   st_self="${BASH_SOURCE[0]}"
-  st_marks=$(grep -cE '^[[:space:]]*#[[:space:]]*UNMIGRATED-CNR:' "$st_self" 2>/dev/null || echo 0)
+  # No `|| echo 0` on either of these two counts. `grep -c` with no match prints `0` AND exits 1, so
+  # the fallback appended a SECOND zero and the variable became the two-line string "0\n0" — which
+  # fails in the right direction (it is not the pinned number) but reports itself as `0\n0` in the
+  # message. The `${x:-0}` guards below already cover the only case the fallback was for: an
+  # unreadable file, where grep prints nothing at all.
+  st_marks=$(grep -cE '^[[:space:]]*#[[:space:]]*UNMIGRATED-CNR:' "$st_self" 2>/dev/null)
   st_rc=1; [ "${st_marks:-0}" -gt 0 ] && st_rc=0
   st_assert "the unmigrated attempted-no-result skips are tagged at their call sites" "$st_rc" \
     "found ${st_marks:-0} tagged call site(s) in $st_self — the header derives its list from these, so with none the derived list is empty and silently wrong, which is the stale-enumeration defect in a new costume"
@@ -3006,11 +3057,66 @@ STUB
   #    IT CANNOT SATISFY ITSELF: this line begins `st_cnrsites=`, and the pattern requires the line
   #    to begin with optional whitespace and then `cnr ` — the same anchoring argument as the two
   #    assertions above, for the same reason.
-  st_cnrsites=$(grep -cE '^[[:space:]]*cnr ' "$st_self" 2>/dev/null || echo 0)
-  st_expected_cnrsites=6
+  st_cnrsites=$(grep -cE '^[[:space:]]*cnr ' "$st_self" 2>/dev/null)
+  st_expected_cnrsites=7
   st_rc=1; [ "${st_cnrsites:-0}" -eq "$st_expected_cnrsites" ] && st_rc=0
   st_assert "and the number of \`cnr\` call sites still matches what the header says raises exit 2" "$st_rc" \
     "$st_self has ${st_cnrsites:-0} \`cnr\` call site(s), pinned at $st_expected_cnrsites — the header paragraph beginning 'WHAT RAISES 2 TODAY' names them and how many subsystems they span, so a changed count means that paragraph is now describing a different file. Fix the paragraph, then move the literal in the same commit"
+
+  # ── (F7) THE `ST_DRY` MECHANISM ITSELF, WHICH HAD ZERO COVERAGE IN A GREEN RUN. On a machine with
+  #    git, python3 3.10+ and working mode bits, NOT ONE of the five guards fires, `ST_DRY` never
+  #    leaves 0, and every short-circuit in the five assertion helpers is dead code. `136 of 136, 0
+  #    not set up` proved nothing whatever about it. MEASURED, on the commit that introduced it:
+  #    delete any single short-circuit and this suite still reads all-green here, while on a machine
+  #    without git the three assertions in the declaration region run against a fixture that was
+  #    never built and print three `fail(1!=0)` lines — the round-1 defect restored in full, green
+  #    locally and misleading elsewhere.
+  #
+  #    Correctness was established by the implementer forcing each arm by hand. That is exactly the
+  #    "implementer's habit" this mechanism was written to encode into the suite, and the argument is
+  #    made in this file for the interpreter-less PATH while not being made here. So: two assertions,
+  #    one static and one live.
+  #
+  #    THE STATIC ONE IS A RANGE CHECK, NOT A BASH PARSER, and it is the same shape as the
+  #    `UNMIGRATED-CNR` adjacency assertion above: read `$st_self`, take every region from an
+  #    `st_dry_begin` CALL to its bare `st_dry_end`, and require every line in it to be one of —
+  #    a comment, a blank, a continuation of the line above, a bare block keyword, a call to one of
+  #    the five assertion helpers, or a line immediately beneath an `# ST_DRY-SIDE-EFFECT:` marker.
+  #    That is what makes the dry walk's cost knowable: anything else in a dry region is work the
+  #    not-run arm performs and the run arm performs twice, unreviewed.
+  #
+  #    IT CANNOT SATISFY ITSELF, and the anchoring is why. The awk source below contains the literal
+  #    `st_dry_begin "`, so an unanchored pattern would open a bogus region at the awk program itself
+  #    and run it to the next real `st_dry_end` a few hundred lines down — the identical trap that
+  #    made the first `UNMIGRATED-CNR` pair measure its own grep patterns. The pattern therefore
+  #    requires the line to BEGIN with the call (optionally behind a `[ … ] ||` guard, the form the
+  #    two conditional regions use); every line of the awk program begins with `if (` or `}`.
+  st_dryviol=$(awk '
+      { prev_cont = cont; cont = ($0 ~ /\\[[:space:]]*$/) }
+      inr == 0 {
+        if ($0 ~ /^[[:space:]]*(\[[^]]*\][[:space:]]*\|\|[[:space:]]*)?st_dry_begin "/) { inr = 1; exempt = 0; nreg++ }
+        next
+      }
+      $0 ~ /^[[:space:]]*st_dry_end[[:space:]]*$/ { inr = 0; exempt = 0; next }
+      prev_cont == 1 { next }
+      $0 ~ /^[[:space:]]*$/ { next }
+      $0 ~ /^[[:space:]]*#[[:space:]]*ST_DRY-SIDE-EFFECT:/ { exempt = 1; next }
+      $0 ~ /^[[:space:]]*#/ { next }
+      exempt == 1 { exempt = 0; next }
+      $0 ~ /^[[:space:]]*(expect_route|expect_suites|st_assert|expect_presence|expect_installer)[[:space:]]/ { next }
+      $0 ~ /^[[:space:]]*(fi|else|then|done|esac|\})[[:space:]]*$/ { next }
+      { bad = bad (bad == "" ? "" : ",") NR }
+      # AND A ZERO-REGION FILE IS NOT A PASS. A range check over no ranges is vacuously green, which
+      # is the same empty-denominator defect the marker-count assertion above exists to prevent; if
+      # the pattern ever stops matching the call form, this must say so rather than say nothing.
+      END { if (nreg == 0) print "NO-REGIONS-MATCHED"; else print bad }
+    ' "$st_self" 2>/dev/null)
+  st_rc=1; [ -z "$st_dryviol" ] && st_rc=0
+  st_assert "every line inside an ST_DRY region is an assertion call or a marked exception" "$st_rc" \
+    "${st_dryviol:-?} — line numbers here sit between \`st_dry_begin\` and \`st_dry_end\` in $st_self and are neither an assertion helper call nor beneath an \`# ST_DRY-SIDE-EFFECT:\` marker; the dry walk executes them with ST_DRY=1 and the real walk executes them too, so whatever they do happens on a path nobody reviewed as doing it. Move the work above the guard, or mark the line and say in the ST_DRY header what it costs. \`NO-REGIONS-MATCHED\` instead means the check found no dry regions at all and was about to pass vacuously"
+  #    The LIVE half of this pair — whether the short-circuits actually short-circuit — cannot go
+  #    here: `expect_presence` and `expect_installer` are defined further down. It sits at the end of
+  #    the suite, immediately before the accounting block, and covers all five helpers.
 
   echo
   echo "════ self-test — the published-skill roster, its presence check, and the installer's agreement"
@@ -3069,21 +3175,29 @@ STUB
   #
   # MUST_NOT_CONTAIN is here because the repository arm's defining property is a NEGATIVE: it must
   # not attribute anything to the machine. A needle alone cannot assert the absence of a diagnosis.
+  #
+  # AND `repocnr` IS THE FOURTH DELTA, TRAILING AND DEFAULTING TO 0, added for the unattributable
+  # timeout arm. Without it that arm's counter signature — repo_fail 0, env_cnr 0, away 0 — is
+  # BYTE-IDENTICAL to a clean pass, and the only thing separating the two would be a needle. A
+  # mutation deleting the `cnr` call and returning silently would then read green on the counters.
+  # It trails the two needles rather than sitting beside the other deltas so that the eight existing
+  # call sites keep their arity; every one of them wants 0 and says so by omission.
   expect_installer() {
     [ "$ST_DRY" -eq 0 ] || { st_skipped=$((st_skipped+1)); return 0; }
-    local name="$1" inst="$2" decl="$3" wf="$4" wc="$5" wa="$6" needle="${7:-}" absent="${8:-}"
-    local f0=$repo_fail c0=$env_cnr ef0=$env_fail a0=$repo_attributed_out df dc def da why="" st_ln
+    local name="$1" inst="$2" decl="$3" wf="$4" wc="$5" wa="$6" needle="${7:-}" absent="${8:-}" wrc="${9:-0}"
+    local f0=$repo_fail c0=$env_cnr ef0=$env_fail a0=$repo_attributed_out r0=$repo_cnr df dc def da drc why="" st_ln
     check_installer_agrees "$inst" "$decl" > "$st_dir/rendered" 2>&1
     df=$((repo_fail - f0)); dc=$((env_cnr - c0)); def=$((env_fail - ef0))
-    da=$((repo_attributed_out - a0))
+    da=$((repo_attributed_out - a0)); drc=$((repo_cnr - r0))
     [ "$df" = "$wf" ] || why="$why fail(${df}!=${wf})"
     [ "$dc" = "$wc" ] || why="$why envcnr(${dc}!=${wc})"
     [ "$da" = "$wa" ] || why="$why away(${da}!=${wa})"
     [ "$def" = 0 ]    || why="$why envfail(${def}!=0)"
+    [ "$drc" = "$wrc" ] || why="$why repocnr(${drc}!=${wrc})"
     if [ -n "$needle" ] && ! grep -qF -- "$needle" "$st_dir/rendered"; then why="$why missing:\"$needle\""; fi
     if [ -n "$absent" ] && grep -qF -- "$absent" "$st_dir/rendered"; then why="$why must-not-contain:\"$absent\""; fi
     if [ -z "$why" ]; then
-      printf '  \033[32mok\033[0m    %s → fail+%s envcnr+%s away+%s\n' "$name" "$df" "$dc" "$da"; st_pass=$((st_pass+1))
+      printf '  \033[32mok\033[0m    %s → fail+%s envcnr+%s away+%s repocnr+%s\n' "$name" "$df" "$dc" "$da" "$drc"; st_pass=$((st_pass+1))
     else
       printf '  \033[31mFAIL\033[0m  %s →%s\n' "$name" "$why"
       printf '        rendered as:\n'
@@ -3254,7 +3368,7 @@ STUB
     "it would act on [alpha]"
 
   # ── (j2) AN INSTALLER THAT NEVER REACHED ITS `skills` SECTION IS ONLY A MACHINE FACT IF A MACHINE
-  #    FACT WAS MEASURED. `install.sh:157-162` exits 1 before printing `skills` when python3 is
+  #    FACT WAS MEASURED. `install.sh:83-87` exits 1 before printing `skills` when python3 is
   #    absent or older than 3.10 — Apple's /usr/bin/python3 through macOS 12, and many minimal
   #    images. The first version of this check compared the empty set anyway and printed a
   #    REPOSITORY FAIL naming all six declared skills. The fix for THAT then over-corrected: it
@@ -3334,6 +3448,37 @@ STUB
     "no set was produced, so none was compared"
   PATH="$st_pathsave"
 
+  # ── (j3) THE TIMEOUT ARM, WHICH HAD NO FIXTURE AT ALL AND SO COULD NOT GO RED ANYWHERE. Deleting
+  #    the rc-124 test changed no assertion on any machine, and the arm meanwhile said the not-run
+  #    was "recorded against THIS MACHINE" — a diagnosis of the box, produced by a fact about the
+  #    installer's runtime. On a machine with `timeout` (every Linux box, every CI runner) a hang in
+  #    install.sh above `echo "skills"` reached it.
+  #
+  #    THE STUB EXITS 124 ITSELF RATHER THAN HANGING, and that is the whole reason this arm is now
+  #    testable everywhere. A stub that actually slept would exercise nothing on a machine with no
+  #    `timeout` binary — the machine this was written on — and would cost 120s where there is one.
+  #    The arm keys on the RC, so producing the rc directly exercises exactly the branch, in
+  #    milliseconds, whether or not the platform can kill a subprocess. rc 137 takes the same branch;
+  #    only 124 is asserted, because a second fixture would pin the same line twice.
+  #
+  #    THE DEFINING PROPERTY IS ASSERTED AS A PAIR: the finding is a COULD NOT RUN on the REPOSITORY
+  #    line (repocnr+1, env_cnr 0, away 0 — attributed to neither the machine nor a marker), and the
+  #    message must NOT say THIS MACHINE. Either half alone is satisfiable by the defect: the old arm
+  #    would fail the counters, and an arm that moved the counters while keeping the old sentence
+  #    would fail the needle.
+  cat > "$st_dir/stub_timeout" <<'STUB'
+#!/usr/bin/env bash
+echo "installing skills into a very large tree" >&2
+exit 124
+STUB
+  chmod 755 "$st_dir/stub_timeout"
+  expect_installer "an installer killed on a timeout is a COULD NOT RUN attributed to NEITHER line, on the scope that ran it" \
+    "$st_dir/stub_timeout" "$st_inst/skills" 0 0 0 \
+    "CANNOT TELL WHETHER THAT IS THE MACHINE OR THE SCRIPT" "recorded against THIS MACHINE" 1
+  expect_installer "and it still claims nothing about the declaration, having produced no set to compare" \
+    "$st_dir/stub_timeout" "$st_inst/skills" 0 0 0 \
+    "no set was produced, so none was compared" "" 1
+
   # AND THE STDIN WEDGE IS CLOSED — WITH A CAVEAT THAT HAS TO BE STATED, BECAUSE WITHOUT IT THIS
   # ASSERTION LOOKS LIKE MORE THAN IT IS. The stub reads a line; with `</dev/null` in the subprocess
   # call it gets EOF and completes. IT IS A POSITIVE CONTROL ONLY WHEN verify.sh's OWN STDIN BLOCKS.
@@ -3354,6 +3499,68 @@ STUB
   expect_installer "an installer that reads stdin gets EOF and completes, rather than wedging the gate" \
     "$st_dir/stub_reads_stdin" "$st_inst/skills" 0 0 0 \
     "install.sh would install exactly the 2 declared skill(s)"
+
+  # ── (F7, LIVE HALF) THE FIVE SHORT-CIRCUITS, EXERCISED. The static range check above says what a
+  #    dry region CONTAINS; it says nothing about whether `ST_DRY=1` makes those lines decline to
+  #    run. Nothing else in a green run does either — every guard in this suite is false on a machine
+  #    with git, python3 3.10+ and working mode bits, so `ST_DRY` never leaves 0 and all five
+  #    short-circuits are dead code that `140 of 140` reports nothing about.
+  #
+  #    ALL FIVE, NOT ONE, and that is the difference between a control and a token. With one helper
+  #    probed, deleting the OTHER four short-circuits stays green here and reddens only on a machine
+  #    that takes a guard — the round-1 defect, one layer up. Each is called with arguments that are
+  #    junk in every position: bogus paths, deltas no real call produces, needles that appear
+  #    nowhere. If a helper does not return before touching them it fails loudly, and if it returns
+  #    without counting, the delta is short.
+  #
+  #    AND IT ENTERS A REAL REGION, rather than assigning `ST_DRY=1` by hand. MEASURED: with the
+  #    control setting the flag itself, mutating `st_dry_begin` to `ST_DRY=0` — the reviewer's named
+  #    mutation, and the one that turns every dry region back into a live one — left this suite
+  #    GREEN, because no `st_dry_begin` is reached at all on a machine with git, python3 3.10+ and
+  #    working mode bits. Driving the control through `st_dry_begin`/`st_dry_end` is what makes the
+  #    two functions reachable here, and it buys the derivation as well: `st_dry_end` prints the
+  #    count it computed from the delta, so `(5 assertion(s))` on that line is the arithmetic
+  #    `st_skipped - st_dry_n0` asserted rather than described.
+  #
+  #    THE REGION IS A BRACE GROUP WITH A REDIRECTION, NOT A COMMAND SUBSTITUTION. `$( … )` would run
+  #    `st_dry_end` in a subshell and its `ST_DRY=0` would be discarded, leaving the flag set for the
+  #    whole rest of the suite — every later assertion silently not-run, and the total still pinned.
+  #    That is the same subshell mistake `expect_route` documents one layer down.
+  #
+  #    IT RESTORES `st_skipped` AND SO CONTRIBUTES 0 TO THE TOTAL, deliberately. Left counted, every
+  #    run on every machine would end "5 of N could NOT be set up on this machine" over five
+  #    assertions that were set up perfectly and declined on purpose — a false sentence in the
+  #    summary line, bought to preserve an accounting identity. These are therefore the five call
+  #    sites the pinned total does not include:
+  #    `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer) '` reads
+  #    exactly FIVE more than `st_expected_total`, and they are the five below.
+  st_dc0=$st_skipped; st_dp0=$st_pass; st_df0=$st_fail
+  {
+  st_dry_begin "ST_DRY control — five helpers that must not run" \
+    "entered on purpose by the control below; this is the mechanism being exercised, not a missing prerequisite"
+  expect_route "MUST NOT RUN — ST_DRY control (expect_route)" 999 'not json at all' 'junk' 7 7 7 'a needle present nowhere'
+  expect_suites "MUST NOT RUN — ST_DRY control (expect_suites)" "/nonexistent/st_dry_control" 7 7 7 7 'a needle present nowhere'
+  expect_presence "MUST NOT RUN — ST_DRY control (expect_presence)" "/nonexistent/st_dry_control" "/nonexistent/st_dry_control" 1 7 7 'a needle present nowhere'
+  expect_installer "MUST NOT RUN — ST_DRY control (expect_installer)" "/nonexistent/st_dry_control" "/nonexistent/st_dry_control" 7 7 7 'a needle present nowhere'
+  st_assert "MUST NOT RUN — ST_DRY control (st_assert)" 1 'this failure message must never be printed'
+  st_dry_end
+  } > "$st_dir/st_dry_control" 2>&1
+  # The deltas are captured BEFORE the counter is restored, or the failure message would report the
+  # restored 0 and tell the reader nothing about what actually happened.
+  st_dds=$((st_skipped - st_dc0)); st_ddp=$((st_pass - st_dp0)); st_ddf=$((st_fail - st_df0))
+  st_rc=1
+  [ "$st_dds" -eq 5 ] && [ "$st_ddp" -eq 0 ] && [ "$st_ddf" -eq 0 ] && [ "$ST_DRY" -eq 0 ] && st_rc=0
+  st_skipped=$st_dc0
+  st_assert "st_dry_begin makes all five assertion helpers count themselves not-run and run nothing, and st_dry_end clears the flag" "$st_rc" \
+    "inside a real ST_DRY region the five helpers called with junk in every argument moved st_skipped by $st_dds (want 5) and st_pass/st_fail by $st_ddp/$st_ddf (want 0/0), and ST_DRY came out at $ST_DRY (want 0) — a short-circuit is gone or does not return before doing work, or st_dry_begin no longer sets the flag, or st_dry_end no longer clears it. Any of the three turns a dry region back into a live one against fixtures that were never built"
+  # Only the NOT RUN line is quoted back, not the whole capture: under the mutations this assertion
+  # exists to catch, the region prints five failed assertions with their rendered evidence, and
+  # pasting all of it into one message buries the one line being asserted about.
+  st_dryline=$(grep 'NOT RUN' "$st_dir/st_dry_control" 2>/dev/null | head -n 1)
+  st_rc=1
+  [ -n "$st_dryline" ] && case "$st_dryline" in *'(5 assertion(s))'*) st_rc=0 ;; esac
+  st_assert "and st_dry_end reports the count it DERIVED from the walk, not one written beside it" "$st_rc" \
+    "the region's NOT RUN line was \`${st_dryline:-(none was printed — the region did not run dry at all)}\`; it must read \`(5 assertion(s))\`, which is \`st_skipped - st_dry_n0\` over a region whose size only the walk knows. A wrong number here is the hand-maintained count this mechanism replaced, wearing its name"
 
   rm -rf "$st_dir"
   echo
@@ -3383,14 +3590,30 @@ STUB
   # nothing else changed, the suite reads 137 both with git and without it; on the previous
   # mechanism it read 137 here and 136 there.
   #
+  # AND THE MECHANISM ITSELF IS NOW COVERED, which it was not on the commit that introduced it. Every
+  # guard here is false on a machine with git, python3 3.10+ and working mode bits, so `ST_DRY` never
+  # left 0 in a green run and every short-circuit was dead code — `136 of 136, 0 not set up` was not
+  # evidence about the mechanism, it was silence about it. Two assertions in (F7) fix that: a static
+  # range check over this file, and a live probe that forces `ST_DRY=1` and requires a helper to
+  # count itself and return. Deleting a short-circuit now reddens HERE rather than on someone else's
+  # laptop.
+  #
+  # THE FIVE CALL SITES THIS TOTAL DOES NOT COUNT are that live probe's: it restores `st_skipped`
+  # after measuring it, because leaving it counted would print "5 of N could NOT be set up on this
+  # machine" on every machine, over five assertions that were set up perfectly and declined on
+  # purpose. So
+  # `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer) '` over
+  # this file reads exactly FIVE more than the literal below — 146 against 141 today — and those five
+  # are the probe.
+  #
   # WHAT HAPPENS WHEN SOMEONE LEGITIMATELY ADDS AN ASSERTION: this one line changes, in the same
-  # commit, and the diff shows `+N assertions, total 136 -> 137`. That is the entire cost, and it is
+  # commit, and the diff shows `+N assertions, total 141 -> 142`. That is the entire cost, and it is
   # the point — the number a reviewer must agree with becomes visible in the diff. Anyone who changes
   # it without changing the count is doing so deliberately and in the open.
   #
   # IT IS NOT ITSELF COUNTED. Incrementing `st_pass` or `st_fail` here would change the very total
   # it is comparing, so it reports through a separate flag that only the exit arm reads.
-  st_expected_total=136
+  st_expected_total=141
   st_total=$((st_pass + st_fail + st_skipped))
   st_total_ok=1
   if [ "$st_total" -ne "$st_expected_total" ]; then
