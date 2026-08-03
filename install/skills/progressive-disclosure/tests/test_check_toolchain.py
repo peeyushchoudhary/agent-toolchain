@@ -217,8 +217,23 @@ def git_init(root: Path) -> Path:
 # baseline a real allow-list would silently rewrite what all of them measure. But that does leave
 # the repository's only reusable replica a tree on which all three surfaces are trackable — the very
 # tree that produced the wrong claim, and the one the next measurer reaches for. Hence a SECOND,
-# purpose-built fixture rather than an edit to the shared one. Unifying them behind one builder is
-# the shared-fixture-builder card's remit, not this card's.
+# purpose-built fixture rather than an edit to the shared one.
+#
+# UNIFYING THE TWO WAS CONSIDERED UNDER TC-48 — the shared-fixture-builder card an earlier version
+# of this comment forward-referenced — AND REFUSED. Recorded here rather than left as a pointer to a
+# closed card, because a comment promising queued work is worse than no comment: the next reader
+# stops looking.
+#
+# The reason is the card's own stop condition, "consolidation would require changing a test's
+# meaning rather than its fixture". These are not two builders of one tree. `green_home` is defined
+# by its VERDICT — it asserts `status == "clean"` through the checker before returning, and its
+# defining property is that no check objects to it; `plant_allowlisted_home` is defined by its
+# RULES, carries both allow-lists, and is deliberately not green. Merging them means one of the two
+# gives up its defining property, and the 44 `green_home` callers would then be measuring mutations
+# against a baseline whose ignore state nobody chose. What the unification would have bought — a
+# fixture that cannot silently stop being what it claims — both already have: `green_home`
+# self-asserts clean, and `plant_allowlisted_home` self-asserts complete. That is the whole of the
+# benefit, obtained without the merge.
 #
 # Shapes copied from the real files, reduced to the rules that decide the three surfaces.
 # `test_the_committed_allowlists_still_decide_the_surfaces_the_real_ones_do` re-runs the same
@@ -290,8 +305,82 @@ HIDDEN_TOP_LEVEL = {
 }
 
 
+# WHAT THE REPLICA MUST CONTAIN, READ OUT OF THE ALLOW-LISTS THEMSELVES.
+#
+# TC-48 fix round 1, finding 5. This used to be three hand-written tuples under a comment claiming
+# they were "the directories and files the allow-lists name". Nothing checked the correspondence and
+# THE CLAIM WAS ALREADY FALSE: `CLAUDE_ALLOWLIST` carries `!/settings.json` and `REQUIRED_FILES` did
+# not. Every negation whose path is absent from the replica is a rule about nothing — the allow-list
+# under test re-includes a surface that is not there, and every probe near it answers about a tree
+# nobody has.
+#
+# So the required set is now READ OUT of whatever rules the builder was handed, which removes the
+# correspondence by construction rather than checking it. A negation added to the real
+# `~/.claude/.gitignore` is planted by the replica on the same run that reads it, because
+# `test_the_committed_allowlists_still_decide_the_surfaces_the_real_ones_do` hands these functions
+# the real file.
+def negated_entries(rules: str, prefix: str = "") -> list[str]:
+    """Every path an allow-list adds back — the `!/...` lines, in file order, `prefix`ed.
+
+    A trailing `/` is PRESERVED, because it is the only evidence in the file about whether the
+    author meant a directory. `!/docs/` and `!/settings.json` must not materialise the same way.
+    """
+    out = []
+    for line in rules.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("!/") and len(stripped) > 2:
+            out.append(prefix + stripped[2:])
+    return out
+
+
+def required_entries(claude_rules: str | None = None,
+                     skills_rules: str | None = None) -> list[str]:
+    """Both allow-lists' negations, as one ordered list of replica-relative entries."""
+    return (negated_entries(CLAUDE_ALLOWLIST if claude_rules is None else claude_rules)
+            + negated_entries(SKILLS_ALLOWLIST if skills_rules is None else skills_rules,
+                              "skills/"))
+
+
+def is_gitignore_entry(entry: str) -> bool:
+    return entry.rstrip("/").rsplit("/", 1)[-1] == ".gitignore"
+
+
+def is_directory_entry(entry: str) -> bool:
+    """A trailing slash says directory; so does a final component with no suffix.
+
+    `.gitignore` never reaches this — `Path(".gitignore").suffix` is empty, so the suffix rule alone
+    would `mkdir` it, and the allow-lists themselves are written by the builder. `!/agent-personas`
+    (a skill directory, no slash, no suffix) is the case the suffix rule exists for.
+    """
+    return entry.endswith("/") or not Path(entry.rstrip("/")).suffix
+
+
+# EVERY `.gitignore` THE REPLICA MUST CARRY — derived from the same negations. A replica that
+# carries one allow-list and not the other measures a tree that does not exist: the second bad
+# TC-47 claim came from exactly that, and it produced confident, specific, wrong output TWICE —
+# because a missing DIRECTORY announces itself and a missing CONFIG FILE does not. Every path still
+# resolves and every answer stays plausible.
+#
+# `test_every_gitignore_the_real_tree_has_is_planted_by_the_builder` compares this set against a
+# FULL WALK of the real `~/.claude`, split by git's own answer about which of them it consults, so
+# its total comes from a different source than its count. TC-48 round 1 found the previous version
+# of that test comparing a hardcoded two-element list against a constant identical to it — a
+# tautology that could not fail, and that was already false: the machine carries SIX `.gitignore`
+# files and the detector knew two.
+REQUIRED_GITIGNORES = tuple(e for e in required_entries() if is_gitignore_entry(e))
+
+
+class IncompleteReplica(AssertionError):
+    """THE FIXTURE IS WRONG, NOT THE CODE.
+
+    Deliberately not a skip. A replica that silently degrades does not fail — it ANSWERS, and the
+    answer is about a tree nobody has. That is the defect class this file exists to remove.
+    """
+
+
 def plant_allowlisted_home(root: Path, claude_rules: str = CLAUDE_ALLOWLIST,
-                           skills_rules: str = SKILLS_ALLOWLIST, commit: bool = True) -> Path:
+                           skills_rules: str = SKILLS_ALLOWLIST, commit: bool = True,
+                           omit: tuple[str, ...] = ()) -> Path:
     """A work tree carrying BOTH allow-lists and the directories they name.
 
     Committed, reusable, and re-asserted against the real files by a sibling test — the three
@@ -313,24 +402,126 @@ def plant_allowlisted_home(root: Path, claude_rules: str = CLAUDE_ALLOWLIST,
     as well as the uncommitted one. The mutation IS caught either way; on the committed fixture it
     is caught INDIRECTLY, by staging, rather than by the probe. `commit=False` is the direct
     construction, which is the whole of the reason to prefer it.
+
+    IT ASSERTS ITSELF BEFORE HANDING THE TREE BACK, and raises `IncompleteReplica` naming what is
+    absent rather than returning something partial. `omit` is not a feature — it exists only so
+    `AllowlistReplicaTest` can request each incomplete replica and prove the refusal fires. An
+    `omit` value naming nothing the allow-lists re-include is a `ValueError`: TC-48 round 1 found
+    `omit=("Docs",)` silently returning a COMPLETE replica and reporting success, which is a request
+    for an incomplete tree answered with "yes, done".
     """
+    entries = required_entries(claude_rules, skills_rules)
+    unknown = sorted(set(omit) - set(entries))
+    if unknown:
+        raise ValueError(
+            f"omit={unknown} names nothing these allow-lists re-include, so the replica would come "
+            f"back COMPLETE and the caller would be told it had got what it asked for. Known "
+            f"entries: {entries}")
+
     root.mkdir(parents=True, exist_ok=True)
-    (root / ".gitignore").write_text(claude_rules, encoding="utf-8")
-    for d in ("skills", "docs", "hooks", "agents", "codex"):
-        (root / d).mkdir(exist_ok=True)
-    (root / "skills" / ".gitignore").write_text(skills_rules, encoding="utf-8")
-    for skill in ("progressive-disclosure", "agent-personas"):
-        (root / "skills" / skill).mkdir(exist_ok=True)
-        (root / "skills" / skill / "SKILL.md").write_text("x\n", encoding="utf-8")
-    (root / "skills" / "README.md").write_text("x\n", encoding="utf-8")
-    for name in ("LEDGER.md", "fleet-lessons.md", "RESTORE.md", "decisions.md"):
-        (root / "docs" / name).write_text("x\n", encoding="utf-8")
-    (root / "CLAUDE.md").write_text("x\n", encoding="utf-8")
+    # Directories first, in path order, so a file's parent is never missing. Everything here is
+    # READ OUT of the two allow-lists rather than listed: see `required_entries`.
+    for entry in sorted(entries, key=lambda e: e.count("/")):
+        if entry in omit:
+            continue
+        relative = entry.rstrip("/")
+        if is_gitignore_entry(entry):
+            rules = claude_rules if relative == ".gitignore" else skills_rules
+            (root / relative).parent.mkdir(parents=True, exist_ok=True)
+            (root / relative).write_text(rules, encoding="utf-8")
+        elif is_directory_entry(entry):
+            (root / relative).mkdir(parents=True, exist_ok=True)
+        else:
+            (root / relative).parent.mkdir(parents=True, exist_ok=True)
+            (root / relative).write_text("x\n", encoding="utf-8")
+    # A negated skill directory with no `SKILL.md` is a directory git will not commit, so the
+    # probes would see nothing there. This is the one thing the allow-lists do not say.
+    for skill in (root / "skills").iterdir() if (root / "skills").is_dir() else ():
+        if skill.is_dir() and not any(skill.iterdir()):
+            (skill / "SKILL.md").write_text("x\n", encoding="utf-8")
     git_init(root)
     if commit:
         git(root, "add", "-A")
         git(root, "commit", "-qm", "base")
+    require_complete_replica(root, claude_rules, skills_rules)
     return root
+
+
+def replica_gaps(root: Path, claude_rules: str | None = None,
+                 skills_rules: str | None = None) -> list[str]:
+    """Everything the allow-lists re-include that this replica does not actually contain."""
+    gaps = []
+    entries = required_entries(claude_rules, skills_rules)
+    found = {str(p.relative_to(root)) for p in root.rglob(".gitignore")}
+    for entry in entries:
+        relative = entry.rstrip("/")
+        if is_gitignore_entry(entry):
+            if relative not in found:
+                gaps.append(f"the allow-list `{relative}` is ABSENT — every git answer about this "
+                            f"tree is decided by a rule set that is not this machine's")
+        elif is_directory_entry(entry):
+            if not (root / relative).is_dir():
+                gaps.append(f"the directory `{relative}/` is ABSENT, so `!{'/' + entry}` "
+                            f"re-includes nothing")
+        elif not (root / relative).is_file():
+            gaps.append(f"the file `{relative}` is ABSENT, so `!{'/' + entry}` re-includes nothing")
+    if not (root / ".git").is_dir():
+        gaps.append("this is not a git work tree, so every tracking probe answers NOT-RUN")
+    return gaps
+
+
+def require_complete_replica(root: Path, claude_rules: str | None = None,
+                             skills_rules: str | None = None) -> None:
+    """Raise unless the replica carries everything the probes run against it will ask about."""
+    gaps = replica_gaps(root, claude_rules, skills_rules)
+    entries = required_entries(claude_rules, skills_rules)
+    if not gaps:
+        return
+    raise IncompleteReplica(
+        f"THE FIXTURE IS WRONG, NOT THE CODE.\nThe replica at {root} is incomplete "
+        f"({len(gaps)} gap(s) against the {len(entries)} path(s) these two allow-lists "
+        f"re-include):\n  - "
+        + "\n  - ".join(gaps)
+        + "\nMeasured twice in TC-47: a replica missing one of these does not fail, it ANSWERS, and "
+          "the answer is about a tree that does not exist."
+    )
+
+
+def split_gitignores_by_whether_git_consults_them(root: Path) -> tuple[list[str], list[str]]:
+    """Every `.gitignore` under `root`, split into (governing, inert) BY ASKING GIT.
+
+    The total comes from a full `rglob` and the filter comes from `git check-ignore`, which is the
+    point: a filtered count whose total is derived from the same place as the filter cannot fail.
+    TC-48 round 1 found exactly that here — a two-element list of levels, identical to the constant
+    it was compared against, described in four comments as a walk.
+
+    INERT means git never reads it. A `.gitignore` inside an IGNORED DIRECTORY is not consulted,
+    because git does not descend into a directory it has already excluded, so no rule in that file
+    can decide any surface this suite probes. Naming the excluded directory here instead would be
+    an annotation, and an annotation is only as true as whatever checks it; git's own answer moves
+    when the allow-list moves.
+
+    THE PROBE IS THE CONTAINING DIRECTORY, NOT THE FILE, and the difference is not pedantry. git
+    reads a directory's `.gitignore` when it descends into that directory whether or not the file
+    itself is ignored — `~/.claude/docs/.gitignore` would be ignored by `/docs/*` and CONSULTED all
+    the same. Probing the file would classify that one inert and hand back exactly the blind spot
+    this function was written to remove.
+    """
+    governing, inert = [], []
+    for path in sorted(root.rglob(".gitignore")):
+        relative = str(path.relative_to(root))
+        holder = str(path.parent.relative_to(root))
+        if holder == ".":
+            governing.append(relative)           # the root is never ignored
+            continue
+        probe = git(root, "check-ignore", "-q", "--", holder)
+        # 0 = ignored, 1 = not ignored, anything else = git could not answer and must not be
+        # silently read as "governing" — an error here would quietly shrink the excluded set.
+        assert probe.returncode in (0, 1), (
+            f"git check-ignore could not answer for {holder} under {root} "
+            f"(rc={probe.returncode}): {probe.stderr}")
+        (inert if probe.returncode == 0 else governing).append(relative)
+    return governing, inert
 
 
 def plant_workspace(root: Path, cards: dict[str, tuple[str, ...]]) -> Path:
@@ -3829,6 +4020,222 @@ class ReviewArtifactTest(unittest.TestCase):
             self.assertEqual(len(payload["findings"]), 1, payload["findings"])
             self.assertIn("TC-40", payload["findings"][0]["detail"])
             self.assertEqual(rc, 1, err)
+
+
+class AllowlistReplicaTest(unittest.TestCase):
+    """The replica builder's own barrier. Without it, the builder is one more thing that can lie.
+
+    TC-48. Four people hand-built a partial replica of this repository in one day; the fourth
+    carried `~/.claude/.gitignore` and omitted `~/.claude/skills/.gitignore`, and measured a tree on
+    which all three tracking surfaces answer `trackable` — the opposite of this machine, twice,
+    confidently. `plant_allowlisted_home` now refuses to hand back anything partial, and these tests
+    are what stop that refusal from being an unchecked claim.
+
+    NOT SHARED WITH `agent-personas/tests/complete_tree.py`, deliberately. That builder makes a
+    REPLICA OF THE SOURCE TREE, whose defining property is nesting depth relative to a skill; this
+    one makes a SYNTHETIC HOME, whose defining property is its allow-lists. Importing across the two
+    skills would not resolve in `install/skills/progressive-disclosure/tests/`, which is vendored
+    without `agent-personas/tests/` beside it — the cross-skill import that cost this milestone a
+    card.
+
+    THE COST ACCEPTED, AND WHAT ACTUALLY DETECTS IT — restated in round 1, because the first version
+    of this paragraph named a detector that could not fire. "Complete" is defined twice, for two
+    different trees, and either definition could drift from the machine. Both halves now have a
+    detector that takes its total from somewhere other than the constant under test:
+    `test_every_gitignore_the_real_tree_has_is_planted_by_the_builder` walks the WHOLE real tree and
+    lets git do the filtering (the previous version compared a hardcoded two-element list against a
+    constant identical to it, and was already false), and the content half is no longer a hand-list
+    at all — `required_entries` reads it out of the allow-lists, so `!/settings.json` cannot be in
+    the policy and missing from the replica the way it was.
+    """
+
+    def test_the_builder_returns_only_a_complete_replica(self) -> None:
+        """The positive control every refusal below is measured against."""
+        with tempfile.TemporaryDirectory() as t:
+            home = plant_allowlisted_home(Path(t) / "claude")
+            self.assertEqual(replica_gaps(home), [])
+            found = sorted(str(p.relative_to(home)) for p in home.rglob(".gitignore"))
+            self.assertEqual(found, sorted(REQUIRED_GITIGNORES),
+                             f"{len(found)} of {len(REQUIRED_GITIGNORES)} allow-lists planted")
+
+    def test_the_builder_refuses_a_replica_missing_either_allowlist(self) -> None:
+        """Both levels, and the nested one is the omission that was actually made.
+
+        `IncompleteReplica`, not a skip: a fixture that degrades silently is what produced two wrong
+        claims from the same shell prompt.
+        """
+        for relative in REQUIRED_GITIGNORES:
+            with self.subTest(omitted=relative):
+                with tempfile.TemporaryDirectory() as t:
+                    with self.assertRaises(IncompleteReplica) as caught:
+                        plant_allowlisted_home(Path(t) / "claude", omit=(relative,))
+                    self.assertIn(f"`{relative}`", str(caught.exception))
+                    self.assertIn("THE FIXTURE IS WRONG, NOT THE CODE", str(caught.exception))
+                    self.assertNotIsInstance(caught.exception, unittest.SkipTest)
+
+    def test_the_builder_refuses_a_replica_missing_a_file_the_allowlist_names(self) -> None:
+        """`!/docs/decisions.md` negating a path that is not there is a rule about nothing."""
+        for relative in ("docs/decisions.md", "skills/README.md"):
+            with self.subTest(omitted=relative):
+                with tempfile.TemporaryDirectory() as t:
+                    with self.assertRaises(IncompleteReplica) as caught:
+                        plant_allowlisted_home(Path(t) / "claude", omit=(relative,))
+                    self.assertIn(f"`{relative}`", str(caught.exception))
+
+    def test_every_path_the_allowlists_reinclude_is_actually_in_the_replica(self) -> None:
+        """FINDING 5. The correspondence used to be a comment, and the comment was already false.
+
+        `REQUIRED_FILES` was hand-written under the claim that it was "the files the allow-lists
+        name", and `!/settings.json` was not in it. A negation re-including a path the replica does
+        not contain is a rule about nothing, and the surrounding probes then answer about a tree
+        nobody has.
+
+        Removed by construction rather than checked: the builder plants what it READS. So this
+        asserts the reading, on both directions — every negation materialised, and `settings.json`
+        specifically, because that is the one that was missing and a regression would most likely
+        take the form of a hand-list creeping back.
+        """
+        entries = required_entries()
+        self.assertIn("settings.json", entries,
+                      "the derivation no longer sees the negation that was missing from the "
+                      "hand-list; if the policy dropped it, say so here")
+        with tempfile.TemporaryDirectory() as t:
+            home = plant_allowlisted_home(Path(t) / "claude")
+            self.assertTrue((home / "settings.json").is_file())
+            for entry in entries:
+                with self.subTest(entry=entry):
+                    self.assertTrue((home / entry.rstrip("/")).exists(),
+                                    f"`!/{entry}` re-includes a path this replica does not have")
+            # ...and the derivation is not simply "every line": the file's non-negation lines must
+            # NOT appear, or "every negation is planted" is satisfied by planting everything.
+            self.assertNotIn("docs/*", entries)
+            self.assertNotIn("__pycache__/", entries)
+            self.assertFalse((home / "MEMORY.md").exists(),
+                             "the replica contains a path no allow-list names, so the GAP_SURFACES "
+                             "probe for it would measure a file the fixture planted")
+
+    def test_an_omit_value_naming_nothing_is_rejected_rather_than_answered(self) -> None:
+        """FINDING 8. `omit=("Docs",)` used to return a COMPLETE replica and report success.
+
+        A request for an incomplete tree answered with a complete one is the fail-open shape this
+        whole barrier exists to remove: the caller believes it is measuring the degraded case.
+        `complete_tree.build` in the other suite already rejected its unknown values; this one did
+        not, and nothing said so.
+        """
+        for bogus in ("Docs", "docs", "skills/.GITIGNORE", "settings.jsn"):
+            with self.subTest(omit=bogus):
+                with tempfile.TemporaryDirectory() as t:
+                    with self.assertRaises(ValueError) as caught:
+                        plant_allowlisted_home(Path(t) / "claude", omit=(bogus,))
+                    self.assertIn(bogus, str(caught.exception))
+        # POSITIVE CONTROL: a real entry is still accepted and still produces the refusal, so the
+        # rejection above is about the VALUE and not about `omit` having stopped working.
+        with tempfile.TemporaryDirectory() as t:
+            with self.assertRaises(IncompleteReplica):
+                plant_allowlisted_home(Path(t) / "claude", omit=("docs/decisions.md",))
+
+    def test_the_walk_separates_a_governing_allowlist_from_an_inert_one(self) -> None:
+        """POSITIVE CONTROL FOR THE SPLIT, on a synthetic tree, before it is trusted on the machine.
+
+        The test below asks git which of the `.gitignore` files it walks up are actually consulted.
+        That classifier is the whole of the exclusion, so it is exercised here on a tree built to
+        contain one of each: a governing allow-list at a level nothing ignores, and an inert one
+        inside a directory the top-level rules exclude wholesale. Without this, "four of the six are
+        excluded" would be an unchecked assertion about `git check-ignore`'s behaviour.
+
+        THE THIRD ROW IS THE ONE THAT CAUGHT A BUG. `narrowed/` is re-included and then closed by
+        `/narrowed/*`, so its `.gitignore` IS ITSELF IGNORED while git still descends into the
+        directory and reads it — the shape `~/.claude/docs/.gitignore` would have. The first version
+        of the classifier probed the file rather than its directory and called that one inert, which
+        is precisely the blind spot the walk exists to remove.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            root = git_init(Path(t) / "tree")
+            (root / ".gitignore").write_text(
+                "/*\n!/.gitignore\n!/kept/\n!/narrowed/\n/narrowed/*\n", encoding="utf-8")
+            for relative in ("kept/.gitignore", "kept/deeper/.gitignore",
+                             "narrowed/.gitignore", "dropped/.gitignore"):
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                (root / relative).write_text("*.tmp\n", encoding="utf-8")
+
+            # The distinguishing fact, asserted rather than assumed: git ignores the FILE and
+            # descends into its DIRECTORY.
+            self.assertEqual(git(root, "check-ignore", "-q", "--", "narrowed/.gitignore")
+                             .returncode, 0)
+            self.assertEqual(git(root, "check-ignore", "-q", "--", "narrowed").returncode, 1)
+
+            governing, inert = split_gitignores_by_whether_git_consults_them(root)
+
+            self.assertEqual(governing,
+                             [".gitignore", "kept/.gitignore", "kept/deeper/.gitignore",
+                              "narrowed/.gitignore"],
+                             f"governing={governing} inert={inert}")
+            self.assertEqual(inert, ["dropped/.gitignore"],
+                             f"governing={governing} inert={inert}")
+            self.assertEqual(len(governing) + len(inert), 5,
+                             "the split lost or invented a file; the total must be the walk's")
+
+    def test_every_gitignore_the_real_tree_has_is_planted_by_the_builder(self) -> None:
+        """The derivation, checked against a FULL WALK of the machine. TC-48 round 1, finding 1.
+
+        WHAT THIS USED TO BE, because the shape matters more than the fix. It walked
+        `levels = [real, real / "skills"]` — a hardcoded two-element list WHOSE CONTENTS WERE
+        IDENTICAL TO `REQUIRED_GITIGNORES`. So it could not fail on a third allow-list appearing;
+        it could only notice one of two known files vanishing, while four comments in this
+        repository said it WALKED the tree. It was already false when it was written: this machine
+        carries SIX `.gitignore` files and the detector knew two.
+
+        That is the fleet lesson arriving in the code that was advertised as preventing it: A
+        FILTERED COUNT'S TOTAL MUST COME FROM A DIFFERENT SOURCE THAN THE COUNT. A derived set
+        compared against a hardcoded list identical to it is a tautology wearing the shape of a
+        measurement.
+
+        So: `rglob` the whole tree for the total, and let GIT ITSELF do the filtering. A
+        `.gitignore` inside a directory the top-level allow-list excludes is never consulted by git
+        at all, so it governs nothing any probe in this suite asks about — and that exclusion is
+        git's answer rather than a directory name written here. Today it removes exactly the four
+        under `plugins/` (the plugin manager's cache and marketplace checkouts, which `/*` excludes
+        wholesale because no line re-includes them), and it would stop removing them the day
+        `!/plugins/` were added — which is the correct behaviour, because that is the day they start
+        deciding something.
+
+        A `.gitignore` appearing anywhere git DOES consult — `docs/.gitignore`, say — now fails
+        here, loudly, instead of halving the next replica in silence.
+
+        THE SKIP IS LOUD, for the same reason the allow-list drift detector's is: a derivation
+        detector that skips is a false zero, and "the set is right" and "nobody looked" must not
+        render as the same `OK`.
+        """
+        real = toolchain.HOME / ".claude"
+        if not (real / ".git").is_dir():
+            print(f"\n!! SKIPPING THE ALLOW-LIST DERIVATION CHECK: no real work tree at {real}. "
+                  f"REQUIRED_GITIGNORES was NOT compared against the machine on this run.",
+                  file=sys.stderr)
+            self.skipTest(f"no real work tree at {real}")
+
+        governing, inert = split_gitignores_by_whether_git_consults_them(real)
+        total = len(governing) + len(inert)
+
+        # THE TOTAL IS REPORTED BESIDE THE COUNT, and it comes from the walk rather than from the
+        # constant under test. A run that finds two files and knows two is indistinguishable from
+        # the old tautology unless the number it walked past is on the page.
+        context = (f"{total} `.gitignore` file(s) under {real}: {len(governing)} that git consults "
+                   f"({governing}) and {len(inert)} inside excluded directories ({inert})")
+
+        self.assertGreater(total, len(REQUIRED_GITIGNORES) - 1, f"the walk found nothing: {context}")
+        self.assertGreaterEqual(len(governing), 2,
+                                f"fewer than two governing allow-lists found, so the comparison "
+                                f"below is close to a vacuum: {context}")
+        for relative in inert:
+            with self.subTest(excluded=relative):
+                self.assertNotEqual(relative, ".gitignore")
+                self.assertNotEqual(relative, "skills/.gitignore")
+        self.assertEqual(sorted(REQUIRED_GITIGNORES), governing,
+                         f"the replica builder plants {sorted(REQUIRED_GITIGNORES)} — {context}. "
+                         f"Either add the new allow-list to the negations the builder reads, or, "
+                         f"if git should not be consulting it, say why here. The next replica "
+                         f"would otherwise measure a tree that does not exist, which is the TC-47 "
+                         f"defect verbatim")
 
 
 if __name__ == "__main__":
