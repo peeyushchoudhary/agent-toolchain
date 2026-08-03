@@ -70,7 +70,7 @@ rather than carrying its own list. `graphify` is listed because the installed la
 | `SessionStart` | `hooks/disclosure-check.sh` | Reports GitHub state, **global toolchain drift**, a broken route, a missing pre-commit hook, a stale graph, and the presence of `lessons.md`. **Reports, never writes** |
 | `SessionStart` | `hooks/graphify-session-lessons.sh` | Runs `graphify reflect --if-stale`, injects `LESSONS.md` (4,000 char cap) |
 | `PreToolUse` (Bash) | `hooks/graphify-query-advisor.py` | Advisory: injects the symbol-first ladder when a prose `graphify query` is about to run |
-| — | `hooks/preflight.sh` | Installed, deliberately unwired: a published `SKILL.md` routes to it, run on demand. No `WANT` entry needed |
+| `SessionStart` | `hooks/preflight.sh` | Machine-fact checks for the environment-failure class, run against the session's directory; also standalone before a long gate. **Reports, never writes** |
 
 `skillOverrides: {"graphify": "user-invocable-only"}` — the vendor skill is hidden from
 model-initiated invocation so `graph-navigation` owns queries. `/graphify` still works for the user.
