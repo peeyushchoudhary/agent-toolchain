@@ -1714,9 +1714,14 @@ if [ "$SELF_TEST" = "1" ]; then
   # fixture setup already sits ABOVE the guard, because each guard exists to test whether that setup
   # took.
   #
-  # WHAT A DRY WALK COSTS, STATED ONCE AND STATED TRUE. It repeats no `chmod`, no `git init` and no
-  # subprocess: those are the expensive and order-dependent operations, and every one of them sits
-  # above a guard. It is NOT free of the filesystem, and an earlier version of this line said it was
+  # WHAT A DRY WALK COSTS, STATED ONCE AND STATED TRUE. It repeats no `chmod` and no `git init`:
+  # those are the expensive and order-dependent operations, and every one of them sits above a
+  # guard. It forks exactly ONE subprocess, a `mkdir` — exception (1) below. An earlier version of
+  # this line said "and no subprocess" and then disclosed that `mkdir` two sentences later, which is
+  # the same unqualified-sentence-plus-exception shape being corrected here; the two writes in that
+  # exception are `printf` and `: >`, both builtins, and the `rm` in exception (2) is behind a test
+  # that is false on the dry walk, so `mkdir` really is the whole of it.
+  # It is NOT free of the filesystem, and an earlier version of this line said it was
   # — while three writes lived inside a dry region 1,000 lines below, which is exactly the shape of
   # unchecked self-description this suite keeps removing. There are TWO documented exceptions, each
   # marked at the line with `# ST_DRY-SIDE-EFFECT:` and each asserted by the range check in the
@@ -3090,7 +3095,11 @@ STUB
   #    and run it to the next real `st_dry_end` a few hundred lines down — the identical trap that
   #    made the first `UNMIGRATED-CNR` pair measure its own grep patterns. The pattern therefore
   #    requires the line to BEGIN with the call (optionally behind a `[ … ] ||` guard, the form the
-  #    two conditional regions use); every line of the awk program begins with `if (` or `}`.
+  #    three conditional regions use), and the matching end pattern requires a line that is `st_dry_end`
+  #    and NOTHING ELSE. Neither of the two awk lines carrying those literals can satisfy that: both
+  #    carry them inside a regex body, so the `st_dry_begin "` line begins with `if (` and the
+  #    `st_dry_end` line — the only awk line containing that token — begins with `$0 ~` and continues
+  #    past it. The anchoring is what closes this; a claim about how awk lines happen to start is not.
   st_dryviol=$(awk '
       { prev_cont = cont; cont = ($0 ~ /\\[[:space:]]*$/) }
       inr == 0 {
@@ -3109,11 +3118,18 @@ STUB
       # AND A ZERO-REGION FILE IS NOT A PASS. A range check over no ranges is vacuously green, which
       # is the same empty-denominator defect the marker-count assertion above exists to prevent; if
       # the pattern ever stops matching the call form, this must say so rather than say nothing.
-      END { if (nreg == 0) print "NO-REGIONS-MATCHED"; else print bad }
+      #
+      # AND NEITHER IS AN AWK THAT NEVER REACHED `END`. Empty output has to mean "did not run", not
+      # "found nothing", or a syntax error here — stderr suppressed, exit 2 discarded by `$( )` —
+      # buys a green `ok` from the assertion whose own message says `NO-REGIONS-MATCHED` catches the
+      # vacuous pass; that marker is unreachable in exactly this mode, because `END` never runs. So
+      # the pass is a POSITIVE sentinel and empty is a failure, the same `${st_marks:-0}` idiom two
+      # assertions above. (`st_badtag` above has the identical hole and is left as it was found.)
+      END { if (nreg == 0) print "NO-REGIONS-MATCHED"; else if (bad == "") print "OK"; else print bad }
     ' "$st_self" 2>/dev/null)
-  st_rc=1; [ -z "$st_dryviol" ] && st_rc=0
+  st_rc=1; [ "$st_dryviol" = "OK" ] && st_rc=0
   st_assert "every line inside an ST_DRY region is an assertion call or a marked exception" "$st_rc" \
-    "${st_dryviol:-?} — line numbers here sit between \`st_dry_begin\` and \`st_dry_end\` in $st_self and are neither an assertion helper call nor beneath an \`# ST_DRY-SIDE-EFFECT:\` marker; the dry walk executes them with ST_DRY=1 and the real walk executes them too, so whatever they do happens on a path nobody reviewed as doing it. Move the work above the guard, or mark the line and say in the ST_DRY header what it costs. \`NO-REGIONS-MATCHED\` instead means the check found no dry regions at all and was about to pass vacuously"
+    "${st_dryviol:-?} — line numbers here sit between \`st_dry_begin\` and \`st_dry_end\` in $st_self and are neither an assertion helper call nor beneath an \`# ST_DRY-SIDE-EFFECT:\` marker; the dry walk executes them with ST_DRY=1 and the real walk executes them too, so whatever they do happens on a path nobody reviewed as doing it. Move the work above the guard, or mark the line and say in the ST_DRY header what it costs. \`NO-REGIONS-MATCHED\` instead means the check found no dry regions at all and was about to pass vacuously, and a bare \`?\` means awk printed nothing — it died before \`END\`, so the check never ran"
   #    The LIVE half of this pair — whether the short-circuits actually short-circuit — cannot go
   #    here: `expect_presence` and `expect_installer` are defined further down. It sits at the end of
   #    the suite, immediately before the accounting block, and covers all five helpers.
@@ -3180,8 +3196,9 @@ STUB
   # timeout arm. Without it that arm's counter signature — repo_fail 0, env_cnr 0, away 0 — is
   # BYTE-IDENTICAL to a clean pass, and the only thing separating the two would be a needle. A
   # mutation deleting the `cnr` call and returning silently would then read green on the counters.
-  # It trails the two needles rather than sitting beside the other deltas so that the eight existing
-  # call sites keep their arity; every one of them wants 0 and says so by omission.
+  # It trails the two needles rather than sitting beside the other deltas so that every call site
+  # that does not need it keeps its arity: ten of the twelve omit it, each wanting 0 and saying so
+  # by omission, and only the two timeout arms pass it.
   expect_installer() {
     [ "$ST_DRY" -eq 0 ] || { st_skipped=$((st_skipped+1)); return 0; }
     local name="$1" inst="$2" decl="$3" wf="$4" wc="$5" wa="$6" needle="${7:-}" absent="${8:-}" wrc="${9:-0}"
@@ -3518,9 +3535,21 @@ STUB
   #    mutation, and the one that turns every dry region back into a live one — left this suite
   #    GREEN, because no `st_dry_begin` is reached at all on a machine with git, python3 3.10+ and
   #    working mode bits. Driving the control through `st_dry_begin`/`st_dry_end` is what makes the
-  #    two functions reachable here, and it buys the derivation as well: `st_dry_end` prints the
-  #    count it computed from the delta, so `(5 assertion(s))` on that line is the arithmetic
-  #    `st_skipped - st_dry_n0` asserted rather than described.
+  #    two functions reachable here, and it puts `st_dry_end`'s printed count under assertion.
+  #
+  #    AND THE REGION IS ENTERED ON A NON-ZERO BASE, WHICH IS THE WHOLE OF WHY THAT ASSERTION BINDS.
+  #    `st_skipped` is 0 here on any machine where the suite is green, so a control entered at 0
+  #    makes `st_dry_n0` 0 too and `st_skipped - st_dry_n0` degenerate to `st_skipped`: MEASURED,
+  #    mutating `st_dry_n0=$st_skipped` to `st_dry_n0=0` left the pair green here at `141 of 141`
+  #    and would have reddened only on a machine without git — the round-1 defect, inside the
+  #    assertion added to prevent it. So the counter is offset by 11 before the region and the 11 is
+  #    taken back out after it, leaving every downstream number identical. The same mutation now
+  #    prints `(16 assertion(s))` and reddens HERE.
+  #
+  #    WHAT THIS BUYS, EXACTLY, AND NO MORE: the printed count is PINNED to the region's real size.
+  #    It is not the arithmetic asserted — with one region of one size, replacing the subtraction
+  #    with a literal `5` still passes. Closing that needs a second region of a different size, and
+  #    the smaller true claim is preferred to the larger one until there is.
   #
   #    THE REGION IS A BRACE GROUP WITH A REDIRECTION, NOT A COMMAND SUBSTITUTION. `$( … )` would run
   #    `st_dry_end` in a subshell and its `ST_DRY=0` would be discarded, leaving the flag set for the
@@ -3535,6 +3564,10 @@ STUB
   #    `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer) '` reads
   #    exactly FIVE more than `st_expected_total`, and they are the five below.
   st_dc0=$st_skipped; st_dp0=$st_pass; st_df0=$st_fail
+  # The offset the paragraph above explains. Any non-zero constant does; 11 is not 5 and not a
+  # multiple of it, so a printed count that picked up the base instead of the delta cannot land on
+  # the wanted value by coincidence.
+  st_skipped=$((st_dc0 + 11))
   {
   st_dry_begin "ST_DRY control — five helpers that must not run" \
     "entered on purpose by the control below; this is the mechanism being exercised, not a missing prerequisite"
@@ -3545,6 +3578,7 @@ STUB
   st_assert "MUST NOT RUN — ST_DRY control (st_assert)" 1 'this failure message must never be printed'
   st_dry_end
   } > "$st_dir/st_dry_control" 2>&1
+  st_skipped=$((st_skipped - 11))
   # The deltas are captured BEFORE the counter is restored, or the failure message would report the
   # restored 0 and tell the reader nothing about what actually happened.
   st_dds=$((st_skipped - st_dc0)); st_ddp=$((st_pass - st_dp0)); st_ddf=$((st_fail - st_df0))
@@ -3556,7 +3590,14 @@ STUB
   # Only the NOT RUN line is quoted back, not the whole capture: under the mutations this assertion
   # exists to catch, the region prints five failed assertions with their rendered evidence, and
   # pasting all of it into one message buries the one line being asserted about.
-  st_dryline=$(grep 'NOT RUN' "$st_dir/st_dry_control" 2>/dev/null | head -n 1)
+  #
+  # MATCHED ON THE REGION NAME, NOT ON `NOT RUN`. All five helpers are NAMED "MUST NOT RUN — …", so
+  # under exactly the mutations this assertion targets their five FAIL lines match `NOT RUN` and
+  # print BEFORE st_dry_end's, and `head -n 1` quotes one of those instead — no false pass, but the
+  # wrong evidence and a fallback that never fires. The region name is on st_dry_end's line only.
+  # Not `NOT RUN  ST_DRY control`: MEASURED, that matches nothing, because the printf puts an
+  # `\033[0m` between the words and the spaces.
+  st_dryline=$(grep -F 'ST_DRY control — five helpers' "$st_dir/st_dry_control" 2>/dev/null | head -n 1)
   st_rc=1
   [ -n "$st_dryline" ] && case "$st_dryline" in *'(5 assertion(s))'*) st_rc=0 ;; esac
   st_assert "and st_dry_end reports the count it DERIVED from the walk, not one written beside it" "$st_rc" \
