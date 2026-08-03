@@ -100,6 +100,27 @@ Between Gate 2 and Gate 3 the loop runs unattended. It stops early only for a bl
 resolve, an ambiguity that prevents progress, or a fix loop that hits its cap. It does not stop to
 ask whether to continue.
 
+**A report is not a request.** Reporting at a milestone and pausing for a reply are different acts,
+and conflating them is how an unattended loop becomes an attended one without anyone deciding to
+change it. Report, then keep going. The founder reads a milestone report to stay informed, not to
+issue a permission the methodology never asked for — and a loop that halts after every report has
+silently converted each milestone into a fourth gate.
+
+Earned rather than assumed: in the milestone that produced this paragraph the founder typed
+"proceed" three times, each against a queue already decided, already scoped, and blocked on nothing.
+None of the three carried information. The cost is not the typing — it is that work sat idle waiting
+for it, and that the founder had to track whether an agent was working or waiting.
+
+The test to apply before stopping is to **name the decision**. If it is one only the founder can
+make — one of the three gates, a spend, an outward-facing or irreversible action, or a genuine fork
+where the readings lead to materially different work — stop and ask it plainly. If it is "confirm I
+should carry on with what we agreed", that is not a decision and there is nothing to ask. Proceed,
+and record it in the next report.
+
+Non-blocking ambiguity is handled the same way: do everything that does not depend on the answer,
+state the assumption, and carry on. The question is asked where the work actually forks, not where
+the uncertainty was first noticed.
+
 ### Product spec
 
 `docs/product/specs/<area>.md` — owned by `product-steward`, authored with the founder.
@@ -261,6 +282,19 @@ on the card. The lane's area check. Plus the cheap verifier owning each artifact
 verifiers exist precisely so that the failures that surface an hour into a full gate surface in
 thirty seconds instead.
 
+**Per card, at the commit boundary** — `test-judge` runs the card's gate and reports what it printed.
+Until it does, **the implementer's numbers are a claim, not a result.** They are worth having — an
+implementer that ran its own suite catches most things — but a builder reporting its own gate is the
+one measurement nobody else took, and it is the shape every silent pass in this methodology's history
+has had. `test-judge` is Haiku at low effort and holds Bash precisely so this costs one cheap call
+per card rather than an argument.
+
+It states the **referent** with the number: which tree (HEAD or working), which interpreter, which
+command. A count without a referent cannot be compared with another count, and two correct
+measurements of different objects read exactly like a disagreement. Where its figure and the
+implementer's differ, the difference is itself a finding — usually a referent, occasionally a defect,
+never something to average.
+
 **Per milestone** — once. The full gate, run by a non-editing judge that reports the gate's own
 verdict line verbatim rather than a wrapper's exit code, and cannot fix what it finds. Then the
 acceptance judgement against that exact commit.
@@ -350,6 +384,38 @@ generated artifact.
 **Parallelize reads; serialize writes.** Scouts, reviewers, and gate runs fan out freely. Writers do
 not: concurrent implementers are capped, file-disjoint by their `exclusive_writes`, and never
 concurrent on a shared artifact.
+
+### Who fixes prose, and the line that is easy to get wrong
+
+Prose describing a change is the highest-risk content in a diff — see the entry below on what earned
+that. It does not follow that prose is cheap work to route away.
+
+The split is by **who still has to make the judgement**, not by whether the file is code:
+
+| The change | Role | Why |
+|---|---|---|
+| Prose asserting what code does, written by whoever changed that code | the card's implementer | The claim and the change are one act. Handing the sentence to someone else means they must re-derive the behaviour, which is the expensive half done twice. |
+| Route, README, lessons, architecture pages, doc drift carrying no behavioural claim | `docs-steward` | Nothing to get wrong about execution. |
+| Applying a correction a review has already specified, with the wording named | `docs-steward` | The judgement was made by the reviewer. What remains is transcription, and transcription is bounded work by definition. |
+
+That third row is the one that gets mis-routed upward. A review that says *"this sentence is false;
+here is what is true"* has already spent the judgement; sending it back to the implementer buys
+nothing and costs the expensive tier. A review that says *"this sentence is false"* and stops has
+not, and that goes back to whoever changed the code.
+
+The test to apply: **can the fix be applied without reading the code?** If yes, it is transcription.
+If the fixer must open the source to know what to write, it is implementation wearing prose.
+
+**An absence claim is never transcription**, however precisely the review specified it. A sentence
+saying what a check does *not* cover, what a guard does *not* catch, or which cases are *not*
+handled can only be confirmed by reading the source — a supplied measurement of an absence is
+someone else's reading, and this methodology's own history is mostly wrong absence claims made
+confidently. The correction may look like three named lines; establishing that those three lines are
+now right is the whole job.
+
+Earned: a gap paragraph was twice rewritten from a specified correction without re-deriving, and was
+wrong both times — the second time by *affirmatively denying* a third uncovered surface existed, so
+the next card was scoped from it and inherited the denial.
 
 ## Landing
 

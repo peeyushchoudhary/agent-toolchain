@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -283,8 +284,26 @@ class PersonaDecisionTest(unittest.TestCase):
                 str(root),
                 "--hook",
             ]
+            # `HOME` redirected, and to a directory OUTSIDE `root`, which is the repository under
+            # validation. `validate_disclosure.py` reaches `Path.home()` in two places that run
+            # before it can return, so an unpinned run reads whatever this machine has installed —
+            # and `assertEqual(clean.stdout, "")` is precisely the assertion one machine-dependent
+            # extra line breaks.
+            #
+            # PINNING IT ALONE MADE THE TEST FAIL, which is the point: `check_personas()` warns
+            # `persona-tool-missing` when `~/.claude/skills/agent-personas/scripts/sync_personas.py`
+            # is absent, and the empty-stdout assertion was only ever true because THIS machine has
+            # that tool installed. So the fixture supplies it — a stub that exits 0, i.e. "the tool
+            # is installed and finds no drift", which is the state the real machine was silently
+            # providing. The assertion is unchanged; only its input stopped being ambient.
+            home = Path(tempfile.mkdtemp(prefix="pd-persona-home-"))
+            self.addCleanup(shutil.rmtree, home, True)
+            sync = home / ".claude" / "skills" / "agent-personas" / "scripts" / "sync_personas.py"
+            sync.parent.mkdir(parents=True)
+            sync.write_text("raise SystemExit(0)\n", encoding="utf-8")
+            env = {**os.environ, "HOME": str(home)}
 
-            missing = subprocess.run(command, capture_output=True, text=True)
+            missing = subprocess.run(command, capture_output=True, text=True, env=env)
             self.assertEqual(missing.returncode, 0)
             self.assertIn("[persona-decision-missing]", missing.stdout)
             self.assertNotIn("progressive disclosure:", missing.stdout)
@@ -297,7 +316,7 @@ class PersonaDecisionTest(unittest.TestCase):
                 'base reviewers cover its risks"} -->\n',
                 encoding="utf-8",
             )
-            clean = subprocess.run(command, capture_output=True, text=True)
+            clean = subprocess.run(command, capture_output=True, text=True, env=env)
             self.assertEqual(clean.returncode, 0)
             self.assertEqual(clean.stdout, "")
 

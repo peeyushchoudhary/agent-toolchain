@@ -5,8 +5,9 @@ Four hooks, all per-repo because git hooks are not shared through git — every 
 project needs this run once:
 
   pre-commit   validates the disclosure route (broken link, missing command, unscoped dir)
-               and, with --public, scans the staged diff for private identifiers
-  commit-msg   with --public only: scans the commit MESSAGE for private identifiers
+               and, in a repository that DECLARES ITSELF PUBLIC, scans the staged diff for
+               private identifiers
+  commit-msg   declaring repositories only: scans the commit MESSAGE for private identifiers
   pre-push     blocks the mistakes a push makes permanent (secrets, huge files, pushes to main)
   post-commit  re-extracts changed code into the Graphify graph, via `graphify hook install`
 
@@ -26,8 +27,8 @@ silently when the repo has no `docs/agents/README.md` or no validator installed,
 install anywhere, including a project that has not been standardised yet. When the route does
 exist, it surfaces warnings and fails the commit on structural errors.
 
---public IS OPT-IN, AND MUST STAY OPT-IN
------------------------------------------
+PUBLIC IS STATE THE REPOSITORY DECLARES, NOT A FLAG SOMEONE HAS TO REMEMBER
+----------------------------------------------------------------------------
 The identifier guard is for repositories that are DELIBERATELY PUBLIC. It blocks a commit that
 carries an absolute home path, the local git identity, or a name from the private deny-list at
 ~/.claude/private-identifiers.txt. That deny-list lives outside the PUBLIC repository on purpose: a
@@ -50,8 +51,75 @@ It is not installed by default, and that is a decision rather than caution:
     it on a private one is that the founder stops trusting all four hooks. The first is loud and
     caught by review; the second is silent and permanent.
 
-So the flag is required, and re-running WITHOUT it removes the guard again — the state of the hook
-always matches the last thing that was asked for, with no sticky configuration to forget about.
+Opt-in it stays. What changed is WHERE the opt-in lives, and the sentence that used to sit here is
+the defect, reproduced verbatim so it cannot come back as an idea:
+
+    "So the flag is required, and re-running WITHOUT it removes the guard again — the state of the
+     hook always matches the last thing that was asked for, with no sticky configuration to forget
+     about."
+
+Measured, on a scratch repository, with the exit code taken from the process:
+
+    $ install_hooks.py REPO --public   ->  EXIT=0, pre-commit + commit-msg guard PRESENT
+    $ install_hooks.py REPO            ->  EXIT=0, pre-commit + commit-msg guard ABSENT
+      pre-commit updated (existing hook preserved)          <- no mention of the guard it removed
+      commit-msg identifier guard removed (no --public)
+
+Every other fail-open this programme closed needed something unusual to happen — a restore in the
+wrong order, a renamed script, a marker inside a fence. This one is triggered by FOLLOWING THE
+INSTRUCTIONS. `install_hooks.py .` is what the onboarding skill, the SKILL.md and the session-start
+reporter all tell you to run, and running it is what strips the leak guard off a public repository
+while printing a clean report and exiting 0. A protection whose documented remedy disables it is
+worse than no protection, because the report is what anyone would check.
+
+THE RULING: state beats a flag, and removal by construction beats validation — the same shape as the
+deny-list opt-out that was removed rather than validated. There are exactly four behaviours:
+
+  1. The installer READS the repository's own declaration of public status and renders the identifier
+     stanza because THE REPOSITORY SAYS IT IS PUBLIC, not because someone remembered a flag.
+  2. --public WRITES that declaration, once, and says what it wrote and where.
+  3. Re-running WITHOUT the flag on a declaring repository renders the guard anyway, and says why.
+  4. Guard absent while the declaration is present is a FINDING with a non-zero exit, never silence.
+
+Removing the guard therefore requires removing the DECLARATION: a visible, deliberate edit to a
+tracked file that shows up in a diff and in review, rather than the absence of a word on a command
+line. `--uninstall` still takes every block away, because that is an explicit request.
+
+ONE HOLE REMAINS OPEN AND IS NOT CLOSED BY ANY OF THE ABOVE. `check_github.py` skips a candidate
+marker file it cannot read (`except OSError: continue`) — correct in its own direction, where an
+exemption must never follow from an unreadable file. Read from HERE the same silence inverts: a
+public repository whose only marker file is unreadable produces the empty "nothing declared"
+verdict and is disarmed at exit 0. Distinguishing "unreadable" from "absent" is a change to the
+shared parser, which is this card's stop condition, so it is ESCALATED AND STILL OPEN. Nothing in
+this file may be written as though it were closed — an earlier revision of the comment on the
+disarm branch claimed the parser "looked and there was nothing there", which is the escalated hole
+denied at the exact site where it bites.
+
+THE DECLARATION IS THE MARKER THAT ALREADY EXISTS, READ BY THE PARSER THAT ALREADY READS IT.
+`check_github.py` has a `public-exception` marker — a single-line JSON HTML comment in one of the
+routed files — which is how a repository already records "I am deliberately public" to waive that
+tool's PUBLIC critical. It is the same fact, so it is the same marker and the same parser:
+`public_exception()` is imported from `check_github.py`, exactly as `MIRRORED_SKILLS` is imported
+from `check_toolchain.py` below. It needed no change to be importable.
+
+That parser is fail-closed in ways this file must not re-litigate and could not reproduce: the
+marker is anchored to column zero, fenced/indented/backticked/`<pre>` examples are stripped by a
+line-state pass, an enclosing HTML comment disables it, a symlinked marker file does not count, two
+markers are an error rather than a race, and a reason containing control or non-text characters is
+refused outright. A second marker format or a second parser here would be two copies of a security
+decision that disagree the first time one is hardened — which is the defect class this programme
+exists to remove.
+
+So the states this file acts on are that parser's own:
+
+  "active"   a declaration -> the guard is rendered, flag or no flag
+  "invalid"  a marker that is not a decision -> NOT a declaration, and said out loud; --public will
+             not write a second marker beside it, because two markers are what the parser rejects
+  "none"     nothing declared -> no guard, unchanged; if a marker was written in a shape the anchor
+             or the strippers rejected, the parser's diagnostic is printed
+  "unknown"  ADDED HERE, and it is this file's fail-closed case: the parser could not be imported or
+             raised. Visibility is then NOT DETERMINED, so a guard already on disk is KEPT rather
+             than removed on the strength of a question nobody answered, and the run exits non-zero.
 
 NO HOOK IS DECLARED INSTALLED WITHOUT VERIFYING WHAT IT INVOKES
 ---------------------------------------------------------------
@@ -97,7 +165,8 @@ Usage:
   install_hooks.py [ROOT] --check      # report status, change nothing
   install_hooks.py [ROOT] --uninstall  # remove only our block
   install_hooks.py [ROOT] --standard   # pre-commit also enforces the structure standard
-  install_hooks.py [ROOT] --public     # add the private-identifier guard (public repos ONLY)
+  install_hooks.py [ROOT] --public     # DECLARE this repository public, once (public repos ONLY);
+                                       # thereafter the declaration installs the guard by itself
 """
 
 from __future__ import annotations
@@ -105,9 +174,11 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib.util
+import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 BEGIN = "# >>> progressive-disclosure >>>"
@@ -143,9 +214,17 @@ fi
 """
 
 # Rendered into the SAME marked block as the route check rather than a block of its own, so that
-# `write_hook` — which replaces our one block wholesale — takes the stanza away again the moment
-# --public is dropped. A second marked block would need its own strip/rewrite path and would settle
-# its ordering against the first differently on every run.
+# `write_hook` — which replaces our one block wholesale — takes the stanza away again when the
+# repository stops declaring itself public. A second marked block would need its own strip/rewrite
+# path and would settle its ordering against the first differently on every run.
+#
+# The mechanism is unchanged; what changed is what drives it. This comment used to say the stanza
+# went away "the moment --public is dropped", which is now false twice over and is contradicted by
+# the hook text a dozen lines below: dropping the flag does nothing, and the path here is reached
+# only when the parser reports no honoured marker in any candidate file IT COULD READ — normally a
+# deliberate deletion, but also an unreadable marker file, which is the open escalation recorded in
+# the module docstring. "Only a deliberate deletion reaches this path" would be the same overclaim
+# in a smaller font.
 #
 # Two hooks, not one, and it is not a choice: git runs `pre-commit` BEFORE the commit message
 # exists, so that hook cannot see it, while `commit-msg` receives the message file as $1. One
@@ -173,10 +252,12 @@ if [ -f "$_pd_ident" ]; then
 else
   echo "commit BLOCKED: the private-identifier guard is not installed at" >&2
   echo "  $_pd_ident" >&2
-  echo "  This hook was installed with --public, so this repository is treated as PUBLIC and the" >&2
-  echo "  staged content has NOT been scanned. A scan that did not run is not a clean result." >&2
-  echo "  Reinstall the progressive-disclosure skill, or re-run install_hooks.py WITHOUT --public" >&2
-  echo "  to remove this hook deliberately. Do not commit past it." >&2
+  echo "  This repository DECLARES itself public (a public-exception marker in its routed" >&2
+  echo "  contract), so it is treated as PUBLIC and the staged content has NOT been scanned." >&2
+  echo "  A scan that did not run is not a clean result." >&2
+  echo "  Reinstall the progressive-disclosure skill, or — if this repository is not in fact" >&2
+  echo "  public — remove the public-exception marker and re-run install_hooks.py. Dropping" >&2
+  echo "  --public no longer removes this hook; the declaration does. Do not commit past it." >&2
   exit 2
 fi
 """
@@ -197,8 +278,9 @@ else
   echo "commit BLOCKED: the private-identifier guard is not installed at" >&2
   echo "  $_pd_ident" >&2
   echo "  The commit MESSAGE has NOT been scanned, and a scan that did not run is not a clean" >&2
-  echo "  result. Reinstall the progressive-disclosure skill, or re-run install_hooks.py WITHOUT" >&2
-  echo "  --public to remove this hook deliberately. Do not commit past it." >&2
+  echo "  result. Reinstall the progressive-disclosure skill, or — if this repository is not in" >&2
+  echo "  fact public — remove its public-exception marker and re-run install_hooks.py. Dropping" >&2
+  echo "  --public no longer removes this hook; the declaration does. Do not commit past it." >&2
   exit 2
 fi
 {end}
@@ -266,7 +348,19 @@ def render_pre_commit(*, standard: bool = False, public: bool = False) -> str:
 
     PRE_COMMIT is a four-placeholder template whose two interesting slots are not free text: the
     flag is `--standard` or `--readme` and nothing else, and the identifier stanza is present or
-    absent according to --public. Exposing the template alone made every caller re-derive both, and
+    absent according to `public`. That parameter is NOT the --public flag and has not been since
+    the declaration replaced it: `main()` derives it from the repository's own public-exception
+    marker, and the flag only ever writes that marker. Anyone wiring `public=args.public` here
+    would restore the defect this whole file was rewritten to remove.
+
+    `test_the_guard_is_not_decided_by_the_flag` checks that by following the data — the value
+    passed as `public=` must not derive from `args.public` through any chain of assignments in
+    `main()`. An earlier version of this sentence vouched for a version of that test which merely
+    counted `args.public` mentions and matched one literal call, so `flag = args.public` followed
+    by `public = flag` kept the count at two and passed. Vouching for a test is worth exactly what
+    the test checks, which is why what it checks is now stated here rather than implied.
+
+    Exposing the template alone made every caller re-derive both, and
     a caller that re-derives a composition drifts from it silently. That is not hypothetical here:
     adding `{identifier}` broke a test which had hand-formatted the same template, and the test
     failed for the wrong reason — not because the hook was wrong, but because it was a copy. The
@@ -291,6 +385,171 @@ def render_pre_commit(*, standard: bool = False, public: bool = False) -> str:
 
 def hook_path(root: Path, name: str) -> Path:
     return root / ".git" / "hooks" / name
+
+
+def guard_state(root: Path) -> tuple[bool, bool]:
+    """(pre-commit carries the identifier stanza, commit-msg carries it). BOTH halves, always.
+
+    One function because reading one half and calling it "the guard" is a measured defect, not a
+    hypothetical. `guard_on_disk = "identifier_guard.py" in read(pre)` looked at pre-commit alone,
+    so in the asymmetric state — pre-commit refused for a missing validator while commit-msg
+    installed, which is the END STATE of one of this file's own tests — the installer concluded the
+    guard was "absent", stripped the surviving commit-msg half, and printed "left exactly as it was
+    (absent) … nothing was taken away" while taking it away.
+
+    The two halves are independent on disk and must be read and preserved independently. Anything
+    that reduces them to one boolean before deciding is how a half-guard gets created or destroyed
+    under a banner that says nothing changed.
+    """
+    return ("identifier_guard.py" in read(hook_path(root, "pre-commit")),
+            "identifier_guard.py" in read(hook_path(root, "commit-msg")))
+
+
+# ---------------------------------------------------------------------------------------------
+# The declaration: what the REPOSITORY says about its own visibility. One marker, one parser.
+# ---------------------------------------------------------------------------------------------
+
+# The reason a `--public` run records when the human did not write one. It is deliberately an
+# instruction rather than a justification: `check_github.py` prints this string back at every
+# report as the stated grounds for waiving a critical data-exposure finding, and "because a tool
+# wrote it" is not grounds. Plain single-line text with no control characters, because the parser
+# refuses anything else — see UNSAFE_REASON_CATEGORIES over there.
+DECLARATION_REASON = ("declared public with install_hooks.py --public; replace this reason with why "
+                      "this repository is deliberately world readable")
+
+# Written exactly as `check_github.py` documents it and exactly as its anchored pattern requires:
+# a complete single-line HTML comment beginning at COLUMN ZERO, outside any code block. Formatting
+# it here rather than hand-typing it in a docstring is the point — `write_declaration` then verifies
+# the result by RE-READING it through the parser, so a marker this file renders in a shape the
+# parser will not honour is caught at write time instead of at leak time.
+DECLARATION_TEMPLATE = "<!-- public-exception: {payload} -->"
+
+
+def _undetermined(detail: str) -> dict:
+    """The one state this file adds to the parser's own: visibility was NOT determined.
+
+    Deliberately NOT spelled "none". "none" is an answer — the repository was read and declares
+    nothing — and answering "not public" on the strength of a parser that never ran is precisely the
+    fail-open being closed here. Carries every key the parser's dict carries so no caller has to
+    know which of the two produced the value it is holding.
+    """
+    return {"state": "unknown", "reason": "", "date": "", "detail": detail, "where": "",
+            "committed": None, "age_days": None}
+
+
+def _check_github():
+    """The sibling module that owns the marker. Imported, never reimplemented.
+
+    Same shape as `sync_codex`'s `from check_toolchain import MIRRORED_SKILLS`: the two scripts ship
+    in one directory, so this resolves or the install is broken. Unlike that one it does not let the
+    ImportError escape, because the caller has to be able to turn "I could not read the declaration"
+    into a reported finding rather than a traceback.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import check_github
+    return check_github
+
+
+def public_declaration(root: Path) -> dict:
+    """Does this repository declare itself public? Answered by check_github.py's parser, or not at all.
+
+    Every ambiguity in READING the marker is already handled over there and must not be re-decided
+    here. What this adds is the two ways the reading itself can fail — the module is not on disk, or
+    it raised on a file a stranger wrote — and both become "unknown", which the caller treats as
+    grounds to KEEP a guard and never as grounds to remove one.
+    """
+    try:
+        cg = _check_github()
+    except Exception as exc:  # noqa: BLE001 — any import failure is the same answer: nobody knows
+        return _undetermined(f"check_github.py could not be imported ({type(exc).__name__}), so this "
+                             f"repository's public-exception declaration was NOT read")
+    try:
+        return cg.public_exception(root)
+    except Exception as exc:  # noqa: BLE001 — the parser reads attacker-writable text; see its own note
+        return _undetermined(f"the public-exception marker could not be evaluated "
+                             f"({type(exc).__name__}), so visibility was NOT determined")
+
+
+def declaration_line(decl: dict) -> str:
+    """One line naming the state and, when there is one, the diagnostic the parser produced."""
+    why = f" — {decl['detail']}" if decl.get("detail") else ""
+    if decl["state"] == "active":
+        stamp = f"{decl['where']}, dated {decl['date']}"
+        if decl.get("committed") is False:
+            stamp += ", marker NOT COMMITTED so nothing in history records it"
+        return f"YES ({stamp})"
+    if decl["state"] == "invalid":
+        return f"NO — a marker was found but it is not a decision{why}"
+    if decl["state"] == "unknown":
+        return f"NOT DETERMINED{why}"
+    return f"no{why}"
+
+
+def write_declaration(root: Path, decl: dict) -> tuple[bool, str]:
+    """Record the public declaration in the repository, once. Returns (wrote, explanation).
+
+    Three refusals, and each of them is a case where writing would make things worse:
+
+      * a declaration is already active — this is idempotent, not additive;
+      * ANY marker text was already found (state "invalid", or "none" with a diagnostic) — the
+        parser rejects two markers outright, so appending a second would take a repository that is
+        merely mis-declared and make it undeclarable until a human deletes one by hand;
+      * no routed file exists to record it in — the decision has to live in a tracked file that
+        `check_github.py` already reads, and inventing a new location is a new interface.
+
+    WRITTEN, THEN READ BACK THROUGH THE PARSER, THEN REVERTED IF IT DID NOT TAKE. Appending at
+    column zero is necessary and not sufficient: a file whose last fence was never closed swallows
+    everything after it, and a marker the parser will not honour is a declaration that silently is
+    not one — the exact fail-open shape this card exists to remove. So the file is restored byte for
+    byte and the run says so, rather than leaving a decoration behind and reporting success.
+    """
+    if decl["state"] == "active":
+        return False, f"already declared in {decl['where']}, dated {decl['date']} — nothing written"
+    if decl["state"] == "unknown":
+        return False, decl["detail"]
+    if decl["state"] == "invalid" or decl.get("detail"):
+        return False, (f"a `public-exception` marker is already present and is not honoured "
+                       f"({decl['detail'] or 'see check_github.py'}). Writing a second one would "
+                       f"make the pair unreadable — fix the existing marker by hand")
+    try:
+        cg = _check_github()
+    except Exception as exc:  # noqa: BLE001
+        return False, f"check_github.py could not be imported ({type(exc).__name__})"
+
+    target = next((rel for rel in cg.MARKER_FILES
+                   if (root / rel).is_file() and cg.resolves_inside(root / rel, root)), None)
+    if target is None:
+        return False, ("none of " + ", ".join(cg.MARKER_FILES) + " exists in this repository, so "
+                       "there is no routed file to record the decision in. Create the route first")
+
+    path = root / target
+    payload = json.dumps({"reason": DECLARATION_REASON,
+                          "date": time.strftime("%Y-%m-%d")},
+                         ensure_ascii=False, separators=(",", ":"))
+    marker = DECLARATION_TEMPLATE.format(payload=payload)
+    try:
+        before = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        return False, f"{target} could not be read ({e.__class__.__name__})"
+    try:
+        path.write_text(before.rstrip("\n") + "\n\n" + marker + "\n", encoding="utf-8")
+    except OSError as e:
+        return False, f"{target} could not be written ({e.__class__.__name__})"
+
+    after = public_declaration(root)
+    if after["state"] != "active" or after["where"] != target:
+        try:
+            path.write_text(before, encoding="utf-8")
+        except OSError:
+            return False, (f"the marker written to {target} is NOT honoured by the parser "
+                           f"({declaration_line(after)}) and {target} could NOT be restored — "
+                           f"remove the last line of that file by hand")
+        return False, (f"the marker appended to {target} is NOT honoured by the parser "
+                       f"({declaration_line(after)}); {target} has been restored unchanged. This is "
+                       f"usually an unclosed code fence earlier in the file swallowing everything "
+                       f"after it. Place the marker by hand at column zero, outside any code block")
+    return True, (f"recorded in {target}: {marker}  — this repository now declares itself public, "
+                  f"and the identifier guard follows from that declaration rather than from the flag")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -350,7 +609,15 @@ def script_dependencies(script: Path) -> list[Path]:
         if sibling.is_file():
             found.append(sibling)
             continue
-        if name in sys.stdlib_module_names:
+        # `getattr`, not the bare attribute: `sys.stdlib_module_names` is 3.10+, and on macOS system
+        # Python (3.9.6 — what an operator following the docs on a stock shell actually runs) it
+        # raised AttributeError from inside `install_hook`, after the run had begun reporting. An
+        # uncaught traceback is the worst failure this particular function can have, because its
+        # whole job is to decide whether a guard may honestly be claimed. `()` is not a downgrade:
+        # every name it would have matched is then resolved by `find_spec` immediately below, which
+        # answers the same question more slowly. This does NOT make the file 3.9-supported — it
+        # removes one crash on the path that decides whether a hook is written.
+        if name in getattr(sys, "stdlib_module_names", ()):
             continue
         try:
             if importlib.util.find_spec(name) is not None:
@@ -457,7 +724,24 @@ def _pre_commit_claims(block: str) -> list[str]:
     elif "--readme" in block:
         claims.append("route errors and the seven-section README contract (--readme)")
     if any(d.name == "identifier_guard.py" for d in block_dependencies(block)):
-        claims.append("private identifiers in the STAGED CONTENT (--public)")
+        # NO PARENTHETICAL, AND THAT IS THE FIX RATHER THAN A THIRD ATTEMPT AT WORDING IT.
+        #
+        # This slot has now carried two false claims in a row. It said "(--public)" when the flag
+        # had stopped deciding anything, and the correction — "(this repo declares itself public)" —
+        # was false in a new way the moment `unresolved` began rendering the stanza to PRESERVE it:
+        # all ten unhonoured-marker shapes printed "public declaration NOT HONOURED" and then, three
+        # lines later, "blocks: … (this repo declares itself public)". That is the original defect's
+        # own signature — a run contradicting its own diagnostic — reproduced inside the run that
+        # demonstrates the fix, in ten passing tests.
+        #
+        # The cause is structural, not verbal: this function derives its text from the RENDERED
+        # BLOCK, and the block records THAT the stanza is present, never WHY. Any provenance written
+        # here is therefore re-derived from evidence that cannot support it, and will be wrong again
+        # the next time a new reason to render the stanza is added. A "blocks:" line owes the reader
+        # what the hook blocks; `main()` already prints why the guard is there, on the one code path
+        # that actually knows — and prints it differently for "declared", "unresolved" and
+        # "preserved". So the provenance lives there, once, and not here at all.
+        claims.append("private identifiers in the STAGED CONTENT")
     return claims
 
 
@@ -633,9 +917,20 @@ def install_hook(root: Path, name: str, block: str, *, suffix: str = "") -> bool
 def remove_hook_block(path: Path) -> str:
     """Take our block out of a hook, deleting the file only if nothing else was in it.
 
-    The same contract as the --uninstall loop, factored out because --public toggling OFF has to do
+    The same contract as the --uninstall loop, factored out because the commit-msg hook has to do
     exactly this and doing it inline would have been a second, subtly different implementation of
     "leave the user's own hook alone".
+
+    The reason it is reached has changed and the old one is worth recording, because it is the
+    defect: this used to run whenever `--public` was absent, so an ordinary `install_hooks.py .`
+    deleted the commit-msg guard from a public repository.
+
+    It is now reached from the commit-msg path only when the parser found no HONOURED marker in any
+    candidate file it COULD READ. Two things that is not a guarantee of, and an earlier version of
+    this docstring asserted both: a marker the parser refuses no longer routes here — true, and
+    enforced by `preserve_commit_msg` in `main()` rather than by this sentence — and "the parser
+    read every routed file", which is false, because it skips a file it cannot read. The second is
+    the open Finding 2 escalation recorded in the module docstring.
     """
     if not path.is_file():
         return "absent"
@@ -744,8 +1039,11 @@ def main() -> int:
     ap.add_argument("--standard", action="store_true",
                     help="pre-commit also enforces the structure standard")
     ap.add_argument("--public", action="store_true",
-                    help="install the private-identifier guard (pre-commit + commit-msg). "
-                         "DELIBERATELY PUBLIC repositories only — see the module docstring")
+                    help="DECLARE this repository deliberately public, once, by recording a "
+                         "public-exception marker in its routed contract. The private-identifier "
+                         "guard then follows from that declaration on every later run, with or "
+                         "without this flag; dropping the flag does NOT remove it. DELIBERATELY "
+                         "PUBLIC repositories only — see the module docstring")
     ap.add_argument("--no-graph", action="store_true", help="skip the Graphify post-commit hook")
     args = ap.parse_args()
 
@@ -759,6 +1057,7 @@ def main() -> int:
         return 0
 
     pre = hook_path(root, "pre-commit")
+    decl = public_declaration(root)
 
     if args.check:
         state = "present" if BEGIN in read(pre) else "ABSENT"
@@ -769,6 +1068,7 @@ def main() -> int:
         ident = "present" if "identifier_guard.py" in read(pre) else "ABSENT"
         msg = "present" if BEGIN in read(hook_path(root, "commit-msg")) else "ABSENT"
         print(f"  pre-commit route check: {state}")
+        print(f"  repository declares itself PUBLIC: {declaration_line(decl)}")
         print(f"  pre-commit private-identifier guard: {ident} (public repos only)")
         print(f"  commit-msg private-identifier guard: {msg} (public repos only)")
         print(f"  pre-push secret/size/main guard: {push}")
@@ -778,9 +1078,38 @@ def main() -> int:
         print("  session-start methodology adoption check: "
               + ("present" if SESSION_BEGIN in session else
                  "ABSENT" if session else "ABSENT (no SessionStart reporter)"))
+        # BEHAVIOUR 4. A declaring repository whose guard is missing is the state this whole card
+        # exists to make impossible, so --check must not be the mode that shrugs at it. It reported
+        # exactly this pair of lines — "declares itself PUBLIC: YES" and "guard: ABSENT" — and
+        # exited 0, which is a green light for the one arrangement that leaks. `--check` changes
+        # nothing, so the remedy is a sentence and a non-zero code, not a repair.
+        if decl["state"] == "active" and (ident == "ABSENT" or msg == "ABSENT"):
+            print()
+            print("  FINDING: this repository DECLARES itself public and the private-identifier")
+            print("  guard is not in place, so nothing stops a home path, the local git identity")
+            print("  or a private project name from reaching world-readable history.")
+            print("  Fix: re-run `install_hooks.py .` — the declaration is enough, no flag needed.")
+            return 1
+        # Same widened class as the install path, and for the same reason: a marker the parser
+        # refuses is not a report that the repository is private. `--check` changes nothing, so all
+        # it owes the reader is the distinction between "looked, found nothing" and "found something
+        # it could not act on" — and a non-zero code for the second.
+        if decl["state"] == "unknown" or (decl["state"] == "invalid") or (
+                decl["state"] == "none" and decl["detail"]):
+            print()
+            print("  NOT RESOLVED: this repository's public-exception declaration could not be")
+            print(f"  turned into an answer ({decl['detail']}), so the two guard lines above are a")
+            print("  report of what is on disk and NOT a verdict on whether it is what this")
+            print("  repository needs. Fix the marker, or delete it if this repository is private.")
+            return 1
         return 0
 
     if args.uninstall:
+        if decl["state"] == "active":
+            print(f"  NOTE: this repository declares itself PUBLIC ({decl['where']}, dated "
+                  f"{decl['date']}). --uninstall is an explicit request, so the identifier guard")
+            print("  goes with the rest — but the declaration stays, and the next `install_hooks.py .`")
+            print("  will bring the guard back. Remove the marker if that is not what you want.")
         for name in ("pre-commit", "commit-msg", "pre-push", "post-commit"):
             p = hook_path(root, name)
             if not p.is_file():
@@ -807,18 +1136,175 @@ def main() -> int:
         print(f"  personas: {first}")
 
     refused: list[str] = []
+    undetermined = False
+    # Set only by the `unresolved` branch. Default False so that every other path keeps the two
+    # halves moving together, which is still the rule when the declaration IS resolvable.
+    preserve_commit_msg = False
 
-    pre_commit_block = render_pre_commit(standard=args.standard, public=args.public)
+    # -----------------------------------------------------------------------------------------
+    # WHAT DECIDES THE IDENTIFIER GUARD. Not `args.public` — the repository's own declaration.
+    #
+    # `args.public` appears in exactly one place below, as the trigger to WRITE that declaration.
+    # Every read of "is this repository public?" goes through `decl`, which is re-read after a
+    # successful write so that this run installs on the same basis every later run will.
+    # -----------------------------------------------------------------------------------------
+    # BOTH halves, read independently. See `guard_state` for why one boolean was wrong.
+    guard_pre, guard_msg = guard_state(root)
+
+    # The ONE read of the flag that decides anything, and what it decides is whether to WRITE.
+    # `write_declaration` owns every refusal, including "already declared", so passing --public
+    # twice reports what is on disk instead of falling silent — a silent second run is how someone
+    # concludes the flag did nothing and starts leaving it off.
+    if args.public:
+        wrote, why = write_declaration(root, decl)
+        print(f"  public declaration: {why}")
+        if wrote:
+            # Re-read through the parser, so this run's guard rests on the same evidence every
+            # later run will read, not on the fact that we just wrote a file.
+            decl = public_declaration(root)
+
+    # ONLY ONE PARSER VERDICT MAY REMOVE THE GUARD, AND IT IS THE ONE THE RULING SANCTIONED.
+    #
+    # The first cut of this fix asked "is the state active?" and let everything else fall into a
+    # single `else` that set `public = False`. That collapsed three unrelated answers into one, and
+    # the measured consequence was the defect back in a new costume — the guard stripped from BOTH
+    # hooks, the commit-msg hook deleted outright, and exit 0:
+    #
+    #   variant                                    parser verdict   rc   pre-commit   commit-msg
+    #   two markers across MARKER_FILES            invalid          0    no           NO-FILE
+    #   marker indented under a bullet             none + detail    0    no           NO-FILE
+    #   marker inside a code fence                 none + detail    0    no           NO-FILE
+    #   marker inside an enclosing HTML comment    none + detail    0    no           NO-FILE
+    #   a date that is not a date                  invalid          0    no           NO-FILE
+    #   a date in the future                       invalid          0    no           NO-FILE
+    #   a control character in the reason          invalid          0    no           NO-FILE
+    #   a body that is not JSON                    invalid          0    no           NO-FILE
+    #   an unclosed fence EARLIER in the file      none + detail    0    no           NO-FILE
+    #   the marker file is a symlink outside       none + detail    0    no           NO-FILE
+    #
+    # Ten shapes, and the first is reachable by the next queued action on the real public repo:
+    # onboarding creates `docs/agents/README.md` and carries the contract's marker across, so the
+    # repository briefly has two. The operator then runs the plain documented command and disarms it.
+    #
+    # The tell was that the installer contradicted its own diagnostic three lines apart — it printed
+    # "more than one `public-exception` marker (2 found ...)", proving the parser had FOUND the
+    # declaration, and then printed "this repository does not declare itself public". Nothing needed
+    # discovering; a state had been collapsed. So the question asked here is no longer "is it
+    # active?" but "did the parser see marker text it declined to honour?", and only a repository
+    # about which it saw NOTHING may be disarmed.
+    #
+    # Note the two shapes that are ordinary typos rather than mistakes about the marker: an unclosed
+    # ```python fence anywhere above it, and a docs restructure that turns a marker file into a
+    # symlink. Neither is a decision to become private, and neither should read as one.
+    declared = decl["state"] == "active"
+
+    # "The parser has something to say about a marker, and it is not a decision." Three sources,
+    # one meaning. `invalid` is a marker it read and rejected; `unknown` is a parser that could not
+    # run at all; and `none` WITH a detail is the anchor or the strippers rejecting marker text the
+    # human evidently wrote — which `unhonoured_marker_detail()` exists to make visible precisely
+    # because it is otherwise byte-identical to having written nothing.
+    #
+    # `none` with an EMPTY detail is the only clean "nothing is declared here", and it is the only
+    # verdict below that still removes the guard.
+    unresolved = not declared and (decl["state"] in ("invalid", "unknown") or bool(decl["detail"]))
+
+    if declared:
+        # BEHAVIOUR 1 and 3. The flag is not consulted. A run that passed --public and a run that
+        # did not reach this line identically, which is the entire fix: there is no longer a
+        # spelling of this command that takes the guard away.
+        public = True
+        print(f"  private-identifier guard REQUIRED by this repository's own declaration "
+              f"({decl['where']}, dated {decl['date']}).")
+        print("    It follows from the declaration, not from --public, so no re-run can drop it.")
+        print("    To stop treating this repository as public, delete that marker — a visible edit")
+        print("    to a tracked file — and re-run.")
+    elif unresolved:
+        # FAIL CLOSED, and it is the SAME branch for all three sources because it is the same
+        # situation: this run does not know whether the repository is public, so it has no standing
+        # to change the guard in either direction. Keep what is on disk, add nothing, say which of
+        # the three it was, and refuse to call the run clean.
+        #
+        # Removing the guard here would be the measured defect with a different trigger — and
+        # "the marker is malformed" is a WORSE trigger than "the flag was omitted", because a
+        # malformed marker is written by someone in the act of declaring the repository public.
+        #
+        # EACH HALF KEEPS ITS OWN STATE. `public` drives only the pre-commit render, so it is set
+        # from pre-commit's own current state; `preserve_commit_msg` takes the commit-msg branch out
+        # of the run entirely rather than routing it through `public`. Collapsing the two into one
+        # boolean is what stripped a surviving half while printing that nothing had changed — the
+        # asymmetric state is reachable from this file's own test fixtures, not just in theory.
+        public = guard_pre
+        preserve_commit_msg = True
+        undetermined = True
+        if decl["state"] == "unknown":
+            print(f"  public declaration NOT DETERMINED — {decl['detail']}.")
+        else:
+            # The wording matters and is not the same sentence: here the declaration WAS read. What
+            # is undetermined is not the text but whether this repository is public, and the old
+            # message ("treated as PRIVATE") asserted an answer the parser never gave.
+            print(f"  public declaration NOT HONOURED — {decl['detail']}.")
+            print("    A marker the parser refuses is NOT a statement that this repository is")
+            print("    private. It is marker text nobody can act on, so this run will not act on it.")
+        print(f"    Each half of the identifier guard therefore keeps the state it is already in "
+              f"(pre-commit: {'present' if guard_pre else 'absent'}, "
+              f"commit-msg: {'present' if guard_msg else 'absent'}).")
+        print("    That is an intention until it is verified on disk at the end of this run; it is")
+        print("    checked there and reported if it did not hold. Fix the marker, or delete it")
+        print("    outright if this repository is genuinely private, then re-run.")
+    else:
+        # THE ONLY VERDICT THAT MAY DISARM A REPOSITORY: `none` with an EMPTY detail — no honoured
+        # marker was found in any candidate file THE PARSER COULD READ.
+        #
+        # That last clause is load-bearing and this comment used to omit it, claiming the parser
+        # "looked and there was nothing there". It does not promise that. `check_github.py` catches
+        # OSError on a candidate file and continues, deliberately — "an exemption must never be the
+        # consequence of a file we could not read", which is the right call in ITS direction. Read
+        # from here the same silence means the opposite thing, and `chmod 000` on a public repo's
+        # only marker file still reaches this branch. That hole is real, it is Finding 2, and fixing
+        # it needs the parser to distinguish "unreadable" from "absent" — a shared-parser change and
+        # this card's stop condition. It is escalated, NOT closed, and nothing here may imply it is.
+        public = False
+        if args.public:
+            # The write was refused and said why. Do NOT fall back to rendering the guard: it would
+            # be a guard with no declaration behind it, which the very next run — the one that
+            # follows the documented instruction — would silently remove. Better to install nothing
+            # and say plainly that the repository is not yet declared.
+            print("    Nothing is declared, so the identifier guard is NOT rendered into the hooks:")
+            print("    a guard with no declaration behind it is removed again by the next ordinary")
+            print("    run, which is the failure this flag was changed to prevent. Record the")
+            print("    declaration by hand, then re-run.")
+            refused.append("private-identifier guard (no declaration)")
+        # There is deliberately no `elif decl["detail"]` arm here any more. A non-empty detail now
+        # routes to `unresolved` above, so reaching this branch means the parser had nothing to say.
+        if guard_pre or guard_msg:
+            # Deliberate removal, and now the only path to it. Stated as what the parser actually
+            # reported — no HONOURED marker in any file it COULD READ — rather than as the stronger
+            # claim that no marker exists, which the parser does not make. See the branch comment.
+            print("  removing the private-identifier guard: no honoured `public-exception` marker")
+            print("  was found in any candidate file the parser could read, so this repository does")
+            print("  not declare itself public and the guard is only for repositories that do.")
+
+    pre_commit_block = render_pre_commit(standard=args.standard, public=public)
     if not install_hook(root, "pre-commit", pre_commit_block,
                         suffix=" (enforcing the standard)" if args.standard else ""):
         refused.append("pre-commit")
 
-    # Both halves of the identifier guard move together. Installing one without the other is the
-    # only genuinely dangerous state: the message half alone leaves file content unscanned, and the
-    # staged half alone leaves the message unscanned — and either one, seen in --check, reads as
-    # "the guard is installed".
+    # Both halves of the identifier guard move together — EXCEPT when this run has no standing to
+    # move either, which is what `preserve_commit_msg` expresses. Installing one without the other
+    # is the only genuinely dangerous state: the message half alone leaves file content unscanned,
+    # and the staged half alone leaves the message unscanned — and either one, seen in --check,
+    # reads as "the guard is installed".
     msg_hook = hook_path(root, "commit-msg")
-    if args.public:
+    if preserve_commit_msg:
+        # NOT routed through `public`. Under an unresolved declaration this branch must be inert in
+        # both directions: it may neither add the message half (which would create a half-guard on a
+        # repository whose status is unknown) nor remove it (which is the measured defect). Saying
+        # so explicitly beats a `public` value that happens to match, because the next edit to
+        # `public` would silently change what this branch does.
+        print(f"  commit-msg identifier guard left untouched "
+              f"({'present' if guard_msg else 'absent'}) — this run could not resolve the")
+        print("    declaration, so it changes neither half of the guard.")
+    elif public:
         if install_hook(root, "commit-msg", COMMIT_MSG.format(begin=BEGIN, end=END),
                         suffix=" (commit message)"):
             print("    THIS IS FOR DELIBERATELY PUBLIC REPOSITORIES. In a private repository every")
@@ -828,7 +1314,8 @@ def main() -> int:
     else:
         removed = remove_hook_block(msg_hook)
         if removed != "absent":
-            print(f"  commit-msg identifier guard {removed} (no --public)")
+            print(f"  commit-msg identifier guard {removed} — no honoured `public-exception` "
+                  f"marker was found in any candidate file the parser could read")
 
     # Adoption of the execution methodology is staggered and deliberate. This block only ever
     # reports; it is what makes an unadopted repository say so at every session start instead of
@@ -840,12 +1327,63 @@ def main() -> int:
 
     install_graph_hook(root, no_graph=args.no_graph)
 
+    # BEHAVIOUR 4, verified on disk rather than inferred from the branches above. Everything before
+    # this line is what the run INTENDED; this is a read-back of what a commit will actually run,
+    # and the two are allowed to differ (a refused hook, a write that did not land, an existing hook
+    # this tool declined to overwrite). A declaring repository without the guard is never silent.
+    #
+    # UNDER `unresolved` THE SAME READ-BACK CHECKS THE OPPOSITE PROPERTY: not "is the guard there?"
+    # but "is each half exactly where it started?". The branch above prints an INTENTION to change
+    # nothing, and an intention printed next to an action is precisely the pattern that produced
+    # "left exactly as it was … nothing was taken away" while a surviving half was being stripped.
+    # So it is verified, and a mismatch is a finding rather than a sentence nobody checked.
+    if undetermined:
+        now_pre, now_msg = guard_state(root)
+        if (now_pre, now_msg) != (guard_pre, guard_msg):
+            print()
+            print("  FINDING: this run could not resolve the declaration and therefore promised to")
+            print("  change neither half of the identifier guard, but the state on disk MOVED:")
+            print(f"    pre-commit  {'present' if guard_pre else 'absent'} -> "
+                  f"{'present' if now_pre else 'absent'}")
+            print(f"    commit-msg  {'present' if guard_msg else 'absent'} -> "
+                  f"{'present' if now_msg else 'absent'}")
+            print("  Treat the printed guard state above as unreliable and re-run once the")
+            print("  declaration is resolved.")
+            if "guard state moved under an unresolved declaration" not in refused:
+                refused.append("guard state moved under an unresolved declaration")
+
+    if decl["state"] == "active":
+        after_pre = "identifier_guard.py" in read(pre)
+        after_msg = "identifier_guard.py" in read(msg_hook)
+        if not (after_pre and after_msg):
+            print()
+            print("  FINDING: this repository DECLARES itself public and the private-identifier")
+            print(f"  guard is NOT in place after this run (pre-commit: "
+                  f"{'yes' if after_pre else 'NO'}, commit-msg: {'yes' if after_msg else 'NO'}).")
+            print("  Nothing stops a home path, the local git identity or a private project name")
+            print("  from reaching world-readable history. Do not treat this repo as guarded.")
+            if "declaration-vs-guard disagreement" not in refused:
+                refused.append("declaration-vs-guard disagreement")
+
     if refused:
         # The summary must not claim what did not install, and the exit code must not say fine.
         print()
         print(f"  NOT INSTALLED: {', '.join(refused)} — see the reason above each. This repository")
         print(f"  does NOT have the protection those hooks provide. Reinstall the")
         print(f"  progressive-disclosure skill and re-run before treating this repo as guarded.")
+        return 1
+    if undetermined:
+        # No hook was refused, but the question the identifier guard answers was never ANSWERED.
+        # The 0/1 contract here has no third code, so this takes 1 with a sentence saying which of
+        # the two it is — a check that reached no verdict, not a finding against the repository.
+        # (That the programme's wider contract reserves 2 for exactly this is a separate open
+        # finding, deferred pending a call-site sweep; it is not resolved here.)
+        print()
+        print("  NOT RESOLVED: this repository's public-exception declaration could not be turned")
+        print("  into an answer, so whether it needs the private-identifier guard is unknown.")
+        print("  Both halves of the guard were left in the state they were already in, and that")
+        print("  was verified against the disk above rather than assumed. Resolve the declaration")
+        print("  and re-run before treating this repository as either guarded or private.")
         return 1
     return 0
 

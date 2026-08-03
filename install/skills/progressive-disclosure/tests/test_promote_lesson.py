@@ -4,12 +4,15 @@ import importlib.util
 import io
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from hermetic import reaches_home
 
 
 SKILL = Path(__file__).resolve().parents[1]
@@ -510,6 +513,10 @@ class EnforcedByMarkerTest(SweepHarness):
         self.assertIn("`none — prose only`", text)
         self.assertNotIn("`none - prose only`", text)
 
+    @reaches_home(
+        "READS THE REAL MACHINE, deliberately: the claim under test is about the em dash in the "
+        "INSTALLED ~/.claude/docs/fleet-lessons.md, and a fixture copy would only pin this test's "
+        "memory of it. It already skips when the file is absent, which is what a replica sees.")
     def test_the_destination_file_really_spells_it_that_way(self) -> None:
         # Pins the claim above to the destination rather than to this test's
         # memory of it. Skipped, not failed, if the real file is not installed:
@@ -621,11 +628,22 @@ def fingerprint(root: Path) -> list[tuple]:
 
 class CommandLineTest(unittest.TestCase):
     def run_script(self, *args: str) -> subprocess.CompletedProcess:
+        """HOME IS PINNED TO AN EMPTY DIRECTORY, and that is what these cases are about.
+
+        `promote_lesson.py`'s two defaults are `~/Documents/Claude/Projects` and
+        `~/.claude/docs/fleet-lessons.md`, so the argument-handling cases below — no arguments, a
+        bad flag, `--help` — were answering against whatever fleet happened to exist on the machine
+        running them. None of them asserts anything about a fleet, so redirecting HOME does not
+        change what any of them verifies; it removes a dependency they never wanted. The cases that
+        DO need a tree pass `--sweep` and `--fleet-lessons` explicitly and are unaffected.
+        """
+        empty_home = Path(tempfile.mkdtemp(prefix="pd-promote-home-"))
+        self.addCleanup(shutil.rmtree, empty_home, True)
         return subprocess.run(
             [sys.executable, str(SCRIPTS / "promote_lesson.py"), *args],
             capture_output=True,
             text=True,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", "HOME": str(empty_home)},
         )
 
     def test_help_exits_zero(self) -> None:

@@ -24,6 +24,39 @@ EXIT CODES — three states, because two were not enough:
   1  the route was checked and something is wrong: at least one ERROR
   2  the route was NOT checked — a file this depends on could not be read or decoded
 
+REPORTED STATES — also three, and NOT the same three. A run reports `clean`, `findings` or
+`partial`, and `partial` is the state this script used to have no way to say. `--standard`,
+`--readme` and `--vs` each gate a whole family of ERROR-producing checks at the CALL SITE, and a
+run that skipped them printed, verbatim, `clean — every route resolves, every documented command
+exists`. Measured: one repository, no flags, exit 0, that line; the same repository with `--readme`,
+exit 1, five `readme-missing-section` ERRORs. Nothing about the tree changed between the two runs.
+
+THE STATUS AND THE EXIT CODE ARE INDEPENDENT, and a consumer must not infer either from the other.
+The rule, stated once and asserted by `test_not_evaluated_never_changes_the_exit_code`:
+
+    the exit code is decided by ERRORS ALONE. A family that did not run never raises it and never
+    lowers it. `partial` therefore exits 1 whenever the checks that DID run found an ERROR, which
+    on the current fleet is most of the time.
+
+An earlier version of this paragraph said "a `partial` run still exits 0". That was true of the
+mechanism it originally described — nothing about a not-run family touches the code — and it became
+false the moment the exit computation moved into `verdict()`, because the same sentence then read as
+a claim about the whole status. It is called out here rather than quietly corrected because a
+maintainer who believed it and mapped `status == "partial"` to non-blocking would swallow every
+ERROR in every default-flag invocation on the fleet: this file's own defect class, one consumer
+downstream, installed by its documentation.
+
+FOR A CONSUMER, therefore: decide pass/fail from `exit` (or `len(errors)`), NEVER from `status`.
+`status` describes the SCOPE of the run, not its outcome. Note also that `partial` outranks
+`findings` in `verdict()`, so a run that skipped any family reports `partial` however many errors it
+found — and since `disclosure-check.sh` passes only `--readme`, and nothing on the fleet passes both
+`--standard` and `--vs`, `findings` is in practice unreachable and a switch on
+{clean, findings, partial} will only ever see `partial`.
+
+What a not-run family DOES change is the summary, which is what was actually false: `NOT RUN` lines
+name every family that did not execute, and the word `clean` is unreachable when any did not.
+See `Report.verdict`.
+
 The third state is the one this script lacked, and its absence was a fail-open. Every read used to
 end in `except OSError: continue`, `except (JSONDecodeError, OSError): pass`, or nothing at all, so
 an unreadable file was skipped and the run then declared the route clean. Measured: a root AGENTS.md
@@ -158,6 +191,7 @@ class Report:
         self.errors: list[dict] = []
         self.warns: list[dict] = []
         self.notes: list[dict] = []
+        self.not_run: list[dict] = []
         self.info: dict = {}
 
     def error(self, kind: str, where: str, detail: str) -> None:
@@ -174,6 +208,65 @@ class Report:
         listed after warnings everywhere.
         """
         self.notes.append({"kind": kind, "where": where, "detail": detail})
+
+    def not_evaluated(self, check: str, why: str) -> None:
+        """A whole check family that did not execute. NOT a finding, and NOT nothing.
+
+        The third state. `Unexaminable` covers "I started and could not finish"; this covers "I was
+        never asked to start", which the previous code expressed by producing no output at all — so
+        a run that skipped seven ERROR-producing README checks printed the same
+        `clean — every route resolves, every documented command exists` as a run that ran them.
+        Measured on a real repository the day this was written: no flags, exit 0, that exact line;
+        `--readme`, exit 1, five `readme-missing-section` ERRORs against the same unchanged tree.
+
+        Calling this NEVER changes the exit code, in either direction: a check the caller did not
+        request is a scope decision, not a defect in the repository. What it does is deny the word
+        `clean` to the summary, which is the claim that was actually false.
+
+        Note what that does NOT say. It does not say the run exits 0 — the errors found by the
+        checks that DID run still decide that, so a `partial` run with an ERROR exits 1. The
+        difference between "this never raises the code" and "a partial run exits 0" is the whole of
+        finding R1; see the module docstring.
+        """
+        self.not_run.append({"check": check, "why": why})
+
+    def verdict(self) -> tuple[str, int, str]:
+        """`(status, exit_code, summary)` — the ONE place this run becomes a verdict.
+
+        Three states, never two: `clean`, `findings`, `partial`. There is no path from a check that
+        did not run to the word `clean`.
+
+        THE EXIT CODE COMES FROM HERE, not from a second computation at the bottom of `main`. It
+        used to, and two independent decision sites with nothing holding them consistent is exactly
+        how a summary and an exit code come to disagree — the defect class of this card, one level
+        up. One function decides; `main` reports what it decided.
+
+        THE STATUS DOES NOT DETERMINE THE EXIT CODE. `code` is computed from `self.errors` alone,
+        above and independent of the status branches below, so that `not_run` cannot move it in
+        either direction — a family nobody requested must not fail a pre-commit hook, and must not
+        rescue one either. Consequently `partial` exits 1 whenever the checks that ran found an
+        ERROR. Read `exit`, never `status`, to decide pass/fail.
+
+        PRECEDENCE, stated because a consumer will switch on this: `partial` is tested FIRST, so it
+        outranks `findings`. A run that skipped any family reports `partial` no matter how many
+        errors it found, which makes `findings` reachable only when both `--standard` and `--vs`
+        are passed. Nothing on the fleet does that today.
+        """
+        code = 1 if self.errors else 0
+        counts = (f"{len(self.errors)} error(s), {len(self.warns)} warning(s), "
+                  f"{len(self.notes)} note(s)")
+        missed = ", ".join(item["check"] for item in self.not_run)
+        if self.not_run:
+            head = "no findings in what ran" if not (self.errors or self.warns or self.notes) \
+                else counts
+            return "partial", code, (
+                f"NOT A CLEAN RESULT — {head}, but {len(self.not_run)} check "
+                f"famil{'y' if len(self.not_run) == 1 else 'ies'} did NOT RUN ({missed}). "
+                f"Nothing is known about "
+                f"{'it' if len(self.not_run) == 1 else 'them'}.")
+        if not (self.errors or self.warns or self.notes):
+            return "clean", code, "clean — every route resolves, every documented command exists"
+        return "findings", code, counts
 
 
 class Unexaminable(Exception):
@@ -1135,12 +1228,42 @@ def collect(args: argparse.Namespace, root: Path) -> tuple[Report, list[Path]]:
     check_persona_decision(root, depth, report)
     check_personas(root, report)
     check_execution_methodology(root, report)
+    # THE OPT-IN FAMILIES, and the one place their absence is recorded.
+    #
+    # Each of these is a whole family of ERROR-producing checks selected at the CALL SITE, which
+    # the module docstring's "severity is a property of the finding, decided here, not a flag
+    # chosen at the call site" flatly contradicts. That contradiction is not fixed by flipping the
+    # defaults — see below — it is fixed by never again letting a run that skipped them describe
+    # itself as clean. Three hand-written if/else pairs, NOT a table — the sibling file has a table
+    # (`DEFAULT_CHECKS` in check_toolchain.py) and this comment once claimed one here, which was
+    # simply untrue of the code beneath it. What actually stops a fourth opt-in family being added
+    # without declaring its absence is a structural test,
+    # `test_every_flag_gated_check_declares_its_absence`, which walks this function and fails on any
+    # `args.<flag>`-gated call to a `check_*` with no `report.not_evaluated(...)` in its else.
+    #
+    # WHY THE DEFAULTS ARE NOT FLIPPED. Turning `--readme` on by default was the alternative
+    # remedy and it was rejected on evidence: the README contract is seven required sections, and
+    # the public repository this was measured against deliberately omits two of them — it says so
+    # in a section of its own README titled "Two sections a software project would have, and this
+    # does not". Defaulting the flag on would convert a documented, intentional editorial choice
+    # into a commit-blocking ERROR in every repository at once, and the pre-commit hook text that
+    # would start failing is generated by install_hooks.py, which is outside this change. A checker
+    # that must be silenced on day one teaches the reader to silence it.
     if args.standard:
         check_standard(root, report)
+    else:
+        report.not_evaluated("cross-project structure standard",
+                             "not requested — pass --standard to evaluate it")
     if args.readme or args.standard:
         check_readme(root, files, report)
+    else:
+        report.not_evaluated("README contract",
+                             "not requested — pass --readme (or --standard) to evaluate it")
     if args.vs:
         check_readme_freshness(root, args.vs, report)
+    else:
+        report.not_evaluated("README freshness against a git ref",
+                             "not requested — pass --vs REF to evaluate it")
 
     report.info = {
         "root": str(root),
@@ -1169,6 +1292,11 @@ def report_could_not_run(args: argparse.Namespace, root: Path, exc: Unexaminable
         # Their absence makes a naive consumer raise instead of concluding.
         print(json.dumps({
             "status": "could-not-run",
+            # `exit` is present on EVERY payload this script emits, including this one. A consumer
+            # doing `payload["exit"]` must not have to special-case the path where the answer
+            # matters most; omitting it here would have raised KeyError at the moment the run was
+            # least trustworthy.
+            "exit": 2,
             "could_not_run": {"where": exc.where, "detail": exc.detail},
             "info": {"root": str(root)},
         }, indent=2))
@@ -1210,9 +1338,18 @@ def main() -> int:
     except Unexaminable as exc:
         return report_could_not_run(args, root, exc)
 
+    status, code, summary = report.verdict()
+
     if args.as_json:
-        print(json.dumps({"status": "ok", "info": report.info, "errors": report.errors,
-                          "warnings": report.warns, "notes": report.notes}, indent=2))
+        # `status` is no longer the constant "ok": a consumer must be able to tell a run that
+        # checked everything from one that checked part of it, and "ok" said the first about both.
+        # `errors`/`warnings`/`notes` keep their shape; `not_run` is additive.
+        # `exit` mirrors check_toolchain.py's payload deliberately. TC-37 consumes both, and an
+        # asymmetry there is a special case in the caller for no reason on this side.
+        print(json.dumps({"status": status, "exit": code, "info": report.info,
+                          "errors": report.errors, "warnings": report.warns,
+                          "notes": report.notes, "not_run": report.not_run,
+                          "summary": summary}, indent=2))
     elif args.hook:
         for item in report.errors:
             print(f"ERROR [{item['kind']}] {item['where']}: {item['detail']}")
@@ -1220,6 +1357,15 @@ def main() -> int:
             print(f"WARN [{item['kind']}] {item['where']}: {item['detail']}")
         for item in report.notes:
             print(f"NOTE [{item['kind']}] {item['where']}: {item['detail']}")
+        # Scope, but only when this mode is already speaking. `--hook` is contractually silent on a
+        # healthy project — it fires at every session start in every directory — so printing "the
+        # README contract was not requested" unconditionally would put two permanent lines into
+        # every session in every repository on the fleet and train the reader to skip the block.
+        # Whenever it does speak, though, the reader is entitled to know what the run did not look
+        # at, because that is the sentence that changes what they do next.
+        if report.errors or report.warns or report.notes:
+            for item in report.not_run:
+                print(f"NOT RUN [{item['check']}] {item['why']}")
     else:
         print(f"progressive disclosure: {root}")
         if seeds:
@@ -1233,13 +1379,14 @@ def main() -> int:
             print(f"  WARN   [{item['kind']}] {item['where']}: {item['detail']}")
         for item in report.notes:
             print(f"  NOTE   [{item['kind']}] {item['where']}: {item['detail']}")
-        if not report.errors and not report.warns and not report.notes:
-            print("  clean — every route resolves, every documented command exists")
-        else:
-            print(f"  {len(report.errors)} error(s), {len(report.warns)} warning(s), "
-                  f"{len(report.notes)} note(s)")
+        for item in report.not_run:
+            print(f"  NOT RUN  {item['check']}: {item['why']}")
+        # One line, composed from what ran. Never a literal, because a literal is how
+        # `clean — every route resolves, every documented command exists` came to be printed over
+        # a README contract the run had not looked at.
+        print(f"  {summary}")
 
-    return 1 if report.errors else 0
+    return code
 
 
 if __name__ == "__main__":

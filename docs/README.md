@@ -36,6 +36,16 @@ applied to, and it names no project, path, or person. Weighed together, the reco
 uncontested, because the objection it had to beat turned out to be empty rather than merely
 smaller.
 
+**`project-conformance` is installed but not yet published, and that is a gap rather than a
+settled decision.** It is this repository's own work — it reports whether an onboarded repository
+still meets the standard — so the disaster-recovery argument that carried `execution-methodology`
+applies to it unchanged, and no counter-argument has been made. It is unpublished only because
+publishing it is four coordinated edits (the skill tree, the `.gitignore` allowlist line, the
+`install/skills/README.md` row, and the tables in `what-gets-installed.md`) and no task has owned
+all four at once. Until one does, it is deliberately absent everywhere rather than half-described:
+a skill listed in the docs and shipped by nothing is worse than one that is plainly not here. This
+is the whole content of the two top-level entries in the vendored-drift baseline.
+
 **`graphify` is deliberately not published**, and this is the opposite decision on purpose. It is a
 third-party vendor skill that installs itself into `~/.claude/skills` on its own schedule, not
 something this toolchain authors, versions, or fixes. Every argument for publishing

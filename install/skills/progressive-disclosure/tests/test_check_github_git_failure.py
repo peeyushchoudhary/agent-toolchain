@@ -55,6 +55,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from hermetic import reaches_home
+
 
 SKILL = Path(__file__).resolve().parents[1]
 SCRIPTS = SKILL / "scripts"
@@ -144,12 +146,27 @@ class FixtureMixin:
 
     def run_checker(self, root: Path, shim: Path, *flags: str) -> tuple[int, str]:
         """The real CLI in a subprocess. The exit CODE is under test, so it is read from the
-        process itself and never from the tail of a pipeline."""
+        process itself and never from the tail of a pipeline.
+
+        `HOME` IS REDIRECTED, AND A FRESH ONE PER CALL. `check_github.py` builds
+        `CACHE_DIR = Path.home() / ".claude" / "cache" / "github-state"` and `remote_state()`
+        does `CACHE_DIR.mkdir(parents=True, exist_ok=True)` — so without this these tests CREATED
+        A DIRECTORY IN THE REAL `$HOME`, and a cache entry younger than 24h short-circuits the
+        `unreachable` answer that `test_a_failed_git_never_erases_the_unpushed_work`,
+        `test_each_call_site_reaches_unable_rather_than_emptying` and
+        `test_the_hook_line_says_so_rather_than_going_quiet` assert with `"NOT determined"` and
+        `rc == 2`. The sibling suite already knew: `test_check_github.py`'s end-to-end says
+        verbatim "`HOME` is redirected so the 24h cache cannot answer from a previous successful
+        run." Fresh per call rather than per test, because two calls in one test would let the
+        first one's cache answer the second.
+        """
+        home = Path(tempfile.mkdtemp(prefix="pd-gitfail-home-"))
+        self.addCleanup(shutil.rmtree, home, True)
         proc = subprocess.run(
             [sys.executable, str(CHECKER), str(root), *flags],
             capture_output=True, text=True, timeout=180,
             env={**os.environ, "PATH": f"{shim}:{os.environ['PATH']}",
-                 "PYTHONDONTWRITEBYTECODE": "1"},
+                 "HOME": str(home), "PYTHONDONTWRITEBYTECODE": "1"},
         )
         return proc.returncode, proc.stdout + proc.stderr
 
@@ -411,6 +428,12 @@ class SessionStartTest(unittest.TestCase):
     because the hook swallows stderr, so a checker that crashes there is indistinguishable from a
     checker that found nothing."""
 
+    @reaches_home(
+        "READS THE REAL MACHINE, deliberately: it runs the hook AS INSTALLED at "
+        "~/.claude/hooks/disclosure-check.sh. Copying it into a fixture would test the copy, and "
+        "the property under test — the hook swallows stderr, so a checker that crashes there is "
+        "indistinguishable from one that found nothing — belongs to the installed file. It already "
+        "skips when the hook is absent, which is what a replica under a redirected HOME sees.")
     def test_the_hook_emits_a_single_json_object(self) -> None:
         script = HOOKS / "disclosure-check.sh"
         if not script.is_file():

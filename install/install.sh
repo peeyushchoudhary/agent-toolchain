@@ -8,6 +8,7 @@
 #   ./install.sh              install or update
 #   ./install.sh --dry-run    print what would happen, change nothing
 #   ./install.sh --no-codex   skip the Codex side
+#   ./install.sh -h|--help    print this and exit
 #
 set -uo pipefail
 
@@ -22,7 +23,13 @@ for arg in "$@"; do
     --dry-run) DRY=1 ;;
     --no-codex) DO_CODEX=0 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
-    *) echo "unknown option: $arg" >&2; exit 2 ;;
+    # 64 = EX_USAGE, NOT 2. verify.sh:200-201 made this same fix in the sibling script and left it
+    # standing here — 2 collides with COULD NOT RUN under the three-outcome contract (0 clean / 1
+    # finding / 2 could-not-run) that `check_installer_agrees` relies on to tell a repository
+    # disagreement apart from an installer that never ran at all. No live caller passes an unknown
+    # option today (check_installer_agrees always calls `--dry-run --no-codex`), so this is a
+    # contract-consistency fix, not a response to an observed collision.
+    *) echo "unknown option: $arg" >&2; exit 64 ;;
   esac
 done
 
@@ -93,14 +100,77 @@ say "target: $CLAUDE$([ "$DO_CODEX" -eq 1 ] && echo " and $CODEX")"
 [ "$DRY" -eq 1 ] && say "DRY RUN — nothing will be written"
 
 # ── Skills ───────────────────────────────────────────────────────────────────────────────────────
-# graph-navigation is included but only useful alongside the third-party `graphify` CLI; it is inert
-# without it, so installing it costs nothing.
-SKILLS="progressive-disclosure agent-personas agent-persona-factory project-onboarding graph-navigation"
+# The skill set is DISCOVERED from install/skills/.gitignore rather than named a second time here.
+# That file is this repository's own declaration of what install/skills/ publishes (see
+# docs/README.md, "What is published, and what is not") — an allowlist that ignores everything in
+# the directory and then re-includes each published skill by a `!/name` line. A hardcoded SKILLS
+# string here was a second copy of that same fact, and it went stale: it named five of the six
+# skills and nothing caught the sixth (`execution-methodology`) going unpublished by this installer
+# while verify.sh's own vendored-suite runner was already executing its tests.
+#
+# THIS IS NOT THE ONLY PLACE THE SIX ARE WRITTEN DOWN, and an earlier version of this comment
+# claimed it was. `docs/README.md` names all six in prose — the very document this comment sends the
+# reader to. What is true is narrower and is the thing that matters: neither SCRIPT carries a list,
+# so a re-vendor cannot drift install.sh and verify.sh apart by hand-editing one of them, and
+# verify.sh executes this installer's dry run and compares the two sets rather than trusting that
+# both copies of the reader below agree. The doc remains a second copy, checked by a human.
+#
+# THE READER IS STRICT AND LOUD, DELIBERATELY. gitignore negation syntax is larger than the `!/name`
+# form this allowlist uses: `!name` without the slash is legal and a permissive `grep -E '^!/'`
+# misses it entirely — dropping a published skill from the install set silently, which is precisely
+# the defect this block was written to fix. `!/name/` with a trailing slash is legal too and yields
+# an entry that installs and then fails every equality check downstream. So one `if` decides what
+# the strict form is, the SAME `if` emits everything it rejects, and a rejected line is a FAILURE
+# rather than an absence. This mirrors `skill_roster_scan` in verify.sh, whose header records the
+# measurement behind not using `git check-ignore` for this: it consults the index and will not call
+# a tracked path ignored, so it cannot see a tracked skill lose its `!/` line.
+#
+# graph-navigation is declared like every other skill and installed the same way; it is included
+# even though it is only useful alongside the third-party `graphify` CLI, because it is inert
+# without that CLI, so installing it costs nothing.
+skill_roster_scan() {
+  awk -v mode="$2" '
+    /^!/ {
+      if ($0 ~ /^!\/[A-Za-z0-9._-]+$/ && $0 !~ /^!\/\.\.?$/) {
+        if (mode == "names") print substr($0, 3)
+      } else if (mode == "rejects") print
+    }
+  ' "$1" 2>/dev/null
+}
+
+GITIGNORE="$HERE/skills/.gitignore"
+SKILLS=""
+if [ -f "$GITIGNORE" ]; then
+  while IFS= read -r badline; do
+    [ -n "$badline" ] || continue
+    fail "skills: install/skills/.gitignore line \`$badline\` is not the \`!/name\` form this reader accepts — refusing to guess what it publishes rather than silently leaving it out of the install set"
+  done < <(skill_roster_scan "$GITIGNORE" rejects)
+  # NOT EVERY ALLOWLIST ENTRY IS A SKILL — `!/.gitignore` and `!/README.md` are files beside the
+  # skills. Filtered by TYPE, not by a hardcoded list of the two names, which was itself a second
+  # roster duplicated into verify.sh and would hard-fail the next such file (`!/LICENSE`). An entry
+  # that names a regular file here is not a skill directory. An entry with NOTHING on disk stays in:
+  # that is the missing-skill case, and it must reach the SKIP line below rather than vanish.
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    [ -f "$HERE/skills/$entry" ] && continue
+    SKILLS="${SKILLS}${SKILLS:+ }$entry"
+  done < <(skill_roster_scan "$GITIGNORE" names)
+  # A declaration that names no skill is not an empty install, it is an unreadable declaration, and
+  # saying so HERE is what stops the catch-all at the end of this block from blaming skills/.
+  [ -n "$SKILLS" ] ||
+    fail "skills: install/skills/.gitignore declares no skills — the declaration is empty or names only non-skill files, so nothing is known to install; skills/ itself is not the problem"
+else
+  fail "skills: install/skills/.gitignore is missing — the published-skill declaration could not be read, so nothing is known to install"
+fi
 
 echo "skills"
 run mkdir -p "$CLAUDE/skills" || fail "skills: could not create $CLAUDE/skills"
 skills_installed=0
+skills_declared=0
+# The roster admits no whitespace and no glob metacharacter, so this word-split is safe and a
+# declared entry cannot undergo pathname expansion against the caller's working directory.
 for s in $SKILLS; do
+  skills_declared=$((skills_declared + 1))
   [ -d "$HERE/skills/$s" ] || { say "SKIP $s (not in this package)"; continue; }
   if [ "$DRY" -eq 1 ]; then
     say "would install $s"
@@ -112,10 +182,38 @@ for s in $SKILLS; do
     fail "skill $s: could not install into $CLAUDE/skills"
   fi
 done
+# EVERY FILTERED COUNT CARRIES ITS TOTAL — but note that BOTH numbers on this line come from the
+# declaration, so neither can contradict it, and this line is therefore not evidence that the
+# declaration is right. The independent total is the directory, and comparing the two is verify.sh's
+# job (`check_skill_presence … 1`), where a disagreement in either direction is a FAILURE. The loop
+# below is this installer's half of that: it is what makes an undeclared directory visible here.
+say "$skills_installed of $skills_declared declared skill(s) installed"
+# A directory under skills/ that the declaration does NOT name is not installed — this installer
+# must never copy a tree into ~/.claude on the strength of its presence alone. It is a `note` HERE
+# and a FAILURE in verify.sh, which is not an inconsistency: an installer's job is to refuse it and
+# say so, a gate's job is to refuse the tree. Reported so the gap is visible rather than silent.
+for d in "$HERE"/skills/*/; do
+  [ -f "${d}SKILL.md" ] || continue
+  dn="$(basename "$d")"
+  declared=0
+  for s in $SKILLS; do [ "$s" = "$dn" ] && { declared=1; break; }; done
+  [ "$declared" -eq 1 ] ||
+    say "note: $dn is present under install/skills but not declared in install/skills/.gitignore — NOT installed"
+done
 # A skill missing from the package is a statement about package contents, not a failure — but ALL of
-# them missing means this package has no skills/ at all, and then the installer wired nothing.
-[ "$skills_installed" -gt 0 ] ||
-  fail "skills: no skill was installed — is skills/ missing from this package?"
+# them missing means the installer wired nothing, and WHICH cause it names decides which file the
+# reader opens. This used to be one sentence blaming skills/ unconditionally, so a declaration that
+# named nothing printed `0 of 0 declared skill(s) installed` as ordinary progress and then
+# `is skills/ missing from this package?` — false, on an intact skills/ directory, sending the
+# reader to the one place that was fine. The empty-declaration case now fails above, by name; this
+# catch-all covers only what is left.
+if [ "$skills_installed" -eq 0 ] && [ "$skills_declared" -gt 0 ]; then
+  if [ ! -d "$HERE/skills" ]; then
+    fail "skills: no skill was installed — skills/ is missing from this package"
+  else
+    fail "skills: no skill was installed — the declaration names $skills_declared skill(s) and not one of their directories is present under skills/, so this package is incomplete rather than empty"
+  fi
+fi
 
 # ── Hooks ────────────────────────────────────────────────────────────────────────────────────────
 echo "hooks"
@@ -143,25 +241,92 @@ done
 # Merged, never replaced. A settings.json that is overwritten loses every unrelated preference, and
 # a malformed one silently disables ALL settings from that file — so this validates before writing.
 #
-# The entries below name three scripts under $CLAUDE/hooks. Writing them when those scripts are not
+# The entries below name four scripts under $CLAUDE/hooks. Writing them when those scripts are not
 # installed is the real damage of a package that shipped no hooks/: settings.json ends up wired to
 # files that do not exist, and every later session reads it as configured. So the merge is gated on
 # the scripts actually being present — not on the exit code, which the accounting already covers.
 echo "settings.json"
-missing_hooks=""
-for hb in disclosure-check.sh graphify-session-lessons.sh graphify-query-advisor.py; do
-  [ -f "$CLAUDE/hooks/$hb" ] || missing_hooks="$missing_hooks $hb"
-done
-if [ "$DRY" -eq 1 ]; then
-  say "would merge 3 hook entries into $CLAUDE/settings.json (backup taken first)"
-elif [ -n "$missing_hooks" ]; then
-  fail "settings.json: hook entries were NOT merged — these scripts are not installed:$missing_hooks"
-else
-python3 - "$CLAUDE/settings.json" <<'PY' || fail "settings.json: hook entries were NOT merged (see the message above)"
-import json, shutil, sys, time
+# THE GUARD USED TO BE A SECOND, HAND-WRITTEN COPY of the names WANT carries below — written
+# 25 lines apart in this one file, with nothing checking the two agreed. Add a further WANT entry
+# without its script and settings.json would be written pointing at a file that does not exist,
+# which the paragraph above calls "the real damage". So the guard is now DERIVED from WANT: the
+# merge script is written out once, asked to LIST the hook names it references before it is asked to
+# do anything else, and the shell guard reads that list rather than restating it. WANT itself stays
+# the one place the (event, matcher, command) shape is written — this is not a second roster, it is
+# the same roster read twice.
+HOOK_MERGE_SCRIPT="$(mktemp)" || fail "settings.json: could not create a temp file for the merge script"
+trap 'rm -f "$HOOK_MERGE_SCRIPT"' EXIT
+cat > "$HOOK_MERGE_SCRIPT" <<'PY'
+import json, re, shutil, sys, time
 from pathlib import Path
 
 path = Path(sys.argv[1])
+mode = sys.argv[2] if len(sys.argv) > 2 else "merge"
+
+WANT = [
+    ("SessionStart", None, "bash ~/.claude/hooks/disclosure-check.sh 2>/dev/null || true"),
+    ("SessionStart", None, "bash ~/.claude/hooks/graphify-session-lessons.sh 2>/dev/null || true"),
+    ("PreToolUse", "Bash", "python3 ~/.claude/hooks/graphify-query-advisor.py 2>/dev/null || true"),
+    # preflight.sh WAS DELIBERATELY UNWIRED AND IS NOW DELIBERATELY WIRED, and the reversal is
+    # recorded rather than quietly applied. Its own published header says "both are wired as
+    # SessionStart hooks in settings.json" of itself and disclosure-check.sh — a sentence that was
+    # true of the machine it was written on, where it had been wired by hand, and false of every
+    # machine this installer had ever touched. One of the two had to move; this entry is the
+    # decision that it was the installer, taken with the cost named: every machine that runs
+    # ./install.sh from here on gains a SessionStart hook it did not have before.
+    #
+    # SAFE AT SESSION START on the same three grounds disclosure-check.sh is, all of them the hook's
+    # own contract rather than an assumption made here: it reports and never writes inside the
+    # target, it exits 0 whenever it ran, and the `2>/dev/null || true` wrapper below means no exit
+    # code of its can fail a session. Worst measured run is 0.111s against a ~2s budget.
+    #
+    # THE ARGUMENT IS PART OF THE ENTRY, and it is the one difference from the three above. preflight
+    # takes the directory to check and defaults to `.`, which at session start is whatever directory
+    # the harness happened to launch in — so the path is passed explicitly. `CLAUDE_PROJECT_DIR` is
+    # the harness's own answer and `$PWD` is the fallback for a harness that does not set it; the
+    # quoting keeps a path with spaces one argument. The `list` extraction below reads the script
+    # name out of this command with a character class that stops at the space, so the trailing
+    # argument does not disturb it — and neither does it disturb verify.sh's twin extraction, which
+    # is the same regex.
+    ("SessionStart", None, 'bash ~/.claude/hooks/preflight.sh "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null || true'),
+]
+
+if mode == "list":
+    # One name per WANT entry, printed for the shell guard to read — never a second, hand-typed copy.
+    #
+    # AND THE EXTRACTION FAILS CLOSED, WHICH IT DID NOT. This was `if m: print(...)`, so an entry
+    # whose command the regex did not match was DROPPED IN SILENCE and the guard below never learned
+    # it existed. MEASURED, by respelling WANT's third command as `$HOME/.claude/hooks/…` — the form
+    # this same file uses everywhere else, so the spelling a maintainer would actually reach for:
+    # this list yielded 2 names, `missing_hooks` never inspected the third, and the merge wrote a
+    # settings.json entry naming a script it had never checked was installed. That is the exact
+    # damage the section comment above calls "the real damage", arriving through the guard added to
+    # prevent it. `./verify.sh` stayed rc 0 and `--self-test` stayed green throughout.
+    #
+    # So a non-matching entry is an ERROR, not an omission — the same rule verify.sh's
+    # `check_settings_wired` applies to its own extraction: reaching nothing is a finding, never a
+    # clean zero.
+    names = []
+    for _, _, command in WANT:
+        m = re.search(r"~/\.claude/hooks/([A-Za-z0-9._-]+)", command)
+        if not m:
+            print(f"  REFUSED: a WANT entry names no ~/.claude/hooks/<script>: {command!r}",
+                  file=sys.stderr)
+            print("  The guard that checks each script is installed reads this list, so this entry",
+                  file=sys.stderr)
+            print("  would be merged into settings.json without ever being checked. Nothing merged.",
+                  file=sys.stderr)
+            raise SystemExit(1)
+        names.append(m.group(1))
+    # THE TOTAL COMES FROM A DIFFERENT SOURCE THAN THE COUNT, which is the whole of why it is worth
+    # printing: `declared` is `len(WANT)` — the list literal — while the names below are what the
+    # per-entry regex actually extracted. The two can only disagree if an extraction was lossy, so
+    # the shell can detect that rather than merely report a number it derived from itself.
+    print(f"#declared {len(WANT)}")
+    for n in names:
+        print(n)
+    raise SystemExit(0)
+
 data = {}
 if path.is_file():
     try:
@@ -173,12 +338,6 @@ if path.is_file():
     backup = path.with_suffix(f".json.bak-{time.strftime('%Y%m%d-%H%M%S')}")
     shutil.copy2(path, backup)
     print(f"  backup: {backup.name}")
-
-WANT = [
-    ("SessionStart", None, "bash ~/.claude/hooks/disclosure-check.sh 2>/dev/null || true"),
-    ("SessionStart", None, "bash ~/.claude/hooks/graphify-session-lessons.sh 2>/dev/null || true"),
-    ("PreToolUse", "Bash", "python3 ~/.claude/hooks/graphify-query-advisor.py 2>/dev/null || true"),
-]
 
 hooks = data.setdefault("hooks", {})
 added = 0
@@ -198,6 +357,60 @@ path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(data, indent=2) + "\n")
 print(f"  {added} hook entr{'y' if added == 1 else 'ies'} added, {len(WANT) - added} already present")
 PY
+
+# THE GUARD NOW GATES THE MERGE INSTEAD OF ONLY REPORTING ON IT. `fail` records and returns — it
+# does not stop the script — so every check below used to fall through into the merge regardless of
+# what it found: a `list` invocation that exited non-zero, and an empty WANT list, both printed
+# FAILED and then merged anyway. `hook_want_ok` is what a refusal now means, and the merge branch
+# reads it.
+hook_want_ok=1
+WANT_HOOKS_RAW="$(python3 "$HOOK_MERGE_SCRIPT" "$CLAUDE/settings.json" list)" || {
+  fail "settings.json: the merge script's WANT list could not be read — nothing was merged"
+  hook_want_ok=0
+}
+# `#declared N` is the merge script's own `len(WANT)`, printed on a line the name loop must not see.
+want_declared=$(printf '%s\n' "$WANT_HOOKS_RAW" | sed -n 's/^#declared //p')
+WANT_HOOKS=$(printf '%s\n' "$WANT_HOOKS_RAW" | grep -v '^#declared ')
+want_count=$(printf '%s\n' "$WANT_HOOKS" | grep -c .)
+# Guarded on the invocation having SUCCEEDED, so one cause produces one finding: a `list` that
+# exited non-zero has already been reported above and its empty output is that same fact, not a
+# second one. MEASURED — without this guard the respelled-WANT-entry case printed both.
+if [ "$hook_want_ok" -eq 1 ] && [ -z "$WANT_HOOKS" ]; then
+  fail "settings.json: the merge script names no hook — refusing to merge nothing rather than passing silently"
+  hook_want_ok=0
+fi
+# THE COUNT IS CHECKED AGAINST A TOTAL FROM A DIFFERENT SOURCE, not merely against zero. A non-empty
+# list is not evidence of a COMPLETE one: with the old `if m:` extraction, respelling one WANT
+# command dropped that entry and left this guard inspecting two of three scripts while reporting
+# nothing amiss. `want_declared` is `len(WANT)`; `want_count` is what the extraction produced. They
+# are the same fact derived two ways, so they can disagree, which is the point.
+if [ -n "$WANT_HOOKS_RAW" ] && { [ -z "$want_declared" ] || [ "$want_count" -ne "$want_declared" ]; }; then
+  fail "settings.json: the merge script declares ${want_declared:-no} WANT entr$([ "${want_declared:-0}" = "1" ] && echo y || echo ies) but named $want_count hook script(s) — an entry's command yielded no \`~/.claude/hooks/<name>\`, so the guard below would not check whether its script is installed. Nothing was merged."
+  hook_want_ok=0
+fi
+missing_hooks=""
+for hb in $WANT_HOOKS; do
+  [ -f "$CLAUDE/hooks/$hb" ] || missing_hooks="$missing_hooks $hb"
+done
+# THE BACKUP CLAIM USED TO BE UNCONDITIONAL even in the dry-run line, where a first-ever install has
+# no settings.json to back up — the opposite ruling this file already makes 60-odd lines later for
+# config.toml ("there is nothing to back up, so the success line must not claim a backup was taken").
+if [ "$hook_want_ok" -eq 0 ]; then
+  # Already reported by whichever guard set the flag, in both modes. Said once more here so the
+  # section does not simply end without a line, which is how a skipped merge used to read.
+  say "settings.json: NOT merged — the WANT list above could not be trusted"
+elif [ "$DRY" -eq 1 ]; then
+  entry_word="entr$([ "$want_count" -eq 1 ] && echo y || echo ies)"
+  if [ -f "$CLAUDE/settings.json" ]; then
+    say "would merge $want_count hook $entry_word into $CLAUDE/settings.json (backup taken first)"
+  else
+    say "would merge $want_count hook $entry_word into $CLAUDE/settings.json (nothing to back up — it does not exist yet)"
+  fi
+elif [ -n "$missing_hooks" ]; then
+  fail "settings.json: hook entries were NOT merged — these scripts are not installed:$missing_hooks"
+else
+  python3 "$HOOK_MERGE_SCRIPT" "$CLAUDE/settings.json" merge ||
+    fail "settings.json: hook entries were NOT merged (see the message above)"
 fi
 
 # ── Codex ────────────────────────────────────────────────────────────────────────────────────────
@@ -207,16 +420,29 @@ if [ "$DO_CODEX" -eq 1 ]; then
     say "no $CODEX — Codex not installed here. Re-run with Codex present, or --no-codex to silence this."
   else
     run mkdir -p "$CODEX/skills" || fail "codex: could not create $CODEX/skills"
+    # THE ONE SKILL LOOP WITH NO COUNT, NO TOTAL, NO SKIP LINE AND NO FLOOR — the Claude loop 130
+    # lines up has all three of those and this one, over the same $SKILLS declaration, had none: a
+    # declared skill missing from this package dropped out of the mirror in silence instead of
+    # printing `SKIP $s (not in this package)`, and a mirror that received nothing said so nowhere.
+    codex_mirrored=0
+    codex_declared=0
     for s in $SKILLS; do
-      [ -d "$HERE/skills/$s" ] || continue
+      codex_declared=$((codex_declared + 1))
+      [ -d "$HERE/skills/$s" ] || { say "SKIP $s (not in this package)"; continue; }
       if [ "$DRY" -eq 1 ]; then
         say "would mirror $s"
+        codex_mirrored=$((codex_mirrored + 1))
       elif install_tree "$HERE/skills/$s" "$CODEX/skills/$s"; then
         say "mirrored $s"
+        codex_mirrored=$((codex_mirrored + 1))
       else
         fail "skill $s: could not mirror into $CODEX/skills"
       fi
     done
+    say "$codex_mirrored of $codex_declared declared skill(s) mirrored"
+    if [ "$codex_mirrored" -eq 0 ] && [ "$codex_declared" -gt 0 ]; then
+      fail "codex: no skill was mirrored — the declaration names $codex_declared skill(s) and not one of their directories is present under skills/, so this package is incomplete rather than empty"
+    fi
     if [ "$DRY" -eq 0 ] && ! grep -q '^\[agents\]' "$CODEX/config.toml" 2>/dev/null; then
       # An existing config.toml must be backed up before we append; if that fails we do not append.
       # No config.toml at all is not a failure — the append below creates one, and in that case
