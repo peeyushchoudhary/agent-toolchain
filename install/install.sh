@@ -241,13 +241,13 @@ done
 # Merged, never replaced. A settings.json that is overwritten loses every unrelated preference, and
 # a malformed one silently disables ALL settings from that file — so this validates before writing.
 #
-# The entries below name three scripts under $CLAUDE/hooks. Writing them when those scripts are not
+# The entries below name four scripts under $CLAUDE/hooks. Writing them when those scripts are not
 # installed is the real damage of a package that shipped no hooks/: settings.json ends up wired to
 # files that do not exist, and every later session reads it as configured. So the merge is gated on
 # the scripts actually being present — not on the exit code, which the accounting already covers.
 echo "settings.json"
-# THE GUARD USED TO BE A SECOND, HAND-WRITTEN COPY of the three names WANT carries below — written
-# 25 lines apart in this one file, with nothing checking the two agreed. Add a fourth WANT entry
+# THE GUARD USED TO BE A SECOND, HAND-WRITTEN COPY of the names WANT carries below — written
+# 25 lines apart in this one file, with nothing checking the two agreed. Add a further WANT entry
 # without its script and settings.json would be written pointing at a file that does not exist,
 # which the paragraph above calls "the real damage". So the guard is now DERIVED from WANT: the
 # merge script is written out once, asked to LIST the hook names it references before it is asked to
@@ -267,6 +267,28 @@ WANT = [
     ("SessionStart", None, "bash ~/.claude/hooks/disclosure-check.sh 2>/dev/null || true"),
     ("SessionStart", None, "bash ~/.claude/hooks/graphify-session-lessons.sh 2>/dev/null || true"),
     ("PreToolUse", "Bash", "python3 ~/.claude/hooks/graphify-query-advisor.py 2>/dev/null || true"),
+    # preflight.sh WAS DELIBERATELY UNWIRED AND IS NOW DELIBERATELY WIRED, and the reversal is
+    # recorded rather than quietly applied. Its own published header says "both are wired as
+    # SessionStart hooks in settings.json" of itself and disclosure-check.sh — a sentence that was
+    # true of the machine it was written on, where it had been wired by hand, and false of every
+    # machine this installer had ever touched. One of the two had to move; this entry is the
+    # decision that it was the installer, taken with the cost named: every machine that runs
+    # ./install.sh from here on gains a SessionStart hook it did not have before.
+    #
+    # SAFE AT SESSION START on the same three grounds disclosure-check.sh is, all of them the hook's
+    # own contract rather than an assumption made here: it reports and never writes inside the
+    # target, it exits 0 whenever it ran, and the `2>/dev/null || true` wrapper below means no exit
+    # code of its can fail a session. Worst measured run is 0.111s against a ~2s budget.
+    #
+    # THE ARGUMENT IS PART OF THE ENTRY, and it is the one difference from the three above. preflight
+    # takes the directory to check and defaults to `.`, which at session start is whatever directory
+    # the harness happened to launch in — so the path is passed explicitly. `CLAUDE_PROJECT_DIR` is
+    # the harness's own answer and `$PWD` is the fallback for a harness that does not set it; the
+    # quoting keeps a path with spaces one argument. The `list` extraction below reads the script
+    # name out of this command with a character class that stops at the space, so the trailing
+    # argument does not disturb it — and neither does it disturb verify.sh's twin extraction, which
+    # is the same regex.
+    ("SessionStart", None, 'bash ~/.claude/hooks/preflight.sh "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null || true'),
 ]
 
 if mode == "list":

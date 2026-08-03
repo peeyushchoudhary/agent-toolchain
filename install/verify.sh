@@ -3970,6 +3970,40 @@ STUB
   st_assert "the wired-hook derivation reaches the real install.sh, and finds graphify-query-advisor.py" "$st_rc" \
     "\`hooks_wired_by $VENDOR/install.sh\` returned ${st_hw_n:-0} name(s) — [$(printf '%s' "$HOOKS_WIRED" | tr '\n' ' ')] — and either reached nothing at all or lost a name. install.sh's WANT list is the only source for this set, so a command respelled out of the \`~/.claude/hooks/\` form drops out of it silently and the hook it names stops being checked anywhere"
 
+  # ── (HN7) AND THE SAME PIN FOR preflight.sh, WHICH HN6 DOES NOT COVER. HN6 pins ONE name, for the
+  #    reason H7b was added beside H7 one roster over: an assertion that names a single member of a
+  #    set says nothing whatever about the others, and the comment justifying it applies verbatim to
+  #    a second name the moment that name matters.
+  #
+  #    WHY IT MATTERS NOW. preflight.sh used to be installed-but-unwired on purpose, while its OWN
+  #    PUBLISHED HEADER said it and disclosure-check.sh are "both wired as SessionStart hooks in
+  #    settings.json" — true of a machine where it had been wired by hand, false of every machine
+  #    this installer touched. The installer was changed to match the header rather than the reverse.
+  #    That is a decision that has to STAY made, and nothing in this file was holding it.
+  #
+  #    THE MUTATION THAT REDDENS IT, MEASURED IN A CLONE BEFORE THIS ASSERTION EXISTED: delete the
+  #    preflight WANT entry from install.sh — the single-line revert a maintainer restoring the old
+  #    "deliberately unwired" behaviour would perform. `./verify.sh` stayed rc 0 and PASS,
+  #    `--self-test` stayed 189 of 189, and the only trace was production printing `3 of 3 hook
+  #    entries install.sh merges are wired` instead of `4 of 4`. THAT IS THE FAILURE MODE THIS FILE
+  #    KEEPS FINDING AND NOT THE DETECTION OF IT: `check_settings_wired` derives its numerator AND
+  #    its denominator from the same install.sh, so un-wiring a hook moves the total with the count
+  #    and the pair stays green while agreeing about less and less. `N of M` reports; it does not
+  #    detect. Only a NAME held outside that derivation can.
+  #
+  #    NOT GENERALISED TO "EVERY HOOKS_REQUIRED NAME IS WIRED", THOUGH BOTH HAPPEN TO BE TODAY. That
+  #    would forbid a hook being required-but-unwired — which is exactly what preflight.sh legitimately
+  #    was until this change, so the general form would have been false of this repository last week
+  #    and would prejudge a case that may recur. The narrow, true claim is preferred, which is the
+  #    ruling H8 makes about numeric thresholds.
+  #
+  #    THE SEARCH SPACE IS install.sh, NOT THIS FILE. `HOOKS_WIRED` comes from grepping
+  #    `$VENDOR/install.sh`; the name spelled in this assertion's own text cannot satisfy it.
+  st_rc=1
+  [ "${st_hw_n:-0}" -gt 0 ] && printf '%s\n' "$HOOKS_WIRED" | grep -qx 'preflight.sh' && st_rc=0
+  st_assert "the wired-hook derivation finds preflight.sh — the installer still wires the hook its own header says is wired" "$st_rc" \
+    "\`hooks_wired_by $VENDOR/install.sh\` returned ${st_hw_n:-0} name(s) — [$(printf '%s' "$HOOKS_WIRED" | tr '\n' ' ')] — and preflight.sh is not among them. install.sh no longer merges a settings.json entry for it, so the hook's published header claim that it is wired as a SessionStart hook is false again, and \`check_settings_wired\` cannot say so: it derives both halves of its count from this same list and would print a green \`3 of 3\`"
+
   echo
   echo "════ self-test — the published-skill roster, its presence check, and the installer's agreement"
   # THIS SECTION EXISTS BECAUSE THE FIRST VERSION OF THE CHECK IT DRIVES HAD NO ASSERTIONS AT ALL.
@@ -4867,7 +4901,11 @@ PY
   # single `expect_presence` cannot pin two different scopes at once. Net +1: the repository arm
   # (now a FAIL) and the machine arm (still a WARN, moved onto its own line) replace the one
   # combined-but-wrong assertion that pinned a WARNING in both scopes.
-  st_expected_total=189
+  # 189 -> 190: HN7, the second name pinned in the wired-hook derivation. install.sh was changed to
+  # wire preflight.sh — the hook whose own published header already claimed it was wired — and the
+  # change was invisible to this suite: reverting it left `./verify.sh` rc 0 and this total green at
+  # 189, because `check_settings_wired` derives its count and its total from the one list that moved.
+  st_expected_total=190
   st_total=$((st_pass + st_fail + st_skipped))
   st_total_ok=1
   if [ "$st_total" -ne "$st_expected_total" ]; then
