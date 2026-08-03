@@ -1327,13 +1327,21 @@ check_skill_presence() {
   # declared entry can never undergo pathname expansion against the caller's working directory.
   for s in $roster; do
     declared=$((declared + 1))
-    # graph-navigation is declared like the rest but stays a WARNING here rather than a failure: it
-    # is useful only alongside the third-party `graphify` CLI (see install.sh), which is a statement
-    # about usefulness, not about whether this repository published it — so its severity is
-    # deliberately different from the other five even though its name comes from the same
-    # declaration. Whether that is right for the REPOSITORY scope specifically (as opposed to the
-    # machine scope, where it plainly is) is a live question carded separately; it is unchanged here.
-    if [ "$s" = "graph-navigation" ]; then
+    # graph-navigation IS ONE NAME CARRYING TWO SEVERITIES, and OWNS_DECL is what picks between them
+    # because it is already the flag that answers "is this the tree that owns the declaration" for
+    # everything else in this function. TC-58: the old code warned in both scopes, justified by the
+    # third-party `graphify` CLI's absence — a fact about a MACHINE. That justifies the MACHINE
+    # scope's warn (owns_decl=0: `~/.claude/skills` or `~/.codex/skills`, where "no graphify here" is
+    # a true and unremarkable state). It does NOT justify the REPOSITORY scope's warn (owns_decl=1:
+    # this checkout's own install/skills/), because whether the checkout still contains the file it
+    # declared it publishes has nothing to do with graphify — a repository can delete a published
+    # skill on a machine that has never heard of graphify, and did: `rm -rf
+    # install/skills/graph-navigation && ./verify.sh` gave one warn and exit 0. So repository scope
+    # now takes the same `want_file` every other declared skill gets; only the machine scope keeps
+    # `opt_file`. This does not make the graphify CLI a prerequisite — it makes the FILE this
+    # repository already declares it ships a required part of the checkout, which is the optional-
+    # dependency invariant applied to the tree that owns it rather than a relaxation of it.
+    if [ "$s" = "graph-navigation" ] && [ "$owns_decl" -ne 1 ]; then
       opt_file "$check_root/$s/SKILL.md" "graph-navigation (optional)" \
         "graph-navigation absent from $where — only matters if you use graphify"
     else
@@ -4129,12 +4137,20 @@ STUB
     "2 of 2 declared skill(s) present in fixture (total from the repository's declaration" "undeclared"
 
 
-  # ── (h) graph-navigation KEEPS ITS WARNING SEVERITY, pinned so that the separate card that may
-  #    change it has to change an assertion rather than discover the behaviour by accident.
+  # ── (h) graph-navigation's SEVERITY IS SPLIT BY SCOPE. TC-51 pinned it as a WARNING in BOTH scopes
+  #    on purpose, so that the follow-up (this one, TC-58) would have to change an assertion rather
+  #    than discover the behaviour by accident. That assertion is changed here, not deleted: the
+  #    repository scope now FAILS on the same absence a full house would need present, because
+  #    whether the checkout contains a file it declares it publishes is a fact about the TREE; the
+  #    machine scope still WARNS, because whether `graphify` is worth having is a fact about the
+  #    MACHINE. Both arms are pinned so a future change here also has to edit an assertion.
   st_pres_gn="$st_dir/pres_gn"
   mk_decl "$st_pres_gn" '!/graph-navigation'
-  expect_presence "graph-navigation absent is a WARNING and not a failure, in both scopes, unchanged by this card" \
-    "$st_pres_gn" "$st_pres_gn" 1 0 1 \
+  expect_presence "graph-navigation absent is a REPOSITORY FAILURE — a published skill missing from the checkout" \
+    "$st_pres_gn" "$st_pres_gn" 1 1 0 \
+    "graph-navigation missing from fixture"
+  expect_presence "and the MACHINE scope still WARNS for the same absence — graphify's absence is a fact about a machine, not about the checkout" \
+    "$st_pres_gn" "$st_pres_gn" 0 0 1 \
     "only matters if you use graphify"
 
   # ── (i) NO DECLARATION AT ALL is a finding, not an empty pass.
@@ -4518,9 +4534,14 @@ PY
   # section's prerequisites entirely, which is why it needs no ST_DRY guard, and it keeps the child
   # run at well under a second.
   #
-  # WHAT THIS COSTS: two extra `verify.sh` processes against a tiny fixture. MEASURED at 0.76s each
-  # on this machine, against the ~40s the real vendored suites take, so the card's slowness stop
-  # condition is not approached.
+  # WHAT THIS COSTS: FOUR extra `verify.sh` processes against a tiny fixture, one per `st_cs_run`
+  # call site below (`orig`, `mut_suites`, `mut_hooks`, `mut_named` — `grep -cE
+  # '^[[:space:]]*st_cs_run '` reads 4). MEASURED on this machine at roughly 1.2-1.4s total for the
+  # four, against a `--self-test` run that itself takes on the order of 13-15s end to end — a small
+  # fraction of the COMMAND THIS SECTION RUNS INSIDE. It is not compared against the ~40s+ the real
+  # vendored suites take, because that is `./verify.sh`'s budget, a different command this section
+  # never runs under; the card's slowness stop condition is about `--self-test`, and is not
+  # approached by either number.
   #
   # ── WHERE THE NEW UNTESTABLE BOUNDARY IS, WHICH IS THIS SECTION'S ACTUAL DELIVERABLE.
   #
@@ -4814,7 +4835,7 @@ PY
   # machine" on every machine, over five assertions that were set up perfectly and declined on
   # purpose. So
   # `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer|expect_hooks|expect_hook_named|expect_persona_count|expect_settings_wired) '`
-  # over this file reads exactly FIVE more than the literal below — 193 against 188 today — and those
+  # over this file reads exactly FIVE more than the literal below — 194 against 189 today — and those
   # five are the probe. THE PAIR MOVES TOGETHER: this sentence carried `170 against 165` for two
   # commits after the literal had gone to 169, which is the stale-claim shape this file keeps
   # removing from everything except itself. Both numbers, or neither.
@@ -4842,7 +4863,11 @@ PY
   # nothing is a FAILURE rather than total silence, and HN6, the derivation pinned against the real
   # install.sh by the one name whose loss was measured to be silent. (E1's precondition fix moved
   # the save/unset block above it and added no assertion.)
-  st_expected_total=188
+  # 188 -> 189: TC-58 split (h) into two arms instead of changing its counters in place, because a
+  # single `expect_presence` cannot pin two different scopes at once. Net +1: the repository arm
+  # (now a FAIL) and the machine arm (still a WARN, moved onto its own line) replace the one
+  # combined-but-wrong assertion that pinned a WARNING in both scopes.
+  st_expected_total=189
   st_total=$((st_pass + st_fail + st_skipped))
   st_total_ok=1
   if [ "$st_total" -ne "$st_expected_total" ]; then
