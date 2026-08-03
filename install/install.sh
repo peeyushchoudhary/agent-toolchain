@@ -8,6 +8,7 @@
 #   ./install.sh              install or update
 #   ./install.sh --dry-run    print what would happen, change nothing
 #   ./install.sh --no-codex   skip the Codex side
+#   ./install.sh -h|--help    print this and exit
 #
 set -uo pipefail
 
@@ -22,7 +23,13 @@ for arg in "$@"; do
     --dry-run) DRY=1 ;;
     --no-codex) DO_CODEX=0 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
-    *) echo "unknown option: $arg" >&2; exit 2 ;;
+    # 64 = EX_USAGE, NOT 2. verify.sh:200-201 made this same fix in the sibling script and left it
+    # standing here — 2 collides with COULD NOT RUN under the three-outcome contract (0 clean / 1
+    # finding / 2 could-not-run) that `check_installer_agrees` relies on to tell a repository
+    # disagreement apart from an installer that never ran at all. No live caller passes an unknown
+    # option today (check_installer_agrees always calls `--dry-run --no-codex`), so this is a
+    # contract-consistency fix, not a response to an observed collision.
+    *) echo "unknown option: $arg" >&2; exit 64 ;;
   esac
 done
 
@@ -239,20 +246,37 @@ done
 # files that do not exist, and every later session reads it as configured. So the merge is gated on
 # the scripts actually being present — not on the exit code, which the accounting already covers.
 echo "settings.json"
-missing_hooks=""
-for hb in disclosure-check.sh graphify-session-lessons.sh graphify-query-advisor.py; do
-  [ -f "$CLAUDE/hooks/$hb" ] || missing_hooks="$missing_hooks $hb"
-done
-if [ "$DRY" -eq 1 ]; then
-  say "would merge 3 hook entries into $CLAUDE/settings.json (backup taken first)"
-elif [ -n "$missing_hooks" ]; then
-  fail "settings.json: hook entries were NOT merged — these scripts are not installed:$missing_hooks"
-else
-python3 - "$CLAUDE/settings.json" <<'PY' || fail "settings.json: hook entries were NOT merged (see the message above)"
-import json, shutil, sys, time
+# THE GUARD USED TO BE A SECOND, HAND-WRITTEN COPY of the three names WANT carries below — written
+# 25 lines apart in this one file, with nothing checking the two agreed. Add a fourth WANT entry
+# without its script and settings.json would be written pointing at a file that does not exist,
+# which the paragraph above calls "the real damage". So the guard is now DERIVED from WANT: the
+# merge script is written out once, asked to LIST the hook names it references before it is asked to
+# do anything else, and the shell guard reads that list rather than restating it. WANT itself stays
+# the one place the (event, matcher, command) shape is written — this is not a second roster, it is
+# the same roster read twice.
+HOOK_MERGE_SCRIPT="$(mktemp)" || fail "settings.json: could not create a temp file for the merge script"
+trap 'rm -f "$HOOK_MERGE_SCRIPT"' EXIT
+cat > "$HOOK_MERGE_SCRIPT" <<'PY'
+import json, re, shutil, sys, time
 from pathlib import Path
 
 path = Path(sys.argv[1])
+mode = sys.argv[2] if len(sys.argv) > 2 else "merge"
+
+WANT = [
+    ("SessionStart", None, "bash ~/.claude/hooks/disclosure-check.sh 2>/dev/null || true"),
+    ("SessionStart", None, "bash ~/.claude/hooks/graphify-session-lessons.sh 2>/dev/null || true"),
+    ("PreToolUse", "Bash", "python3 ~/.claude/hooks/graphify-query-advisor.py 2>/dev/null || true"),
+]
+
+if mode == "list":
+    # One name per WANT entry, printed for the shell guard to read — never a second, hand-typed copy.
+    for _, _, command in WANT:
+        m = re.search(r"~/\.claude/hooks/([A-Za-z0-9._-]+)", command)
+        if m:
+            print(m.group(1))
+    raise SystemExit(0)
+
 data = {}
 if path.is_file():
     try:
@@ -264,12 +288,6 @@ if path.is_file():
     backup = path.with_suffix(f".json.bak-{time.strftime('%Y%m%d-%H%M%S')}")
     shutil.copy2(path, backup)
     print(f"  backup: {backup.name}")
-
-WANT = [
-    ("SessionStart", None, "bash ~/.claude/hooks/disclosure-check.sh 2>/dev/null || true"),
-    ("SessionStart", None, "bash ~/.claude/hooks/graphify-session-lessons.sh 2>/dev/null || true"),
-    ("PreToolUse", "Bash", "python3 ~/.claude/hooks/graphify-query-advisor.py 2>/dev/null || true"),
-]
 
 hooks = data.setdefault("hooks", {})
 added = 0
@@ -289,6 +307,32 @@ path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(data, indent=2) + "\n")
 print(f"  {added} hook entr{'y' if added == 1 else 'ies'} added, {len(WANT) - added} already present")
 PY
+
+WANT_HOOKS="$(python3 "$HOOK_MERGE_SCRIPT" "$CLAUDE/settings.json" list)" ||
+  fail "settings.json: the merge script's WANT list could not be read — nothing was merged"
+if [ -z "$WANT_HOOKS" ]; then
+  fail "settings.json: the merge script names no hook — refusing to merge nothing rather than passing silently"
+fi
+want_count=$(printf '%s\n' "$WANT_HOOKS" | grep -c .)
+missing_hooks=""
+for hb in $WANT_HOOKS; do
+  [ -f "$CLAUDE/hooks/$hb" ] || missing_hooks="$missing_hooks $hb"
+done
+# THE BACKUP CLAIM USED TO BE UNCONDITIONAL even in the dry-run line, where a first-ever install has
+# no settings.json to back up — the opposite ruling this file already makes 60-odd lines later for
+# config.toml ("there is nothing to back up, so the success line must not claim a backup was taken").
+if [ "$DRY" -eq 1 ]; then
+  entry_word="entr$([ "$want_count" -eq 1 ] && echo y || echo ies)"
+  if [ -f "$CLAUDE/settings.json" ]; then
+    say "would merge $want_count hook $entry_word into $CLAUDE/settings.json (backup taken first)"
+  else
+    say "would merge $want_count hook $entry_word into $CLAUDE/settings.json (nothing to back up — it does not exist yet)"
+  fi
+elif [ -n "$missing_hooks" ]; then
+  fail "settings.json: hook entries were NOT merged — these scripts are not installed:$missing_hooks"
+else
+  python3 "$HOOK_MERGE_SCRIPT" "$CLAUDE/settings.json" merge ||
+    fail "settings.json: hook entries were NOT merged (see the message above)"
 fi
 
 # ── Codex ────────────────────────────────────────────────────────────────────────────────────────
@@ -298,16 +342,29 @@ if [ "$DO_CODEX" -eq 1 ]; then
     say "no $CODEX — Codex not installed here. Re-run with Codex present, or --no-codex to silence this."
   else
     run mkdir -p "$CODEX/skills" || fail "codex: could not create $CODEX/skills"
+    # THE ONE SKILL LOOP WITH NO COUNT, NO TOTAL, NO SKIP LINE AND NO FLOOR — the Claude loop 130
+    # lines up has all three of those and this one, over the same $SKILLS declaration, had none: a
+    # declared skill missing from this package dropped out of the mirror in silence instead of
+    # printing `SKIP $s (not in this package)`, and a mirror that received nothing said so nowhere.
+    codex_mirrored=0
+    codex_declared=0
     for s in $SKILLS; do
-      [ -d "$HERE/skills/$s" ] || continue
+      codex_declared=$((codex_declared + 1))
+      [ -d "$HERE/skills/$s" ] || { say "SKIP $s (not in this package)"; continue; }
       if [ "$DRY" -eq 1 ]; then
         say "would mirror $s"
+        codex_mirrored=$((codex_mirrored + 1))
       elif install_tree "$HERE/skills/$s" "$CODEX/skills/$s"; then
         say "mirrored $s"
+        codex_mirrored=$((codex_mirrored + 1))
       else
         fail "skill $s: could not mirror into $CODEX/skills"
       fi
     done
+    say "$codex_mirrored of $codex_declared declared skill(s) mirrored"
+    if [ "$codex_mirrored" -eq 0 ] && [ "$codex_declared" -gt 0 ]; then
+      fail "codex: no skill was mirrored — the declaration names $codex_declared skill(s) and not one of their directories is present under skills/, so this package is incomplete rather than empty"
+    fi
     if [ "$DRY" -eq 0 ] && ! grep -q '^\[agents\]' "$CODEX/config.toml" 2>/dev/null; then
       # An existing config.toml must be backed up before we append; if that fails we do not append.
       # No config.toml at all is not a failure — the append below creates one, and in that case

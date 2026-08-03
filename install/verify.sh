@@ -1350,6 +1350,29 @@ check_skill_presence() {
 # every agent to run. Both are load-bearing for a documented route, so neither may go missing quietly.
 HOOKS_REQUIRED="disclosure-check.sh preflight.sh"
 
+# HOOKS_NAMED — every hook name whose absence from install/hooks/ must be REPORTED, even when it is
+# not fatal. HOOKS_REQUIRED alone does not cover this: a roster DISCOVERED from the directory has a
+# hole a hand-written roster never had — delete a file from install/hooks/ and the roster shrinks
+# with it, so a name that is not in HOOKS_REQUIRED simply vanishes from every loop that walks the
+# roster, with nothing left saying it used to be there.
+#
+# THE REGRESSION THIS CLOSES, MEASURED. Before the roster became directory-discovery, the two
+# graphify hooks were named literals checked in both scopes, and deleting either one WARNED. After,
+# deleting `install/hooks/graphify-query-advisor.py` produces NOTHING — not even the warn it used to
+# — because `hook_roster`'s output no longer contains the name and every loop below is keyed off that
+# output. Meanwhile install.sh HARD-FAILS its settings.json merge when any of the three scripts it
+# wires is missing (see `missing_hooks` in install.sh's settings.json section), so `./verify.sh` was
+# exiting 0 in silence on a tree install.sh itself refuses to finish installing.
+#
+# DERIVED FROM install.sh's OWN WANT LIST, UNION HOOKS_REQUIRED — not restated. This is the same
+# extraction `check_settings_wired` performs against the installed settings.json, applied here
+# against the vendored directory instead: one fact read twice, not a second roster. `disclosure-
+# check.sh` and `preflight.sh` are already in HOOKS_REQUIRED and FAIL (via `check_hook_presence`)
+# when missing; the two graphify names are new to this set, and MACHINE-SCOPE SEVERITY FOR THEM
+# STAYS WARN — they are an optional dependency, and that is a repository fact, not a machine one, so
+# `check_hook_named` below checks it exactly once, at repository scope, rather than making them fail.
+HOOKS_NAMED="$HOOKS_REQUIRED $(grep -oE '~/\.claude/hooks/[A-Za-z0-9._-]+' "$VENDOR/install.sh" 2>/dev/null | sed 's#.*/##' | sort -u)"
+
 # hook_roster DIR — the hooks this repository ships, one per line.
 #
 # Regular files only, one level deep, which is install.sh's own rule. With no directory at all the
@@ -1423,6 +1446,56 @@ check_hook_presence() {
   # EVERY FILTERED COUNT CARRIES ITS TOTAL, and the required tally is printed beside it because the
   # first total comes from the directory and so cannot contradict the directory. The second one can.
   ctx "$present of $total vendored hook(s) present in $where; the required set names $req_total, $req_absent of which install/hooks/ does not carry"
+}
+
+# check_hook_named VENDOR_HOOKS NAMED — every name in NAMED that VENDOR_HOOKS (install/hooks/) does
+# not carry is REPORTED, once, here, at repository scope — install/hooks/ is a repository directory,
+# and whether it ships an optional hook is a repository fact, not a machine one, so unlike
+# check_hook_presence this is not run once per scope.
+#
+# A name already in HOOKS_REQUIRED is skipped: check_hook_presence's own req_absent loop already
+# fails it by name, and reporting it again here would turn one missing file into two findings. Every
+# other name in NAMED is the optional-dependency case this function exists for, and its absence is a
+# WARNING, never a failure — the invariant HOOKS_NAMED's header records.
+check_hook_named() {
+  local vend="$1" named="$2" roster n f found
+  roster=$(hook_roster "$vend")
+  for n in $named; do
+    found=0
+    for f in $HOOKS_REQUIRED; do [ "$f" = "$n" ] && { found=1; break; }; done
+    [ "$found" -eq 1 ] && continue
+    found=0
+    for f in $roster; do [ "$f" = "$n" ] && { found=1; break; }; done
+    [ "$found" -eq 1 ] && continue
+    note "install/hooks/ does not carry \`$n\`, which install.sh wires into settings.json when it is present — an optional dependency (its absence is a warning, not a failure), but a roster discovered from the directory cannot see a file that is not there, so this is checked independently of it"
+  done
+}
+
+# check_persona_count LABEL DIR PATTERN TOTAL — LABEL's rendered persona count against an
+# INDEPENDENT total supplied by the caller (the vendored pool, counted from a directory neither
+# call site touches). Three sites used to be bare `> 0` floors with no denominator at all — the same
+# defect this card's hook and skill rosters were built to close, one roster over: move all but one
+# file out of `~/.claude/agents` and `ok  1 persona(s)`, exit 0, over a pool documented as thirteen.
+# Reports N of TOTAL and FAILS ON A SHORTFALL, not merely on zero, which is the fix.
+#
+# DEFINED ABOVE THE `--self-test` DISPATCH FOR THE REASON `check_hook_presence` IS: a function
+# written inline at its call site is unreachable from every assertion in this file, which is how the
+# three floors survived every green run they were ever part of.
+check_persona_count() {
+  local label="$1" dir="$2" pattern="$3" total="$4" n
+  n=$(find "$dir" -name "$pattern" 2>/dev/null | wc -l | tr -d ' ')
+  n=${n:-0}
+  if [ "$total" -le 0 ]; then
+    # The vendored pool itself is empty or unreadable — already reported where it is counted;
+    # do not report the same fact a second time here.
+    ctx "$label: persona count not checked against a total — the vendored pool total is not known (reported above)"
+    return
+  fi
+  if [ "$n" -ge "$total" ]; then
+    ok "$n of $total persona(s) in $label"
+  else
+    bad "$label: only $n of $total persona(s) present — short by $((total - n)); run sync_personas.py"
+  fi
 }
 
 # check_installer_agrees INSTALLER DECL_DIR — the installer's OWN skill set, obtained by running it,
@@ -1576,6 +1649,61 @@ check_installer_agrees() {
   else
     bad "install.sh's skill set does not match the declaration — it would act on [$(printf '%s' "$got" | tr '\n' ' ')] while $decl_dir/.gitignore declares [$(printf '%s' "$want" | tr '\n' ' ')]; the installer and this gate are reading different answers, which is how the sixth skill went unpublished the first time"
   fi
+}
+
+# check_settings_wired INSTALLER SETTINGS_JSON WHERE — every hook entry INSTALLER's settings.json
+# merge wants is actually present in SETTINGS_JSON. WHERE is a display label only (e.g.
+# `~/.claude/settings.json`) so messages read the same as before extraction rather than printing
+# whatever absolute path the caller resolved SETTINGS_JSON to.
+#
+# EXTRACTED FOR THE REASON check_hook_presence AND check_skill_presence WERE. This used to be ~30
+# lines of INLINE PRODUCTION LOGIC WITH ZERO ASSERTIONS, unreachable from --self-test — the same
+# shape as the three-name hook roster this card's earlier rounds fixed one directory over. MEASURED:
+# mutating the extraction regex to match nothing, or deleting the empty-extraction guard, left
+# production printing "3 of 3 hook entries ... are wired" over a settings.json with no hook entries
+# at all, and --self-test stayed green throughout, because nothing in this file's assertions ever
+# called this code. Extracting the body here is what lets a fixture drive it.
+#
+# THE EXPECTED SET IS STILL READ OUT OF INSTALLER RATHER THAN WRITTEN AGAIN HERE — the installer's
+# `WANT` list is the only place that decides what gets merged; a copy of it in this file would be a
+# second roster that drifts exactly as the skill list once did. An empty extraction is a FAILURE
+# rather than a clean zero, the same rule the skill and hook rosters follow.
+check_settings_wired() {
+  local installer="$1" settings_json="$2" where="$3" settings_want settings_cmds w sw_total=0 sw_wired=0
+  settings_want=$(grep -oE '~/\.claude/hooks/[A-Za-z0-9._-]+' "$installer" 2>/dev/null | sort -u)
+  if [ -z "$settings_want" ]; then
+    bad "could not derive which hook entries install.sh merges — no \`~/.claude/hooks/<name>\` reference was found in $installer, so this check had nothing to look for and must not pass vacuously"
+    return
+  fi
+  if [ ! -f "$settings_json" ]; then
+    bad "no $where"
+    return
+  fi
+  if ! settings_cmds=$(python3 - "$settings_json" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception as e:
+    print(f"settings.json is not valid JSON: {e}", file=sys.stderr); raise SystemExit(1)
+for ev in d.get("hooks", {}).values():
+    for e in ev:
+        for h in e.get("hooks", []):
+            print(h.get("command", ""))
+PY
+  ); then
+    bad "$where could not be read as JSON, so not one hook entry could be checked — a malformed settings.json disables every setting in it"
+    return
+  fi
+  for w in $settings_want; do
+    sw_total=$((sw_total + 1))
+    if printf '%s\n' "$settings_cmds" | grep -qF -- "$w"; then
+      ok "wired: ${w##*/}"
+      sw_wired=$((sw_wired + 1))
+    else
+      bad "${w##*/} is not wired into $where — install.sh merges an entry naming \`$w\` and this settings.json has none; re-run ./install.sh"
+    fi
+  done
+  ctx "$sw_wired of $sw_total hook entr$([ "$sw_total" -eq 1 ] && echo y || echo ies) install.sh merges are wired into $where"
 }
 
 # check_vendored_suites SKILLS_ROOT — discover every vendored skill under SKILLS_ROOT and apply
@@ -3360,6 +3488,15 @@ STUB
   st_assert "the production required-hook set names preflight.sh" "$st_rc" \
     "HOOKS_REQUIRED is \`$HOOKS_REQUIRED\` and does not name preflight.sh — the hook a published SKILL.md routes to would be optional again, and deleting it would be silent"
 
+  # ── (H7b) THE SAME REASONING, APPLIED TO THE OTHER PINNED NAME. H7 above asserted preflight.sh and
+  #    ONLY preflight.sh — dropping `disclosure-check.sh` from HOOKS_REQUIRED reddened no assertion in
+  #    this file, even though the comment that justifies the pin ("removing it must cost an
+  #    assertion") applies to it verbatim: it is the SessionStart hook install.sh wires into
+  #    settings.json, load-bearing for the same reason preflight.sh is.
+  st_rc=1; case " $HOOKS_REQUIRED " in *' disclosure-check.sh '*) st_rc=0 ;; esac
+  st_assert "the production required-hook set names disclosure-check.sh" "$st_rc" \
+    "HOOKS_REQUIRED is \`$HOOKS_REQUIRED\` and does not name disclosure-check.sh — the hook install.sh wires into settings.json would be optional again, and deleting it would be silent"
+
   # ── (H8) AND DISCOVERY REACHES THE REAL DIRECTORY. Every assertion above runs on fixtures; a
   #    `hook_roster` that returned nothing against `install/hooks/` would leave all of them green and
   #    the production check vacuous. A discovered total of zero is itself a finding.
@@ -3373,6 +3510,58 @@ STUB
   [ "${st_hook_realn:-0}" -gt 0 ] && printf '%s\n' "$st_hook_real" | grep -qx 'preflight.sh' && st_rc=0
   st_assert "hook discovery over the real install/hooks/ reaches it, and finds preflight.sh" "$st_rc" \
     "\`hook_roster $VENDOR/hooks\` returned ${st_hook_realn:-0} name(s) — [$(printf '%s' "$st_hook_real" | tr '\n' ' ')] — and either reached nothing at all or did not find preflight.sh, so the production hook check is running against a roster that reached nothing or reached the wrong thing"
+
+  echo
+  echo "════ self-test — the named-but-not-required hook (the regression this card closes)"
+  # THIS FUNCTION DID NOT EXIST BEFORE THIS ROUND. Before the hook roster became directory-discovery,
+  # the two graphify hooks were literals checked in both scopes, and deleting either one WARNED.
+  # After, the same deletion produced NOTHING — not even the warn it used to — because `hook_roster`'s
+  # output no longer contains a name that is not on disk, and every loop keyed off that output has
+  # nothing left to say. See HOOKS_NAMED's header for the full account and why severity stays warn.
+
+  # expect_hook_named NAME VENDOR_HOOKS NAMED WANT_WARN [MUST_CONTAIN] [MUST_NOT_CONTAIN]
+  expect_hook_named() {
+    local name="$1" vend="$2" named="$3" ww="$4" needle="${5:-}" absent="${6:-}"
+    local w0=$repo_warn dw why="" st_ln
+    check_hook_named "$vend" "$named" > "$st_dir/rendered" 2>&1
+    dw=$((repo_warn - w0))
+    [ "$dw" = "$ww" ] || why="$why warn(${dw}!=${ww})"
+    if [ -n "$needle" ] && ! grep -qF -- "$needle" "$st_dir/rendered"; then why="$why missing:\"$needle\""; fi
+    if [ -n "$absent" ] && grep -qF -- "$absent" "$st_dir/rendered"; then why="$why must-not-contain:\"$absent\""; fi
+    if [ -z "$why" ]; then
+      printf '  \033[32mok\033[0m    %s → warn+%s\n' "$name" "$dw"; st_pass=$((st_pass+1))
+    else
+      printf '  \033[31mFAIL\033[0m  %s →%s\n' "$name" "$why"
+      printf '        rendered as:\n'
+      while IFS= read -r st_ln; do printf '          | %s\n' "$st_ln"; done < "$st_dir/rendered"
+      st_fail=$((st_fail+1))
+    fi
+  }
+
+  # ── (HN1) A NAMED HOOK PRESENT IN THE ROSTER IS SILENT — the ordinary case.
+  st_hn_full="$st_dir/hn_full"
+  mk_hooks "$st_hn_full" a-required.sh b-optional.sh
+  expect_hook_named "a NAMED hook present in the roster is silent" \
+    "$st_hn_full" "b-optional.sh" 0
+
+  # ── (HN2) THE REGRESSION ITSELF: a NAMED hook deleted from install/hooks/ is a WARNING that names
+  #    it, where a directory-discovered roster on its own would have nothing left to say.
+  st_hn_gone="$st_dir/hn_gone"
+  mk_hooks "$st_hn_gone" a-required.sh
+  expect_hook_named "a NAMED hook absent from install/hooks/ is a WARNING that names it" \
+    "$st_hn_gone" "b-optional.sh" 1 \
+    "install/hooks/ does not carry \`b-optional.sh\`"
+
+  # ── (HN3) AND IT IS A WARNING, NEVER A FAILURE — the optional-dependency severity invariant this
+  #    card was told to hold: these hooks are inert without the third-party graphify CLI.
+  expect_hook_named "the missing NAMED hook is never a FAILURE" \
+    "$st_hn_gone" "b-optional.sh" 1 "" "FAIL"
+
+  # ── (HN4) A NAMED HOOK ALSO IN HOOKS_REQUIRED IS NOT DOUBLE-REPORTED HERE. check_hook_presence's
+  #    own req_absent loop already fails a required name by NAME; reporting it again here would turn
+  #    one missing file into two findings on the same line count.
+  expect_hook_named "a NAMED hook that is also in HOOKS_REQUIRED is skipped here, not double-reported" \
+    "$st_hn_gone" "disclosure-check.sh" 0 "" "disclosure-check.sh"
 
   echo
   echo "════ self-test — the published-skill roster, its presence check, and the installer's agreement"
@@ -3757,6 +3946,152 @@ STUB
     "$st_dir/stub_reads_stdin" "$st_inst/skills" 0 0 0 \
     "install.sh would install exactly the 2 declared skill(s)"
 
+  echo
+  echo "════ self-test — the persona count against an independent total"
+  # THREE SITES USED TO BE BARE `> 0` FLOORS with no denominator: move all but one file out of
+  # ~/.claude/agents and the old check printed `ok  1 persona(s)`, exit 0, over a pool documented as
+  # thirteen. `check_persona_count` reports N of an INDEPENDENT total and fails on a SHORTFALL.
+
+  # mk_personas DIR N [EXT] — a directory carrying exactly N files matching *.EXT.
+  mk_personas() {
+    local dir="$1" n="$2" ext="${3:-md}" i
+    rm -rf "$dir"; mkdir -p "$dir"
+    i=1
+    while [ "$i" -le "$n" ]; do printf 'x\n' > "$dir/p$i.$ext"; i=$((i+1)); done
+  }
+
+  # expect_persona_count NAME DIR PATTERN TOTAL WANT_FAIL [MUST_CONTAIN] [MUST_NOT_CONTAIN]
+  expect_persona_count() {
+    local name="$1" dir="$2" pattern="$3" total="$4" wf="$5" needle="${6:-}" absent="${7:-}"
+    local f0=$repo_fail df why="" st_ln
+    check_persona_count "fixture" "$dir" "$pattern" "$total" > "$st_dir/rendered" 2>&1
+    df=$((repo_fail - f0))
+    [ "$df" = "$wf" ] || why="$why fail(${df}!=${wf})"
+    if [ -n "$needle" ] && ! grep -qF -- "$needle" "$st_dir/rendered"; then why="$why missing:\"$needle\""; fi
+    if [ -n "$absent" ] && grep -qF -- "$absent" "$st_dir/rendered"; then why="$why must-not-contain:\"$absent\""; fi
+    if [ -z "$why" ]; then
+      printf '  \033[32mok\033[0m    %s → fail+%s\n' "$name" "$df"; st_pass=$((st_pass+1))
+    else
+      printf '  \033[31mFAIL\033[0m  %s →%s\n' "$name" "$why"
+      printf '        rendered as:\n'
+      while IFS= read -r st_ln; do printf '          | %s\n' "$st_ln"; done < "$st_dir/rendered"
+      st_fail=$((st_fail+1))
+    fi
+  }
+
+  # ── (PC1) THE POSITIVE CONTROL: a directory meeting the total is a clean pass, with the total
+  #    stated beside the count rather than a bare `N persona(s)`.
+  st_pc_full="$st_dir/pc_full"
+  mk_personas "$st_pc_full" 3
+  expect_persona_count "a persona directory that meets the independent total is a clean pass, N of M stated" \
+    "$st_pc_full" '*.md' 3 0 \
+    "3 of 3 persona(s) in fixture"
+
+  # ── (PC2) THE FINDING THIS FUNCTION IS FOR: a shortfall against the total is a FAILURE that says
+  #    how short, not a floor that only fires at zero.
+  st_pc_short="$st_dir/pc_short"
+  mk_personas "$st_pc_short" 1
+  expect_persona_count "a persona directory short of the independent total is a FAILURE naming the shortfall, not a floor that only fires at zero" \
+    "$st_pc_short" '*.md' 3 1 \
+    "only 1 of 3 persona(s) present — short by 2"
+
+  # ── (PC3) AN OVERAGE IS NOT A FAILURE. A project-specific overlay can legitimately add a persona
+  #    file beyond the base pool; the check is a floor against the total, not an exact match.
+  st_pc_over="$st_dir/pc_over"
+  mk_personas "$st_pc_over" 4
+  expect_persona_count "more personas than the total is a clean pass, not a mismatch" \
+    "$st_pc_over" '*.md' 4 0 \
+    "4 of 4 persona(s) in fixture"
+
+  # ── (PC4) A TOTAL OF ZERO IS NOT COMPARED AGAINST — the vendored pool being empty is reported once,
+  #    where it is counted, and this function must not report the same fact a second time here.
+  expect_persona_count "a total of zero is not double-reported as a shortfall here" \
+    "$st_pc_short" '*.md' 0 0 \
+    "persona count not checked against a total"
+
+  echo
+  echo "════ self-test — hooks wired into settings.json (counter deltas)"
+  # ~30 LINES OF INLINE PRODUCTION LOGIC WITH ZERO ASSERTIONS, one directory over from the hook and
+  # skill rosters this card's earlier rounds made testable. MEASURED before extraction: mutating the
+  # extraction regex to match nothing, or deleting the empty-extraction guard, left production
+  # printing "3 of 3 hook entries ... are wired" over a settings.json with no hook entries at all,
+  # and this suite stayed green throughout, because nothing here ever called the code.
+
+  # mk_fake_installer DIR NAME… — a stub install.sh whose settings.json section wires exactly the
+  # `~/.claude/hooks/<name>` references given, in the shape `check_settings_wired`'s regex reads.
+  mk_fake_installer() {
+    local f="$1" n; shift
+    { echo '#!/usr/bin/env bash'
+      for n in "$@"; do echo "# ~/.claude/hooks/$n"; done
+    } > "$f"
+  }
+
+  # mk_fake_settings FILE COMMAND… — a settings.json wiring exactly the commands given.
+  mk_fake_settings() {
+    local f="$1" c; shift
+    python3 - "$f" "$@" <<'PY'
+import json, sys
+path, cmds = sys.argv[1], sys.argv[2:]
+data = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": c}]} for c in cmds]}}
+open(path, "w").write(json.dumps(data))
+PY
+  }
+
+  # expect_settings_wired NAME INSTALLER SETTINGS_JSON WANT_FAIL [MUST_CONTAIN] [MUST_NOT_CONTAIN]
+  expect_settings_wired() {
+    local name="$1" installer="$2" settings="$3" wf="$4" needle="${5:-}" absent="${6:-}"
+    local f0=$repo_fail df why="" st_ln
+    check_settings_wired "$installer" "$settings" "fixture-settings.json" > "$st_dir/rendered" 2>&1
+    df=$((repo_fail - f0))
+    [ "$df" = "$wf" ] || why="$why fail(${df}!=${wf})"
+    if [ -n "$needle" ] && ! grep -qF -- "$needle" "$st_dir/rendered"; then why="$why missing:\"$needle\""; fi
+    if [ -n "$absent" ] && grep -qF -- "$absent" "$st_dir/rendered"; then why="$why must-not-contain:\"$absent\""; fi
+    if [ -z "$why" ]; then
+      printf '  \033[32mok\033[0m    %s → fail+%s\n' "$name" "$df"; st_pass=$((st_pass+1))
+    else
+      printf '  \033[31mFAIL\033[0m  %s →%s\n' "$name" "$why"
+      printf '        rendered as:\n'
+      while IFS= read -r st_ln; do printf '          | %s\n' "$st_ln"; done < "$st_dir/rendered"
+      st_fail=$((st_fail+1))
+    fi
+  }
+
+  # ── (SW1) THE POSITIVE CONTROL: every entry the fake installer wants is wired, a clean pass.
+  st_sw_installer="$st_dir/sw_installer"
+  st_sw_settings="$st_dir/sw_settings.json"
+  mk_fake_installer "$st_sw_installer" alpha.sh beta.py
+  mk_fake_settings "$st_sw_settings" \
+    "bash ~/.claude/hooks/alpha.sh 2>/dev/null || true" \
+    "python3 ~/.claude/hooks/beta.py 2>/dev/null || true"
+  expect_settings_wired "every entry the installer wants is wired: a clean pass, both counted" \
+    "$st_sw_installer" "$st_sw_settings" 0 \
+    "2 of 2 hook entries install.sh merges are wired into fixture-settings.json"
+
+  # ── (SW2) THE FINDING THIS FUNCTION IS FOR: an entry the installer wants is not wired, and the
+  #    fixture proves the extraction runs by naming the ONE hook that is missing, not by a stale total.
+  st_sw_settings_gap="$st_dir/sw_settings_gap.json"
+  mk_fake_settings "$st_sw_settings_gap" \
+    "bash ~/.claude/hooks/alpha.sh 2>/dev/null || true"
+  expect_settings_wired "an entry the installer wants but settings.json does not carry is a FAILURE naming it" \
+    "$st_sw_installer" "$st_sw_settings_gap" 1 \
+    "beta.py is not wired into fixture-settings.json"
+
+  # ── (SW3) AN EMPTY EXTRACTION IS A FAILURE, NOT A VACUOUS PASS — the same rule the hook and skill
+  #    rosters follow. An installer with no `~/.claude/hooks/<name>` reference gives this check nothing
+  #    to look for, and passing silently would make a mutated or emptied regex invisible.
+  st_sw_installer_empty="$st_dir/sw_installer_empty"
+  printf '#!/usr/bin/env bash\necho nothing here references a hook path\n' > "$st_sw_installer_empty"
+  expect_settings_wired "an installer naming no hook entries is a FAILURE, not a vacuous pass" \
+    "$st_sw_installer_empty" "$st_sw_settings" 1 \
+    "no \`~/.claude/hooks/<name>\` reference was found"
+
+  # ── (SW4) A MISSING settings.json IS A FAILURE NAMING THE DISPLAY LABEL, not the resolved path —
+  #    the WHERE argument exists so a caller's absolute path does not leak into a message that used to
+  #    read `~/.claude/settings.json` regardless of where the caller's copy actually lives.
+  expect_settings_wired "a missing settings.json is named by its display label, not the resolved path" \
+    "$st_sw_installer" "/nonexistent/st_dry_control/settings.json" 1 \
+    "no fixture-settings.json" "/nonexistent/st_dry_control"
+
   # ── (F7, LIVE HALF) THE FIVE SHORT-CIRCUITS, EXERCISED. The static range check above says what a
   #    dry region CONTAINS; it says nothing about whether `ST_DRY=1` makes those lines decline to
   #    run. Nothing else in a green run does either — every guard in this suite is false on a machine
@@ -3765,10 +4100,15 @@ STUB
   #
   #    ALL FIVE, NOT ONE, and that is the difference between a control and a token. With one helper
   #    probed, deleting the OTHER four short-circuits stays green here and reddens only on a machine
-  #    that takes a guard — the round-1 defect, one layer up. Each is called with arguments that are
-  #    junk in every position: bogus paths, deltas no real call produces, needles that appear
-  #    nowhere. If a helper does not return before touching them it fails loudly, and if it returns
-  #    without counting, the delta is short.
+  #    that takes a guard — the round-1 defect, one layer up. Each is called with bogus paths and
+  #    needles that appear nowhere, and MOST of the delta arguments are junk no real call produces —
+  #    NOT EVERY POSITION, an earlier version of this comment overclaimed: `expect_installer`'s
+  #    trailing `repocnr` is omitted here and defaults to 0, which is exactly what a real call
+  #    against a missing installer would also produce, and `expect_presence`'s `cross` is passed the
+  #    same value production uses. Neither weakens the control — it binds on the OTHER delta
+  #    positions, which stay genuinely wrong for any real call, so a short-circuit that failed to
+  #    return would still fail loudly there. If a helper does not return before touching its
+  #    arguments it fails loudly, and if it returns without counting, the delta is short.
   #
   #    AND IT ENTERS A REAL REGION, rather than assigning `ST_DRY=1` by hand. MEASURED: with the
   #    control setting the flag itself, mutating `st_dry_begin` to `ST_DRY=0` — the reviewer's named
@@ -3801,10 +4141,12 @@ STUB
   #    assertions that were set up perfectly and declined on purpose — a false sentence in the
   #    summary line, bought to preserve an accounting identity. These are therefore the five call
   #    sites the pinned total does not include:
-  #    `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer|expect_hooks) '`
-  #    reads exactly FIVE more than `st_expected_total`, and they are the five below. (`expect_hooks`
-  #    is in that alternation because it is an assertion helper the total counts; it is NOT a sixth
-  #    short-circuit — see its header for why it needs none and is absent from the region below.)
+  #    `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer|expect_hooks|expect_hook_named|expect_persona_count|expect_settings_wired) '`
+  #    reads exactly FIVE more than `st_expected_total`, and they are the five below. (`expect_hooks`,
+  #    `expect_hook_named`, `expect_persona_count` and `expect_settings_wired` are in that alternation
+  #    because each is an assertion helper the total counts; none is a sixth short-circuit — see
+  #    `expect_hooks`'s header for why that helper needs none and is absent from the region below, and
+  #    the other three are ordinary counter-delta helpers of the same shape.)
   st_dc0=$st_skipped; st_dp0=$st_pass; st_df0=$st_fail
   # The offset the paragraph above explains. Any non-zero constant does; 11 is not 5 and not a
   # multiple of it, so a printed count that picked up the base instead of the delta cannot land on
@@ -3885,8 +4227,8 @@ STUB
   # after measuring it, because leaving it counted would print "5 of N could NOT be set up on this
   # machine" on every machine, over five assertions that were set up perfectly and declined on
   # purpose. So
-  # `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer|expect_hooks) '`
-  # over this file reads exactly FIVE more than the literal below — 157 against 152 today — and those
+  # `grep -cE '^\s*(expect_route|expect_suites|st_assert|expect_presence|expect_installer|expect_hooks|expect_hook_named|expect_persona_count|expect_settings_wired) '`
+  # over this file reads exactly FIVE more than the literal below — 170 against 165 today — and those
   # five are the probe.
   #
   # WHAT HAPPENS WHEN SOMEONE LEGITIMATELY ADDS AN ASSERTION: this one line changes, in the same
@@ -3897,7 +4239,11 @@ STUB
   # IT IS NOT ITSELF COUNTED. Incrementing `st_pass` or `st_fail` here would change the very total
   # it is comparing, so it reports through a separate flag that only the exit arm reads.
   # 141 -> 152: eleven assertions for the vendored hook roster (H1-H8), which had none at all.
-  st_expected_total=152
+  # 152 -> 165: thirteen assertions added by TC-60 — one more for the required-hook pin (H7b), four
+  # for the named-but-not-required hook regression (HN1-HN4), four for the persona count against an
+  # independent total (PC1-PC4), and four for hooks-wired-into-settings.json now being a testable
+  # function instead of ~30 lines of unreached inline logic (SW1-SW4).
+  st_expected_total=165
   st_total=$((st_pass + st_fail + st_skipped))
   st_total_ok=1
   if [ "$st_total" -ne "$st_expected_total" ]; then
@@ -3939,6 +4285,11 @@ else
 fi
 
 echo "── vendored personas"
+# `vp` IS THE INDEPENDENT TOTAL the two machine-scope persona counts below were missing — a bare
+# `> 0` floor over a pool documented as thirteen passes `1 persona(s)`, exit 0, after everything but
+# one file is moved out of ~/.claude/agents. This directory count cannot itself be checked against a
+# further total without inventing a second roster, so it stays the floor it always was; what changes
+# is that the two RENDERED copies below are now checked against IT rather than against zero.
 vp=$(find "$VENDOR/skills/agent-personas/personas" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
 if [ "${vp:-0}" -gt 0 ]; then
   ok "$vp persona(s) vendored"
@@ -3969,6 +4320,10 @@ echo "── vendored hooks"
 # skills line above gives — everything below the `--self-test` exit is unreachable from every
 # assertion in this file, which is how three hardcoded names survived against a directory of four.
 check_hook_presence "$VENDOR/hooks" "$VENDOR/hooks" "install/hooks" 1 "$HOOKS_REQUIRED"
+# THE DIRECTION check_hook_presence CANNOT SEE EVEN WITH HOOKS_REQUIRED: a name that is optional, not
+# required, and gets deleted from the directory outright. See HOOKS_NAMED's header for the regression
+# this closes and why severity for the two graphify names must stay warn.
+check_hook_named "$VENDOR/hooks" "$HOOKS_NAMED"
 hook_produces_output "$VENDOR/hooks/disclosure-check.sh" "vendored hook"
 
 echo "── installer"
@@ -4081,57 +4436,15 @@ echo "── hooks wired into settings.json"
 # ONE OF THE THREE ENTRIES install.sh MERGES WAS CHECKED. This block asserted `disclosure-check.sh`
 # and nothing else, so the two graphify entries could be dropped from the merge, or fail to merge,
 # and the gate said "disclosure-check wired" and moved on — a single-name check standing in for a
-# three-name fact, which is this card's defect in its smallest form.
-#
-# THE EXPECTED SET IS READ OUT OF install.sh RATHER THAN WRITTEN AGAIN HERE. The installer's `WANT`
-# list is the only place that decides what gets merged; a copy of it in this file would be a second
-# roster that drifts exactly as the skill list did. Every `~/.claude/hooks/<name>` reference in that
-# file is a path the merge wires, so they are extracted and each one is looked for. A regex that
-# matched nothing would make this check vacuous, so an empty extraction is a FAILURE rather than a
-# clean zero — the same rule the skill and hook rosters follow.
-settings_want=$(grep -oE '~/\.claude/hooks/[A-Za-z0-9._-]+' "$VENDOR/install.sh" 2>/dev/null | sort -u)
-if [ -z "$settings_want" ]; then
-  bad "could not derive which hook entries install.sh merges — no \`~/.claude/hooks/<name>\` reference was found in install/install.sh, so this check had nothing to look for and must not pass vacuously"
-elif [ ! -f "$CLAUDE/settings.json" ]; then
-  bad "no ~/.claude/settings.json"
-elif ! settings_cmds=$(python3 - "$CLAUDE/settings.json" <<'PY'
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-except Exception as e:
-    print(f"settings.json is not valid JSON: {e}", file=sys.stderr); raise SystemExit(1)
-for ev in d.get("hooks", {}).values():
-    for e in ev:
-        for h in e.get("hooks", []):
-            print(h.get("command", ""))
-PY
-); then
-  bad "~/.claude/settings.json could not be read as JSON, so not one hook entry could be checked — a malformed settings.json disables every setting in it"
-else
-  sw_total=0
-  sw_wired=0
-  for w in $settings_want; do
-    sw_total=$((sw_total + 1))
-    if printf '%s\n' "$settings_cmds" | grep -qF -- "$w"; then
-      ok "wired: ${w##*/}"
-      sw_wired=$((sw_wired + 1))
-    else
-      bad "${w##*/} is not wired into ~/.claude/settings.json — install.sh merges an entry naming \`$w\` and this settings.json has none; re-run ./install.sh"
-    fi
-  done
-  ctx "$sw_wired of $sw_total hook entr$([ "$sw_total" -eq 1 ] && echo y || echo ies) install.sh merges are wired into ~/.claude/settings.json"
-fi
+# three-name fact, which is this card's defect in its smallest form. See `check_settings_wired` for
+# why the body lives there now instead of here.
+check_settings_wired "$VENDOR/install.sh" "$CLAUDE/settings.json" "~/.claude/settings.json"
 
 echo "── the installed hook actually produces output"
 hook_produces_output "$CLAUDE/hooks/disclosure-check.sh" "installed hook"
 
 echo "── personas rendered"
-n=$(find "$CLAUDE/agents" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
-if [ "${n:-0}" -gt 0 ]; then
-  ok "$n persona(s) in ~/.claude/agents"
-else
-  bad "no personas in ~/.claude/agents — run sync_personas.py"
-fi
+check_persona_count "~/.claude/agents" "$CLAUDE/agents" '*.md' "${vp:-0}"
 
 echo "── codex"
 if [ ! -d "$CODEX" ]; then
@@ -4170,9 +4483,7 @@ else
   # skills this repository never published, so its directory count is not a denominator for anything.
   check_skill_presence "$CODEX/skills" "$VENDOR/skills" "~/.codex/skills" 0
 
-  a=$(find "$CODEX/agents" -name '*.toml' 2>/dev/null | wc -l | tr -d ' ')
-  if [ "${a:-0}" -gt 0 ]; then ok "$a persona(s) in ~/.codex/agents"
-  else bad "no personas in ~/.codex/agents"; fi
+  check_persona_count "~/.codex/agents" "$CODEX/agents" '*.toml' "${vp:-0}"
 
   if grep -q '^\[agents\]' "$CODEX/config.toml" 2>/dev/null; then ok "subagents enabled"
   else bad "no [agents] block in config.toml — Codex will not spawn personas"; fi
