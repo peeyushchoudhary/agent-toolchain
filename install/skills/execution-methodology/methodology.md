@@ -175,6 +175,7 @@ the plan, and it reads nothing the card does not name.
 
 ```yaml
 id:                  # stable identifier, used in commits and the ledger
+title:               # the card's name — one line, ≤ 72 characters, unique among sibling cards
 goal:                # one sentence — what is true after this task that was not before
 persona:             # developer | senior-developer — which persona implements this card,
                      # decided by the planner, not at dispatch

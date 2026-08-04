@@ -18,10 +18,19 @@ WARNINGs.
 
 Usage:
   validate_card.py CARD --repo PATH          # exit 1 on any ERROR
-  validate_card.py CARD --repo PATH --strict # exit 1 on any WARNING too (for gates)
+  validate_card.py CARD --repo PATH --strict # exit 1 on any WARNING too, except [siblings]
   validate_card.py CARD --repo PATH --quiet  # findings only, no summary header
 
 Exit codes: 0 clean, 1 findings, 2 the card or repository could not be read.
+
+The card is checked against the repository AND against the other cards in its own directory: `id`
+and `title` must be unique among them. That check exists because two controllers once minted a card
+numbered TC-60 minutes apart and one silently overwrote the other. A sibling that cannot be read or
+parsed is skipped with a WARNING naming it and counted separately in the header — it is a gap in
+the check, never a pass, and never a reason to fail the card being validated. That last clause is
+enforced rather than merely asserted: `[siblings]` is the one field `--strict` does not promote to a
+non-zero exit, because it reports on a file the card's author did not write and cannot fix. Every
+other warning still fails under `--strict`.
 
 ## What the YAML parser does and does not handle
 
@@ -99,8 +108,39 @@ PYTEST_INVOCATION_RE = re.compile(
 )
 RERUN_TOKENS = ("--rerun-tasks", "--rerun", "cleanTest", "clean ")
 
-REQUIRED_FIELDS = ("id", "goal", "persona", "exclusive_writes", "context_acquisition",
+ERROR = "ERROR"
+WARNING = "WARNING"
+
+# Fields whose WARNINGs do not raise the `--strict` exit code. Exactly one, and it is not a
+# convenience: a `[siblings]` finding reports on a NEIGHBOURING file the card's author did not write
+# and cannot fix. Failing a perfect card because someone else's sealed card is unreadable is failing
+# closed on the wrong file, which is the promise the module docstring already made and this makes
+# true. The finding is still printed and still counted in the warning total — only the exit is
+# exempt. Do not add a second entry here without the same argument: that the author of the card
+# under test could not have prevented the finding.
+STRICT_EXEMPT_FIELDS = ("siblings",)
+
+REQUIRED_FIELDS = ("id", "title", "goal", "persona", "exclusive_writes", "context_acquisition",
                    "validation", "stop_conditions", "commit_subject")
+# A required field whose ABSENCE is graded below ERROR, with the reason it is graded that way.
+# `title` was added after ~50 cards had already been sealed, and none of them carry one. Failing
+# those is failing closed on history that cannot be edited. `--strict` does exit 1 on this warning,
+# so a caller that wants a titleless card refused has an invocation that refuses it — but nothing in
+# this toolchain runs `--strict` on a caller's behalf, so absence is a warning a controller is
+# expected to READ, not a barrier that stops a dispatch. Do not describe it as one.
+# A title that is present and blank is not history; it is a card being written now, wrongly,
+# and stays an ERROR.
+MISSING_FIELD_SEVERITY = {"title": WARNING}
+MISSING_FIELD_NOTE = {
+    "title": " — every card needs a one-line name; warned rather than failed only because cards "
+             "sealed before this rule have none, and --strict still fails it",
+}
+# 72 characters: the git subject-line convention, which is where a title most often ends up quoted,
+# and what still fits on an 80-column line after an id prefix and two spaces. The bound exists so a
+# title stays a name; a sentence belongs in `goal`.
+TITLE_MAX_CHARS = 72
+# What counts as a sibling card when scanning the directory. Deliberately not "every file".
+CARD_SUFFIXES = (".yaml", ".yml")
 VALID_PERSONAS = ("developer", "senior-developer")
 # `tier` was the old name for `persona`. It collided with the unrelated rollout-tier concept, so it
 # was renamed; a card still using it validates and is warned rather than failed.
@@ -118,9 +158,6 @@ OBSOLETE_FIELDS = {
 BOOKKEEPING_SUFFIXES = (".tsv", ".csv", ".json", ".yaml", ".yml", ".properties")
 TEST_DIR_MARKERS = ("/src/test/", "/src/integrationTest/", "/src/testFixtures/", "/tests/", "/test/")
 TEXT_SUFFIXES = (".java", ".kt", ".kts", ".py", ".ts", ".tsx", ".js", ".sql", ".sh", ".groovy")
-
-ERROR = "ERROR"
-WARNING = "WARNING"
 
 
 class CardError(Exception):
@@ -604,6 +641,69 @@ def as_list(value: object) -> list[str]:
 
 
 # --------------------------------------------------------------------------------------------- #
+# Sibling cards
+# --------------------------------------------------------------------------------------------- #
+
+class SiblingScan:
+    """The other cards in this card's directory, and the ones that could not be read.
+
+    Kept as two lists rather than one, because "no sibling uses this id" and "one sibling could not
+    be parsed, so nobody knows" are different answers and the second must never be printed as the
+    first. `compared` and `skipped` are both reported in the header for exactly that reason.
+    """
+
+    def __init__(self, directory: str, cards: list[tuple[str, dict[str, object]]],
+                 skipped: list[tuple[str, str]]) -> None:
+        self.directory = directory
+        self.cards = cards
+        self.skipped = skipped
+
+
+def index_siblings(card_path: Path) -> SiblingScan:
+    """Parse every OTHER card file in `card_path`'s own directory.
+
+    Three properties this has to hold, each of which was a way to get the check wrong:
+
+      * The card never collides with itself. Identity is the resolved path, not the string it was
+        spelled with — `dir/./card.yaml` and a symlink beside it are the same file.
+      * A malformed sibling is a skip WITH A NOTE, never a failure of the card under test and never
+        a silent omission. Failing card A because card B is unparseable is failing closed on the
+        wrong file; dropping B quietly turns a gap into a green.
+      * A sibling that parses but is missing `id` or `title` simply contributes no value for that
+        key. It is not warned about here — its own validation run reports its own missing fields,
+        and warning once per untitled sealed card would bury the finding that matters.
+    """
+    directory = card_path.parent
+    try:
+        this = card_path.resolve()
+    except OSError:                                        # pragma: no cover - defensive
+        this = card_path.absolute()
+    cards: list[tuple[str, dict[str, object]]] = []
+    skipped: list[tuple[str, str]] = []
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError as exc:
+        return SiblingScan(directory.name,
+                           [], [(directory.name, f"could not be listed: {exc}")])
+    for entry in entries:
+        if entry.suffix.lower() not in CARD_SUFFIXES:
+            continue
+        try:
+            if entry.resolve() == this:
+                continue
+            if not entry.is_file():
+                skipped.append((entry.name, "is not a readable file"))
+                continue
+            cards.append((entry.name,
+                          parse_card(entry.read_text(encoding="utf-8"), entry.name)))
+        except CardError as exc:
+            skipped.append((entry.name, f"could not be parsed: {exc}"))
+        except (OSError, UnicodeError) as exc:
+            skipped.append((entry.name, f"could not be read: {exc}"))
+    return SiblingScan(directory.name, cards, skipped)
+
+
+# --------------------------------------------------------------------------------------------- #
 # Checks
 # --------------------------------------------------------------------------------------------- #
 
@@ -634,13 +734,110 @@ def check_required_fields(card: dict[str, object], f: Findings) -> None:
             resolved.setdefault(new, card[old])
     for field in REQUIRED_FIELDS:
         if field not in resolved:
-            f.add(ERROR, field, "required field is missing")
+            f.add(MISSING_FIELD_SEVERITY.get(field, ERROR), field,
+                  "required field is missing" + MISSING_FIELD_NOTE.get(field, ""))
         elif (not as_list(resolved[field])
               or not any(str(v).strip() for v in as_list(resolved[field]))):
             f.add(ERROR, field, "required field is present but empty")
     persona = str(resolved.get("persona", "")).strip()
     if persona and persona not in VALID_PERSONAS:
         f.add(ERROR, "persona", f"must be one of {' | '.join(VALID_PERSONAS)}, got {persona!r}")
+
+
+def squash(text: str) -> str:
+    """Reduce a name to the characters that carry it: lowercase alphanumerics only.
+
+    Used for the "does this title merely restate the id" test, so that `TC-60`, `tc 60`, `TC-60:`
+    and `[TC-60]` are all recognised as the same non-answer.
+    """
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def name_key(text: str) -> str:
+    """The form two names are compared in: case-folded, internal whitespace collapsed.
+
+    Two titles differing only in case or spacing are the same name to every reader of a status
+    report, so they must collide here too.
+    """
+    return re.sub(r"\s+", " ", text.strip()).casefold()
+
+
+def check_title(card: dict[str, object], f: Findings) -> None:
+    """F. The card's name.
+
+    Two controllers minted a card numbered TC-60 minutes apart and one silently overwrote the
+    other. A bare integer collides without a sound and carries no meaning: a report listing
+    `TC-52, TC-53, TC-54, TC-55` needs a translation table every time it is read, and shows backlog
+    volume where four names would have shown four distinct problems. The id remains the stable key;
+    the title is what prose and dispatches lead with.
+
+    Absence is handled by check_required_fields (a WARNING, for sealed history). Everything here is
+    about a title that is present and wrong, which is always a card being authored now.
+    """
+    if "title" not in card:
+        return
+    raw = card["title"]
+    if not isinstance(raw, str):
+        f.add(ERROR, "title", "must be a single line of text, not a list or a mapping")
+        return
+    title = raw.strip()
+    if not title:
+        return                          # already reported as "present but empty"
+    if "\n" in title:
+        f.add(ERROR, "title", "must be a single line — a card's name is a name, not a paragraph; "
+                              "put the explanation in `goal`")
+        return
+    if len(title) > TITLE_MAX_CHARS:
+        f.add(ERROR, "title",
+              f"is {len(title)} characters; the bound is {TITLE_MAX_CHARS}, the git subject-line "
+              "convention a title usually ends up quoted inside — shorten it, or move the detail "
+              "into `goal`")
+    card_id = str(card.get("id") or "").strip()
+    if card_id and squash(title) == squash(card_id):
+        f.add(ERROR, "title",
+              f"{title!r} restates the id and names nothing — the id is already the key; the title "
+              "is the half a reader can understand without a translation table")
+
+
+def check_cross_card_uniqueness(card: dict[str, object], scan: SiblingScan, f: Findings) -> None:
+    """G. Both `id` and `title` must be unique among the cards sitting beside this one.
+
+    The scope is the card's own directory and is not recursive, because that directory is the
+    plan's scratch workspace — the one unit two concurrent controllers share, and therefore the
+    only scope in which a collision can actually clobber anything. `TC-60` in another plan's
+    workspace is a different, legitimate card and must not be reported.
+
+    Every value compared against is read out of a sibling FILE, never out of the card under test or
+    out of anything the card declares (`prerequisites`, a manifest, a ledger). A uniqueness check
+    whose denominator comes from the same place as its numerator reports a clean count and proves
+    nothing; that has shipped here before.
+    """
+    for name, why in scan.skipped:
+        f.add(WARNING, "siblings",
+              f"{name} {why} — id and title uniqueness could NOT be checked against it. A sibling "
+              "this validator cannot read is a gap in the check, not a pass")
+
+    card_id = str(card.get("id") or "").strip()
+    title = card["title"].strip() if isinstance(card.get("title"), str) else ""
+
+    for field, mine, why in (
+        ("id", card_id,
+         "two controllers minting the same id independently is how one card silently overwrites "
+         "another; renumber before dispatch"),
+        ("title", title,
+         "two cards with the same name cannot be told apart in a dispatch, a report, or a commit "
+         "subject"),
+    ):
+        if not mine:
+            continue                   # nothing to collide with; absence is reported elsewhere
+        clashes = sorted(
+            name for name, sibling in scan.cards
+            if isinstance(sibling.get(field), str)
+            and name_key(str(sibling[field])) == name_key(mine)
+        )
+        if clashes:
+            f.add(ERROR, field, f"{mine} is also used by {', '.join(clashes)} in "
+                                f"{scan.directory}/ — {why}")
 
 
 def check_obsolete_fields(card: dict[str, object], f: Findings) -> None:
@@ -1092,9 +1289,11 @@ def check_context_acquisition(card: dict[str, object], f: Findings) -> None:
 # Driver
 # --------------------------------------------------------------------------------------------- #
 
-def validate(card_path: Path, repo_root: Path) -> tuple[dict[str, object], Repo, Findings]:
+def validate(card_path: Path,
+             repo_root: Path) -> tuple[dict[str, object], Repo, SiblingScan, Findings]:
     card = parse_card(card_path.read_text(encoding="utf-8"), card_path.name)
     repo = Repo(repo_root)
+    scan = index_siblings(card_path)
     f = Findings()
 
     writes = specs_for(card, "exclusive_writes", repo)
@@ -1107,11 +1306,13 @@ def validate(card_path: Path, repo_root: Path) -> tuple[dict[str, object], Repo,
     check_path_coherence(card, repo, writes, forbidden, f)
     check_write_set_satisfiable(card, repo, writes, f)
     check_required_fields(card, f)
+    check_title(card, f)
+    check_cross_card_uniqueness(card, scan, f)
     check_obsolete_fields(card, f)
     check_frozen_migration(card, repo, f)
     check_gate_risk_covered(card, f)
     check_context_acquisition(card, f)
-    return card, repo, f
+    return card, repo, scan, f
 
 
 def main() -> int:
@@ -1133,7 +1334,7 @@ def main() -> int:
         return 2
 
     try:
-        card, repo, findings = validate(card_path, repo_root)
+        card, repo, scan, findings = validate(card_path, repo_root)
     except CardError as e:
         print(f"  ERROR   {e}", file=sys.stderr)
         return 2
@@ -1142,9 +1343,14 @@ def main() -> int:
         return 2
 
     card_id = str(card.get("id") or card_path.stem)
+    title = card["title"].strip() if isinstance(card.get("title"), str) else ""
     if not args.quiet:
-        print(f"card {card_id}: {len(card)} field(s) parsed, "
-              f"{len(repo.files)} file(s) indexed in {repo_root.name}")
+        # The sibling counts are printed whether or not anything collided: the denominator of a
+        # uniqueness check is part of its result, and "0 compared" and "3 compared" are very
+        # different clean runs. `not read` is never folded into `compared`.
+        print(f"card {card_id}" + (f' "{title}"' if title else "") + f": {len(card)} field(s) "
+              f"parsed, {len(repo.files)} file(s) indexed in {repo_root.name}, "
+              f"{len(scan.cards)} sibling card(s) compared, {len(scan.skipped)} not read")
     for severity, field, message in findings.rows:
         print(f"  {severity:<7} [{field}] {message}")
 
@@ -1156,7 +1362,9 @@ def main() -> int:
         print(f"  {findings.errors} error(s), {findings.warnings} warning(s)")
     if findings.errors:
         return 1
-    return 1 if args.strict else 0
+    if args.strict and any(field not in STRICT_EXEMPT_FIELDS for _, field, _ in findings.rows):
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

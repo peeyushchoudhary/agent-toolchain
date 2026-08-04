@@ -15,6 +15,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "validate_card.py"
 # breaks exactly one thing, so a finding can only come from the thing that was broken.
 CLEAN_CARD = """\
 id: EX-01
+title: Widget dispatch is idempotent
 goal: The widget cannot be dispatched twice.
 persona: senior-developer
 
@@ -627,6 +628,323 @@ class ValidateCardTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 1)
             self.assertIn("[persona] required field is missing", result.stdout)
+
+    # --- title: the card's name --------------------------------------------------------------- #
+    #
+    # Two controllers minted a card numbered TC-60 within minutes of each other and one clobbered
+    # the other. A bare integer collides silently and carries no meaning: `TC-52, TC-53, TC-54`
+    # needs a translation table every time it is read. The id stays the stable key; the title is
+    # what prose and dispatches lead with.
+
+    def test_a_card_with_no_title_warns_rather_than_failing(self) -> None:
+        """~50 sealed cards predate this field. Failing them would fail closed on history."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = "\n".join(line for line in CLEAN_CARD.splitlines()
+                             if not line.startswith("title:"))
+
+            result = self.run_validator(card, repo)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(self.findings(result, "ERROR"), [], result.stdout)
+            self.assertIn("[title] required field is missing", result.stdout)
+
+    def test_a_card_with_no_title_fails_under_strict(self) -> None:
+        """`--strict` is the invocation available to a caller that wants a titleless card refused.
+        Nothing in this toolchain runs it automatically, so this pins the flag's behaviour and NOT
+        a claim that a titleless card cannot be dispatched — it can."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = "\n".join(line for line in CLEAN_CARD.splitlines()
+                             if not line.startswith("title:"))
+
+            result = self.run_validator(card, repo, "--strict")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[title] required field is missing", result.stdout)
+
+    def test_an_empty_title_is_an_error_not_a_warning(self) -> None:
+        """Absent means "written before the rule". Blank means "written now, and broken"."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+
+            result = self.run_validator(CLEAN_CARD.replace(
+                "title: Widget dispatch is idempotent", 'title: ""'), repo)
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[title] required field is present but empty", result.stdout)
+
+    def test_a_multi_line_title_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(title=textwrap.dedent("""\
+                title: |
+                  Widget dispatch is idempotent
+                  and also the invoice totals are fixed
+                """))
+
+            result = self.run_validator(card, repo)
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[title] must be a single line", result.stdout)
+
+    def test_a_wrapped_plain_title_is_one_line_and_passes(self) -> None:
+        """YAML plain-scalar folding makes this one logical line; it must not be a finding."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(title="title: Widget dispatch\n  is idempotent\n")
+
+            result = self.run_validator(card, repo, "--strict")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("no findings", result.stdout)
+
+    def test_title_length_bound_is_enforced_on_both_sides(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for length, expected_rc in ((72, 0), (73, 1)):
+                with self.subTest(length=length):
+                    card = card_with(title="title: " + "w" * length + "\n")
+
+                    result = self.run_validator(card, repo, "--strict")
+
+                    self.assertEqual(result.returncode, expected_rc,
+                                     result.stdout + result.stderr)
+                    if expected_rc:
+                        self.assertIn("[title] is 73 characters; the bound is 72",
+                                      result.stdout)
+
+    def test_a_title_that_merely_restates_the_id_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for restatement in ("EX-01", "ex 01", "EX-01:", "[EX-01]"):
+                with self.subTest(restatement=restatement):
+                    card = card_with(title=f'title: "{restatement}"\n')
+
+                    result = self.run_validator(card, repo)
+
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn("restates the id", result.stdout)
+
+    def test_a_title_that_carries_the_id_plus_real_words_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(title='title: "EX-01: widget dispatch is idempotent"\n')
+
+            result = self.run_validator(card, repo, "--strict")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("no findings", result.stdout)
+
+    def test_a_title_that_is_a_list_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(title="title:\n  - one name\n  - another name\n")
+
+            result = self.run_validator(card, repo)
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[title] must be a single line", result.stdout)
+
+    # --- cross-card uniqueness ----------------------------------------------------------------- #
+    #
+    # The failure this section exists for: two controllers each minted TC-60 minutes apart, one
+    # overwrote the other, and it was recovered only because a human noticed. The sibling set is
+    # read off the directory, never off anything the card under test declares — a uniqueness check
+    # whose denominator comes from the card it is checking proves nothing.
+
+    def sibling(self, repo: Path, name: str, text: str) -> Path:
+        """Write another card beside the one under test. `repo.parent` is the card directory."""
+        path = repo.parent / name
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def header(self, result: subprocess.CompletedProcess) -> str:
+        return result.stdout.splitlines()[0]
+
+    def test_a_lone_card_with_no_siblings_still_validates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+
+            result = self.run_validator(CLEAN_CARD, repo, "--strict")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("0 sibling card(s) compared", self.header(result))
+
+    def test_a_card_does_not_collide_with_itself(self) -> None:
+        """Including when the same file is reached by another spelling, or by a symlink beside it —
+        the two traps of comparing by path rather than by identity."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card_path = repo.parent / "card.yaml"
+            card_path.write_text(CLEAN_CARD, encoding="utf-8")
+            (repo.parent / "alias.yaml").symlink_to(card_path)
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), f"{repo.parent}/./card.yaml",
+                 "--repo", str(repo), "--strict"],
+                capture_output=True, text=True)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("0 sibling card(s) compared", self.header(result))
+
+    def test_a_duplicate_id_in_a_sibling_card_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.sibling(repo, "other.yaml",
+                         CLEAN_CARD.replace("title: Widget dispatch is idempotent",
+                                            "title: A different piece of work"))
+
+            result = self.run_validator(CLEAN_CARD, repo)
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[id] EX-01 is also used by other.yaml", result.stdout)
+
+    def test_a_duplicate_title_in_a_sibling_card_is_an_error(self) -> None:
+        """Same name, different id: nothing is clobbered, but the name stops naming anything."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.sibling(repo, "other.yaml", CLEAN_CARD.replace("id: EX-01", "id: EX-02"))
+
+            result = self.run_validator(CLEAN_CARD, repo)
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[title] Widget dispatch is idempotent", result.stdout)
+            self.assertIn("also used by other.yaml", result.stdout)
+            self.assertNotIn("[id] EX-01 is also used", result.stdout)
+
+    def test_title_collision_ignores_case_and_whitespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.sibling(repo, "other.yaml",
+                         CLEAN_CARD.replace("id: EX-01", "id: EX-02").replace(
+                             "title: Widget dispatch is idempotent",
+                             "title: 'WIDGET   dispatch is Idempotent'"))
+
+            result = self.run_validator(CLEAN_CARD, repo)
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("also used by other.yaml", result.stdout)
+
+    def test_two_untitled_sealed_cards_do_not_collide_on_an_absent_title(self) -> None:
+        """The regression that would make every one of ~50 sealed cards a duplicate of the rest."""
+        untitled = "\n".join(line for line in CLEAN_CARD.splitlines()
+                             if not line.startswith("title:"))
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.sibling(repo, "other.yaml", untitled.replace("id: EX-01", "id: EX-02"))
+
+            result = self.run_validator(untitled, repo)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(self.findings(result, "ERROR"), [], result.stdout)
+
+    def test_an_unparseable_sibling_is_reported_and_skipped_not_fatal(self) -> None:
+        """Failing card A because card B is malformed is failing closed on the wrong file — and it
+        must not disarm the check against the siblings that DID parse."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.sibling(repo, "broken.yaml", CLEAN_CARD + "defaults: &base\n  persona: developer\n")
+            self.sibling(repo, "zzz-clash.yaml",
+                         CLEAN_CARD.replace("title: Widget dispatch is idempotent",
+                                            "title: A different piece of work"))
+
+            result = self.run_validator(CLEAN_CARD, repo)
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[siblings] broken.yaml could not be parsed", result.stdout)
+            self.assertIn("anchors/aliases", result.stdout)
+            self.assertIn("[id] EX-01 is also used by zzz-clash.yaml", result.stdout)
+            self.assertIn("1 sibling card(s) compared, 1 not read", self.header(result))
+
+    def test_an_unparseable_sibling_alone_is_a_warning_not_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.sibling(repo, "broken.yaml", "id: EX-09\nnote: !!str hello\n")
+
+            result = self.run_validator(CLEAN_CARD, repo)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(self.findings(result, "ERROR"), [], result.stdout)
+            self.assertIn("[siblings] broken.yaml could not be parsed", result.stdout)
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root can read anything")
+    def test_an_unreadable_sibling_is_reported_and_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            path = self.sibling(repo, "locked.yaml", CLEAN_CARD)
+            os.chmod(path, 0o000)
+            try:
+                result = self.run_validator(CLEAN_CARD, repo)
+            finally:
+                os.chmod(path, 0o600)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[siblings] locked.yaml could not be read", result.stdout)
+            self.assertIn("0 sibling card(s) compared, 1 not read", self.header(result))
+
+    def test_a_skipped_sibling_does_not_fail_the_card_even_under_strict(self) -> None:
+        """The module docstring promises a skipped sibling is "never a reason to fail the card being
+        validated". Under `--strict` that promise used to break: a `[siblings]` WARNING is a finding,
+        and an otherwise perfect card exited 1 because a DIFFERENT file — one its author did not
+        write and cannot fix — was unreadable. `[siblings]` is therefore exempt from the strict
+        exit. The warning is still printed and still counted; only the exit code is exempt."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.sibling(repo, "broken.yaml", "id: EX-09\nnote: !!str hello\n")
+
+            result = self.run_validator(CLEAN_CARD, repo, "--strict")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[siblings] broken.yaml could not be parsed", result.stdout)
+            self.assertIn("0 error(s), 1 warning(s)", result.stdout)
+
+    def test_the_strict_sibling_exemption_does_not_excuse_any_other_warning(self) -> None:
+        """The exemption is scoped to `[siblings]`, not a blanket way to survive `--strict`. A card
+        carrying its own warning still fails, even when a skipped sibling sits beside it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.sibling(repo, "broken.yaml", "id: EX-09\nnote: !!str hello\n")
+            card = "\n".join(line for line in CLEAN_CARD.splitlines()
+                             if not line.startswith("title:"))
+
+            result = self.run_validator(card, repo, "--strict")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[siblings] broken.yaml could not be parsed", result.stdout)
+            self.assertIn("[title] required field is missing", result.stdout)
+
+    def test_the_sibling_set_is_the_directory_and_is_neither_recursive_nor_all_files(self) -> None:
+        """Scope is the card's own directory: one plan's workspace, which is exactly the unit two
+        concurrent controllers share. A nested directory is a different plan, and a .md is not a
+        card. The count in the header is computed from the listing, not from the card."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.sibling(repo, "notes.md", "id: EX-01\ntitle: Widget dispatch is idempotent\n")
+            nested = repo.parent / "nested"
+            nested.mkdir()
+            (nested / "deep.yaml").write_text(CLEAN_CARD, encoding="utf-8")
+            self.sibling(repo, "peer.yaml", CLEAN_CARD.replace("id: EX-01", "id: EX-02").replace(
+                "title: Widget dispatch is idempotent", "title: Another job entirely"))
+
+            result = self.run_validator(CLEAN_CARD, repo)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(self.findings(result, "ERROR"), [], result.stdout)
+            on_disk = sorted(p.name for p in repo.parent.iterdir() if p.suffix == ".yaml")
+            self.assertEqual(on_disk, ["card.yaml", "peer.yaml"])
+            self.assertIn(f"{len(on_disk) - 1} sibling card(s) compared", self.header(result))
+
+    def test_every_colliding_sibling_is_named(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for name in ("a-twin.yaml", "b-twin.yaml"):
+                self.sibling(repo, name, CLEAN_CARD)
+
+            result = self.run_validator(CLEAN_CARD, repo)
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("a-twin.yaml, b-twin.yaml", result.stdout)
 
     # --- the deprecated `tier` alias --------------------------------------------------------- #
 
