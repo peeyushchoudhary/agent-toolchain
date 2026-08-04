@@ -18,7 +18,7 @@ WARNINGs.
 
 Usage:
   validate_card.py CARD --repo PATH          # exit 1 on any ERROR
-  validate_card.py CARD --repo PATH --strict # exit 1 on any WARNING too (for gates)
+  validate_card.py CARD --repo PATH --strict # exit 1 on any WARNING too, except [siblings]
   validate_card.py CARD --repo PATH --quiet  # findings only, no summary header
 
 Exit codes: 0 clean, 1 findings, 2 the card or repository could not be read.
@@ -27,7 +27,10 @@ The card is checked against the repository AND against the other cards in its ow
 and `title` must be unique among them. That check exists because two controllers once minted a card
 numbered TC-60 minutes apart and one silently overwrote the other. A sibling that cannot be read or
 parsed is skipped with a WARNING naming it and counted separately in the header — it is a gap in
-the check, never a pass, and never a reason to fail the card being validated.
+the check, never a pass, and never a reason to fail the card being validated. That last clause is
+enforced rather than merely asserted: `[siblings]` is the one field `--strict` does not promote to a
+non-zero exit, because it reports on a file the card's author did not write and cannot fix. Every
+other warning still fails under `--strict`.
 
 ## What the YAML parser does and does not handle
 
@@ -108,13 +111,24 @@ RERUN_TOKENS = ("--rerun-tasks", "--rerun", "cleanTest", "clean ")
 ERROR = "ERROR"
 WARNING = "WARNING"
 
+# Fields whose WARNINGs do not raise the `--strict` exit code. Exactly one, and it is not a
+# convenience: a `[siblings]` finding reports on a NEIGHBOURING file the card's author did not write
+# and cannot fix. Failing a perfect card because someone else's sealed card is unreadable is failing
+# closed on the wrong file, which is the promise the module docstring already made and this makes
+# true. The finding is still printed and still counted in the warning total — only the exit is
+# exempt. Do not add a second entry here without the same argument: that the author of the card
+# under test could not have prevented the finding.
+STRICT_EXEMPT_FIELDS = ("siblings",)
+
 REQUIRED_FIELDS = ("id", "title", "goal", "persona", "exclusive_writes", "context_acquisition",
                    "validation", "stop_conditions", "commit_subject")
 # A required field whose ABSENCE is graded below ERROR, with the reason it is graded that way.
 # `title` was added after ~50 cards had already been sealed, and none of them carry one. Failing
-# those is failing closed on history that cannot be edited. `--strict` — what a controller runs
-# before minting a card — still exits 1 on a warning, so a NEW card cannot be dispatched without a
-# title. A title that is present and blank is not history; it is a card being written now, wrongly,
+# those is failing closed on history that cannot be edited. `--strict` does exit 1 on this warning,
+# so a caller that wants a titleless card refused has an invocation that refuses it — but nothing in
+# this toolchain runs `--strict` on a caller's behalf, so absence is a warning a controller is
+# expected to READ, not a barrier that stops a dispatch. Do not describe it as one.
+# A title that is present and blank is not history; it is a card being written now, wrongly,
 # and stays an ERROR.
 MISSING_FIELD_SEVERITY = {"title": WARNING}
 MISSING_FIELD_NOTE = {
@@ -1348,7 +1362,9 @@ def main() -> int:
         print(f"  {findings.errors} error(s), {findings.warnings} warning(s)")
     if findings.errors:
         return 1
-    return 1 if args.strict else 0
+    if args.strict and any(field not in STRICT_EXEMPT_FIELDS for _, field, _ in findings.rows):
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

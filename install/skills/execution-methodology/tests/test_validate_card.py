@@ -649,8 +649,10 @@ class ValidateCardTest(unittest.TestCase):
             self.assertEqual(self.findings(result, "ERROR"), [], result.stdout)
             self.assertIn("[title] required field is missing", result.stdout)
 
-    def test_a_card_with_no_title_fails_the_strict_minting_gate(self) -> None:
-        """`--strict` is what a controller runs before dispatch, and there it is not optional."""
+    def test_a_card_with_no_title_fails_under_strict(self) -> None:
+        """`--strict` is the invocation available to a caller that wants a titleless card refused.
+        Nothing in this toolchain runs it automatically, so this pins the flag's behaviour and NOT
+        a claim that a titleless card cannot be dispatched — it can."""
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
             card = "\n".join(line for line in CLEAN_CARD.splitlines()
@@ -880,6 +882,37 @@ class ValidateCardTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("[siblings] locked.yaml could not be read", result.stdout)
             self.assertIn("0 sibling card(s) compared, 1 not read", self.header(result))
+
+    def test_a_skipped_sibling_does_not_fail_the_card_even_under_strict(self) -> None:
+        """The module docstring promises a skipped sibling is "never a reason to fail the card being
+        validated". Under `--strict` that promise used to break: a `[siblings]` WARNING is a finding,
+        and an otherwise perfect card exited 1 because a DIFFERENT file — one its author did not
+        write and cannot fix — was unreadable. `[siblings]` is therefore exempt from the strict
+        exit. The warning is still printed and still counted; only the exit code is exempt."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.sibling(repo, "broken.yaml", "id: EX-09\nnote: !!str hello\n")
+
+            result = self.run_validator(CLEAN_CARD, repo, "--strict")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[siblings] broken.yaml could not be parsed", result.stdout)
+            self.assertIn("0 error(s), 1 warning(s)", result.stdout)
+
+    def test_the_strict_sibling_exemption_does_not_excuse_any_other_warning(self) -> None:
+        """The exemption is scoped to `[siblings]`, not a blanket way to survive `--strict`. A card
+        carrying its own warning still fails, even when a skipped sibling sits beside it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.sibling(repo, "broken.yaml", "id: EX-09\nnote: !!str hello\n")
+            card = "\n".join(line for line in CLEAN_CARD.splitlines()
+                             if not line.startswith("title:"))
+
+            result = self.run_validator(card, repo, "--strict")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[siblings] broken.yaml could not be parsed", result.stdout)
+            self.assertIn("[title] required field is missing", result.stdout)
 
     def test_the_sibling_set_is_the_directory_and_is_neither_recursive_nor_all_files(self) -> None:
         """Scope is the card's own directory: one plan's workspace, which is exactly the unit two

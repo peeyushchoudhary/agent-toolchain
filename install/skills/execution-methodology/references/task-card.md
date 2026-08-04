@@ -67,8 +67,13 @@ and it must never be reused or renamed. The title is the half a reader can under
 looking anything up. Lead with the title in prose and dispatches; keep the id beside it.
 
 Cards sealed before this rule have no title. Re-validating one reports a WARNING and still exits 0,
-so history stays readable; `--strict`, which is what a controller runs before minting a card, exits
-1. A new card without a title cannot be dispatched.
+so history stays readable. `--strict` promotes that warning to a non-zero exit, so a caller that
+wants a titleless card refused has an invocation available that refuses it.
+
+Be precise about what that does and does not guarantee: **`--strict` is available, not automatic.**
+Nothing in this toolchain runs it for you — no hook, no gate, no conformance check — and the
+dispatch contract permits dispatching over a warning that has been read. A missing title is
+therefore a warning a controller is expected to notice, not a barrier that stops it.
 
 ### `exclusive_writes`
 
