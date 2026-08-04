@@ -11,6 +11,8 @@ program ledger's distillation.
 
 ```yaml
 id:                  # stable identifier — appears in the commit subject and the ledger
+title:               # the card's NAME: one line, ≤ 72 characters, unique in the workspace.
+                     # This is what prose, dispatches, and status reports lead with.
 goal:                # one sentence: what is true after this task that was not before
 persona:             # developer | senior-developer — which persona implements this card,
                      # decided by the planner, not at dispatch
@@ -33,6 +35,40 @@ commit_subject:      # the exact commit subject line
 ```
 
 ## The fields that carry the weight
+
+### `id` and `title` — work is referred to by name, never by bare number
+
+```yaml
+id: TC-60
+title: Hook roster is written once, not twice
+```
+
+Two rules, and both are machine-checked by `validate_card.py`:
+
+1. **Every card has a title**: one line, non-empty, at most 72 characters, and not a restatement of
+   the id. Seventy-two is the git subject-line convention — the place a title most often ends up
+   quoted — and it still fits on an 80-column line after the id and two spaces. If the name will not
+   fit, the detail belongs in `goal`.
+2. **`id` and `title` are both unique across the cards in the workspace directory.** That directory
+   is the scope because it is the one thing two controllers working at the same time share. The same
+   id in a *different* plan's workspace is a different, legitimate card and is not a collision.
+
+Why the pair rather than the number alone:
+
+- **The number alone collides silently.** Two controllers each minted a card numbered `TC-60` within
+  minutes of each other; one clobbered the other, and the work came back only because a human
+  happened to notice. Nothing in the toolchain objected. Now the second one cannot be validated.
+- **The number alone carries no meaning.** A status line reading `TC-52, TC-53, TC-54, TC-55` needs
+  a translation table every time it is read, and fourteen such ids look like backlog volume where
+  fourteen names would have shown a map of fourteen distinct problems.
+
+The id keeps its job — it is the stable key in the commit subject, the ledger, and `prerequisites`,
+and it must never be reused or renamed. The title is the half a reader can understand without
+looking anything up. Lead with the title in prose and dispatches; keep the id beside it.
+
+Cards sealed before this rule have no title. Re-validating one reports a WARNING and still exits 0,
+so history stays readable; `--strict`, which is what a controller runs before minting a card, exits
+1. A new card without a title cannot be dispatched.
 
 ### `exclusive_writes`
 
