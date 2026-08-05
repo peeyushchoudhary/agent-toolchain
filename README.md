@@ -1,13 +1,25 @@
 # SWE Agent
 
-**A cross-project layer for working with coding agents: how a repository routes them, how work is
-delegated to named roles, and what keeps any of it from rotting.**
+**A local-first operating layer for reliable Claude Code and Codex work. It keeps repository
+instructions, roles, and verification evidence from drifting—without becoming a runtime, framework,
+or hosted service.**
 
-Built and used by one person across a dozen projects on one laptop, with Claude Code and Codex in
-parallel. Everything here is in daily use rather than proposed. Where a decision came from a
-measurement, the number is included; where it came from a mistake, the mistake is written down.
+It is a set of conventions and installable tooling for routing agents, assigning accountable roles,
+and proving work locally. Current tooling is authoritative; measured decisions and mistakes stay in
+the documentation so the setup can be inspected rather than trusted on faith.
 
-[Quickstart](#quickstart) · [Architecture](#architecture) · [Documentation](#documentation) · [Weekly improvements](#weekly-improvements)
+[Quickstart](#quickstart) · [Core capabilities](#core-capabilities) · [Architecture](#architecture) · [Documentation](#documentation) · [Weekly improvements](#weekly-improvements)
+
+If this setup helps, use GitHub's **Star** button to help other builders discover it.
+
+## Quickstart
+
+```bash
+cd install && ./install.sh && ./verify.sh
+```
+
+Then open a project in Claude Code or Codex and run the **`project-onboarding`** skill. Requirements
+and installer behaviour: [install/README.md](install/README.md).
 
 ## The problem
 
@@ -22,42 +34,39 @@ Three things follow from that:
 2. **Roles have to be defined once**, or every session re-derives them differently.
 3. **Whatever is not checked will drift**, so the checks matter more than the content.
 
-## Quickstart
+## Core capabilities
 
-```bash
-cd install && ./install.sh && ./verify.sh
-```
+| Capability | What it gives you | Start here |
+|---|---|---|
+| Route, repository taxonomy, and migration | A short, validated task route plus a common repository layout; the migrator plans or applies a link-preserving move into that layout. | [Progressive disclosure](docs/progressive-disclosure.md) · [Repository standard](docs/repository-standard.md) |
+| Onboarding and shared skills | A repeatable way to add the route, per-clone hooks, and published workflows to a project; the installer mirrors shared skills to both harnesses. | [Install](install/README.md) · [Onboarding](docs/onboarding-a-project.md) · [`project-onboarding`](install/skills/project-onboarding/SKILL.md) |
+| Personas and specialists | Thirteen base personas with deliberate role, model, effort, and write boundaries; project specialists are derived from the repository's guardrails, architecture, and product requirements. | [Agent personas](docs/agent-personas.md) |
+| Controlled execution and independent judges | A scope → build → review → test loop with task cards and a builder who never approves their own work. | [Operating model](docs/operating-model.md) |
+| Environment, drift, and learning signals | Preflight catches machine gaps; checks distinguish machine-global Claude/Codex mirror drift from installed-versus-published vendored-layer drift; repository lessons preserve corrections. | [`preflight.sh`](install/hooks/preflight.sh) · [`check_toolchain.py`](install/skills/progressive-disclosure/scripts/check_toolchain.py) · [`verify.sh`](install/verify.sh) |
+| Local project proof and Git safety | Focused tests, project gates, and local E2E establish project readiness; identifier and push guards protect commit and push. | [Operating model](docs/operating-model.md) · [`identifier_guard.py`](install/skills/progressive-disclosure/scripts/identifier_guard.py) · [`push_guard.py`](install/skills/progressive-disclosure/scripts/push_guard.py) |
 
-Then open a project and run the **`project-onboarding`** skill. Requirements and what gets written:
-[install/README.md](install/README.md).
-
-## What you get
-
-| | |
-|---|---|
-| **A four-layer route** | Contract → index → per-directory → README, each with a word budget, all validated |
-| **A repository taxonomy** | One layout across every project, with a migrator for existing repos |
-| **Thirteen personas** | `scout`, `developer`, `senior-developer`, `reviewer`, `architect`, `acceptance` and others — model and effort already decided, generated into both harnesses |
-| **A push guard** | Blocks credentials, oversized files, and direct pushes to main — the two rules a forge charges for, enforced locally. Fails closed: a scan that could not run exits 2 and never reads as clean |
-| **An identifier guard** | For a repository that is deliberately public: blocks home paths, account identifiers, and a machine-local list of private names from the staged diff and the commit message. The list lives outside the repository it protects |
-| **An environment preflight** | Asserts the facts that break scripts and gates rather than code — a tool that resolves in your shell but not in a script, a keg-only JDK, an inherited SIGHUP-ignore |
-| **A vendored-drift check** | Compares the installed layer against this repository's published copy, so the two cannot silently disagree |
-| **Drift detection** | Session start reports a broken route, an unsynced persona, an unmirrored rule, a stale graph |
+Optional code-graph navigation is available when `graphify` is installed; it is not required for the
+route, installer, or local checks.
 
 ## Architecture
 
 ![SWE Agent architecture and data flow](docs/assets/swe-agent-architecture.png)
 
-| Flow | Meaning |
-|---|---|
-| Repository knowledge → Claude Code and Codex | `AGENTS.md` and `docs/agents/` give both harnesses the same durable route. |
-| Shared skills → Claude Code and Codex | Shared skills accelerate work in both harnesses. |
-| Session hooks → Claude Code only | Claude-specific session hooks report drift and environment facts. |
-| Persona pool → Claude Code and Codex | The shared persona sources generate harness-specific agents for both harnesses. |
-| Repository changes → local Git checks | Local hooks validate repository work before commit or push. |
-
 Repository knowledge is the durable source of truth. Shared skills accelerate both harnesses;
-session hooks are Claude-specific. Neither replaces repository knowledge.
+session signals are Claude-specific. Neither replaces repository knowledge.
+
+| Stage | Core capability and what happens | Repository and tooling entry points | Value created |
+|---|---|---|---|
+| 1. Repository route | A repository declares its contract and task routes in `AGENTS.md` and `docs/agents/`; the repository standard supplies the common taxonomy and a migrator. | `AGENTS.md`, `docs/agents/`, [`validate_disclosure.py`](install/skills/progressive-disclosure/scripts/validate_disclosure.py), [repository standard](docs/repository-standard.md) | Durable, shared context reduces rediscovery and makes stale links visible. |
+| 2. Shared capabilities | The published vendored layer provides reusable skills; the persona pool defines role, model, effort, and write boundaries. Session signals remain Claude-only. | [Published skill declaration](docs/README.md), [persona sources and generator](docs/agent-personas.md), [`verify.sh`](install/verify.sh) | Repeatable work patterns and consistent role routing; the verifier can compare this repository's published layer with installed state. |
+| 3. Harness layer | Claude Code and Codex consume the same repository knowledge; skills are mirrored and personas are rendered for each harness. A persona stays in the harness being driven. | [Installation inventory](docs/what-gets-installed.md), [`install_hooks.py`](install/skills/progressive-disclosure/scripts/install_hooks.py), [no cross-harness dispatch](docs/agent-personas.md#no-cross-harness-dispatch) | One repository route works across both harnesses without cross-harness dispatch. |
+| 4. Controlled work loop | Work moves through scope → build → review → test using the execution methodology and task cards. Judges are independent; a builder does not approve their own work. | [Operating model](docs/operating-model.md), [full adoption walkthrough](docs/full-adoption.md) | Independent verification and clearer, safer handoffs. |
+| 5. Local proof | Focused and adjacent tests lead to a project's area gate, then full local E2E with real services. Environment preflight and Git hooks protect commit and push; this repository's `verify.sh` proves only its published tooling and installation. | [Operating model](docs/operating-model.md), [`preflight.sh`](install/hooks/preflight.sh), [`identifier_guard.py`](install/skills/progressive-disclosure/scripts/identifier_guard.py), [`push_guard.py`](install/skills/progressive-disclosure/scripts/push_guard.py), [`verify.sh`](install/verify.sh) | Local gates decide readiness; failures and unknowns are reported honestly without mistaking toolchain verification for a project's production-path proof. |
+| 6. PR and audit trail | GitHub stores code and configuration; milestone PRs and merge commits preserve the audit trail after local proof. It does not run hosted CI or deploy work. | [GitHub policy](docs/github.md) | Durable backup and history without mistaking a push for validation. |
+
+Lessons and session signals feed corrections back into repository context. They are distinct from
+machine-global Claude/Codex mirror drift and from `verify.sh`'s installed-versus-published vendored
+layer comparison; all three make a stale assumption visible to the next task.
 
 ## Documentation
 
@@ -111,14 +120,18 @@ git hooks standing in for branch protection. Those are marked where they appear.
 **Not a substitute for reading it.** Installing an agent configuration you have not read is how you
 end up with rules you do not understand and cannot debug.
 
-## Two sections a software project would have, and this does not
+## README contract: apply it with judgement
 
-The README contract this repository describes requires a *Current state* section linked to a plan,
-and a *Product requirements* section linking PRDs. Neither applies to a documentation repository
-with no roadmap and no product, so neither is here.
+The README contract this repository describes requires a *Current state* section linked to a plan
+and a *Product requirements* section linking PRDs. Neither applies to this documentation repository,
+which has no roadmap or product, so neither is here. The full contract and its validator live in
+[progressive-disclosure.md](docs/progressive-disclosure.md).
 
 That is the point rather than an exception: a contract applied without judgement produces sections
 written to satisfy a validator. Adopt the parts that answer a real question for your readers.
+
+If this local-first setup helps your agent work hold together, use GitHub's **Star** button to help
+other builders discover it.
 
 ## Licence
 

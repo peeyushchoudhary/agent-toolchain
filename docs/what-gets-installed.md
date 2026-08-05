@@ -22,7 +22,8 @@ Ran 26 tests ... FAILED (failures=2, errors=11)
 
 Positive control, the same suite installed: `Ran 68 tests ... OK`. The suite is correct; the
 vendored position is not a complete tree for it, and collection itself fails — 26 reached, not 68.
-`verify.sh` does not run the vendored copy, so a restored one sits published and red, unnoticed.
+`verify.sh` runs vendored suites. Restoring this directory would surface the `agent-personas`
+suite's collection failure.
 
 `check_toolchain.py --vendored <repo>` therefore reports **5 criticals at `a008768`, all expected**:
 three are those test files, two are `install/skills/.gitignore` and `install/skills/README.md`,

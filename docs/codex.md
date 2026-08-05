@@ -71,7 +71,7 @@ for f in sorted((pathlib.Path.home()/".codex"/"agents").glob("*.toml")):
 PY
 ```
 
-Expect 11 generated personas. A hand-written `grok_worker.toml` may also be present — the sync
+Expect 13 generated personas. A hand-written `grok_worker.toml` may also be present — the sync
 leaves it alone because it lacks the generated banner.
 
 ### 3. Mirror the skills
@@ -81,12 +81,15 @@ python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py <any-re
 ls ~/.codex/skills/
 ```
 
-Expect `agent-personas`, `agent-persona-factory`, `graph-navigation`, `progressive-disclosure`.
+Expect the six **published** skills: `progressive-disclosure`, `agent-personas`,
+`agent-persona-factory`, `execution-methodology`, `graph-navigation`, and `project-onboarding`.
+`graphify` may also be present because its vendor installs it; this repository neither publishes nor
+manages it.
 
-**Known gap:** adding a skill to the sync list does not retroactively copy it. Re-run
-`install_hooks.py` after adding one. This was hit once — `agent-personas` was added to the list
-after the last install run, and `~/.codex/skills/` sat two skills short until it was noticed during
-an inventory.
+`install.sh` discovers the published skills from `install/skills/.gitignore` and mirrors that
+declaration to Codex. `install_hooks.py` instead mirrors the fixed `MIRRORED_SKILLS` tuple in
+`check_toolchain.py`; when adding a managed skill, update that roster before `install_hooks.py` can
+mirror it. Re-run the appropriate command after a change. Skills are mirrored, not rendered.
 
 ### 4. Mirror the global instructions
 
