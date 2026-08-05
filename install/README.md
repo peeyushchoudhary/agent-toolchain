@@ -29,9 +29,10 @@ Optional, and genuinely optional — nothing breaks without them:
 
 ```
 ~/.claude/skills/       progressive-disclosure, agent-personas, agent-persona-factory,
-                        project-onboarding, graph-navigation
-~/.claude/hooks/        disclosure-check.sh + two graphify hooks
-~/.claude/settings.json 3 hook entries, MERGED into your existing file
+                        execution-methodology, project-onboarding, graph-navigation
+~/.claude/hooks/        disclosure-check.sh, preflight.sh, graphify-session-lessons.sh,
+                        graphify-query-advisor.py
+~/.claude/settings.json 4 hook entries (3 SessionStart, 1 PreToolUse), MERGED into your existing file
 ~/.claude/agents/       personas rendered from the pool
 ~/.codex/skills/        the same skills, mirrored
 ~/.codex/agents/        the same personas, as TOML
@@ -73,9 +74,9 @@ Re-run `./install.sh` to update after pulling a new version. It is idempotent.
 ## Uninstalling
 
 ```bash
-rm -rf ~/.claude/skills/{progressive-disclosure,agent-personas,agent-persona-factory,project-onboarding,graph-navigation}
-rm -f  ~/.claude/hooks/{disclosure-check.sh,graphify-query-advisor.py,graphify-session-lessons.sh}
-rm -rf ~/.codex/skills/{progressive-disclosure,agent-personas,agent-persona-factory,project-onboarding,graph-navigation}
+rm -rf ~/.claude/skills/{progressive-disclosure,agent-personas,agent-persona-factory,execution-methodology,project-onboarding,graph-navigation}
+rm -f  ~/.claude/hooks/{disclosure-check.sh,preflight.sh,graphify-query-advisor.py,graphify-session-lessons.sh}
+rm -rf ~/.codex/skills/{progressive-disclosure,agent-personas,agent-persona-factory,execution-methodology,project-onboarding,graph-navigation}
 # then remove the hook entries from ~/.claude/settings.json by hand
 ```
 

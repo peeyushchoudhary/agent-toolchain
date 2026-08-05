@@ -16,11 +16,15 @@ Implementation: `~/.claude/skills/agent-personas/`. Specialists:
 | `developer` bounded work in one module | yes | ~14 | `sonnet` | `gpt-5.6-terra` | medium |
 | `senior-developer` judgement, cross-cutting, security | yes | ~6 | `opus` | `gpt-5.6-sol` | medium |
 | `planner` what to build, in what order | no | ~3 | `fable` | `gpt-5.6-sol` | high |
+| `product-steward` the WHY, scope, acceptance criteria | product specs only | not measured | `opus` | `gpt-5.6-sol` | high |
+| `chief-of-staff` holds the loop, dispatches, keeps the ledger | ledger, task cards, and reports only | not measured | `opus` | `gpt-5.6-sol` | high |
 | `architect` is this the right shape | design docs only | ~4 | `opus` | `gpt-5.6-sol` | high |
 | `contract-architect` API, schema, migrations | yes | ~3 | `opus` | `gpt-5.6-sol` | high |
 | `reviewer` independent, cannot edit | no | ~20 | `opus` | `gpt-5.6-sol` | high |
 | `security-validator` consent, authz, PHI | no | ~5 | `opus` | `gpt-5.6-sol` | high |
 | `acceptance` milestone judge, cannot edit | no | 1 | `opus` | `gpt-5.6-sol` | xhigh |
+
+No reproducible run count is recorded for `product-steward` or `chief-of-staff`.
 
 ## Three principles
 
