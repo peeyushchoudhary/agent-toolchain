@@ -41,8 +41,14 @@ It is the only non-writing persona with `Bash`, added after it was observed bein
 execution it could not perform and chaining to a sub-subagent instead of reporting the problem. A
 persona that cannot do its one job does not fail loudly; it improvises. Every other tool the roster
 denies stays denied — see `~/.claude/docs/decisions.md`'s "What it withholds" for the current names, not a
-restatement here, which is exactly what went stale before — so it still cannot author a fix, and
-Codex's `read-only` sandbox already had exactly the right shape — execute, never write.
+restatement here, which is exactly what went stale before — so it still cannot author a fix. Codex
+remains `read-only`; a write-producing gate runs against a controller-prepared, manifest-bound
+standalone copy inside a nested sandbox, never against writable source. The judge requests approval
+for the **exact sandbox-launch** only. The approved nested launch is
+`env CODEX_HOME=<temporary-home> codex sandbox -p gate -P copy-write -C <copy> -- <exact gate argv>`.
+Approval moves only the launcher outside the outer boundary; it immediately enters the custom inner
+profile granting source read, copy write, and network disabled. The gate never runs unsandboxed.
+Exact `--rerun-tasks` is the sole Gradle freshness evidence; `cleanTest` does not qualify.
 
 **`docs-steward` — sonnet / terra, medium.** Prose that has to match code. Needs care, not depth,
 and a wrong doc is cheap to correct.

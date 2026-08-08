@@ -8,7 +8,7 @@ It is a set of conventions and installable tooling for routing agents, assigning
 and proving work locally. Current tooling is authoritative; measured decisions and mistakes stay in
 the documentation so the setup can be inspected rather than trusted on faith.
 
-[Quickstart](#quickstart) · [Core capabilities](#core-capabilities) · [Architecture](#architecture) · [Documentation](#documentation) · [Weekly improvements](#weekly-improvements)
+[Quickstart](#quickstart) · [Current state](#current-state) · [Product requirements](#product-requirements) · [Components](#components) · [Architecture](#architecture) · [Working here](#working-in-this-repository) · [Weekly improvements](#weekly-improvements)
 
 If this setup helps, use GitHub's **Star** button to help other builders discover it.
 
@@ -20,6 +20,25 @@ cd install && ./install.sh && ./verify.sh
 
 Then open a project in Claude Code or Codex and run the **`project-onboarding`** skill. Requirements
 and installer behaviour: [install/README.md](install/README.md).
+
+## Current state
+
+The repository currently ships six published skills, thirteen generated personas, local session and
+Git guards, a cross-harness installer, and executable verification for the published toolchain. The
+execution methodology is at contract v2: work is bound to one approved outcome, validation commands
+are direct processes, Gradle evidence must use exact `--rerun-tasks`, and JUnit receipts verify that
+post-boundary XML records the expected classes and counts without failures, errors, or skips.
+Receipts do not establish test execution on their own or detect a cache restore that writes
+plausible valid XML after the start; exact runner rerun settings provide that execution evidence and
+prevent cache use. Receipts are not tamper-resistant against a deliberate local writer.
+
+The remaining known publication gap is `project-conformance`: it is installed locally but is not
+yet part of the vendored public skill set. Its scope and the coordinated edits still required are
+recorded in [What is published, and what is not](docs/README.md#what-is-published-and-what-is-not).
+There is no application release, production deployment, or application roadmap behind this
+repository. Completed material changes are summarized in the
+[weekly improvement record](#weekly-improvements), with settled choices and rejected alternatives
+preserved in [decisions.md](docs/decisions.md).
 
 ## The problem
 
@@ -34,9 +53,22 @@ Three things follow from that:
 2. **Roles have to be defined once**, or every session re-derives them differently.
 3. **Whatever is not checked will drift**, so the checks matter more than the content.
 
-## Core capabilities
+## Product requirements
 
-| Capability | What it gives you | Start here |
+This repository is tooling and documentation rather than an end-user application, so it does not
+invent application PRDs. Its product requirements are the normative contracts below; detailed
+behaviour stays in those linked documents instead of being copied into the front page.
+
+| Requirement authority | What it defines |
+|---|---|
+| [Repository contract](AGENTS.md) | Public-repository boundaries, source authority, goal-bound execution, and required verification. |
+| [Operating model](docs/operating-model.md) | Local-first priorities, execution stages, independent judgment, and what “done” means. |
+| [Published surface](docs/README.md#what-is-published-and-what-is-not) | Which skills are deliberately vendored and which absences are known or intentional. |
+| [GitHub policy](docs/github.md) | Storage-only GitHub posture, local push protection, milestone PRs, and merge history. |
+
+## Components
+
+| Component | What it gives you | Deep dive |
 |---|---|---|
 | Route, repository taxonomy, and migration | A short, validated task route plus a common repository layout; the migrator plans or applies a link-preserving move into that layout. | [Progressive disclosure](docs/progressive-disclosure.md) · [Repository standard](docs/repository-standard.md) |
 | Onboarding and shared skills | A repeatable way to add the route, per-clone hooks, and published workflows to a project; the installer mirrors shared skills to both harnesses. | [Install](install/README.md) · [Onboarding](docs/onboarding-a-project.md) · [`project-onboarding`](install/skills/project-onboarding/SKILL.md) |
@@ -77,27 +109,49 @@ layer comparison; all three make a stale assumption visible to the next task.
 | [repository-standard.md](docs/repository-standard.md) | Where files belong; migrating an existing repo |
 | [github.md](docs/github.md) | Storage-only rules, the push guard, zero-cost posture |
 | [agent-personas.md](docs/agent-personas.md) | The roster, and why each is routed as it is |
-| [decisions.md](docs/decisions.md) | Twelve decisions, each against what it was chosen over |
+| [decisions.md](docs/decisions.md) | Decisions and rationale, each against what was chosen over |
 | [measurements.md](docs/measurements.md) | The numbers those decisions rest on |
 | [onboarding-a-project.md](docs/onboarding-a-project.md) | Five steps to bring a project under the standard |
 | [full-adoption.md](docs/full-adoption.md) | The long version, with guard-testing |
 | [codex.md](docs/codex.md) | The Codex side, and what it does not get |
 | [what-gets-installed.md](docs/what-gets-installed.md) | Every file the installer places, and why |
 
+## Working in this repository
+
+Start with [AGENTS.md](AGENTS.md), then use [docs/README.md](docs/README.md) to open only the guide
+needed for the task. The executable tooling in `install/` is authoritative. Changes to a vendored
+skill or hook originate in its maintained user-level source and are then re-vendored; the exact
+inventory and exceptions are documented in [what-gets-installed.md](docs/what-gets-installed.md).
+
+Before review, run the complete local gate:
+
+```bash
+cd install && ./install.sh --dry-run && ./verify.sh
+```
+
+GitHub stores the resulting code and configuration; it does not validate or deploy them. Changes
+land through milestone-sized pull requests, with an honest README, real local-gate output, an
+independent review, and a merge commit that preserves the audit trail. See
+[github.md](docs/github.md) for the push guard and zero-cost forge rules.
+
 ## Weekly improvements
 
 A concise record of one material repository improvement each week, newest first. Current tooling
 remains the authority for behaviour; each entry points to the implementation it describes.
 
-### Week of 3 August 2026 — local verification proves what ran
+### Week of 3 August 2026 — goal-bound execution with trustworthy evidence
 
-[`verify.sh`](install/verify.sh) now executes the published vendored suites and reports what each
-proved—tests run, skips or not-tested status, failures, or inability to run. Missing or
-unrecognizable attempted-suite output and test counts the parser cannot read as non-negative
-integers are treated as unknown rather than success; a corpus where no suite demonstrates an
-assertion is not accepted as evidence. The
-[installer](install/install.sh) wires environment preflight so machine gaps are visible earlier and
-derives the published skill roster from its declaration instead of maintaining a second count.
+The [execution methodology](install/skills/execution-methodology/methodology.md) now binds each
+implementation and review repair to one approved Goal Capsule, classifies findings before they can
+become scope, and returns repeated causal failure to a human plan gate. Task-card validation contract
+v2 replaces shell command strings with direct `{cwd, argv}` processes and accepts only exact
+`--rerun-tasks` as Gradle freshness evidence. Single-use JUnit receipts verify post-boundary XML
+freshness and consistency and reject pre-existing or same-content XML, replay, count mismatches,
+failures, errors, and skips; the exact uncached runner command establishes execution.
+
+[`verify.sh`](install/verify.sh) executes the published vendored suites and reports what each proved:
+tests run, skips or not-tested status, failures, or inability to run. The installer also derives the
+published skill roster from its declaration instead of maintaining a second count.
 
 ## What this is not
 
@@ -120,15 +174,13 @@ git hooks standing in for branch protection. Those are marked where they appear.
 **Not a substitute for reading it.** Installing an agent configuration you have not read is how you
 end up with rules you do not understand and cannot debug.
 
-## README contract: apply it with judgement
+## README design choices
 
-The README contract this repository describes requires a *Current state* section linked to a plan
-and a *Product requirements* section linking PRDs. Neither applies to this documentation repository,
-which has no roadmap or product, so neither is here. The full contract and its validator live in
+The README contract is applied to the questions readers actually have. *Current state* describes
+the shipped toolchain and its known publication gap; *Product requirements* routes to this
+repository's normative contracts instead of inventing application PRDs for a project with no
+application runtime. The full contract and validator live in
 [progressive-disclosure.md](docs/progressive-disclosure.md).
-
-That is the point rather than an exception: a contract applied without judgement produces sections
-written to satisfy a validator. Adopt the parts that answer a real question for your readers.
 
 If this local-first setup helps your agent work hold together, use GitHub's **Star** button to help
 other builders discover it.

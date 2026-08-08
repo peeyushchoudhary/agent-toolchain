@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+import importlib.util
+import ast
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -19,6 +22,8 @@ title: Widget dispatch is idempotent
 goal: The widget cannot be dispatched twice.
 persona: senior-developer
 
+prerequisites: []
+
 exclusive_writes:
   - backend/core/src/main/java/com/acme/core/**
   - backend/core/src/test/java/com/acme/core/**
@@ -33,22 +38,77 @@ context_acquisition:
 frozen_values:
   - "Money is an integer count of minor units."
 
+invariants:
+  - "A duplicate dispatch fails closed."
+
+instructions:
+  - "Implement idempotent widget dispatch."
+
+tests:
+  - "Retain: backend/core/src/test/java/com/acme/core/tenancy/TenantIsolationTest.java :: com.acme.core.tenancy.TenantIsolationTest"
+
 gate_risk: none
 
 validation:
-  - "cd backend && ./gradlew :core:test --tests 'com.acme.core.tenancy.TenantIsolationTest' --rerun-tasks"
+  - cwd: backend
+    argv:
+      - ./gradlew
+      - :core:test
+      - --tests
+      - com.acme.core.tenancy.TenantIsolationTest
+      - --rerun-tasks
 
 stop_conditions:
   - "a migration is required"
 
+handoff: chief-of-staff
+
 commit_subject: "feat(core): close the duplicate window"
 """
+
+
+def validation_entry(cwd: str, *argv: str) -> str:
+    lines = ["validation:", f"  - cwd: {cwd}", "    argv:"]
+    lines.extend(f"      - {arg!r}" for arg in argv)
+    return "\n".join(lines) + "\n"
+
+
+def direct_validation_fixture(block: str) -> str:
+    """Mechanically express simple historical test fixtures through the new public contract."""
+    lines = [line.strip() for line in block.splitlines() if line.strip()]
+    if not lines or lines[0] != "validation:":
+        return block
+    converted: list[tuple[str, list[str]]] = []
+    for line in lines[1:]:
+        if not line.startswith("- "):
+            return block
+        try:
+            command = ast.literal_eval(line[2:].strip())
+            if not isinstance(command, str):
+                return block
+            argv = shlex.split(command, comments=False, posix=True)
+        except (SyntaxError, ValueError):
+            return block
+        cwd = "."
+        if len(argv) >= 4 and argv[0] == "cd" and argv[2] == "&&":
+            cwd, argv = argv[1], argv[3:]
+        if any(any(control in token for control in (";", "&&", "||", "|", "&"))
+               for token in argv):
+            return block
+        converted.append((cwd, argv))
+    rendered = ["validation:"]
+    for cwd, argv in converted:
+        rendered.extend((f"  - cwd: {cwd}", "    argv:"))
+        rendered.extend(f"      - {argument!r}" for argument in argv)
+    return "\n".join(rendered) + "\n"
 
 
 def card_with(**overrides: str) -> str:
     """Replace whole top-level blocks of CLEAN_CARD. Keys are matched at column zero."""
     text = CLEAN_CARD
     for key, block in overrides.items():
+        if key == "validation":
+            block = direct_validation_fixture(block)
         lines = text.splitlines(keepends=True)
         out: list[str] = []
         i = 0
@@ -82,7 +142,8 @@ class ValidateCardTest(unittest.TestCase):
             "backend/core/src/main/java/com/acme/core/Widget.java":
                 "package com.acme.core;\nclass Widget {}\n",
             "backend/core/src/test/java/com/acme/core/tenancy/TenantIsolationTest.java":
-                "package com.acme.core.tenancy;\nclass TenantIsolationTest {}\n",
+                "package com.acme.core.tenancy;\n"
+                "class TenantIsolationTest { @org.junit.jupiter.api.Test void isolates() {} }\n",
             "backend/app/src/main/java/com/acme/app/App.java":
                 "package com.acme.app;\nclass App {}\n",
             "backend/app/src/main/resources/db/migration/V187__emergency_stop.sql": "-- x\n",
@@ -91,6 +152,13 @@ class ValidateCardTest(unittest.TestCase):
             path = repo / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(body, encoding="utf-8")
+        gradlew = repo / "backend/gradlew"
+        gradlew.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        gradlew.chmod(0o755)
+        for python in (repo / ".venv/bin/python", repo / "backend/.venv/bin/python"):
+            python.parent.mkdir(parents=True, exist_ok=True)
+            python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            python.chmod(0o755)
         return repo
 
     def run_validator(self, card_text: str, repo: Path, *extra: str,
@@ -106,7 +174,788 @@ class ValidateCardTest(unittest.TestCase):
         return [line.strip() for line in result.stdout.splitlines()
                 if line.strip().startswith(severity)]
 
+    # --- direct validation-process contract ------------------------------------------------- #
+
+    def test_repository_relative_executable_contract(self) -> None:
+        invalid = {
+            "missing": ("./missing", "does not exist"),
+            "directory": ("./tool-dir", "not a regular file"),
+            "non-executable": ("./not-executable", "not executable"),
+            "no-shebang": ("./text-tool", "byte-zero #! shebang"),
+            "escape": ("../../outside-tool", "outside the repository"),
+            "symlink escape": ("./escaping-link", "resolves outside the repository"),
+            "broken symlink": ("./broken-link", "broken symlink"),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = self.make_repo(root)
+            backend = repo / "backend"
+            (backend / "tool-dir").mkdir()
+            for name, executable in (("not-executable", False), ("text-tool", True)):
+                tool = backend / name
+                tool.write_text("plain text\n", encoding="utf-8")
+                tool.chmod(0o755 if executable else 0o644)
+            outside = root / "outside-tool"
+            outside.write_text("#!/bin/sh\n", encoding="utf-8")
+            outside.chmod(0o755)
+            (backend / "escaping-link").symlink_to(outside)
+            (backend / "broken-link").symlink_to(backend / "absent-target")
+            for label, (argv0, expected) in invalid.items():
+                with self.subTest(label=label):
+                    card = card_with(
+                        tests="tests:\n  - Exercise repository executable validation.\n",
+                        validation=validation_entry("backend", argv0),
+                    )
+                    result = self.run_validator(card, repo, "--strict")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    roots = [line for line in self.findings(result, "ERROR")
+                             if "repository executable" in line]
+                    self.assertEqual(len(roots), 1, result.stdout)
+                    self.assertIn(expected, roots[0])
+                    self.assertNotIn("gate_risk", result.stdout)
+
+    def test_repository_relative_executable_accepts_scripts_binaries_and_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            backend = repo / "backend"
+            direct = backend / "direct-tool"
+            direct.write_bytes(b"#!/bin/sh\nexit 0\n")
+            direct.chmod(0o755)
+            binary = backend / "binary-tool"
+            binary.write_bytes(b"\x7fELF\x00test")
+            binary.chmod(0o755)
+            nested = backend / "tools"
+            nested.mkdir()
+            cwd_tool = nested / "cwd-tool"
+            cwd_tool.write_bytes(b"#!/bin/sh\n")
+            cwd_tool.chmod(0o755)
+            cases = (("backend", "./direct-tool"), ("backend", "./binary-tool"),
+                     ("backend/tools", "./cwd-tool"), ("backend", "python3"),
+                     ("backend", sys.executable))
+            for cwd, argv0 in cases:
+                with self.subTest(cwd=cwd, argv0=argv0):
+                    card = card_with(
+                        tests="tests:\n  - Exercise repository executable validation.\n",
+                        validation=validation_entry(cwd, argv0),
+                    )
+                    result = self.run_validator(card, repo, "--strict")
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_nested_java_selectors_require_the_exact_member_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            path = repo / "backend/core/src/test/java/com/acme/core/OuterTest.java"
+            path.write_text(textwrap.dedent("""\
+                package com.acme.core;
+                class OuterTest {
+                  @org.junit.jupiter.api.Test void outerTest() {}
+                  static class RealMember { static class DeepMember {} }
+                  void method() { class LocalGhost {} }
+                  String fake = "class StringGhost {}";
+                  // class CommentGhost {}
+                }
+                """), encoding="utf-8")
+            valid = ("com.acme.core.OuterTest.RealMember",
+                     "com.acme.core.OuterTest$RealMember$DeepMember")
+            invalid = ("com.acme.core.OuterTest.Ghost",
+                       "com.acme.core.OuterTest.RealMember.Ghost",
+                       "com.acme.core.OuterTest.LocalGhost",
+                       "com.acme.core.OuterTest.StringGhost",
+                       "com.acme.core.OuterTest.CommentGhost")
+            for fqcn in valid + invalid:
+                with self.subTest(fqcn=fqcn):
+                    card = card_with(
+                        tests=("tests:\n  - Retain: backend/core/src/test/java/com/acme/core/"
+                               f"OuterTest.java :: {fqcn}\n"),
+                        validation=validation_entry(
+                            "backend", "./gradlew", ":core:test", "--tests", fqcn,
+                            "--rerun-tasks"),
+                    )
+                    result = self.run_validator(card, repo, "--strict", "--phase", "post")
+                    if fqcn in valid:
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    else:
+                        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                        self.assertIn("does not exist exactly", result.stdout)
+
+    def test_nested_java_create_is_absent_pre_and_exact_post(self) -> None:
+        fqcn = "com.acme.core.NewOuterTest.CreatedMember"
+        declaration = ("tests:\n  - Create: backend/core/src/test/java/com/acme/core/"
+                       f"NewOuterTest.java :: {fqcn}\n")
+        validation = validation_entry(
+            "backend", "./gradlew", ":core:test", "--tests", fqcn, "--rerun-tasks")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            pre = self.run_validator(card_with(tests=declaration, validation=validation), repo,
+                                     "--strict", "--phase", "pre")
+            self.assertEqual(pre.returncode, 0, pre.stdout + pre.stderr)
+            path = repo / "backend/core/src/test/java/com/acme/core/NewOuterTest.java"
+            path.write_text(textwrap.dedent("""\
+                package com.acme.core;
+                class NewOuterTest {
+                  @org.junit.jupiter.api.Test void test() {}
+                  static class CreatedMember {}
+                }
+                """), encoding="utf-8")
+            post = self.run_validator(card_with(tests=declaration, validation=validation), repo,
+                                      "--strict", "--phase", "post")
+            self.assertEqual(post.returncode, 0, post.stdout + post.stderr)
+
+    def test_existing_nested_java_create_fails_pre_once(self) -> None:
+        fqcn = "com.acme.core.ExistingOuterTest.ExistingMember"
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            path = repo / "backend/core/src/test/java/com/acme/core/ExistingOuterTest.java"
+            path.write_text(textwrap.dedent("""\
+                package com.acme.core;
+                class ExistingOuterTest {
+                  @org.junit.jupiter.api.Test void test() {}
+                  static class ExistingMember {}
+                }
+                """), encoding="utf-8")
+            card = card_with(
+                tests=("tests:\n  - Create: backend/core/src/test/java/com/acme/core/"
+                       f"ExistingOuterTest.java :: {fqcn}\n"),
+                validation=validation_entry(
+                    "backend", "./gradlew", ":core:test", "--tests", fqcn, "--rerun-tasks"),
+            )
+            result = self.run_validator(card, repo, "--strict", "--phase", "pre")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            findings = self.findings(result, "ERROR")
+            self.assertEqual(len(findings), 1, result.stdout)
+            self.assertIn("Create:", findings[0])
+            self.assertIn("already exists before implementation", findings[0])
+
+    def test_repository_executable_symlink_loop_fails_once_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            loop = repo / "backend/loop"
+            loop.symlink_to(loop)
+            card = card_with(
+                tests="tests:\n  - Exercise repository executable validation.\n",
+                validation=validation_entry("backend", "./loop"),
+            )
+            result = self.run_validator(card, repo, "--strict")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            roots = [line for line in self.findings(result, "ERROR")
+                     if "repository executable" in line]
+            self.assertEqual(len(roots), 1, result.stdout)
+            self.assertNotIn("Traceback", result.stdout + result.stderr)
+            self.assertNotIn("gate_risk", result.stdout)
+
+    def test_java_lexical_scanner_ignores_non_code_without_deleting_real_members(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            path = repo / "backend/core/src/test/java/com/acme/core/LexicalOuterTest.java"
+            path.write_text(textwrap.dedent('''\
+                package com.acme.core;
+                class LexicalOuterTest {
+                  @org.junit.jupiter.api.Test void test() {}
+                  String url = "http://example/class StringGhost {}";
+                  char quote = '\\''; // class LineGhost {}
+                  /* class BlockGhost {} */
+                  String text = """
+                    class TextBlockGhost {}
+                    // not a comment delimiter here
+                    """;
+                  static class RealMember {}
+                }
+                '''), encoding="utf-8")
+            candidates = {
+                "com.acme.core.LexicalOuterTest.RealMember": True,
+                "com.acme.core.LexicalOuterTest.StringGhost": False,
+                "com.acme.core.LexicalOuterTest.LineGhost": False,
+                "com.acme.core.LexicalOuterTest.BlockGhost": False,
+                "com.acme.core.LexicalOuterTest.TextBlockGhost": False,
+            }
+            for fqcn, should_pass in candidates.items():
+                with self.subTest(fqcn=fqcn):
+                    card = card_with(
+                        tests=("tests:\n  - Retain: backend/core/src/test/java/com/acme/core/"
+                               f"LexicalOuterTest.java :: {fqcn}\n"),
+                        validation=validation_entry(
+                            "backend", "./gradlew", ":core:test", "--tests", fqcn,
+                            "--rerun-tasks"),
+                    )
+                    result = self.run_validator(card, repo, "--strict", "--phase", "post")
+                    self.assertEqual(result.returncode, 0 if should_pass else 1,
+                                     result.stdout + result.stderr)
+
+    def test_java_unicode_escape_eligibility_follows_translated_result(self) -> None:
+        spec = importlib.util.spec_from_file_location("validate_card_java_unicode", SCRIPT)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+            examples = (
+                (r"\\u2122=\u2122", r"\\u2122=" + "\N{TRADE MARK SIGN}"),
+                (r"\\\u006e", r"\\n"),
+                (r"\u005c\u005c\u006e", r"\\n"),
+            )
+            for source, expected in examples:
+                with self.subTest(source=source):
+                    self.assertEqual(module._translate_java_unicode_escapes(source), expected)
+        finally:
+            sys.modules.pop(spec.name, None)
+
+    def test_java_unicode_escaped_line_comment_hides_nested_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            path = repo / "backend/core/src/test/java/p/Outer.java"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(textwrap.dedent("""\
+                package p;
+                class Outer {
+                  @org.junit.jupiter.api.Test void realTest() {}
+                  \\u002f\\u002f class Ghost {}
+                }
+                """), encoding="utf-8")
+            fqcn = "p.Outer.Ghost"
+            card = card_with(
+                tests=("tests:\n  - Retain: backend/core/src/test/java/p/Outer.java :: "
+                       f"{fqcn}\n"),
+                validation=validation_entry(
+                    "backend", "./gradlew", ":core:test", "--tests", fqcn,
+                    "--rerun-tasks"),
+            )
+
+            result = self.run_validator(card, repo, "--strict", "--phase", "post")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            findings = self.findings(result, "ERROR")
+            test_findings = [line for line in findings if "[tests]" in line]
+            self.assertEqual(len(test_findings), 1, result.stdout)
+            self.assertIn(
+                "Retain: backend/core/src/test/java/p/Outer.java :: "
+                "p.Outer.Ghost does not exist exactly",
+                test_findings[0],
+            )
+
+    def test_direct_gradle_command_preserves_all_java_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(validation=validation_entry(
+                "backend", "./gradlew", ":core:test", "--tests",
+                "com.acme.core.tenancy.TenantIsolationTest", "--rerun-tasks"))
+
+            result = self.run_validator(card, repo, "--strict")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("no findings", result.stdout)
+
+    def test_direct_pytest_commands_resolve_selectors_relative_to_cwd(self) -> None:
+        commands = (
+            ("pytest", "tests/test_widget.py::test_widget"),
+            ("python3", "-m", "pytest", "tests/test_widget.py::test_widget"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            test_file = repo / "backend/tests/test_widget.py"
+            test_file.parent.mkdir(parents=True)
+            test_file.write_text("def test_widget():\n    pass\n", encoding="utf-8")
+            for argv in commands:
+                with self.subTest(argv=argv):
+                    card = card_with(
+                        validation=validation_entry("backend", *argv),
+                        tests="tests:\n  - Retain backend/tests/test_widget.py::test_widget\n",
+                    )
+                    result = self.run_validator(card, repo, "--strict")
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_validation_rejects_each_malformed_item_once_without_derivatives(self) -> None:
+        malformed = {
+            "legacy scalar": "validation: './gradlew test --rerun-tasks'\n",
+            "non-list": "validation:\n  cwd: .\n  argv: [true]\n",
+            "empty": "validation: []\n",
+            "missing key": "validation:\n  - cwd: .\n",
+            "extra key": "validation:\n  - cwd: .\n    argv: [true]\n    env: test\n",
+            "grouping map": "validation:\n  backend:\n    - cwd: .\n      argv: [true]\n",
+            "escaping cwd": "validation:\n  - cwd: ..\n    argv: [true]\n",
+            "missing cwd": "validation:\n  - cwd: missing\n    argv: [true]\n",
+            "empty argv": "validation:\n  - cwd: .\n    argv: []\n",
+            "non-string argv": "validation:\n  - cwd: .\n    argv:\n      - true\n      - {bad: value}\n",
+            "blank argv zero": "validation:\n  - cwd: .\n    argv:\n      - ''\n",
+            "shell interpreter": "validation:\n  - cwd: .\n    argv: [sh, -c, true]\n",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for label, validation in malformed.items():
+                with self.subTest(label=label):
+                    card = card_with(
+                        validation=validation,
+                        tests="tests:\n  - Exercise validation structure.\n",
+                    )
+                    result = self.run_validator(card, repo, "--strict")
+                    errors = self.findings(result, "ERROR")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertEqual(len(errors), 1, result.stdout + result.stderr)
+                    self.assertTrue(errors[0].startswith("ERROR   [validation]"), errors[0])
+                    for derivative in (
+                        "Gradle", "--tests filter", "pytest selector", "UP-TO-DATE",
+                        "module", "gate_risk",
+                    ):
+                        self.assertNotIn(derivative, errors[0])
+
+    def test_validation_rejects_control_characters_in_argv(self) -> None:
+        spec = importlib.util.spec_from_file_location("validate_card_controls", SCRIPT)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+            with tempfile.TemporaryDirectory() as tmp:
+                repo_path = self.make_repo(Path(tmp))
+                repo = module.Repo(repo_path)
+                for control in ("\0", "\r", "\n"):
+                    with self.subTest(control=repr(control)):
+                        findings = module.Findings()
+                        decoded = module.decode_validation(
+                            [{"cwd": ".", "argv": [f"true{control}false"]}], repo, findings)
+                        self.assertIsNone(decoded)
+                        self.assertEqual(len(findings.rows), 1)
+                        self.assertIn("contains NUL, CR, or LF", findings.rows[0][2])
+        finally:
+            sys.modules.pop(spec.name, None)
+
+    def test_only_argv_zero_identifies_gradle_and_shell_looking_values_are_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(
+                validation=validation_entry(
+                    ".", "true", "&&", "./gradlew", ":core:test", "--tests",
+                    "com.acme.core.tenancy.TenantIsolationTest", "--rerun-tasks"),
+                tests="tests:\n  - Literal argv values remain data.\n",
+            )
+            result = self.run_validator(card, repo, "--strict")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("no findings", result.stdout)
+
+    def test_validation_is_decoded_exactly_once(self) -> None:
+        spec = importlib.util.spec_from_file_location("validate_card_once", SCRIPT)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+            with tempfile.TemporaryDirectory() as tmp:
+                repo = self.make_repo(Path(tmp))
+                card_path = repo.parent / "card.yaml"
+                card_path.write_text(card_with(validation=validation_entry(
+                    "backend", "./gradlew", ":core:test", "--tests",
+                    "com.acme.core.tenancy.TenantIsolationTest", "--rerun-tasks")),
+                    encoding="utf-8")
+                calls = 0
+                original = module.decode_validation
+
+                def counted(*args, **kwargs):
+                    nonlocal calls
+                    calls += 1
+                    return original(*args, **kwargs)
+
+                module.decode_validation = counted
+                module.validate(card_path, repo)
+                self.assertEqual(calls, 1)
+        finally:
+            sys.modules.pop(spec.name, None)
+
+    def test_validator_source_has_no_shell_or_legacy_parser(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        for forbidden in (
+            "import shlex", "shell_segments", "parse_validation", "legacy_validation",
+        ):
+            self.assertNotIn(forbidden, source)
+
+    def test_decoder_is_the_only_validation_shape_authority(self) -> None:
+        malformed = (
+            "",
+            "validation: []\n",
+            "validation:\n  - {}\n",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for block in malformed:
+                with self.subTest(block=block):
+                    card = card_with(
+                        validation=block,
+                        tests="tests:\n  - Exercise validation structure.\n",
+                    )
+                    result = self.run_validator(card, repo, "--strict")
+                    errors = self.findings(result, "ERROR")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertEqual(len(errors), 1, result.stdout + result.stderr)
+                    self.assertTrue(errors[0].startswith("ERROR   [validation]"), errors[0])
+
+            literal_glob = card_with(
+                validation=validation_entry(".", "true", "*.py"),
+                tests="tests:\n  - Literal argv remains data.\n",
+            )
+            result = self.run_validator(literal_glob, repo, "--strict")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("no findings", result.stdout)
+
+    def test_clean_like_tokens_never_prove_rerun(self) -> None:
+        rejected_tokens = (
+            ("clean",),
+            ("cleanTest",),
+            (":core:cleanTest",),
+            ("notcleanTest",),
+            ("-Pnote=cleanTest",),
+            ("--message=cleanTest",),
+            (":core:cleanTest", "-x", ":core:cleanTest"),
+            ("cleanTest", "-xcleanTest"),
+            ("cleanTest", "--exclude-task", "cleanTest"),
+            ("cleanTest", "--exclude-task=cleanTest"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for tokens in rejected_tokens:
+                with self.subTest(rejected=tokens):
+                    card = card_with(validation=validation_entry(
+                        "backend", "./gradlew", ":core:test", *tokens, "--tests",
+                        "com.acme.core.tenancy.TenantIsolationTest"))
+                    result = self.run_validator(card, repo)
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn("must include exact --rerun-tasks", result.stdout)
+
+    def test_non_root_cwd_rejects_every_symlink_component(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            (repo / "alias").symlink_to(repo / "backend", target_is_directory=True)
+            card = card_with(
+                validation=validation_entry("alias/core", "true"),
+                tests="tests:\n  - Exercise cwd identity.\n",
+            )
+            result = self.run_validator(card, repo, "--strict")
+            errors = self.findings(result, "ERROR")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertEqual(len(errors), 1, result.stdout + result.stderr)
+            self.assertIn("symlink", errors[0])
+
+    def test_gradle_tests_requires_one_non_option_operand_during_decode(self) -> None:
+        argument_sets = (
+            (":core:test", "--rerun-tasks", "--tests"),
+            (":core:test", "--rerun-tasks", "--tests="),
+            (":core:test", "--tests", "--rerun-tasks"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for arguments in argument_sets:
+                with self.subTest(arguments=arguments):
+                    card = card_with(
+                        validation=validation_entry("backend", "./gradlew", *arguments),
+                        tests="tests:\n  - Exercise malformed Gradle argv.\n",
+                    )
+                    result = self.run_validator(card, repo, "--strict")
+                    errors = self.findings(result, "ERROR")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertEqual(len(errors), 1, result.stdout + result.stderr)
+                    self.assertIn("--tests", errors[0])
+
+    def test_published_shell_basename_set_is_enforced_exactly(self) -> None:
+        shell_names = (
+            "sh", "bash", "dash", "zsh", "ksh", "mksh", "csh", "tcsh", "fish", "ash",
+            "pwsh", "powershell", "cmd", "cmd.exe",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for shell in shell_names:
+                with self.subTest(shell=shell):
+                    card = card_with(
+                        validation=validation_entry(".", shell, "-c", "true"),
+                        tests="tests:\n  - Exercise shell boundary.\n",
+                    )
+                    result = self.run_validator(card, repo, "--strict")
+                    errors = self.findings(result, "ERROR")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertEqual(len(errors), 1, result.stdout + result.stderr)
+                    self.assertIn("shell interpreters are unsupported", errors[0])
+
+    def test_methodology_publishes_validation_contract_v2_and_migration(self) -> None:
+        source_root = SCRIPT.parents[1]
+        docs = "\n".join(
+            (source_root / path).read_text(encoding="utf-8")
+            for path in ("SKILL.md", "methodology.md", "references/task-card.md")
+        )
+        self.assertIn("task-card validation contract v2", docs)
+        self.assertIn("v1 cards are invalid under v2", docs)
+        self.assertIn("v2 cards are invalid under v1", docs)
+        self.assertIn("mksh", docs)
+        self.assertIn("cmd.exe", docs)
+        self.assertIn("unlisted wrappers", docs)
+
+    def test_rerun_tasks_is_the_only_gradle_freshness_proof(self) -> None:
+        valid_argument_sets = (
+            ("--rerun-tasks", ":core:test", "--tests",
+             "com.acme.core.tenancy.TenantIsolationTest"),
+            (":core:test", "--rerun-tasks", "--tests",
+             "com.acme.core.tenancy.TenantIsolationTest"),
+            (":core:test", "--tests", "com.acme.core.tenancy.TenantIsolationTest",
+             "--rerun-tasks"),
+        )
+        invalid_freshness = (
+            ("clean",),
+            ("cleanTest",),
+            (":core:cleanTest",),
+            ("notcleanTest",),
+            ("-Pnote=cleanTest",),
+            ("--message=cleanTest",),
+            ("--project-cache-dir", "clean"),
+            ("cleanTest", "-x", "cleanTest"),
+            (":core:cleanTest", "--exclude-task=:core:cleanTest"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for arguments in valid_argument_sets:
+                with self.subTest(valid=arguments):
+                    card = card_with(validation=validation_entry(
+                        "backend", "./gradlew", *arguments))
+                    result = self.run_validator(card, repo, "--strict")
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for freshness in invalid_freshness:
+                with self.subTest(invalid=freshness):
+                    card = card_with(validation=validation_entry(
+                        "backend", "./gradlew", ":core:test", *freshness, "--tests",
+                        "com.acme.core.tenancy.TenantIsolationTest"))
+                    result = self.run_validator(card, repo, "--strict")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn("must include exact --rerun-tasks", result.stdout)
+                    self.assertIn("has no exact --rerun-tasks", result.stdout)
+
+    def test_every_methodology_surface_requires_only_rerun_tasks(self) -> None:
+        source_root = SCRIPT.parents[1]
+        for path in ("SKILL.md", "methodology.md", "references/task-card.md"):
+            with self.subTest(path=path):
+                body = (source_root / path).read_text(encoding="utf-8")
+                self.assertTrue("`--rerun-tasks` is the only" in body, path)
+                self.assertFalse("`--rerun-tasks`, `clean`, or `cleanTest`" in body, path)
+                self.assertFalse("either `--rerun-tasks` or" in body, path)
+
     # --- the headline check ------------------------------------------------------------------ #
+
+    def test_unknown_top_level_field_warns_and_strict_rejects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            loose = self.run_validator(CLEAN_CARD + "review: reviewer\n", repo)
+            strict = self.run_validator(CLEAN_CARD + "review: reviewer\n", repo, "--strict")
+            self.assertEqual(loose.returncode, 0, loose.stdout + loose.stderr)
+            self.assertIn("[review] unknown field", loose.stdout)
+            self.assertEqual(strict.returncode, 1, strict.stdout + strict.stderr)
+
+    def test_every_current_schema_field_must_be_present_under_strict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(prerequisites="")
+            result = self.run_validator(card, repo, "--strict")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[prerequisites] required field is missing", result.stdout)
+
+    def test_path_glob_in_non_path_field_warns_and_strict_rejects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(instructions="instructions:\n  - backend/core/**\n")
+            result = self.run_validator(card, repo, "--strict")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[instructions] path glob", result.stdout)
+
+    def test_create_java_declaration_is_phase_safe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            path = "backend/core/src/test/java/com/acme/core/WidgetDispatchTest.java"
+            fqcn = "com.acme.core.WidgetDispatchTest"
+            card = card_with(
+                tests=f'tests:\n  - "Create: {path} :: {fqcn}"\n',
+                validation=("validation:\n  - \"cd backend && ./gradlew :core:test "
+                            f"--tests '{fqcn}' --rerun-tasks\"\n"),
+            )
+            pre = self.run_validator(card, repo, "--strict", "--phase", "pre")
+            self.assertEqual(pre.returncode, 0, pre.stdout + pre.stderr)
+            post_missing = self.run_validator(card, repo, "--strict", "--phase", "post")
+            self.assertEqual(post_missing.returncode, 1, post_missing.stdout + post_missing.stderr)
+            self.assertIn("still absent after implementation", post_missing.stdout)
+            target = repo / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(
+                "package com.acme.core; class WidgetDispatchTest { "
+                "@org.junit.jupiter.api.Test void dispatches() {} }\n", encoding="utf-8")
+            post = self.run_validator(card, repo, "--strict", "--phase", "post")
+            self.assertEqual(post.returncode, 0, post.stdout + post.stderr)
+
+    def test_java_declaration_path_must_map_to_fqcn(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(tests=(
+                "tests:\n  - \"Retain: backend/core/src/test/java/com/acme/core/tenancy/"
+                "TenantIsolationTest.java :: com.acme.wrong.TenantIsolationTest\"\n"))
+            result = self.run_validator(card, repo)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("maps to com.acme.core.tenancy.TenantIsolationTest", result.stdout)
+
+    def test_every_java_declaration_requires_an_exact_gradle_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(
+                tests=("tests:\n  - \"Retain: backend/core/src/test/java/com/acme/core/tenancy/"
+                       "TenantIsolationTest.java :: com.acme.core.tenancy.TenantIsolationTest\"\n"),
+                validation="validation:\n  - \"cd backend && ./gradlew :core:test --rerun-tasks\"\n")
+            result = self.run_validator(card, repo)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("has no exact non-wildcard Gradle --tests filter", result.stdout)
+
+    def test_exact_java_filter_cannot_use_prose_only_tests_bypass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(tests="tests:\n  - Follow the existing Java test pattern.\n")
+            result = self.run_validator(card, repo)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("has no matching Create:/Retain: Java declaration", result.stdout)
+
+    def test_java_declarations_and_exact_filters_are_one_to_one(self) -> None:
+        declaration = (
+            "Retain: backend/core/src/test/java/com/acme/core/tenancy/"
+            "TenantIsolationTest.java :: com.acme.core.tenancy.TenantIsolationTest"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            duplicate_declaration = card_with(
+                tests=f'tests:\n  - "{declaration}"\n  - "{declaration}"\n')
+            declarations = self.run_validator(duplicate_declaration, repo)
+            self.assertEqual(declarations.returncode, 1,
+                             declarations.stdout + declarations.stderr)
+            self.assertIn("declared 2 times", declarations.stdout)
+
+            duplicate_filter = card_with(validation=textwrap.dedent("""\
+                validation:
+                  - "cd backend && ./gradlew :core:test --tests 'com.acme.core.tenancy.TenantIsolationTest' --rerun-tasks"
+                  - "cd backend && ./gradlew :core:test --tests 'com.acme.core.tenancy.TenantIsolationTest' --rerun-tasks"
+                """))
+            filters = self.run_validator(duplicate_filter, repo)
+            self.assertEqual(filters.returncode, 1, filters.stdout + filters.stderr)
+            self.assertIn("selected by 2 exact Gradle --tests filters", filters.stdout)
+
+    def test_shell_composition_is_rejected_at_the_structure_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            commands = (
+                "cd backend && ./gradlew :core:test --rerun-tasks ; "
+                "echo --tests com.acme.core.tenancy.TenantIsolationTest",
+                "cd backend && ./gradlew :core:test --rerun-tasks ; "
+                "# --tests com.acme.core.tenancy.TenantIsolationTest",
+            )
+            for index, command in enumerate(commands):
+                with self.subTest(command=command):
+                    card = card_with(validation=f'validation:\n  - "{command}"\n')
+                    result = self.run_validator(card, repo)
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn("legacy scalar commands are unsupported", result.stdout)
+
+    def test_gradle_text_in_echo_or_true_wrapper_is_not_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for wrapper in ("echo", "true"):
+                with self.subTest(wrapper=wrapper):
+                    card = card_with(validation=textwrap.dedent(f"""\
+                        validation:
+                          - "{wrapper} ./gradlew :core:test --tests com.acme.core.tenancy.TenantIsolationTest --rerun-tasks"
+                        """), tests="tests:\n  - Validate Gradle execution detection.\n")
+
+                    result = self.run_validator(card, repo, "--strict")
+
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("no findings", result.stdout)
+
+    def test_backgrounded_gradle_validation_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            commands = (
+                "./gradlew :core:test --tests com.acme.core.tenancy.TenantIsolationTest "
+                "--rerun-tasks & true",
+                "./gradlew :core:test --tests com.acme.core.tenancy.TenantIsolationTest "
+                "--rerun-tasks &",
+            )
+            for command in commands:
+                with self.subTest(command=command):
+                    card = card_with(
+                        validation=f'validation:\n  - "{command}"\n',
+                        tests="tests:\n  - Validate Gradle execution detection.\n",
+                    )
+
+                    result = self.run_validator(card, repo, "--strict")
+
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    errors = self.findings(result, "ERROR")
+                    self.assertEqual(len(errors), 1, result.stdout)
+                    self.assertIn("legacy scalar commands are unsupported", errors[0])
+                    self.assertIn("1 error(s), 0 warning(s)", result.stdout)
+
+    def test_declared_java_validation_rejects_unvalidated_shell_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(validation=textwrap.dedent("""\
+                validation:
+                  - "cd backend && ./gradlew :core:test --tests com.acme.core.tenancy.TenantIsolationTest --rerun-tasks ; echo done"
+                """))
+            result = self.run_validator(card, repo)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("legacy scalar commands are unsupported", result.stdout)
+
+    def test_wildcard_filter_cannot_satisfy_java_declaration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(
+                tests=("tests:\n  - \"Retain: backend/core/src/test/java/com/acme/core/tenancy/"
+                       "TenantIsolationTest.java :: com.acme.core.tenancy.TenantIsolationTest\"\n"),
+                validation=("validation:\n  - \"cd backend && ./gradlew :core:test "
+                            "--tests 'com.acme.core.tenancy.*' --rerun-tasks\"\n"))
+            result = self.run_validator(card, repo)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("has no exact non-wildcard Gradle --tests filter", result.stdout)
+
+    def test_java_test_shell_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            path = repo / "backend/core/src/test/java/com/acme/core/tenancy/TenantIsolationTest.java"
+            path.write_text("package com.acme.core.tenancy; class TenantIsolationTest {}\n",
+                            encoding="utf-8")
+            card = card_with(tests=(
+                "tests:\n  - \"Retain: backend/core/src/test/java/com/acme/core/tenancy/"
+                "TenantIsolationTest.java :: com.acme.core.tenancy.TenantIsolationTest\"\n"))
+            result = self.run_validator(card, repo)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("contains no JUnit test declaration", result.stdout)
+
+    def test_java_test_shell_cannot_hide_test_annotation_in_a_comment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            path = repo / "backend/core/src/test/java/com/acme/core/tenancy/TenantIsolationTest.java"
+            path.write_text(
+                "package com.acme.core.tenancy; // @org.junit.jupiter.api.Test\n"
+                "class TenantIsolationTest {}\n", encoding="utf-8")
+            card = card_with(tests=(
+                "tests:\n  - \"Retain: backend/core/src/test/java/com/acme/core/tenancy/"
+                "TenantIsolationTest.java :: com.acme.core.tenancy.TenantIsolationTest\"\n"))
+            result = self.run_validator(card, repo)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("contains no JUnit test declaration", result.stdout)
+
+    def test_post_phase_reads_real_package_and_top_level_class_declarations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            path = repo / "backend/core/src/test/java/com/acme/core/tenancy/TenantIsolationTest.java"
+            path.write_text(
+                "// package com.acme.core.tenancy; class TenantIsolationTest {}\n"
+                'String fake = "package com.acme.core.tenancy; class TenantIsolationTest";\n'
+                "package com.other;\n"
+                "class OtherTest { @org.junit.jupiter.api.Test void runs() {} }\n",
+                encoding="utf-8",
+            )
+            result = self.run_validator(CLEAN_CARD, repo, "--phase", "post")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("declares package com.other", result.stdout)
+            self.assertIn("declares top-level class OtherTest", result.stdout)
 
     def test_clean_card_passes_with_no_findings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,7 +972,7 @@ class ValidateCardTest(unittest.TestCase):
             card = card_with(validation=textwrap.dedent("""\
                 validation:
                   - "cd backend && ./gradlew :app:test --tests 'com.acme.app.TenantIsolationTest' --rerun-tasks"
-                """))
+                """), tests="tests:\n  - Diagnose the intentionally wrong selector.\n")
 
             result = self.run_validator(card, repo)
 
@@ -171,7 +1020,8 @@ class ValidateCardTest(unittest.TestCase):
                     validation:
                       - ".venv/bin/python -m pytest tests/test_widget.py::test_missing"
                     """),
-            ) + "tests:\n  - Retain tests/test_widget.py::test_missing\n"
+                tests="tests:\n  - Retain tests/test_widget.py::test_missing\n",
+            )
 
             result = self.run_validator(card, repo)
 
@@ -190,7 +1040,8 @@ class ValidateCardTest(unittest.TestCase):
                     validation:
                       - ".venv/bin/python -m pytest tests/test_widget.py::test_widget"
                     """),
-            ) + "tests:\n  - Retain tests/test_widget.py::test_widget\n"
+                tests="tests:\n  - Retain tests/test_widget.py::test_widget\n",
+            )
 
             result = self.run_validator(card, repo, "--strict")
 
@@ -211,7 +1062,8 @@ class ValidateCardTest(unittest.TestCase):
                     validation:
                       - ".venv/bin/python -m pytest tests/test_widget.py::test_created"
                     """),
-            ) + "tests:\n  - Create tests/test_widget.py::test_created\n"
+                tests="tests:\n  - Create tests/test_widget.py::test_created\n",
+            )
 
             result = self.run_validator(card, repo)
 
@@ -233,7 +1085,8 @@ class ValidateCardTest(unittest.TestCase):
                     validation:
                       - ".venv/bin/python -m pytest tests/test_widget.py::test_created"
                     """),
-            ) + "tests:\n  - Create tests/test_widget.py::test_created\n"
+                tests="tests:\n  - Create tests/test_widget.py::test_created\n",
+            )
 
             result = self.run_validator(card, repo, "--strict")
 
@@ -248,7 +1101,8 @@ class ValidateCardTest(unittest.TestCase):
                     validation:
                       - ".venv/bin/python -m pytest tests/test_widget.py::test_created"
                     """),
-            ) + "tests:\n  - Create tests/test_widget.py::test_created\n"
+                tests="tests:\n  - Create tests/test_widget.py::test_created\n",
+            )
 
             result = self.run_validator(card, repo)
 
@@ -277,7 +1131,8 @@ class ValidateCardTest(unittest.TestCase):
                             validation:
                               - ".venv/bin/python -m pytest tests/test_widget.py::test_missing"
                             """),
-                    ) + f"tests:\n  - {first}\n  - {second}\n"
+                        tests=f"tests:\n  - {first}\n  - {second}\n",
+                    )
 
                     result = self.run_validator(card, repo)
 
@@ -301,7 +1156,8 @@ class ValidateCardTest(unittest.TestCase):
                     validation:
                       - ".venv/bin/python -m pytest tests/test_widget.py::test_widget"
                     """),
-            ) + "tests:\n  - Retain tests/test_widget.py::test_widget\n"
+                tests="tests:\n  - Retain tests/test_widget.py::test_widget\n",
+            )
 
             result = self.run_validator(card, repo, "--strict")
 
@@ -329,7 +1185,7 @@ class ValidateCardTest(unittest.TestCase):
                     self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                     self.assertIn("unsupported pytest selector", result.stdout)
 
-    def test_dynamic_pytest_selectors_fail_closed(self) -> None:
+    def test_legacy_dynamic_pytest_shell_commands_are_rejected(self) -> None:
         commands = [
             'TARGET=tests/test_widget.py; TEST=test_missing; '
             '.venv/bin/python -m pytest "$TARGET::$TEST"',
@@ -343,14 +1199,14 @@ class ValidateCardTest(unittest.TestCase):
                     card = card_with(validation=(
                         "validation:\n"
                         f"  - '{command}'\n"
-                    ))
+                    ), tests="tests:\n  - Retain tests/test_widget.py::test_widget\n")
 
                     result = self.run_validator(card, repo)
 
                     self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                    self.assertIn("dynamic pytest selector", result.stdout)
+                    self.assertIn("legacy scalar commands are unsupported", result.stdout)
 
-    def test_every_pytest_shell_segment_is_scanned(self) -> None:
+    def test_multi_process_pytest_shell_commands_are_rejected(self) -> None:
         controls = (";", "&&", "||")
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
@@ -367,14 +1223,14 @@ class ValidateCardTest(unittest.TestCase):
                     card = card_with(validation=(
                         "validation:\n"
                         f"  - '{command}'\n"
-                    ))
+                    ), tests="tests:\n  - Retain tests/test_widget.py::test_widget\n")
 
                     result = self.run_validator(card, repo)
 
                     self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                    self.assertIn("dynamic pytest selector", result.stdout)
+                    self.assertIn("legacy scalar commands are unsupported", result.stdout)
 
-    def test_attached_shell_controls_delimit_literal_pytest_selector(self) -> None:
+    def test_attached_shell_controls_are_literal_selector_data(self) -> None:
         controls = (";", "&&", "||")
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
@@ -383,37 +1239,33 @@ class ValidateCardTest(unittest.TestCase):
             test_file.write_text("def test_widget():\n    pass\n", encoding="utf-8")
             for control in controls:
                 with self.subTest(control=control):
-                    command = (
-                        ".venv/bin/python -m pytest "
-                        f"tests/test_widget.py::test_widget{control} true"
+                    card = card_with(
+                        validation=validation_entry(
+                            ".", ".venv/bin/python", "-m", "pytest",
+                            f"tests/test_widget.py::test_widget{control}", "true"),
+                        tests="tests:\n  - Retain tests/test_widget.py::test_widget\n",
                     )
-                    card = card_with(validation=(
-                        "validation:\n"
-                        f"  - '{command}'\n"
-                    ))
 
                     result = self.run_validator(card, repo, "--strict")
 
-                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertIn("no findings", result.stdout)
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn("unsupported pytest selector", result.stdout)
 
     def test_pytest_response_files_are_rejected_in_every_segment(self) -> None:
-        commands = [
-            ".venv/bin/python -m pytest @missing-args.txt",
-            ".venv/bin/python -m pytest tests/test_widget.py::test_widget "
-            "&& .venv/bin/python -m pytest @missing-args.txt",
+        argument_sets = [
+            ("@missing-args.txt",),
+            ("tests/test_widget.py::test_widget", "&&", ".venv/bin/python", "-m", "pytest",
+             "@missing-args.txt"),
         ]
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
             test_file = repo / "tests/test_widget.py"
             test_file.parent.mkdir(parents=True)
             test_file.write_text("def test_widget():\n    pass\n", encoding="utf-8")
-            for command in commands:
-                with self.subTest(command=command):
-                    card = card_with(validation=(
-                        "validation:\n"
-                        f"  - '{command}'\n"
-                    ))
+            for arguments in argument_sets:
+                with self.subTest(arguments=arguments):
+                    card = card_with(validation=validation_entry(
+                        ".", ".venv/bin/python", "-m", "pytest", *arguments))
 
                     result = self.run_validator(card, repo)
 
@@ -421,32 +1273,28 @@ class ValidateCardTest(unittest.TestCase):
                     self.assertIn("pytest response-file argument", result.stdout)
                     self.assertIn("@missing-args.txt", result.stdout)
 
-    def test_unparseable_pytest_invocations_fail_closed(self) -> None:
-        commands = [
-            'pytest "$NODE',
-            '.venv/bin/python -m pytest "$NODE',
-            'true | pytest "$NODE',
-            'true | python -m pytest "$NODE',
-        ]
+    def test_quote_looking_pytest_arguments_are_literal_data(self) -> None:
+        arguments = ('"$NODE', "'unterminated")
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
-            for command in commands:
-                with self.subTest(command=command):
-                    card = card_with(validation=(
-                        "validation:\n"
-                        f"  - '{command}'\n"
-                    ))
+            for argument in arguments:
+                with self.subTest(argument=argument):
+                    card = card_with(
+                        validation=validation_entry(".", "pytest", argument),
+                        tests="tests:\n  - Literal pytest argv remains data.\n",
+                    )
 
                     result = self.run_validator(card, repo)
 
-                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                    self.assertIn("cannot parse command invoking pytest", result.stdout)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("no findings", result.stdout)
 
     def test_non_pytest_double_colon_token_is_not_a_pytest_selector(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
             card = card_with(
-                validation="validation:\n  - \"cargo test module::test_name\"\n")
+                validation="validation:\n  - \"cargo test module::test_name\"\n",
+                tests="tests:\n  - Exercise the Rust test selector.\n")
 
             result = self.run_validator(card, repo, "--strict")
 
@@ -465,11 +1313,13 @@ class ValidateCardTest(unittest.TestCase):
 
             result = self.run_validator(card, repo)
 
-            self.assertEqual(result.returncode, 0, "a dirtyable module is a warning, not an error")
-            self.assertIn("neither --rerun-tasks nor cleanTest", result.stdout)
-            self.assertEqual(self.findings(result, "ERROR"), [])
+            self.assertEqual(result.returncode, 1,
+                             "declared Java selectors require rerun protection in their segment")
+            self.assertIn("has no exact --rerun-tasks", result.stdout)
+            self.assertIn("declared Java validation must include exact --rerun-tasks",
+                          result.stdout)
 
-    def test_cleantest_satisfies_the_rerun_requirement(self) -> None:
+    def test_cleantest_does_not_satisfy_the_rerun_requirement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
             card = card_with(validation=textwrap.dedent("""\
@@ -479,7 +1329,9 @@ class ValidateCardTest(unittest.TestCase):
 
             result = self.run_validator(card, repo, "--strict")
 
-            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("must include exact --rerun-tasks", result.stdout)
+            self.assertIn("has no exact --rerun-tasks", result.stdout)
 
     def test_unrerunnable_test_of_a_module_the_card_cannot_write_is_an_error(self) -> None:
         """Nothing this task does can invalidate :app, so the task is UP-TO-DATE by construction."""
@@ -527,6 +1379,80 @@ class ValidateCardTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(self.findings(result, "ERROR"), [])
 
+    def test_pre_strict_accepts_absent_exact_production_and_create_test_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            production = "backend/core/src/main/java/com/acme/core/NewWidget.java"
+            test_path = "backend/core/src/test/java/com/acme/core/NewWidgetTest.java"
+            fqcn = "com.acme.core.NewWidgetTest"
+            card = card_with(
+                exclusive_writes=("exclusive_writes:\n"
+                                  f"  - {production}\n"
+                                  f"  - {test_path}\n"),
+                tests=f'tests:\n  - "Create: {test_path} :: {fqcn}"\n',
+                validation=("validation:\n  - \"cd backend && ./gradlew :core:test "
+                            f"--tests '{fqcn}' --rerun-tasks\"\n"),
+            )
+            result = self.run_validator(card, repo, "--strict", "--phase", "pre")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("no findings", result.stdout)
+
+    def test_pre_phase_missing_retain_java_path_still_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            test_path = "backend/core/src/test/java/com/acme/core/MissingRetainTest.java"
+            fqcn = "com.acme.core.MissingRetainTest"
+            card = card_with(
+                exclusive_writes=f"exclusive_writes:\n  - {test_path}\n",
+                tests=f'tests:\n  - "Retain: {test_path} :: {fqcn}"\n',
+                validation=("validation:\n  - \"cd backend && ./gradlew :core:test "
+                            f"--tests '{fqcn}' --rerun-tasks\"\n"),
+            )
+            result = self.run_validator(card, repo, "--strict", "--phase", "pre")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("does not exist exactly", result.stdout)
+
+    def test_post_phase_requires_every_exclusive_write_and_create_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            production = "backend/core/src/main/java/com/acme/core/NewWidget.java"
+            test_path = "backend/core/src/test/java/com/acme/core/NewWidgetTest.java"
+            fqcn = "com.acme.core.NewWidgetTest"
+            card = card_with(
+                exclusive_writes=("exclusive_writes:\n"
+                                  f"  - {production}\n"
+                                  f"  - {test_path}\n"),
+                tests=f'tests:\n  - "Create: {test_path} :: {fqcn}"\n',
+                validation=("validation:\n  - \"cd backend && ./gradlew :core:test "
+                            f"--tests '{fqcn}' --rerun-tasks\"\n"),
+            )
+            result = self.run_validator(card, repo, "--strict", "--phase", "post")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn(f"{production} must exist in post phase", result.stdout)
+            self.assertIn("still absent after implementation", result.stdout)
+
+    def test_pre_absent_path_exception_does_not_accept_unsafe_or_nonliteral_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for value in ("backend/new/**", "../escape.java", "/tmp/absolute.java",
+                          "backend/core/new-directory/"):
+                with self.subTest(value=value):
+                    card = card_with(exclusive_writes=f"exclusive_writes:\n  - {value}\n")
+                    result = self.run_validator(card, repo, "--strict", "--phase", "pre")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_extensionless_exact_files_pass_pre_and_fail_post_when_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for value in ("backend/core/Dockerfile", "backend/core/.gitignore"):
+                with self.subTest(value=value):
+                    card = card_with(exclusive_writes=f"exclusive_writes:\n  - {value}\n")
+                    pre = self.run_validator(card, repo, "--strict", "--phase", "pre")
+                    self.assertEqual(pre.returncode, 0, pre.stdout + pre.stderr)
+                    post = self.run_validator(card, repo, "--strict", "--phase", "post")
+                    self.assertEqual(post.returncode, 1, post.stdout + post.stderr)
+                    self.assertIn(f"{value} must exist in post phase", post.stdout)
+
     def test_stale_forbidden_paths_glob_is_a_warning_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
@@ -540,6 +1466,58 @@ class ValidateCardTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0)
             self.assertIn("backend/gonemodule/** matches nothing", result.stdout)
+
+    def test_absent_exact_forbidden_migrations_are_clean_fences(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            (repo / "backend/app/src/main/resources/db/migration/V187__emergency_stop.sql").unlink()
+            migration_dir = repo / "backend/app/src/main/resources/db/migration"
+            (migration_dir / "V77__previous.sql").write_text("-- previous\n", encoding="utf-8")
+            v78 = "backend/app/src/main/resources/db/migration/V78__durable_core.sql"
+            v79 = "backend/app/src/main/resources/db/migration/V79__raw_event.sql"
+            v80 = "backend/app/src/main/resources/db/migration/V80__receipts.sql"
+            card = card_with(
+                exclusive_writes=textwrap.dedent(f"""\
+                    exclusive_writes:
+                      - backend/core/src/main/java/com/acme/core/**
+                      - backend/core/src/test/java/com/acme/core/**
+                      - {v78}
+                    """),
+                forbidden_paths=f"forbidden_paths:\n  - {v79}\n  - {v80}\n",
+                frozen_values=("frozen_values: |\n"
+                               f"  Migration files are {v78}, {v79}, and {v80}.\n"),
+            )
+            pre = self.run_validator(card, repo, "--strict", "--phase", "pre")
+            self.assertEqual(pre.returncode, 0, pre.stdout + pre.stderr)
+            self.assertIn("no findings", pre.stdout)
+
+    def test_absent_unsafe_forbidden_paths_still_fail_strict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for value in ("backend/app/V79__*.sql", "../V79__escape.sql",
+                          "/tmp/V79__absolute.sql"):
+                with self.subTest(value=value):
+                    card = card_with(forbidden_paths=f"forbidden_paths:\n  - {value}\n")
+                    result = self.run_validator(card, repo, "--strict", "--phase", "pre")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_unpaired_higher_frozen_migration_still_warns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = card_with(
+                exclusive_writes=textwrap.dedent("""\
+                    exclusive_writes:
+                      - backend/core/src/main/java/com/acme/core/**
+                      - backend/core/src/test/java/com/acme/core/**
+                      - backend/app/src/main/resources/db/migration/V188__next.sql
+                    """),
+                frozen_values=("frozen_values: |\n"
+                               "  Migration files include "
+                               "backend/app/src/main/resources/db/migration/V190__unpaired.sql.\n"),
+            )
+            result = self.run_validator(card, repo)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("also names V190, above the V188 this card creates", result.stdout)
 
     def test_manifest_writable_but_its_pinning_test_is_not_is_an_error(self) -> None:
         """Card defect 3: a write set that cannot be satisfied, found through the loader class."""
@@ -1038,6 +2016,88 @@ class ValidateCardTest(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("names V187 but V187 already exists", result.stdout)
 
+    def test_owned_next_migration_passes_pre_then_post_after_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            migration = "backend/app/src/main/resources/db/migration/V188__next.sql"
+            card = card_with(
+                exclusive_writes=("exclusive_writes:\n"
+                                  "  - backend/core/src/main/java/com/acme/core/**\n"
+                                  "  - backend/core/src/test/java/com/acme/core/**\n"
+                                  f"  - {migration}\n"),
+                forbidden_paths="forbidden_paths:\n  - backend/forbidden.txt\n",
+                frozen_values='frozen_values:\n  - "migration version: V188"\n',
+            )
+
+            pre = self.run_validator(card, repo, "--strict", "--phase", "pre")
+            self.assertEqual(pre.returncode, 0, pre.stdout + pre.stderr)
+
+            target = repo / migration
+            target.write_text("-- next\n", encoding="utf-8")
+            post = self.run_validator(card, repo, "--strict", "--phase", "post")
+            self.assertEqual(post.returncode, 0, post.stdout + post.stderr)
+
+    def test_pre_rejects_owned_next_migration_when_it_already_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            migration = "backend/app/src/main/resources/db/migration/V188__next.sql"
+            (repo / migration).write_text("-- already present\n", encoding="utf-8")
+            card = card_with(
+                exclusive_writes=("exclusive_writes:\n"
+                                  "  - backend/core/src/main/java/com/acme/core/**\n"
+                                  "  - backend/core/src/test/java/com/acme/core/**\n"
+                                  f"  - {migration}\n"),
+                forbidden_paths="forbidden_paths:\n  - backend/forbidden.txt\n",
+                frozen_values='frozen_values:\n  - "migration version: V188"\n',
+            )
+
+            result = self.run_validator(card, repo, "--phase", "pre")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("names V188 but V188 already exists", result.stdout)
+
+    def test_post_rejects_owned_migration_when_a_higher_version_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            migration = "backend/app/src/main/resources/db/migration/V188__next.sql"
+            (repo / migration).write_text("-- intended\n", encoding="utf-8")
+            (repo / "backend/app/src/main/resources/db/migration/V189__later.sql").write_text(
+                "-- later\n", encoding="utf-8")
+            card = card_with(
+                exclusive_writes=("exclusive_writes:\n"
+                                  "  - backend/core/src/main/java/com/acme/core/**\n"
+                                  "  - backend/core/src/test/java/com/acme/core/**\n"
+                                  f"  - {migration}\n"),
+                forbidden_paths="forbidden_paths:\n  - backend/forbidden.txt\n",
+                frozen_values='frozen_values:\n  - "migration version: V188"\n',
+            )
+
+            result = self.run_validator(card, repo, "--phase", "post")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("names V188 but V189 already exists", result.stdout)
+
+    def test_post_rejects_top_migration_when_version_write_does_not_cover_top_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            migration_dir = repo / "backend/app/src/main/resources/db/migration"
+            (migration_dir / "V188__a_unowned.sql").write_text("-- top\n", encoding="utf-8")
+            owned = "backend/app/src/main/resources/db/migration/V188__z_owned.sql"
+            (repo / owned).write_text("-- owned same-version path\n", encoding="utf-8")
+            card = card_with(
+                exclusive_writes=("exclusive_writes:\n"
+                                  "  - backend/core/src/main/java/com/acme/core/**\n"
+                                  "  - backend/core/src/test/java/com/acme/core/**\n"
+                                  f"  - {owned}\n"),
+                forbidden_paths="forbidden_paths:\n  - backend/forbidden.txt\n",
+                frozen_values='frozen_values:\n  - "migration version: V188"\n',
+            )
+
+            result = self.run_validator(card, repo, "--phase", "post")
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("names V188 but V188 already exists", result.stdout)
+
     def test_exclusive_writes_anchors_the_intended_migration_version(self) -> None:
         """frozen_values may cite the stale plan value while correcting it; the write set decides."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -1138,12 +2198,7 @@ class ValidateCardTest(unittest.TestCase):
     # parser cannot represent fails loudly instead of being skipped — is now pinned by
     # `test_anchors_aliases_and_tags_still_fail_loudly` and its neighbours below.
 
-    def test_nested_mapping_parses_and_every_leaf_still_reaches_the_checks(self) -> None:
-        """Grouping `validation` by module must parse — and must not hide a bogus filter.
-
-        This is the check that matters. Parsing nesting is easy; parsing it and then quietly
-        handing the checks an empty list would turn the whole validator into theatre.
-        """
+    def test_nested_validation_grouping_is_rejected_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
             card = card_with(validation=textwrap.dedent("""\
@@ -1157,7 +2212,9 @@ class ValidateCardTest(unittest.TestCase):
             result = self.run_validator(card, repo)
 
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            self.assertIn("no class named NoSuchTest exists", result.stdout)
+            errors = self.findings(result, "ERROR")
+            self.assertEqual(len(errors), 1, result.stdout)
+            self.assertIn("non-empty sequence of mappings", errors[0])
 
     def test_a_nested_mapping_card_with_nothing_wrong_is_clean(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1171,8 +2228,8 @@ class ValidateCardTest(unittest.TestCase):
 
             result = self.run_validator(card, repo, "--strict")
 
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("no findings", result.stdout)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[review] unknown field", result.stdout)
 
     def test_list_of_mappings_parses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1187,8 +2244,8 @@ class ValidateCardTest(unittest.TestCase):
 
             result = self.run_validator(card, repo, "--strict")
 
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("no findings", result.stdout)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("[review] unknown field", result.stdout)
 
     def test_nested_shapes_project_to_their_leaves_without_dropping_any(self) -> None:
         parse_card, as_list = self.import_parser()
@@ -1256,10 +2313,8 @@ class ValidateCardTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("multi-document YAML is not supported", result.stderr)
 
-    def test_a_required_field_that_nests_to_nothing_is_reported_not_ignored(self) -> None:
-        """A nested block with no scalar leaf must read as empty and fail the required-field
-        check. The failure mode this forbids is a `validation:` that parses to a shape the checks
-        cannot see and therefore never complain about."""
+    def test_validation_mapping_that_nests_to_nothing_is_rejected_once(self) -> None:
+        """A grouping mapping is a shape error owned solely by the validation decoder."""
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
             card = card_with(validation="validation:\n  core:\n    unit: \"\"\n")
@@ -1267,7 +2322,9 @@ class ValidateCardTest(unittest.TestCase):
             result = self.run_validator(card, repo)
 
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            self.assertIn("[validation] required field is present but empty", result.stdout)
+            errors = self.findings(result, "ERROR")
+            self.assertEqual(len(errors), 1, result.stdout + result.stderr)
+            self.assertIn("non-empty sequence of mappings", errors[0])
 
     def test_duplicate_key_fails_loudly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

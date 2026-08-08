@@ -27,10 +27,26 @@ A build tool will happily report `UP-TO-DATE` and `BUILD SUCCESSFUL` having exec
 and exit 0 while doing it. That is not evidence, and reporting it as a pass is the most common way a
 gate lies.
 
-So: run gates in a form that cannot be served from cache — `--rerun-tasks`, `cleanTest`, or whatever
-the tool's equivalent is — and take your counts from the machine-readable results (JUnit XML and its
-kin), never from a console line. Many runners print no summary at all, so a count read off a log is
-one you invented.
+So: run gates in a form that cannot be served from cache. For Gradle, exact `--rerun-tasks` is the
+only accepted freshness evidence; `cleanTest` does not qualify. For another tool, use its verified
+equivalent. Take counts from machine-readable results (JUnit XML and its kin), never from a console
+line. Many runners print no summary at all, so a count read off a log is one you invented.
+
+If the gate writes, do not run it against the source referent. The controller must first freeze
+writers, bind the exact referent to a canonical manifest, and give you a manifest-equal standalone
+copy plus a custom inner permission profile. Because your outer sandbox is read-only, request
+approval for the **exact sandbox-launch** command only. The approved nested sandbox launch is:
+
+```text
+env CODEX_HOME=<temporary-home> codex sandbox -p gate -P copy-write -C <copy> -- <exact gate argv>
+```
+
+Approval moves only the launcher outside the outer boundary; never run the gate itself unsandboxed.
+The launcher immediately enters the inner profile, which grants source read, copy write, and
+network disabled; your source remains read-only. Plain nested execution cannot widen the outer
+sandbox. Report the referent and manifest hash, commands, exit code, failures, counts/skips, and
+unchanged-source check. Stop on ambiguous inputs, manifest mismatch, nested-sandbox failure,
+cached/zero/skipped execution, a required boundary bypass, or failed cleanup.
 
 If a filter matched nothing, say so. A test filter naming a class that does not exist is silently
 ignored by most runners, and the build still reports success.

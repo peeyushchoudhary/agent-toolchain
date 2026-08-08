@@ -60,6 +60,9 @@ class MethodologySyncTest(unittest.TestCase):
         )
         return repo
 
+    def test_breaking_direct_validation_contract_is_version_2(self) -> None:
+        self.assertEqual(installed_version(), "2.0")
+
     def test_render_then_check_is_clean(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
@@ -269,6 +272,37 @@ class MethodologySyncTest(unittest.TestCase):
             self.assertEqual(listed.returncode, 0, listed.stdout + listed.stderr)
             self.assertIn(f"version     {installed_version()}", listed.stdout)
             self.assertIn(f"[v{installed_version()}]", listed.stdout)
+
+    def test_public_junit_guidance_says_skips_fail_evidence(self) -> None:
+        for relative in ("SKILL.md", "methodology.md", "references/task-card.md"):
+            with self.subTest(relative=relative):
+                text = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
+                self.assertIn(
+                    "failures, errors, and skips all fail",
+                    text,
+                    f"{relative} must say failures, errors, and skips fail JUnit evidence",
+                )
+
+    def test_junit_trust_boundary_and_nested_sandbox_are_published_consistently(self) -> None:
+        for relative in ("SKILL.md", "methodology.md", "references/task-card.md"):
+            with self.subTest(relative=relative):
+                body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
+                self.assertIn("not tamper-resistant", body)
+                self.assertIn("local writer", body)
+                self.assertIn("nested sandbox", body)
+                self.assertIn("codex sandbox -p gate -P copy-write", body)
+                self.assertNotIn("cleanTest qualifies", body)
+
+    def test_approved_outer_launch_inner_profile_and_cache_boundary_are_explicit(self) -> None:
+        for relative in ("SKILL.md", "methodology.md", "references/task-card.md"):
+            with self.subTest(relative=relative):
+                body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
+                self.assertRegex(body, r"approved.*nested|nested.*approved|exact sandbox-launch")
+                self.assertIn("source read", body)
+                self.assertIn("copy write", body)
+                self.assertIn("network disabled", body)
+                self.assertIn("cache restore", body)
+                self.assertIn("--rerun-tasks", body)
 
 
 @unittest.skipUnless(VALIDATOR.is_file(), "progressive-disclosure validator is not installed")

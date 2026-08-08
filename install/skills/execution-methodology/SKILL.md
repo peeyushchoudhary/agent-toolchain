@@ -123,6 +123,7 @@ card does not name. The schema and a worked example are in
 ```bash
 validate_card.py CARD_PATH --repo REPO_ROOT            # exit 1 on any ERROR
 validate_card.py CARD_PATH --repo REPO_ROOT --strict   # exit 1 on warnings too
+validate_card.py CARD_PATH --repo REPO_ROOT --strict --phase post  # after implementation
 ```
 
 A card asserts that certain paths and tests exist, and everything downstream trusts it. The first
@@ -139,6 +140,80 @@ Two fields carry most of the value:
 - **`gate_risk`** names the bookkeeping artifacts the task touches — contracts, manifests,
   taxonomies, inventories, registries. Those are what fail an hour into a full gate run, and naming
   them lets the task check them in thirty seconds instead.
+
+Java tests are declared in `tests` as exact path/class pairs (`Create: path/Test.java :: fqcn` or
+`Retain: path/Test.java :: fqcn`). Exact Java Gradle `--tests` class selectors and declarations are
+one-to-one; prose cannot substitute for either side.
+`--phase pre` (the default) permits an owned `Create` path to be absent; `--phase post` requires the
+same declaration to exist, declare the expected package and top-level class, and contain a JUnit
+test, so the card is never relabelled during its life. Selectors and rerun protection must occur in
+the same direct Gradle `argv`; only `argv[0]` identifies the executable, so another argument cannot
+lend Gradle evidence. `--rerun-tasks` is the only accepted Gradle freshness proof. `clean`,
+`cleanTest`, qualified clean tasks, exclusions, properties, option operands, and every other token
+do not count. An active v2 card that used a clean task as freshness evidence must add the exact
+`--rerun-tasks` member; historical cards are not rewritten.
+Pre phase also permits an absent `exclusive_writes` entry only when it is a safe, exact,
+repository-relative file literal. Post phase requires every write path and every Java declaration
+to exist. This deliberately defers an indistinguishable new-file typo to the mandatory post check;
+globs, metacharacters, directories, absolute paths, and escapes never receive that exception.
+An absent safe exact `forbidden_paths` literal has the opposite meaning: it proves the fenced path
+is absent and is clean in both phases. Existing forbidden boundaries are also valid, provided they
+do not overlap `exclusive_writes`. When frozen migration text repeats a higher version paired to an
+exact forbidden migration path, that repetition is fencing evidence rather than stale intent.
+
+Every `validation` entry is one mapping with exactly `cwd` and `argv`. `cwd` is `.` or an existing,
+normalized repository-relative directory with no symlink component; `argv` is a non-empty sequence
+of non-empty strings.
+There is no shell layer, grouping map, or legacy string form: pipelines, redirects, environment
+assignments, and compound commands must be expressed as separate direct validation entries or moved
+to a repository script with a shebang. The rejected shell basenames are exactly `sh`, `bash`,
+`dash`, `zsh`, `ksh`, `mksh`, `csh`, `tcsh`, `fish`, `ash`, `pwsh`, `powershell`, `cmd`, and
+`cmd.exe`. Literal shell-looking arguments remain ordinary data; unlisted wrappers are direct
+processes but never lend nested executable evidence.
+When `argv[0]` contains `/` and is not absolute, it resolves from `cwd`, must remain inside the
+repository, and must name an executable regular file. Direct text scripts must start with a
+byte-zero `#!` shebang; executable binary files are accepted. Bare PATH names remain intentionally
+unchecked and absolute executable behaviour is unchanged. A command-root failure invalidates that
+entry once, before dependent evidence checks run.
+
+Nested Java selectors normalize `$` to `.`, but only an exact member-type chain found in the
+containing source after comments and strings are removed establishes existence. Capitalization is
+never evidence. An exact owned `Create` declaration may establish the pre-phase expectation; post
+phase requires the complete declared chain in source. Nested declarations use the containing outer
+source path and the full nested FQCN.
+
+This is **task-card validation contract v2**. v1 cards are invalid under v2 because their validation
+items are strings; v2 cards are invalid under v1 because the old validator flattens mappings rather
+than decoding processes. Migrate each scalar by moving a leading working-directory change into
+`cwd` and writing the executable plus arguments as `argv`; split multiple processes into separate
+entries or move their orchestration into a directly invoked repository script. Revalidate the
+unchanged card in both phases after migration.
+
+For Gradle/JUnit evidence, create a new single-use nonce receipt with `scripts/start_junit_run.py`
+immediately before the test task, then pass it to `scripts/verify_junit.py`. The verifier requires
+every XML file to be created/modified after that boundary, records the receipt hash and nonce, and
+consumes it. JUnit failures, errors, and skips all fail evidence verification. The canonical
+invocation is in `references/task-card.md`.
+
+This evidence detects accidental pre-existing, same-content, unchanged, malformed, replayed,
+failed, errored, skipped, or count-inconsistent results. It does not detect a cache restore that
+writes plausible valid XML after the boundary. Exact runner rerun settings prevent cache use; for
+Gradle that evidence is exact `--rerun-tasks`. The receipt is **not tamper-resistant**: a deliberate
+local writer that controls the XML and evidence files can fabricate them. This is a freshness and
+consistency check inside that trust boundary, not hostile-writer attestation.
+
+A read-only Codex `test-judge` does not run a write-producing gate against the source referent.
+The controller freezes writers, identifies the referent by committed tree or `HEAD` plus a canonical
+path/type/mode/content manifest, and materializes a manifest-equal standalone copy under a fresh
+temporary root with no source `.git`, hard links, ignored outputs, unresolved external objects, or
+escaping symlinks. Because the outer judge is read-only, it requests approval for the **exact
+sandbox-launch** command only. The approved nested sandbox launch is
+`env CODEX_HOME=<temporary-home> codex sandbox -p gate -P copy-write -C <copy> -- <exact gate argv>`.
+Approval moves only that launcher outside the outer boundary; it never runs the gate unsandboxed.
+The launcher immediately enters the custom inner profile, which grants source read, copy write, and
+network disabled. Source and copy manifests are compared before dispatch and the source is rechecked
+afterward. Ambiguity, mismatch, sandbox failure, cached/zero/skipped execution, or failed cleanup
+blocks the gate.
 
 ## Spec templates
 
