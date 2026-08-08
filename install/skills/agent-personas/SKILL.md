@@ -112,8 +112,16 @@ sub-subagent rather than say so. `test-judge` is the only judge holding a shell 
 denies `Bash` (five of them locally, as above), and every dispatch tool stays denied on all six, so
 `test-judge` still cannot author a fix or hand the work to something that can. The residual — edits
 through shell redirection — is covered by instruction rather than restriction, which is weaker, and
-its body says so plainly. Codex is unaffected: `read-only` permits execution and forbids writes,
-which is exactly the shape wanted.
+its body says so plainly. Codex remains `read-only`. A gate that writes therefore runs only against
+a controller-prepared, manifest-bound standalone copy inside a nested sandbox; the source referent
+is never made writable to the judge. The controller supplies the copy and custom inner profile. The
+judge requests approval for the **exact sandbox-launch** command only; the approved nested launch is
+`env CODEX_HOME=<temporary-home> codex sandbox -p gate -P copy-write -C <copy> -- <exact gate argv>`.
+Approval moves only the launcher outside the outer read-only boundary and never runs the gate
+unsandboxed. The launcher immediately enters the inner profile, which grants source read, copy
+write, and network disabled. Manifest mismatch, ambiguous inputs, nested-sandbox failure,
+cached/zero/skipped execution, or failed cleanup blocks the gate. Exact `--rerun-tasks` is the only
+Gradle freshness evidence; `cleanTest` never qualifies.
 
 A consequence worth stating because it looks like an oversight: **judges cannot write their own
 reports.** Do not resolve that by granting a write tool. The judge returns its findings and the

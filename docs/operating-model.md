@@ -36,6 +36,19 @@ harness.
 
 **GitHub is storage.** Nothing deploys from it, nothing runs on it. See [github.md](github.md).
 
+**Execution is goal-bound.** The approved plan owns one Goal Capsule: the actor outcome, one primary
+externally observable outcome, the named safety and regression invariants that make it trustworthy,
+non-goals and prohibited claims, the allowed interface/write boundary, known and unknown external
+facts, and the stop condition. Cards reference its criteria through the existing card fields; they
+do not copy it or invent another authority.
+
+Before implementation or a review repair, classify the finding and name the capsule criterion or
+invariant advanced plus the expected observable delta. A vague request produces a proposed capsule
+for approval. Ambiguity that changes acceptance, safety, authority, or an irreversible boundary
+returns to the appropriate human gate; bounded non-material ambiguity is recorded as an assumption.
+The detailed admission and repair rules live in the execution methodology. See
+[D14](decisions.md#d14--repairs-are-bound-to-one-approved-outcome).
+
 ## Deliberately not done
 
 These look like gaps and are not. Do not "fix" them.

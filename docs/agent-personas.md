@@ -46,6 +46,16 @@ harder.
 A judge that **cannot** edit is a stronger guarantee than one instructed not to, and it removes the
 failure where a reviewer finds a defect and quietly patches it so the defect is never recorded.
 
+`test-judge` is still able to verify a gate that writes. The controller freezes writers, binds the
+referent to a canonical manifest, and supplies a manifest-equal standalone copy plus a custom inner
+profile. The judge's source access remains read-only and it requests approval for the **exact
+sandbox-launch** only. The approved nested launch is
+`env CODEX_HOME=<temporary-home> codex sandbox -p gate -P copy-write -C <copy> -- <exact gate argv>`.
+Approval moves only the launcher outside the outer boundary; it immediately enters the inner
+profile granting source read, copy write, and network disabled. The gate never runs unsandboxed. A
+mismatch, ambiguous input, sandbox failure, cached/zero/skipped run, or failed cleanup blocks the
+result. For Gradle, only exact `--rerun-tasks` establishes freshness; `cleanTest` does not.
+
 **`architect` is the exception.** It may write so it can author ADRs, limited to
 `docs/architecture/` and `docs/decisions/` — but tool restriction cannot be scoped to a path, so
 that limit is an instruction, not a guarantee. It is the one persona whose boundary is soft.
