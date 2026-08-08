@@ -20,7 +20,7 @@ Implementation: `~/.claude/skills/agent-personas/`. Specialists:
 | `chief-of-staff` holds the loop, dispatches, keeps the ledger | ledger, task cards, and reports only | not measured | `opus` | `gpt-5.6-sol` | high |
 | `architect` is this the right shape | design docs only | ~4 | `opus` | `gpt-5.6-sol` | high |
 | `contract-architect` API, schema, migrations | yes | ~3 | `opus` | `gpt-5.6-sol` | high |
-| `reviewer` independent, cannot edit | no | ~20 | `opus` | `gpt-5.6-sol` | high |
+| `reviewer` independently falsifies design, plan, or implementation; cannot edit | no | ~20 | `opus` | `gpt-5.6-sol` | high |
 | `security-validator` consent, authz, PHI | no | ~5 | `opus` | `gpt-5.6-sol` | high |
 | `acceptance` milestone judge, cannot edit | no | 1 | `opus` | `gpt-5.6-sol` | xhigh |
 
@@ -45,6 +45,14 @@ harder.
 
 A judge that **cannot** edit is a stronger guarantee than one instructed not to, and it removes the
 failure where a reviewer finds a defect and quietly patches it so the defect is never recorded.
+
+The `reviewer` handles design before Gate 1, plan before Gate 2, and post-code implementation.
+Post-code review defaults to Implementation unless Design or Plan is named, preserving existing
+dispatches. Pre-gate review uses the harness's fresh-thread primitive—`fork_turns: "none"` in
+Codex—and artifact paths, not author rationale. `PASS` is valid; blockers need a concrete
+counterexample tied to frozen authority. Scoped rereview adds the persisted finding, correction or
+diff, corrected artifact, and governing frozen artifacts. One read-only role preserves the finding
+contract without a fourteenth overlapping persona.
 
 `test-judge` is still able to verify a gate that writes. The controller freezes writers, binds the
 referent to a canonical manifest, and supplies a manifest-equal standalone copy plus a custom inner
@@ -81,7 +89,7 @@ Personas are harness-neutral markdown with flat dotted frontmatter keys:
 ```yaml
 ---
 name: reviewer
-description: Use after code is written and before it lands…
+description: Use before design and plan gates or after implementation…
 writes: no
 claude.model: opus
 claude.effort: high

@@ -53,6 +53,12 @@ Append at the end — a new top-level table is safe there. These defaults apply 
 agent specifies neither model nor effort; every persona sets both, so they are a backstop. **Parent
 session settings are unaffected.**
 
+For pre-Gate 1 design review, pre-Gate 2 plan review, and their scoped rereviews, spawn `reviewer`
+with `fork_turns: "none"`. The default full-history fork is useful for ordinary delegated work but
+is not independent review; a prompt that says to ignore inherited history does not make it fresh.
+Pass named artifact paths only. A scoped rereview additionally names the persisted original finding,
+correction or diff, corrected artifact, and governing frozen artifacts.
+
 ### 2. Render the personas
 
 ```bash

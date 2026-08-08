@@ -26,7 +26,9 @@ and installer behaviour: [install/README.md](install/README.md).
 The repository currently ships six published skills, thirteen generated personas, local session and
 Git guards, a cross-harness installer, and executable verification for the published toolchain. The
 execution methodology is at contract v2: work is bound to one approved outcome, validation commands
-are direct processes, Gradle evidence must use exact `--rerun-tasks`, and JUnit receipts verify that
+are direct processes, and fresh read-only review tries to falsify designs and plans before their
+human gates. A clean `PASS` is valid; concrete evidence and a bounded rereview stop review from
+inventing work. Gradle evidence must use exact `--rerun-tasks`, and JUnit receipts verify that
 post-boundary XML records the expected classes and counts without failures, errors, or skips.
 Receipts do not establish test execution on their own or detect a cache restore that writes
 plausible valid XML after the start; exact runner rerun settings provide that execution evidence and
@@ -73,7 +75,7 @@ behaviour stays in those linked documents instead of being copied into the front
 | Route, repository taxonomy, and migration | A short, validated task route plus a common repository layout; the migrator plans or applies a link-preserving move into that layout. | [Progressive disclosure](docs/progressive-disclosure.md) · [Repository standard](docs/repository-standard.md) |
 | Onboarding and shared skills | A repeatable way to add the route, per-clone hooks, and published workflows to a project; the installer mirrors shared skills to both harnesses. | [Install](install/README.md) · [Onboarding](docs/onboarding-a-project.md) · [`project-onboarding`](install/skills/project-onboarding/SKILL.md) |
 | Personas and specialists | Thirteen base personas with deliberate role, model, effort, and write boundaries; project specialists are derived from the repository's guardrails, architecture, and product requirements. | [Agent personas](docs/agent-personas.md) |
-| Controlled execution and independent judges | A scope → build → review → test loop with task cards and a builder who never approves their own work. | [Operating model](docs/operating-model.md) |
+| Controlled execution and independent judges | Fresh review falsifies design and plan before approval; a bounded scope → build → review → test loop then uses task cards and a builder who never approves their own work. | [Operating model](docs/operating-model.md) |
 | Environment, drift, and learning signals | Preflight catches machine gaps; checks distinguish machine-global Claude/Codex mirror drift from installed-versus-published vendored-layer drift; repository lessons preserve corrections. | [`preflight.sh`](install/hooks/preflight.sh) · [`check_toolchain.py`](install/skills/progressive-disclosure/scripts/check_toolchain.py) · [`verify.sh`](install/verify.sh) |
 | Local project proof and Git safety | Focused tests, project gates, and local E2E establish project readiness; identifier and push guards protect commit and push. | [Operating model](docs/operating-model.md) · [`identifier_guard.py`](install/skills/progressive-disclosure/scripts/identifier_guard.py) · [`push_guard.py`](install/skills/progressive-disclosure/scripts/push_guard.py) |
 
@@ -92,7 +94,7 @@ session signals are Claude-specific. Neither replaces repository knowledge.
 | 1. Repository route | A repository declares its contract and task routes in `AGENTS.md` and `docs/agents/`; the repository standard supplies the common taxonomy and a migrator. | `AGENTS.md`, `docs/agents/`, [`validate_disclosure.py`](install/skills/progressive-disclosure/scripts/validate_disclosure.py), [repository standard](docs/repository-standard.md) | Durable, shared context reduces rediscovery and makes stale links visible. |
 | 2. Shared capabilities | The published vendored layer provides reusable skills; the persona pool defines role, model, effort, and write boundaries. Session signals remain Claude-only. | [Published skill declaration](docs/README.md), [persona sources and generator](docs/agent-personas.md), [`verify.sh`](install/verify.sh) | Repeatable work patterns and consistent role routing; the verifier can compare this repository's published layer with installed state. |
 | 3. Harness layer | Claude Code and Codex consume the same repository knowledge; skills are mirrored and personas are rendered for each harness. A persona stays in the harness being driven. | [Installation inventory](docs/what-gets-installed.md), [`install_hooks.py`](install/skills/progressive-disclosure/scripts/install_hooks.py), [no cross-harness dispatch](docs/agent-personas.md#no-cross-harness-dispatch) | One repository route works across both harnesses without cross-harness dispatch. |
-| 4. Controlled work loop | Work moves through scope → build → review → test using the execution methodology and task cards. Judges are independent; a builder does not approve their own work. | [Operating model](docs/operating-model.md), [full adoption walkthrough](docs/full-adoption.md) | Independent verification and clearer, safer handoffs. |
+| 4. Controlled work loop | Fresh, read-only review tries to falsify design and plan before their human gates; approved work then moves through scope → build → review → test using task cards. Judges are independent; a builder does not approve their own work. | [Operating model](docs/operating-model.md), [full adoption walkthrough](docs/full-adoption.md) | Expensive mistakes surface before implementation, while evidence thresholds and one bounded rereview prevent review-driven scope drift. |
 | 5. Local proof | Focused and adjacent tests lead to a project's area gate, then full local E2E with real services. Environment preflight and Git hooks protect commit and push; this repository's `verify.sh` proves only its published tooling and installation. | [Operating model](docs/operating-model.md), [`preflight.sh`](install/hooks/preflight.sh), [`identifier_guard.py`](install/skills/progressive-disclosure/scripts/identifier_guard.py), [`push_guard.py`](install/skills/progressive-disclosure/scripts/push_guard.py), [`verify.sh`](install/verify.sh) | Local gates decide readiness; failures and unknowns are reported honestly without mistaking toolchain verification for a project's production-path proof. |
 | 6. PR and audit trail | GitHub stores code and configuration; milestone PRs and merge commits preserve the audit trail after local proof. It does not run hosted CI or deploy work. | [GitHub policy](docs/github.md) | Durable backup and history without mistaking a push for validation. |
 
@@ -143,11 +145,16 @@ remains the authority for behaviour; each entry points to the implementation it 
 
 The [execution methodology](install/skills/execution-methodology/methodology.md) now binds each
 implementation and review repair to one approved Goal Capsule, classifies findings before they can
-become scope, and returns repeated causal failure to a human plan gate. Task-card validation contract
-v2 replaces shell command strings with direct `{cwd, argv}` processes and accepts only exact
-`--rerun-tasks` as Gradle freshness evidence. Single-use JUnit receipts verify post-boundary XML
-freshness and consistency and reject pre-existing or same-content XML, replay, count mismatches,
-failures, errors, and skips; the exact uncached runner command establishes execution.
+become scope, and returns repeated causal failure to a human plan gate. Contract v2.1 also casts the
+existing read-only reviewer in fresh design and plan modes before their approval gates. `PASS` is a
+valid outcome; blocking findings need a reachable counterexample and artifact evidence, and one
+correction plus one scoped rereview prevents an adversarial pass from becoming an endless debate.
+
+Task-card validation contract v2 replaces shell command strings with direct `{cwd, argv}` processes
+and accepts only exact `--rerun-tasks` as Gradle freshness evidence. Single-use JUnit receipts verify
+post-boundary XML freshness and consistency and reject pre-existing or same-content XML, replay,
+count mismatches, failures, errors, and skips; the exact uncached runner command establishes
+execution.
 
 [`verify.sh`](install/verify.sh) executes the published vendored suites and reports what each proved:
 tests run, skips or not-tested status, failures, or inability to run. The installer also derives the

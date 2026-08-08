@@ -29,6 +29,20 @@ paraphrasing a failure.
 assumed. That is the entire reason the persona pool exists, and why its judging roles are
 structurally unable to edit — see [agent-personas.md](agent-personas.md).
 
+**Design and plan are independently falsified before approval.** A fresh, read-only `reviewer`
+receives named artifact paths without the author's conversation or rationale and tries to construct
+a counterexample against frozen criteria and invariants. `PASS` is valid; blockers require a
+reachable trigger, observable consequence, and artifact evidence. The author gets one correction
+and one scoped rereview; recurrence returns the design to Gate 1 or the plan to Gate 2. This catches
+expensive mistakes before implementation without creating a flaw quota or an open-ended consensus
+loop.
+
+Freshness is operational: Codex uses `fork_turns: "none"`, and another harness uses its equivalent
+fresh-thread primitive; telling an inherited context to ignore its history is not isolation. A
+scoped rereview receives paths to the persisted original finding, correction or diff, corrected
+artifact, and governing frozen artifacts. Post-code review remains backward-compatible by
+defaulting to Implementation unless Design or Plan is explicitly named.
+
 **Context switches across projects are constant.** Assume no memory of another project. This is why
 every repo carries its own route (`docs/agents/README.md`) and its own `docs/agents/lessons.md`,
 rather than relying on an agent's private memory — one agent's memory is invisible to every other
@@ -47,7 +61,7 @@ invariant advanced plus the expected observable delta. A vague request produces 
 for approval. Ambiguity that changes acceptance, safety, authority, or an irreversible boundary
 returns to the appropriate human gate; bounded non-material ambiguity is recorded as an assumption.
 The detailed admission and repair rules live in the execution methodology. See
-[D14](decisions.md#d14--repairs-are-bound-to-one-approved-outcome).
+[D14](decisions.md#d14--bounded-repairs-and-review).
 
 ## Deliberately not done
 

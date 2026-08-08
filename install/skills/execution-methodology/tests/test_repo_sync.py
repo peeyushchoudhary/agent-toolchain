@@ -18,6 +18,8 @@ VALIDATOR = (Path.home() / ".claude" / "skills" / "progressive-disclosure"
              / "scripts" / "validate_disclosure.py")
 TARGET_REL = Path("docs") / "agents" / "execution" / "methodology.md"
 OVERLAY_REL = Path("docs") / "agents" / "execution" / "overlay.md"
+REVIEWER = SKILL.parent / "agent-personas" / "personas" / "reviewer.md"
+PERSONA_GUIDE = REVIEWER.parents[1] / "SKILL.md"
 
 
 def write_overlay(repo: Path, text: str, encoding: str = "utf-8") -> None:
@@ -60,8 +62,81 @@ class MethodologySyncTest(unittest.TestCase):
         )
         return repo
 
-    def test_breaking_direct_validation_contract_is_version_2(self) -> None:
-        self.assertEqual(installed_version(), "2.0")
+    def test_additive_pre_gate_review_contract_is_version_2_1(self) -> None:
+        self.assertEqual(installed_version(), "2.1")
+
+    def test_pre_gate_adversarial_review_contract_is_published(self) -> None:
+        for relative in ("SKILL.md", "methodology.md"):
+            with self.subTest(relative=relative):
+                body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
+                self.assertIn("fresh, isolated, read-only `reviewer`", body)
+                self.assertIn("only named artifact paths, never the author conversation", body)
+                self.assertIn("`PASS` is valid; there is no finding quota", body)
+                self.assertIn(
+                    "criterion or invariant, a reachable trigger or state sequence, the observable "
+                    "consequence, artifact evidence, severity, and the smallest correction or human "
+                    "decision",
+                    body,
+                )
+                self.assertIn("one correction and one scoped rereview", body)
+                self.assertIn("Design recurrence returns to Gate 1", body)
+                self.assertIn("plan recurrence returns to Gate 2", body)
+                self.assertIn('`fork_turns: "none"`', body)
+                self.assertIn("equivalent fresh-thread primitive", body)
+                self.assertIn("Prompt wording alone does not establish isolation", body)
+                self.assertIn("persisted original finding or report path", body)
+                self.assertIn("correction or diff path", body)
+                self.assertIn("corrected artifact path", body)
+                self.assertIn("governing frozen artifact paths", body)
+                self.assertIn(
+                    "defaults to Implementation unless Design or Plan is explicitly named",
+                    body,
+                )
+
+        reviewer = " ".join(REVIEWER.read_text(encoding="utf-8").split())
+        self.assertIn("**Design** — before Gate 1", reviewer)
+        self.assertIn("**Plan** — before Gate 2", reviewer)
+        self.assertIn("**Implementation** — after code is written", reviewer)
+        self.assertIn(
+            "For design and plan review, arrive fresh and isolated. Receive named artifact paths, "
+            "not the author conversation",
+            reviewer,
+        )
+        self.assertIn(
+            "criterion or invariant, the reachable trigger or state sequence, the observable "
+            "consequence, artifact evidence, severity, and the smallest correction or human "
+            "decision",
+            reviewer,
+        )
+        self.assertIn("Never invent a defect to satisfy a quota: `PASS` is valid", reviewer)
+        self.assertIn(
+            "On a scoped rereview, inspect the correction and the causal area it touches",
+            reviewer,
+        )
+        self.assertIn("Do not author or apply the correction yourself", reviewer)
+        self.assertIn("widen the rereview into a consensus loop", reviewer)
+        self.assertIn("fresh-thread primitive", reviewer)
+        self.assertIn("persisted original finding or report path", reviewer)
+        self.assertIn("correction or diff path", reviewer)
+        self.assertIn("corrected artifact path", reviewer)
+        self.assertIn("governing frozen artifact paths", reviewer)
+        self.assertIn(
+            "defaults to Implementation unless Design or Plan is explicitly named",
+            reviewer,
+        )
+
+        persona_guide = " ".join(PERSONA_GUIDE.read_text(encoding="utf-8").split())
+        self.assertIn('`fork_turns: "none"`', persona_guide)
+        self.assertIn("equivalent fresh-thread primitive", persona_guide)
+        self.assertIn("Prompt wording alone does not establish isolation", persona_guide)
+        self.assertIn("persisted original finding or report path", persona_guide)
+        self.assertIn("correction or diff path", persona_guide)
+        self.assertIn("corrected artifact path", persona_guide)
+        self.assertIn("governing frozen artifact paths", persona_guide)
+        self.assertIn(
+            "defaults to Implementation unless Design or Plan is explicitly named",
+            persona_guide,
+        )
 
     def test_render_then_check_is_clean(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
