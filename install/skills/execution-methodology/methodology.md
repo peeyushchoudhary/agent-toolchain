@@ -77,13 +77,13 @@ FEATURE SPEC        scope · user stories · behaviour · edge cases
     │               → product-steward
     ▼
 DESIGN              structure, boundaries, invariants at risk
-    │               → architect, reviewed by domain specialists
+    │               → architect, reviewed by domain specialists, then adversarial reviewer
     │
     ╞══════════════ GATE 1 — human approves the design
     ▼
 PLAN                Goal Capsule · file structure · task decomposition
     │               FROZEN interfaces including payloads
-    │               → planner, with contract-architect on boundaries
+    │               → planner, with contract-architect on boundaries, then adversarial reviewer
     │
     ╞══════════════ GATE 2 — human approves the plan
     ▼
@@ -198,6 +198,37 @@ encountered by that path, while naming adjacent-regression checks for final acce
 existing or native primitive. A new abstraction is admitted only when the plan records what the
 native primitive cannot satisfy; proof machinery with its own durable authority, persistence,
 compatibility, recovery lifecycle, or reusable API is a new product boundary and returns to Gate 1.
+
+### Pre-gate adversarial review
+
+After domain-specialist review and before Gate 1 or Gate 2, cast the existing `reviewer` in design
+or plan mode. Domain specialists remain additive: their focused judgement does not replace this
+independent attempt to falsify the whole artifact. Existing implementation review stays unchanged.
+
+Give a fresh, isolated, read-only `reviewer` only named artifact paths, never the author conversation
+or rationale. The paths identify the artifact under review and the frozen specifications, criteria,
+and invariants that govern it; do not include an author summary arguing for the proposed answer.
+The reviewer tries to construct a reachable counterexample. `PASS` is valid; there is no finding
+quota, and review cannot require a defect to be invented.
+
+Freshness is a dispatch property. In Codex, dispatch the pre-gate review and scoped rereview with
+`fork_turns: "none"`; another harness must use its equivalent fresh-thread primitive. Prompt wording
+alone does not establish isolation. A post-code reviewer dispatch defaults to Implementation unless
+Design or Plan is explicitly named, preserving existing implementation-review callers.
+
+A blocking finding names the frozen criterion or invariant, a reachable trigger or state sequence,
+the observable consequence, artifact evidence, severity, and the smallest correction or human
+decision. Preferences, speculative future hardening, and invented requirements are non-blocking.
+The reviewer reports the correction but never authors or applies it.
+
+The author gets one correction and one scoped rereview of that correction and its causal area. The
+rereview packet names the persisted original finding or report path, correction or diff path,
+corrected artifact path, and governing frozen artifact paths; it excludes author conversation and
+rationale. If the same causal problem recurs, the automatic loop terminates: Design recurrence
+returns to Gate 1; plan recurrence returns to Gate 2. The scoped rereview cannot expand into another
+correction round or a consensus loop. A changed outcome, claim, threat boundary, or governing
+invariant routes to the appropriate human gate under the existing Goal Capsule rules rather than
+being repaired as a review preference.
 
 ## The task card
 
@@ -499,7 +530,9 @@ generated artifact.
 |---|---|
 | Product and feature specs | `product-steward` |
 | Design | `architect` + domain specialists |
+| Pre-Gate 1 adversarial review | fresh read-only `reviewer`, design mode |
 | Plan | `planner`, with `contract-architect` on durable boundaries |
+| Pre-Gate 2 adversarial review | fresh read-only `reviewer`, plan mode |
 | Locating code | `scout` |
 | Implementation | `developer` or `senior-developer`, the card's `persona`, chosen by the plan |
 | Task review | `reviewer` + any specialist whose invariant the diff touches |
@@ -657,6 +690,18 @@ repositories receive only a warning while their cards fail validation.
 - Exact nested Java selectors normalize `$` to `.`, but only the complete member-type chain in the
   containing source (with comments and strings removed) or its exact immutable `Create` declaration
   establishes existence. Capitalization never does.
+
+### v2.1 — bounded pre-gate adversarial review
+
+- The existing read-only `reviewer` now has design and plan modes before Gate 1 and Gate 2; no
+  persona, schema field, hook, or cross-harness default was added.
+- Each pre-gate reviewer starts fresh with named artifact paths and no author conversation or
+  rationale. Domain specialists remain additive, and implementation review is unchanged.
+- `PASS` is valid and no finding quota exists. Blocking findings carry reproducible evidence tied
+  to a frozen criterion or invariant; preferences, speculative hardening, and invented requirements
+  cannot block.
+- One author correction and one scoped rereview are permitted. Same-cause recurrence returns design
+  to Gate 1 or plan to Gate 2, terminating the automatic review loop.
 
 ### Read-only gate execution in Codex
 

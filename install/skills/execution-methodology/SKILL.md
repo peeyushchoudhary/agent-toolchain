@@ -11,7 +11,8 @@ Codex. The rules live in [methodology.md](methodology.md) — read that; this fi
 ## The shape, in one screen
 
 ```
-product spec → feature spec → design →│GATE│→ plan →│GATE│→ task cards
+product spec → feature spec → design → adversarial review →│GATE│
+                                      plan → adversarial review →│GATE│→ task cards
                                                               ↓
                      per card, unattended: context → implement → review → fix ×N
                           → full-diff review → validate → commit + distillation
@@ -93,8 +94,29 @@ expensive to discover.
 
 **Design and plan** — `architect` for the design, reviewed by whichever domain specialists the
 repository defines; `planner` for the plan, with `contract-architect` on anything crossing a durable
-boundary. Freeze interfaces in the plan *including payloads*. A plan that freezes route names but
-not request and response shapes hands the implementer an invention it will make silently.
+boundary. Domain specialists remain additive. After specialist review and before each human gate,
+cast the existing `reviewer` in design mode before Gate 1 and plan mode before Gate 2. Freeze
+interfaces in the plan *including payloads*. A plan that freezes route names but not request and
+response shapes hands the implementer an invention it will make silently.
+
+**Pre-gate adversarial review** — give a fresh, isolated, read-only `reviewer` only named artifact
+paths, never the author conversation or rationale. It actively tries to falsify the artifact against
+the frozen criteria and invariants. `PASS` is valid; there is no finding quota. A blocking finding
+names the frozen criterion or invariant, a reachable trigger or state sequence, the observable
+consequence, artifact evidence, severity, and the smallest correction or human decision.
+Preferences, speculative future hardening, and invented requirements are non-blocking.
+
+Freshness is a dispatch property. In Codex, dispatch the pre-gate review and scoped rereview with
+`fork_turns: "none"`; another harness must use its equivalent fresh-thread primitive. Prompt wording
+alone does not establish isolation. A post-code reviewer dispatch defaults to Implementation unless
+Design or Plan is explicitly named, preserving existing implementation-review callers.
+
+The author gets one correction and one scoped rereview. Its packet names the persisted original
+finding or report path, correction or diff path, corrected artifact path, and governing frozen
+artifact paths; it never includes author conversation or rationale. If the same causal problem
+recurs, stop: Design recurrence returns to Gate 1; plan recurrence returns to Gate 2. The reviewer
+never authors or applies its own correction, and the bounded rereview never becomes a consensus
+loop. Existing implementation review is unchanged.
 
 **Executing** — hand the approved plan to `chief-of-staff`. It generates task cards, dispatches,
 routes reviews, runs fix loops, keeps the ledger, and stops only on a blocker, a genuine ambiguity,

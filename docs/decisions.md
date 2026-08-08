@@ -177,16 +177,18 @@ check is authoritative; revisit if an application runtime or operated service ap
 
 ---
 
-## D14 — Repairs are bound to one approved outcome
+## D14 — Bounded repairs and review
 
-**Chose:** one approved Goal Capsule, finding classification before repair, and human authority for
-same-cause recurrence.
+**Chose:** Goal Capsule, classification, fresh read-only `reviewer` before Design/Plan gates
+(`fork_turns: "none"` Codex; equivalent fresh-thread primitive elsewhere, never prompts); `PASS`;
+one correction, scoped rereview. Post-code default: Implementation unless Design/Plan named.
 
-**Over:** letting review redefine scope, hard finding caps, or new enforcement machinery.
+**Over:** scope redefinition, quotas, personas, author rationale, cross-harness review, or
+consensus loops.
 
-**Why:** the failure was scope admission. Dispatches advance named criteria; review supplies
-evidence. Recurrence returns to the plan gate. Budgets never alter safety, test, review, or
-acceptance verdicts; changed outcomes or threats return to the product gate.
+**Why:** blockers need frozen-artifact evidence. Packet: original report/finding, correction/diff,
+corrected artifact, frozen artifacts. Same-cause recurrence returns to its gate; budgets never
+alter verdicts.
 
 ---
 

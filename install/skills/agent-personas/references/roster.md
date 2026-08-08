@@ -94,8 +94,12 @@ it edits production code it just judged.
 contract has clients generated against it. These changes cannot be undone, so this is one of two
 places `sol` is worth double `terra`.
 
-**`reviewer` — opus / sol, high.** Must find what the author missed, which is the task where
-reasoning depth actually converts into findings. Measured at ~$0.21 per review in-harness.
+**`reviewer` — opus / sol, high.** Independently tries to falsify design before Gate 1, plan before
+Gate 2, and implementation before it lands. The pre-gate modes require fresh, artifact-only context
+so the author's rationale cannot anchor the review; the implementation mode retains its existing
+checks. This is the task where reasoning depth actually converts into findings. Measured at ~$0.21
+per review in-harness. `PASS` is valid: paying for adversarial reasoning does not create a flaw
+quota, and preferences or invented requirements cannot block an approved outcome.
 
 **`security-validator` — opus / sol, high.** Adversarial reasoning over consent, authorization and
 PHI. Set at `high` rather than `xhigh`: `high` is already deep, and the extra tier did not earn its

@@ -25,7 +25,7 @@ the `execution-methodology` skill.
 | `chief-of-staff` holds the loop, dispatches, keeps the ledger | ledger and cards only | ~3 | `opus` | `gpt-5.6-sol` | high |
 | `architect` is this the right shape | design docs only | ~4 | `opus` | `gpt-5.6-sol` | high |
 | `contract-architect` API, schema, migrations | yes | ~3 | `opus` | `gpt-5.6-sol` | high |
-| `reviewer` independent, cannot edit | no | ~20 | `opus` | `gpt-5.6-sol` | high |
+| `reviewer` independently falsifies design, plan, or implementation; cannot edit | no | ~20 | `opus` | `gpt-5.6-sol` | high |
 | `security-validator` consent, authz, PHI | no | ~5 | `opus` | `gpt-5.6-sol` | high |
 | `acceptance` milestone judge, cannot edit | no | 1 | `opus` | `gpt-5.6-sol` | xhigh |
 
@@ -144,13 +144,22 @@ rejected. The deny-list's derived core comes from roster membership alone, never
 source may still add a local extra to it (`claude.disallowedTools`, merged rather than replaced —
 see "Judges cannot edit").
 
+`reviewer` is cast in design mode before Gate 1, plan mode before Gate 2, and implementation mode
+after code is written. The two pre-gate modes receive only named artifact paths in fresh context;
+existing domain specialists are additive, and the implementation review remains unchanged.
+Freshness is established by dispatching Codex with `fork_turns: "none"`, or by another harness's
+equivalent fresh-thread primitive. Prompt wording alone does not establish isolation. Post-code
+review defaults to Implementation unless Design or Plan is explicitly named. A scoped rereview
+receives the persisted original finding or report path, correction or diff path, corrected artifact
+path, and governing frozen artifact paths—never author conversation or rationale.
+
 `reviewer`'s own source is the worked example, copied verbatim rather than reconstructed from
 memory — when authoring a new persona, copy an existing source file, not a prose rendering of one:
 
 ```yaml
 ---
 name: reviewer
-description: Use after code is written and before it lands, to find defects the author missed. Use for any change to a shared interface, a security path, or data handling.
+description: Use before design and plan gates or after implementation, to independently falsify the artifact against its frozen criteria and invariants.
 writes: no
 claude.model: opus
 claude.effort: high
