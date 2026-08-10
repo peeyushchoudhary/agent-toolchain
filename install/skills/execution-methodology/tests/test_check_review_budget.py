@@ -71,13 +71,29 @@ class CheckReviewBudgetTest(unittest.TestCase):
         self.assertEqual(len(cap), 1, errors)
         self.assertEqual(cap[0]["round"], 5)
 
-    def test_renaming_does_not_reset_the_counter(self):
-        """A subject renamed per round still trips on its round number."""
+    def test_round_marker_in_any_filename_trips_the_cap(self):
+        """A high round number is caught wherever it appears, whatever the surrounding name."""
         self.touch("reviews/M1-01-spotless-r15.yaml")
         proc = run(self.ws)
         self.assertEqual(proc.returncode, 1)
         cap = [e for e in findings(proc)["errors"] if e["kind"] == "ROUND_CAP"]
         self.assertEqual(cap[0]["round"], 15)
+
+    def test_next_subject_with_spent_budget_is_refused_before_dispatch(self):
+        """The pre-dispatch refusal: two rounds on record means the third is refused."""
+        self.touch("reviews/T1-r1-review.md")
+        self.touch("reviews/T1-r2-rereview.md")
+        proc = run(self.ws, "--next", "T1")
+        self.assertEqual(proc.returncode, 1)
+        refused = [e for e in findings(proc)["errors"]
+                   if e["kind"] == "ROUND_BUDGET_EXHAUSTED"]
+        self.assertEqual(len(refused), 1, proc.stdout)
+        self.assertEqual(refused[0]["subject"], "t1")
+
+    def test_next_subject_with_budget_remaining_is_allowed(self):
+        self.touch("reviews/T1-r1-review.md")
+        self.assertEqual(run(self.ws, "--next", "T1").returncode, 0)
+        self.assertEqual(run(self.ws, "--next", "T2").returncode, 0)
 
     def test_version_suffix_is_not_a_round(self):
         """v3, schema-v1 and similar version tokens are not review rounds."""
@@ -86,20 +102,27 @@ class CheckReviewBudgetTest(unittest.TestCase):
         proc = run(self.ws)
         self.assertEqual(proc.returncode, 0, proc.stdout)
 
-    def test_diff_snapshots_are_banned(self):
-        self.touch("reports/T1-final.diff")
+    def test_diff_snapshots_are_banned_in_every_spelling(self):
+        for name in ("reports/T1-final.diff", "reports/T1.patch", "reports/T2.diff.txt"):
+            self.touch(name)
         proc = run(self.ws)
         self.assertEqual(proc.returncode, 1)
-        kinds = {e["kind"] for e in findings(proc)["errors"]}
-        self.assertEqual(kinds, {"BANNED_CLASS"})
+        banned = [e for e in findings(proc)["errors"] if e["kind"] == "BANNED_CLASS"]
+        self.assertEqual(len(banned), 3, proc.stdout)
 
-    def test_meta_artifacts_are_banned(self):
-        self.touch("reports/T2-correction-packet.md")
-        self.touch("reviews/gate2-plan-review-invalid-attempt.md")
-        self.touch("reviews/T3-authority-review-no-verdict.md")
-        self.touch("reviews/T4-second-replacement-no-progress.md")
+    def test_meta_artifacts_are_banned_in_every_spelling(self):
+        for name in ("reports/T2-correction-packet.md", "reports/T2_correction_packet.md",
+                     "reports/packet.md", "reviews/gate2-plan-review-invalid-attempt.md",
+                     "reviews/T3-authority-review-no-verdict.md",
+                     "reviews/T4-second-replacement-no-progress.md"):
+            self.touch(name)
         errors = findings(run(self.ws))["errors"]
-        self.assertEqual(len([e for e in errors if e["kind"] == "BANNED_CLASS"]), 4)
+        self.assertEqual(len([e for e in errors if e["kind"] == "BANNED_CLASS"]), 6)
+
+    def test_escalation_brief_is_permitted(self):
+        """The founder-facing escalation brief is mandated by the methodology, not banned."""
+        self.touch("reports/gate2-escalation-brief.md")
+        self.assertEqual(run(self.ws).returncode, 0)
 
     def test_max_round_is_configurable(self):
         self.touch("reviews/T1-r3.md")

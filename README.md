@@ -151,8 +151,9 @@ with re-serialized diffs of changes git already stored, and milestones stalled o
 preconditions. The numbers are in [measurements.md](docs/measurements.md). v3.0 applies the
 methodology's own mechanism-over-intention principle to its review loop:
 [`check_review_budget.py`](install/skills/execution-methodology/scripts/check_review_budget.py)
-refuses a third review round on any subject and rejects the diff-snapshot and restatement-packet
-artifact classes outright, and a 20% growth tripwire ends any review that expands its subject.
+refuses a dispatch whose subject has spent its two review rounds and rejects the diff-snapshot and
+restatement-packet artifact classes; the orchestrator applies a 20% growth tripwire that ends any
+review expanding its subject.
 Tasks default to a card-free light lane; the card validator now enforces a 150-line card budget and
 a ten-line inline limit for frozen values; milestone receipts carry process metrics so a process
 regression is triaged like any other. The methodology body shrank from 732 to about 410 lines, with

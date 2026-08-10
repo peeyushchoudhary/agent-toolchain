@@ -143,8 +143,11 @@ with its own durable authority is a new product boundary and returns to Gate 1.
 This section is the reason v3 exists. Review in v2 had a written stop-loss and no mechanism, and
 the measured result was rounds numbered to fifteen and eighteen, five-reviewer panels issuing
 blocks for free, and designs that *grew* 140% under review before ending blocked with the same
-verdict distribution they started with. Every rule here is enforceable by a script, and the
-orchestrator runs that script before every review dispatch.
+verdict distribution they started with. The rules here bind in two ways: the round budget and the
+banned workspace artifact classes are enforced by `check_review_budget.py`, which the orchestrator
+runs before every review dispatch; the reviewer count, the verdict form, and the growth tripwire
+bind at dispatch construction, where the orchestrator applies them and records any breach in the
+milestone receipt as a process regression.
 
 **One reviewer.** A review round is one fresh, isolated, read-only `reviewer`, handed only named
 artifact paths, never the author conversation or rationale — plus `security-validator` when and
@@ -154,11 +157,15 @@ round is capped at the surfaces the diff actually touches, maximum three, and tw
 exist only conditionally.
 
 **Two rounds.** The author gets one correction and one scoped rereview of that correction and its
-causal area. There is no round three. The orchestrator refuses to dispatch a third round on the
-same artifact — mechanically, via the budget check — and instead escalates on the same cause:
-Design recurrence returns to Gate 1; plan recurrence returns to Gate 2; implementation recurrence
-goes to the founder with the escalation packet. Renaming the task, the attempt, the workspace, or
-the card does not reset the counter; the subject is the artifact, not its filename.
+causal area. There is no round three: before dispatching, the orchestrator names the subject to
+the budget check (`--next <subject>`), which refuses when that subject has already spent its two
+rounds — the third round is refused before it exists, not discovered after. On refusal, escalate
+on the same cause: Design recurrence returns to Gate 1; plan recurrence returns to Gate 2;
+implementation recurrence goes to the founder with the escalation brief. Renaming the task, the
+attempt, the workspace, or the card does not reset the counter; the subject is the artifact, not
+its filename. The check keys on the declared subject and on filename lineage — it is protection
+against drift, not against an orchestrator that renames its subjects, and a renamed subject is
+itself a violation that shows in the receipt.
 
 **The verdict is structured and compact.** `PASS`, or a finding list. Each finding names the
 frozen criterion or invariant, a reachable trigger or state sequence, the observable consequence,
@@ -170,7 +177,7 @@ there is no finding quota. The reviewer never authors or applies its correction.
 version frozen at first dispatch. Review that expands an artifact is review inventing scope — the
 measured endpoint of unbounded expansion was a phone-number confirmation feature whose review loop
 demanded a kernel patch. Exceeding the tripwire ends review immediately and routes to the human
-gate with the escalation packet.
+gate with the escalation brief.
 
 **Freshness is a dispatch property.** Pre-gate and rereview dispatches are fresh threads —
 `fork_turns: "none"` in Codex, the equivalent fresh-thread primitive elsewhere. Prompt wording
@@ -179,7 +186,7 @@ report path, the correction or diff path, the corrected artifact path, and the g
 artifact paths — never author conversation or rationale. A post-code reviewer dispatch defaults
 to Implementation unless Design or Plan is explicitly named.
 
-**The escalation packet is one page.** The decision needed, stated as a question. The positions,
+**The escalation brief is one page.** The decision needed, stated as a question. The positions,
 each in two sentences. What each round found and what it cost. Nothing else — a founder asked to
 break a tie does not need the eighteen rounds re-narrated, and producing the narration is how one
 page becomes a workspace.
@@ -194,8 +201,9 @@ severity or number of findings a round may raise.
 
 The card is the implementer's entire world: it does not read the plan, and reads nothing the card
 does not name. Schema and worked example: the skill's `references/task-card.md`. Validation
-contract: v2, unchanged — `validate_card.py --strict --phase pre` before dispatch, `--phase post`
-after.
+contract: v2, extended by the size budget below — `validate_card.py --strict --phase pre` before
+dispatch, `--phase post` after. A sealed pre-v3 card over the size budget still passes a plain
+run; `--strict`, the gate mode, now fails it.
 
 Three constraints are new, and the validator enforces the first two:
 
@@ -372,7 +380,7 @@ Added:
 
 - **The review budget** — one reviewer plus conditional specialists (max three), two rounds
   enforced by the orchestrator's budget check, structured thirty-line verdicts, the 20% growth
-  tripwire, the one-page escalation packet.
+  tripwire, the one-page escalation brief.
 - **Two lanes**, light lane default; the full machinery is reserved for durable boundaries and
   safety surfaces.
 - **Principle 8** — process metrics in every milestone receipt, with breach handled as a

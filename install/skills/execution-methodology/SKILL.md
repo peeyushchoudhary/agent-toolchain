@@ -41,13 +41,15 @@ A light-lane task that turns out to touch a durable boundary stops and returns t
 
 One reviewer per round — `security-validator` joins only when a safety surface moves, at most one
 other domain specialist only when its invariant moves; never a panel. Two rounds per artifact: one
-correction and one scoped rereview, then escalation, enforced mechanically. An artifact that grows
-more than 20% in lines under review escalates immediately. Run the check **before every review
-dispatch**:
+correction and one scoped rereview, then escalation. An artifact that grows more than 20% in lines
+under review escalates immediately — that tripwire, the reviewer count, and the verdict form are
+applied by the orchestrator at dispatch construction; the round budget and artifact classes are
+enforced by the check. Run it **before every review dispatch**, naming the subject:
 
 ```bash
-check_review_budget.py WORKSPACE_DIR            # exit 1: round 3+ or banned artifact class
-check_review_budget.py WORKSPACE_DIR --json     # machine-readable, for the orchestrator
+check_review_budget.py WORKSPACE_DIR --next SUBJECT   # exit 1: budget spent, round 3+ recorded,
+                                                      # or banned artifact class present
+check_review_budget.py WORKSPACE_DIR --json           # machine-readable, for the orchestrator
 ```
 
 It also rejects banned workspace artifact classes — `.diff` snapshots (name the commit range; git

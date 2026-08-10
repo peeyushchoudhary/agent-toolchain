@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
-"""Review-budget check (methodology v3.0, draft).
+"""Review-budget check (methodology v3.0).
 
-Run by the orchestrator BEFORE every review dispatch, against the plan workspace:
+Run by the orchestrator BEFORE every review dispatch, against the plan workspace, naming the
+subject about to be dispatched:
 
-    check_review_budget.py WORKSPACE_DIR [--max-round 2] [--json]
+    check_review_budget.py WORKSPACE_DIR --next SUBJECT [--max-round 2] [--json]
 
 Errors (exit 1) — the dispatch must not proceed:
-  * ROUND_CAP     — any subject carries a round marker above --max-round. Round three does
-                    not exist; the subject escalates to its gate instead.
-  * BANNED_CLASS  — a banned artifact class is present: .diff snapshots, restatement
+  * ROUND_BUDGET_EXHAUSTED — a subject named by --next has already spent its round budget. This
+                    is the pre-dispatch refusal: round three is refused before it exists.
+  * ROUND_CAP     — any subject in the workspace carries a round marker above --max-round.
+                    The standing scan: it catches a budget already breached, whoever breached it.
+  * BANNED_CLASS  — a banned artifact class is present: diff/patch snapshots, restatement
                     packets, or files recording a dispatch that produced nothing
                     (invalid-attempt / no-verdict / no-progress). Those are ledger lines.
+                    (The founder-facing escalation *brief* is a different, permitted artifact.)
 
 Warnings (exit 0, reported) — process-regression signals for the milestone receipt:
   * WORKSPACE_BUDGET — workspace exceeds ~50 files or ~500 KB.
 
-The subject is the artifact, not its filename: round markers are stripped before grouping,
-so `S2-01-R18.md`, `S2-01-round18.md` and `S2-01-fixround3-rereview.md` are one subject.
+Scope, stated plainly: the check keys on the --next subject the orchestrator declares and on
+filename lineage (round markers are stripped before grouping, so `S2-01-R18.md`,
+`S2-01-round18.md` and `S2-01-fixround3-rereview.md` are one subject). It is protection against
+drift, not against an adversarial orchestrator: renaming a subject to dodge the counter is itself
+a methodology violation and is not detectable from filenames alone.
 """
 
 import argparse
@@ -29,8 +36,10 @@ ROUND_RE = re.compile(
     r"[-_.](?:r|round|fixround|rereview[-_.]?r|attempt)0*(\d+)(?=[-_.]|$)", re.IGNORECASE
 )
 BANNED_PATTERNS = (
-    (re.compile(r"\.diff$", re.IGNORECASE), "diff snapshot — name the commit range instead"),
-    (re.compile(r"-packet\.md$", re.IGNORECASE), "restatement packet — re-dispatch with the original paths"),
+    (re.compile(r"\.(diff|patch)(\.[A-Za-z0-9]+)?$", re.IGNORECASE),
+     "diff snapshot — name the commit range instead"),
+    (re.compile(r"(^|[-_.])packet\.md$", re.IGNORECASE),
+     "restatement packet — re-dispatch with the original paths"),
     (re.compile(r"invalid[-_]?attempt", re.IGNORECASE), "failed dispatch — one ledger line"),
     (re.compile(r"no[-_]?verdict", re.IGNORECASE), "failed dispatch — one ledger line"),
     (re.compile(r"no[-_]?progress", re.IGNORECASE), "failed dispatch — one ledger line"),
@@ -56,6 +65,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("workspace", type=Path)
     ap.add_argument("--max-round", type=int, default=2)
+    ap.add_argument("--next", action="append", default=[], metavar="SUBJECT",
+                    help="subject about to be dispatched; refused if its round budget is spent")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
@@ -85,6 +96,16 @@ def main() -> int:
             if rnd > rounds.get(subj, (0, ""))[0]:
                 rounds[subj] = (rnd, rel)
 
+    for raw in args.next:
+        subj = subject_of(raw)
+        spent, rel = rounds.get(subj, (0, ""))
+        if spent >= args.max_round:
+            errors.append({
+                "kind": "ROUND_BUDGET_EXHAUSTED", "subject": subj, "round": spent, "path": rel,
+                "why": f"subject has spent {spent} of {args.max_round} round(s); refuse this "
+                       "dispatch and escalate to the owning gate with the escalation brief",
+            })
+
     for subj, (rnd, rel) in sorted(rounds.items()):
         if rnd > args.max_round:
             errors.append({
@@ -106,9 +127,9 @@ def main() -> int:
                           "files": n_files, "bytes": n_bytes}, indent=2))
     else:
         for f in errors:
-            print(f"ERROR   {f['kind']:16} {f.get('path', '')}  {f['why']}")
+            print(f"ERROR   {f['kind']:22} {f.get('path', '')}  {f['why']}")
         for f in warnings:
-            print(f"WARNING {f['kind']:16} {f['why']}")
+            print(f"WARNING {f['kind']:22} {f['why']}")
         if not errors and not warnings:
             print(f"clean: {n_files} files, {n_bytes // 1024} KB, "
                   f"no subject past round {args.max_round}")
