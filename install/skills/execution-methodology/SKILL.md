@@ -146,9 +146,10 @@ Freshness is a dispatch property. In Codex, dispatch the pre-gate review and sco
 alone does not establish isolation. A post-code reviewer dispatch defaults to Implementation unless
 Design or Plan is explicitly named, preserving existing implementation-review callers.
 
-The author gets one correction and one scoped rereview. Its packet names the persisted original
+The author gets one correction and one scoped rereview. Its dispatch names the persisted original
 finding or report path, correction or diff path, corrected artifact path, and governing frozen
-artifact paths; it never includes author conversation or rationale. If the same causal problem
+artifact paths; it never includes author conversation or rationale. Persisted verdicts are named
+`<subject>-r<N>-<kind>.md` — the round marker is what the budget check counts. If the same causal problem
 recurs, stop: Design recurrence returns to Gate 1; plan recurrence returns to Gate 2. The reviewer
 never authors or applies its own correction, and the bounded rereview never becomes a consensus
 loop. Existing implementation review is unchanged.

@@ -159,7 +159,9 @@ exist only conditionally.
 **Two rounds.** The author gets one correction and one scoped rereview of that correction and its
 causal area. There is no round three: before dispatching, the orchestrator names the subject to
 the budget check (`--next <subject>`), which refuses when that subject has already spent its two
-rounds — the third round is refused before it exists, not discovered after. On refusal, escalate
+rounds — the third round is refused before it exists, not discovered after. The refusal counts
+the round markers on persisted verdict filenames (the `<subject>-r<N>-<kind>.md` convention in the
+workspace rules below), which is why that convention is mandatory. On refusal, escalate
 on the same cause: Design recurrence returns to Gate 1; plan recurrence returns to Gate 2;
 implementation recurrence goes to the founder with the escalation brief. Renaming the task, the
 attempt, the workspace, or the card does not reset the counter; the subject is the artifact, not
@@ -181,7 +183,8 @@ gate with the escalation brief.
 
 **Freshness is a dispatch property.** Pre-gate and rereview dispatches are fresh threads —
 `fork_turns: "none"` in Codex, the equivalent fresh-thread primitive elsewhere. Prompt wording
-alone does not establish isolation. The rereview packet names the persisted original finding or
+alone does not establish isolation. The rereview dispatch — a message to the reviewer, never a
+workspace file — names the persisted original finding or
 report path, the correction or diff path, the corrected artifact path, and the governing frozen
 artifact paths — never author conversation or rationale. A post-code reviewer dispatch defaults
 to Implementation unless Design or Plan is explicitly named.
@@ -285,7 +288,10 @@ is write-only history, what enters it is bounded:
   thousand lines of `.diff` files — 4.8× the product output of the stage they reviewed.
 - **No restatement packets.** A dispatch that failed is a ledger line; the re-dispatch carries the
   same paths the original did.
-- **Verdicts, not reports, from judges.** Thirty lines, structured, persisted once.
+- **Verdicts, not reports, from judges.** Thirty lines, structured, persisted once — and named
+  `<subject>-r<N>-<kind>.md`. The round marker on a persisted verdict is load-bearing: it is what
+  the budget check counts, so a marker-free verdict filename is a methodology violation, not a
+  style choice. This is the one deliberate exception to the retired round-numbered lineages.
 - **A workspace growing past ~50 files or ~500 KB is a process-regression signal** and is reported
   in the next milestone receipt, not silently accumulated. Twenty-one megabytes of review record
   scheduled for deletion at merge is not an audit trail; it is heat.
@@ -394,7 +400,8 @@ Retired (the removal budget, paid in advance):
 
 - **Multi-persona review panels.** Blocks were free and divergence was measured; conditional
   specialists replace the quorum.
-- **Round-numbered artifact lineages** (`-r14`, `-r15` cards; per-round frozen packages; rereview
+- **Round-numbered artifact lineages** — except the round marker on persisted verdict filenames,
+  which the budget check counts — (`-r14`, `-r15` cards; per-round frozen packages; rereview
   meta-files). The subject is the artifact; two rounds is the lineage.
 - **Diff snapshots and restatement packets** as artifact classes.
 - **Approval-receipt-only merges** and per-correction founder approvals.

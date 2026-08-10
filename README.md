@@ -154,9 +154,9 @@ methodology's own mechanism-over-intention principle to its review loop:
 refuses a dispatch whose subject has spent its two review rounds and rejects the diff-snapshot and
 restatement-packet artifact classes; the orchestrator applies a 20% growth tripwire that ends any
 review expanding its subject.
-Tasks default to a card-free light lane; the card validator now enforces a 150-line card budget and
-a ten-line inline limit for frozen values; milestone receipts carry process metrics so a process
-regression is triaged like any other. The methodology body shrank from 732 to about 410 lines, with
+Tasks default to a card-free light lane; the card validator warns on a 150-line card budget and a
+ten-line inline limit for frozen values, and `--strict` — the gate mode — fails both; milestone
+receipts carry process metrics so a process regression is triaged like any other. The methodology body shrank from 732 to about 410 lines, with
 the JUnit-evidence and Codex-sandbox protocols moved verbatim into reference files and the v1–v2
 changelog preserved alongside them.
 

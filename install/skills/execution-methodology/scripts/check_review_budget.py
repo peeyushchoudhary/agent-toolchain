@@ -21,9 +21,11 @@ Warnings (exit 0, reported) — process-regression signals for the milestone rec
 
 Scope, stated plainly: the check keys on the --next subject the orchestrator declares and on
 filename lineage (round markers are stripped before grouping, so `S2-01-R18.md`,
-`S2-01-round18.md` and `S2-01-fixround3-rereview.md` are one subject). It is protection against
-drift, not against an adversarial orchestrator: renaming a subject to dodge the counter is itself
-a methodology violation and is not detectable from filenames alone.
+`S2-01-round18.md` and `S2-01-fixround3-rereview.md` are one subject). The methodology therefore
+mandates that persisted verdicts are named `<subject>-r<N>-<kind>.md` — a marker-free verdict
+filename starves this counter and is itself a violation. It is protection against drift, not
+against an adversarial orchestrator: renaming a subject to dodge the counter is not detectable
+from filenames alone.
 """
 
 import argparse
