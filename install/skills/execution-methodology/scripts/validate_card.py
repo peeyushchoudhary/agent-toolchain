@@ -1802,16 +1802,81 @@ def check_context_acquisition(card: dict[str, object], f: Findings) -> None:
               "agent arrives at the work with a full context window")
 
 
+CARD_LINE_BUDGET = 150
+FROZEN_INLINE_BUDGET = 10
+
+
+def check_size_budget(text: str, f: Findings) -> None:
+    """Methodology v3.0 size budget. WARNING severity, so --strict — the gate mode — fails it.
+
+    A card past 150 lines is describing a task the plan failed to decompose; it returns to the
+    plan, not to a bigger card. Comment lines count — the largest card on record grew mostly by
+    preamble. A `frozen_values` entry past ten raw lines is a payload that belongs in a committed
+    contract file the card names by path, where one authority serves every card; inlined, each
+    card carries its own paraphrase.
+    """
+    lines = text.splitlines()
+    if len(lines) > CARD_LINE_BUDGET:
+        f.add(WARNING, "size",
+              f"card is {len(lines)} lines, over the {CARD_LINE_BUDGET}-line budget — decompose "
+              "the task in the plan and regenerate; do not grow the card")
+
+    # Measure the raw frozen_values block: folding in the parser hides line structure, and the
+    # constraint is about what a reader must scroll past, not about parsed semantics.
+    start = None
+    for i, line in enumerate(lines):
+        if indent_of(line) == 0 and strip_comment(line).strip().startswith("frozen_values"):
+            start = i
+            break
+    if start is None:
+        return
+    block: list[tuple[int, str]] = []
+    for line in lines[start + 1:]:
+        stripped = strip_comment(line).strip()
+        if stripped and indent_of(line) == 0:
+            break
+        block.append((indent_of(line), line))
+    content = [(ind, ln) for ind, ln in block if strip_comment(ln).strip()]
+    if not content:
+        return
+    item_indent = min(ind for ind, _ in content)
+    item_lines = 0
+    item_head = ""
+    for ind, line in content:
+        stripped = strip_comment(line).strip()
+        starts_item = ind == item_indent and (stripped.startswith("- ") or is_key_line(stripped))
+        if starts_item:
+            if item_lines > FROZEN_INLINE_BUDGET:
+                f.add(WARNING, "frozen_values",
+                      f"inline entry {item_head!r} spans {item_lines} lines, over the "
+                      f"{FROZEN_INLINE_BUDGET}-line budget — move it to a committed contract or "
+                      "interface file and freeze the path and commit instead")
+            item_lines = 1
+            item_head = stripped[:60]
+        elif item_lines:
+            item_lines += 1
+        else:
+            item_lines = 1
+            item_head = stripped[:60]
+    if item_lines > FROZEN_INLINE_BUDGET:
+        f.add(WARNING, "frozen_values",
+              f"inline entry {item_head!r} spans {item_lines} lines, over the "
+              f"{FROZEN_INLINE_BUDGET}-line budget — move it to a committed contract or "
+              "interface file and freeze the path and commit instead")
+
+
 # --------------------------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------------------------- #
 
 def validate(card_path: Path, repo_root: Path,
              phase: str = "pre") -> tuple[dict[str, object], Repo, SiblingScan, Findings]:
-    card = parse_card(card_path.read_text(encoding="utf-8"), card_path.name)
+    text = card_path.read_text(encoding="utf-8")
+    card = parse_card(text, card_path.name)
     repo = Repo(repo_root)
     scan = index_siblings(card_path)
     f = Findings()
+    check_size_budget(text, f)
 
     writes = specs_for(card, "exclusive_writes", repo)
     forbidden = specs_for(card, "forbidden_paths", repo)

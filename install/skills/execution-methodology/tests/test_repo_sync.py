@@ -62,8 +62,8 @@ class MethodologySyncTest(unittest.TestCase):
         )
         return repo
 
-    def test_additive_pre_gate_review_contract_is_version_2_1(self) -> None:
-        self.assertEqual(installed_version(), "2.1")
+    def test_review_budget_contract_is_version_3_0(self) -> None:
+        self.assertEqual(installed_version(), "3.0")
 
     def test_pre_gate_adversarial_review_contract_is_published(self) -> None:
         for relative in ("SKILL.md", "methodology.md"):
@@ -349,7 +349,9 @@ class MethodologySyncTest(unittest.TestCase):
             self.assertIn(f"[v{installed_version()}]", listed.stdout)
 
     def test_public_junit_guidance_says_skips_fail_evidence(self) -> None:
-        for relative in ("SKILL.md", "methodology.md", "references/task-card.md"):
+        # v3.0 moved the JUnit evidence protocol out of the methodology body; the guidance now
+        # binds in the reference files, and the body must still route readers to them.
+        for relative in ("references/junit-evidence.md", "references/task-card.md"):
             with self.subTest(relative=relative):
                 text = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
                 self.assertIn(
@@ -357,25 +359,51 @@ class MethodologySyncTest(unittest.TestCase):
                     text,
                     f"{relative} must say failures, errors, and skips fail JUnit evidence",
                 )
+        for relative in ("SKILL.md", "methodology.md"):
+            with self.subTest(relative=relative):
+                text = (SKILL / relative).read_text(encoding="utf-8")
+                self.assertIn("junit-evidence.md", text,
+                              f"{relative} must route readers to the JUnit evidence reference")
 
     def test_junit_trust_boundary_and_nested_sandbox_are_published_consistently(self) -> None:
-        for relative in ("SKILL.md", "methodology.md", "references/task-card.md"):
+        # v3.0 surface map: the trust boundary lives in the JUnit evidence reference, the nested
+        # sandbox in the Codex gate reference, and the task-card reference carries both because a
+        # card author needs both. methodology.md and SKILL.md must route to the references.
+        for relative in ("references/junit-evidence.md", "references/task-card.md"):
             with self.subTest(relative=relative):
                 body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
                 self.assertIn("not tamper-resistant", body)
                 self.assertIn("local writer", body)
+        for relative in ("references/codex-gate-sandbox.md", "references/task-card.md"):
+            with self.subTest(relative=relative):
+                body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
                 self.assertIn("nested sandbox", body)
                 self.assertIn("codex sandbox -p gate -P copy-write", body)
+        for relative in ("SKILL.md", "methodology.md", "references/task-card.md",
+                         "references/junit-evidence.md", "references/codex-gate-sandbox.md"):
+            with self.subTest(relative=relative):
+                body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
                 self.assertNotIn("cleanTest qualifies", body)
+        for relative in ("SKILL.md", "methodology.md"):
+            with self.subTest(relative=relative):
+                text = (SKILL / relative).read_text(encoding="utf-8")
+                self.assertIn("codex-gate-sandbox.md", text,
+                              f"{relative} must route readers to the Codex gate reference")
 
     def test_approved_outer_launch_inner_profile_and_cache_boundary_are_explicit(self) -> None:
-        for relative in ("SKILL.md", "methodology.md", "references/task-card.md"):
+        # v3.0 surface map: launch/profile detail binds in the Codex gate reference, the cache
+        # boundary in the JUnit evidence reference; the task-card reference carries both.
+        for relative in ("references/codex-gate-sandbox.md", "references/task-card.md"):
             with self.subTest(relative=relative):
                 body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
                 self.assertRegex(body, r"approved.*nested|nested.*approved|exact sandbox-launch")
                 self.assertIn("source read", body)
                 self.assertIn("copy write", body)
                 self.assertIn("network disabled", body)
+                self.assertIn("--rerun-tasks", body)
+        for relative in ("references/junit-evidence.md", "references/task-card.md"):
+            with self.subTest(relative=relative):
+                body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
                 self.assertIn("cache restore", body)
                 self.assertIn("--rerun-tasks", body)
 
