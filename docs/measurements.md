@@ -91,3 +91,27 @@ semantic LLM pass on changed files only. Approximately 3 minutes for a warm sema
 0.22s with the GitHub cache warm, in a repo with a full route and a graph. The remote half is one
 `gh` call cached for 24h; hook mode drops the timeout to 6s so a slow network never holds a session
 open.
+
+## Process overhead under methodology v1.4–v2.1
+
+Measured 2026-08-10 across the three private repositories that were under active development in the
+window 2026-07-27 → 2026-08-10, by classifying every commit and working-tree artifact as product
+(production code and its tests) or process (specs, plans, cards, review reports, ledgers, receipts,
+workspaces). These numbers are why methodology v3.0 exists; repository identities are withheld by
+this repository's boundary rules.
+
+| Metric | Repo A | Repo B | Repo C |
+|---|---|---|---|
+| Process:product line ratio in the governed period | 10.9 : 1 | 15.5 : 1 | 2.5 : 1 (6 : 1 in the active stage) |
+| Maximum review rounds on one subject (written cap: 2) | 15 | 8, plus a sixth milestone attempt | 18 |
+| Merges shipping zero product code | 0 merges at all in the final 5 days | 12 of 14 merged in <90s (review was elsewhere) | 6 of 11 |
+| Longest zero-commit stall on an active milestone | 4 days | 4 days (card precondition deadlock, 5 days to clear) | 24h+, 327 artifacts, 0 commits |
+| Largest waste class | 135 review reports in 4 days against 1 commit | 144 `.diff` snapshots, 10.3 MB | 37 `.diff` snapshots, 68,447 lines — 4.8× the stage's product output |
+
+Control, same fortnight, same repositories, lighter pre-v1.4 process: 10 PRs merged in 3 days at a
+1 : 2.6 process:product ratio in one repository; plan-to-merge in under a day in another. The
+contrast between those two rows, not any single failure, is the v3.0 evidence base.
+
+Validation of the v3.0 enforcement script against the worst measured workspace (327 files, 5.6 MB):
+`check_review_budget.py` reported 6 subjects past the round cap, 90 banned-class artifacts, and the
+workspace-budget warning, exit 1 — one process invocation, no LLM involved.

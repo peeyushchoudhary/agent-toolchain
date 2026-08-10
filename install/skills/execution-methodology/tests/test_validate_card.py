@@ -2389,6 +2389,48 @@ class ValidateCardTest(unittest.TestCase):
             self.assertEqual(missing.returncode, 2)
             self.assertIn("not a file", missing.stderr)
 
+    # --- v3.0 size budget ------------------------------------------------------------------- #
+
+    def test_clean_card_has_no_size_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            result = self.run_validator(CLEAN_CARD, repo)
+            self.assertNotIn("[size]", result.stdout)
+            self.assertNotIn("line budget", result.stdout)
+
+    def test_card_over_150_lines_warns_and_fails_strict(self) -> None:
+        padding = "".join(f"# preamble line {i}\n" for i in range(160))
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            plain = self.run_validator(padding + CLEAN_CARD, repo)
+            self.assertEqual(plain.returncode, 0, plain.stdout + plain.stderr)
+            size = [line for line in self.findings(plain, "WARNING") if "[size]" in line]
+            self.assertEqual(len(size), 1, plain.stdout)
+            self.assertIn("150-line budget", size[0])
+            strict = self.run_validator(padding + CLEAN_CARD, repo, "--strict")
+            self.assertEqual(strict.returncode, 1, strict.stdout + strict.stderr)
+
+    def test_frozen_values_entry_over_10_lines_warns(self) -> None:
+        big_entry = "frozen_values:\n  - |\n" + "".join(
+            f"    payload line {i}\n" for i in range(12))
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            result = self.run_validator(card_with(frozen_values=big_entry), repo)
+            frozen = [line for line in self.findings(result, "WARNING")
+                      if "[frozen_values]" in line and "10-line budget" in line]
+            self.assertEqual(len(frozen), 1, result.stdout)
+            self.assertIn("committed contract", frozen[0])
+            strict = self.run_validator(card_with(frozen_values=big_entry), repo, "--strict")
+            self.assertEqual(strict.returncode, 1, strict.stdout + strict.stderr)
+
+    def test_frozen_values_many_small_entries_are_clean(self) -> None:
+        entries = "frozen_values:\n" + "".join(
+            f'  - "frozen fact number {i}"\n' for i in range(14))
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            result = self.run_validator(card_with(frozen_values=entries), repo)
+            self.assertNotIn("10-line budget", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

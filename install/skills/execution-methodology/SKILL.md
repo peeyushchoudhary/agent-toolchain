@@ -11,17 +11,51 @@ Codex. The rules live in [methodology.md](methodology.md) — read that; this fi
 ## The shape, in one screen
 
 ```
-product spec → feature spec → design → adversarial review →│GATE│
-                                      plan → adversarial review →│GATE│→ task cards
+product spec → feature spec → design → budgeted review →│GATE│
+                                      plan → budgeted review →│GATE│→ tasks
                                                               ↓
-                     per card, unattended: context → implement → review → fix ×N
-                          → full-diff review → validate → commit + distillation
+              per task, unattended: context → implement → review (2 rounds max)
+                   → full-diff review (full lane) → validate → commit + distillation
                                                               ↓
-                                   milestone: gate → sealed receipt → acceptance →│GATE│→ PR
+                     milestone: gate → sealed receipt + process metrics → acceptance →│GATE│→ PR
 ```
 
 Three human gates: the design, the plan, and the merge. Between the plan gate and the merge gate the
 loop runs unattended.
+
+## Two lanes
+
+The plan assigns every task a lane by one test: **does it cross a durable boundary** (contract,
+schema, migration, queue shape, public interface) **or a declared safety surface** (consent,
+authorization, personal or health data, redaction, retention, audit, tokens, money)?
+
+- **Light lane** — the default. No card. The dispatch carries the goal, the capsule criterion, the
+  write paths, the tests, and the lane's area check. One implementation review, `test-judge` on
+  the gate, commit with distillation. Nothing else.
+- **Full lane** — a validated card, the review budget below, one full-diff pass before the commit
+  gate, sealed milestone evidence.
+
+A light-lane task that turns out to touch a durable boundary stops and returns to the plan.
+
+## The review budget
+
+One reviewer per round — `security-validator` joins only when a safety surface moves, at most one
+other domain specialist only when its invariant moves; never a panel. Two rounds per artifact: one
+correction and one scoped rereview, then escalation. An artifact that grows more than 20% in lines
+under review escalates immediately — that tripwire, the reviewer count, and the verdict form are
+applied by the orchestrator at dispatch construction; the round budget and artifact classes are
+enforced by the check. Run it **before every review dispatch**, naming the subject:
+
+```bash
+check_review_budget.py WORKSPACE_DIR --next SUBJECT   # exit 1: budget spent, round 3+ recorded,
+                                                      # or banned artifact class present
+check_review_budget.py WORKSPACE_DIR --json           # machine-readable, for the orchestrator
+```
+
+It also rejects banned workspace artifact classes — `.diff` snapshots (name the commit range; git
+stores the diff), restatement packets, and files recording failed dispatches (those are one ledger
+line each) — and warns when the workspace outgrows its budget, which is a process-regression
+signal for the milestone receipt.
 
 ## Where it lives, and why in two places
 
@@ -92,12 +126,13 @@ Do not skip to design because the feature seems small; skip to a *short* spec in
 and horizontals sections are where specs are actually incomplete, and they are cheap to write and
 expensive to discover.
 
-**Design and plan** — `architect` for the design, reviewed by whichever domain specialists the
-repository defines; `planner` for the plan, with `contract-architect` on anything crossing a durable
-boundary. Domain specialists remain additive. After specialist review and before each human gate,
-cast the existing `reviewer` in design mode before Gate 1 and plan mode before Gate 2. Freeze
-interfaces in the plan *including payloads*. A plan that freezes route names but not request and
-response shapes hands the implementer an invention it will make silently.
+**Design and plan** — `architect` for the design; `planner` for the plan, with `contract-architect`
+on anything crossing a durable boundary. A domain specialist reviews only when the artifact touches
+its invariant — at most one, plus `security-validator` on safety surfaces; never a panel. After any
+specialist review and before each human gate, cast the existing `reviewer` in design mode before
+Gate 1 and plan mode before Gate 2, under the review budget. Freeze interfaces in the plan
+*including payloads*. A plan that freezes route names but not request and response shapes hands the
+implementer an invention it will make silently. The plan also assigns each task its lane.
 
 **Pre-gate adversarial review** — give a fresh, isolated, read-only `reviewer` only named artifact
 paths, never the author conversation or rationale. It actively tries to falsify the artifact against
@@ -111,16 +146,19 @@ Freshness is a dispatch property. In Codex, dispatch the pre-gate review and sco
 alone does not establish isolation. A post-code reviewer dispatch defaults to Implementation unless
 Design or Plan is explicitly named, preserving existing implementation-review callers.
 
-The author gets one correction and one scoped rereview. Its packet names the persisted original
+The author gets one correction and one scoped rereview. Its dispatch names the persisted original
 finding or report path, correction or diff path, corrected artifact path, and governing frozen
-artifact paths; it never includes author conversation or rationale. If the same causal problem
+artifact paths; it never includes author conversation or rationale. Persisted verdicts are named
+`<subject>-r<N>-<kind>.md` — the round marker is what the budget check counts. If the same causal problem
 recurs, stop: Design recurrence returns to Gate 1; plan recurrence returns to Gate 2. The reviewer
 never authors or applies its own correction, and the bounded rereview never becomes a consensus
 loop. Existing implementation review is unchanged.
 
-**Executing** — hand the approved plan to `chief-of-staff`. It generates task cards, dispatches,
-routes reviews, runs fix loops, keeps the ledger, and stops only on a blocker, a genuine ambiguity,
-or the fix cap.
+**Executing** — hand the approved plan to `chief-of-staff`. It assigns lanes from the plan,
+generates cards for full-lane tasks, dispatches, routes reviews under the budget, keeps the ledger,
+and stops only on a blocker, a genuine ambiguity, an exhausted review budget, or a writer-failure
+escalation (a writer that returns nothing twice is not replaced a third time). A milestone branch
+with no commit in 48 hours is a blocker escalation, not silence.
 
 **A report is not a request.** Milestone reports inform; they do not pause the loop. Before
 stopping, name the decision — if it is not one of the three gates, a spend, an irreversible or
@@ -134,11 +172,16 @@ judged, which silently destroys the one guarantee the persona pool enforces by r
 from the persona pool instead. And its plan workspace is disposable scratch; the program ledger is
 not. See the ledger section in `methodology.md`.
 
-## The task card
+## The task card (full lane only)
 
 The card is the implementer's entire world — it does not read the plan, and it reads nothing the
 card does not name. The schema and a worked example are in
 [references/task-card.md](references/task-card.md).
+
+A card is **150 lines or fewer**, and a `frozen_values` entry longer than ten lines moves to a
+committed contract file the card names by path — the validator warns on both, and `--strict` (the
+gate mode) fails them. Prerequisites assert tree state, not git history. A wrong card is
+regenerated from the plan under a new id — never patched, never versioned by filename.
 
 **Validate the card before dispatching it:**
 
@@ -211,31 +254,15 @@ than decoding processes. Migrate each scalar by moving a leading working-directo
 entries or move their orchestration into a directly invoked repository script. Revalidate the
 unchanged card in both phases after migration.
 
-For Gradle/JUnit evidence, create a new single-use nonce receipt with `scripts/start_junit_run.py`
-immediately before the test task, then pass it to `scripts/verify_junit.py`. The verifier requires
-every XML file to be created/modified after that boundary, records the receipt hash and nonce, and
-consumes it. JUnit failures, errors, and skips all fail evidence verification. The canonical
-invocation is in `references/task-card.md`.
+For Gradle/JUnit evidence, use the single-use nonce-receipt protocol in
+[references/junit-evidence.md](references/junit-evidence.md): `start_junit_run.py` immediately
+before the test task, `verify_junit.py` after, with the canonical invocation in
+`references/task-card.md`. The reference also states what the evidence does and does not detect,
+and its trust boundary.
 
-This evidence detects accidental pre-existing, same-content, unchanged, malformed, replayed,
-failed, errored, skipped, or count-inconsistent results. It does not detect a cache restore that
-writes plausible valid XML after the boundary. Exact runner rerun settings prevent cache use; for
-Gradle that evidence is exact `--rerun-tasks`. The receipt is **not tamper-resistant**: a deliberate
-local writer that controls the XML and evidence files can fabricate them. This is a freshness and
-consistency check inside that trust boundary, not hostile-writer attestation.
-
-A read-only Codex `test-judge` does not run a write-producing gate against the source referent.
-The controller freezes writers, identifies the referent by committed tree or `HEAD` plus a canonical
-path/type/mode/content manifest, and materializes a manifest-equal standalone copy under a fresh
-temporary root with no source `.git`, hard links, ignored outputs, unresolved external objects, or
-escaping symlinks. Because the outer judge is read-only, it requests approval for the **exact
-sandbox-launch** command only. The approved nested sandbox launch is
-`env CODEX_HOME=<temporary-home> codex sandbox -p gate -P copy-write -C <copy> -- <exact gate argv>`.
-Approval moves only that launcher outside the outer boundary; it never runs the gate unsandboxed.
-The launcher immediately enters the custom inner profile, which grants source read, copy write, and
-network disabled. Source and copy manifests are compared before dispatch and the source is rechecked
-afterward. Ambiguity, mismatch, sandbox failure, cached/zero/skipped execution, or failed cleanup
-blocks the gate.
+A read-only Codex `test-judge` never runs a write-producing gate against the source referent; the
+standalone-copy nested-sandbox protocol is in
+[references/codex-gate-sandbox.md](references/codex-gate-sandbox.md).
 
 ## Spec templates
 
