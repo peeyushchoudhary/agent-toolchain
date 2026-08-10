@@ -1,9 +1,9 @@
 # What gets installed
 
 Every file the installer places outside a project, what each does, and how they interact. The
-vendored copies they come from live in `../install/`.
+vendored sources live in `../install/`.
 
-The authority is the installed files themselves. When this document and they disagree, they win.
+The installed files are the authority; when this document disagrees, they win.
 
 ## Re-vendoring: what is left behind on purpose
 
@@ -63,6 +63,7 @@ rather than carrying its own list. `graphify` is listed because the installed la
 | `progressive-disclosure/scripts/check_toolchain.py` | Machine-global drift: persona pool vs generated agents, mirrored instruction blocks, Codex skills copy |
 | `agent-personas/scripts/sync_personas.py` | Renders the pool into both harnesses; prunes orphans |
 | `execution-methodology/scripts/sync_methodology.py` | Renders the methodology into a repository as `docs/agents/execution/methodology.md` |
+| `execution-methodology/scripts/check_review_budget.py` | Review-budget gate: refuses round three, bans diff snapshots and packets |
 
 ### Session hooks — wired in `~/.claude/settings.json`
 
@@ -98,7 +99,7 @@ posture. The GitHub and persona sections are byte-identical to their Codex count
 | `config.toml` | `[agents]` block: `enabled = true`, default subagent `gpt-5.6-terra` at `medium`, max 6 concurrent threads |
 
 The `[agents]` block leaves parent session settings untouched; it sets only what spawned agents
-default to when a persona file specifies neither. `config.toml` is backed up before it is edited.
+default to when a persona file specifies neither. `config.toml` is backed up before editing.
 `grok_worker.toml` is hand-written — `sync_personas.py` leaves it alone, lacking the banner.
 
 ## Per-repository (not global, but installed by these tools)
@@ -111,7 +112,7 @@ Git hooks are never cloned, so each clone needs `install_hooks.py` run once:
 | `pre-push` | Blocks secrets, files >10 MB, direct pushes to main |
 | `post-commit` | Re-extracts changed **code** into the graph (installed by `graphify hook install`) |
 
-All three skip silently when their tool is absent, so they are safe to install anywhere.
+All three skip silently when their tool is absent, so they install safely anywhere.
 
 ## Verifying the installation
 
@@ -129,8 +130,8 @@ python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py <repo> 
 
 ## Keeping it in sync
 
-Three pieces of machine-global state have no per-repo owner, so `check_toolchain.py` watches them
-and the session hook runs it in **every** project:
+Three pieces of machine-global state have no per-repo owner; `check_toolchain.py` watches them and
+the session hook runs in **every** project:
 
 | State | Drifts when | Fix |
 |---|---|---|

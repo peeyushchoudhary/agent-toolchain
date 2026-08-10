@@ -25,14 +25,16 @@ and installer behaviour: [install/README.md](install/README.md).
 
 The repository currently ships six published skills, thirteen generated personas, local session and
 Git guards, a cross-harness installer, and executable verification for the published toolchain. The
-execution methodology is at contract v2: work is bound to one approved outcome, validation commands
-are direct processes, and fresh read-only review tries to falsify designs and plans before their
-human gates. A clean `PASS` is valid; concrete evidence and a bounded rereview stop review from
-inventing work. Gradle evidence must use exact `--rerun-tasks`, and JUnit receipts verify that
-post-boundary XML records the expected classes and counts without failures, errors, or skips.
-Receipts do not establish test execution on their own or detect a cache restore that writes
-plausible valid XML after the start; exact runner rerun settings provide that execution evidence and
-prevent cache use. Receipts are not tamper-resistant against a deliberate local writer.
+execution methodology is at v3.0: work is bound to one approved outcome, tasks default to a
+card-free light lane and earn a validated card only when they cross a durable boundary or safety
+surface, and review runs under a mechanical budget — one reviewer plus conditional specialists, two
+rounds, then escalation to a human gate, enforced by a pre-dispatch check rather than by
+instruction. Cards are capped at 150 lines with large frozen payloads held by reference, and every
+milestone receipt records what the process cost next to what it shipped. Validation commands remain
+direct processes; Gradle evidence must use exact `--rerun-tasks`, and single-use JUnit receipts
+verify that post-boundary XML records the expected classes and counts without failures, errors, or
+skips. Receipts are not tamper-resistant against a deliberate local writer; the full trust boundary
+is stated in the skill's JUnit-evidence reference.
 
 The remaining known publication gap is `project-conformance`: it is installed locally but is not
 yet part of the vendored public skill set. Its scope and the coordinated edits still required are
@@ -140,6 +142,22 @@ independent review, and a merge commit that preserves the audit trail. See
 
 A concise record of one material repository improvement each week, newest first. Current tooling
 remains the authority for behaviour; each entry points to the implementation it describes.
+
+### Week of 10 August 2026 — methodology v3.0: the review budget
+
+A two-week audit of actively developed repositories measured the v1.4–v2.1 machinery producing more
+process than product: review rounds ran far past the written two-round stop-loss, workspaces filled
+with re-serialized diffs of changes git already stored, and milestones stalled on card
+preconditions. The numbers are in [measurements.md](docs/measurements.md). v3.0 applies the
+methodology's own mechanism-over-intention principle to its review loop:
+[`check_review_budget.py`](install/skills/execution-methodology/scripts/check_review_budget.py)
+refuses a third review round on any subject and rejects the diff-snapshot and restatement-packet
+artifact classes outright, and a 20% growth tripwire ends any review that expands its subject.
+Tasks default to a card-free light lane; the card validator now enforces a 150-line card budget and
+a ten-line inline limit for frozen values; milestone receipts carry process metrics so a process
+regression is triaged like any other. The methodology body shrank from 732 to about 410 lines, with
+the JUnit-evidence and Codex-sandbox protocols moved verbatim into reference files and the v1–v2
+changelog preserved alongside them.
 
 ### Week of 3 August 2026 — goal-bound execution with trustworthy evidence
 
