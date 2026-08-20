@@ -34,8 +34,11 @@ capsule for approval, not immediate implementation or automatic refusal.
 Before the design and plan gates, cast the existing read-only `reviewer` in fresh context with named
 artifact paths and no author rationale. `PASS` is valid. A blocker needs a frozen criterion or
 invariant, a reachable trigger, an observable consequence, and artifact evidence; preferences and
-invented requirements do not block. Permit one correction and one scoped rereview, then return
-same-cause recurrence to the relevant human gate instead of starting another review loop.
+invented requirements do not block. Permit one correction and one scoped rereview, then
+apply-and-close: the orchestrator applies the final verdict's named smallest correction and closes.
+Only safety-class findings and scope changes return to a human gate, and every escalation brief
+names a default action. A finding demanding more than the spec requires is over-engineering and
+non-blocking.
 For Codex, fresh review means `fork_turns: "none"`; another harness uses its equivalent fresh-thread
 primitive, never prompt wording alone. A scoped rereview receives paths to the persisted original
 finding, correction or diff, corrected artifact, and governing frozen artifacts. Post-code review

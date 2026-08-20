@@ -46,11 +46,17 @@ wearing a hat. Deferrals live in a register that a milestone can fail against.
 implementation or repair, a dispatch names the capsule criterion or invariant it advances and the
 observable delta expected. Review discovers evidence; it does not redefine the product. A
 "correction" that adds mechanism the plan's primitives do not contain is not a correction — it is a
-scope change, and it routes to a human gate instead of blocking a round.
+scope change, and it routes to a human gate instead of blocking a round. The spec is the ceiling as
+well as the floor: build what the PRD, the spec, and the plan say, and stop. A finding that demands
+more than the spec requires — extra hardening, extra generality, extra polish — is over-engineering
+and non-blocking by definition. The deliverable is the outcome, not its perfection.
 
 **8. The process is measured, and it can fail.** Every milestone receipt records what the process
-cost next to what it shipped. A process:product ratio worse than 1:1, a subject that hits the
-review budget, or a 48-hour zero-commit stall on an active milestone is a *process regression* —
+cost next to what it shipped. Process lines mean bookkeeping — workspace, ledger, verdicts, cards,
+escalations — not product specs or design documents, which are product thinking. A
+bookkeeping:product ratio worse than 1:4, a subject that hits the review budget, a process-only
+commit outside a milestone seal, or a 48-hour zero-commit stall on an active milestone is a
+*process regression* —
 triaged like any other regression, at the merge gate, with the same seriousness. A methodology
 that measures everything except itself discovers its own failure two weeks late, from the outside.
 
@@ -79,6 +85,28 @@ lane was mis-assigned, and the plan owns lane assignment.
 ## The chain
 
 Seven artifacts, three human gates. Nothing downstream begins until its input exists.
+
+**Where founder attention goes** — the shape measured in the repository that out-shipped the fleet
+(46 commits, seven same-day pull requests, bookkeeping at 3% of product lines):
+
+1. **Specs, reviewed with the founder.** `product-steward` writes the PRD and feature specs; the
+   founder reviews them with a disposable interactive HTML explainer — one file, rendered from the
+   specs, deleted at approval. Decisions land in the spec text, never in the explainer.
+2. **Task breakdown, reviewed with the founder.** `planner` (plus `contract-architect` on durable
+   boundaries) decomposes features into lane-tagged tasks; the founder reviews the task list —
+   titles, outcomes, dependencies — never the cards.
+3. **Plans, machine-reviewed.** Implementation and validation plans at two granularities — feature
+   level (wave definition, area gate, integration order) and task level (dispatch or card) — under
+   the review budget, fresh `reviewer`, apply-and-close. No founder round here.
+4. **Autonomous execution.** The task loop, in strict adherence to the plans; a deviation is a stop
+   condition or a scope change under principle 7, never an improvisation. The founder's next
+   appearance is the merge gate.
+
+Gate 1 therefore attaches the founder to *what is being built* (specs, with the design riding under
+machine review) and Gate 2 to *what will be done* (the task list, with the plans riding under
+machine review). Front-loading founder attention this way is what empties the escalation queue: the
+decisions that stalled repositories mid-execution are made in batch, up front, where they cost
+minutes.
 
 ```
 PRODUCT SPEC        why this exists, who it serves, where it stops
@@ -144,7 +172,7 @@ This section is the reason v3 exists. Review in v2 had a written stop-loss and n
 the measured result was rounds numbered to fifteen and eighteen, five-reviewer panels issuing
 blocks for free, and designs that *grew* 140% under review before ending blocked with the same
 verdict distribution they started with. The rules here bind in two ways: the round budget and the
-banned workspace artifact classes are enforced by `check_review_budget.py`, which the orchestrator
+banned workspace artifact classes are enforced by `scripts/check_review_budget.py`, which the orchestrator
 runs before every review dispatch; the reviewer count, the verdict form, and the growth tripwire
 bind at dispatch construction, where the orchestrator applies them and records any breach in the
 milestone receipt as a process regression.
@@ -161,9 +189,14 @@ causal area. There is no round three: before dispatching, the orchestrator names
 the budget check (`--next <subject>`), which refuses when that subject has already spent its two
 rounds — the third round is refused before it exists, not discovered after. The refusal counts
 the round markers on persisted verdict filenames (the `<subject>-r<N>-<kind>.md` convention in the
-workspace rules below), which is why that convention is mandatory. On refusal, escalate
-on the same cause: Design recurrence returns to Gate 1; plan recurrence returns to Gate 2;
-implementation recurrence goes to the founder with the escalation brief. Renaming the task, the
+workspace rules below), which is why that convention is mandatory. On refusal the subject
+closes instead of looping: the orchestrator applies the final verdict's named smallest correction
+and closes — no third round, no rereview of the application, no escalation. Only two finding
+classes still escalate: a safety-class finding, and a scope change under principle 7 (Design
+recurrence returns to Gate 1; plan recurrence returns to Gate 2; the brief names its default).
+A dispatch that never produced a verdict — a harness refusal, a thread-limit rejection, zero
+bytes returned — spends no round of any budget; the measured alternative converted three harness
+refusals into a spent budget and a gate frozen for six days. Renaming the task, the
 attempt, the workspace, or the card does not reset the counter; the subject is the artifact, not
 its filename. The check keys on the declared subject and on filename lineage — it is protection
 against drift, not against an orchestrator that renames its subjects, and a renamed subject is
@@ -189,10 +222,15 @@ report path, the correction or diff path, the corrected artifact path, and the g
 artifact paths — never author conversation or rationale. A post-code reviewer dispatch defaults
 to Implementation unless Design or Plan is explicitly named.
 
-**The escalation brief is one page.** The decision needed, stated as a question. The positions,
-each in two sentences. What each round found and what it cost. Nothing else — a founder asked to
-break a tie does not need the eighteen rounds re-narrated, and producing the narration is how one
-page becomes a workspace.
+**The escalation brief is one page, and it names a default.** The decision needed, stated as a
+question. The positions, each in two sentences. What each round found and what it cost. And the
+**default action** — the smallest safe resolution, which the orchestrator executes if the founder
+has not answered within minutes when present in the session, or by the next session start
+otherwise. A queue that hard-blocks on every question froze a repository for six days on two
+unanswered briefs while the working tree sat clean. Only a safety-class or irreversible decision
+has no default and truly waits. Nothing else goes in the brief — a founder asked to break a tie
+does not need the eighteen rounds re-narrated, and producing the narration is how one page becomes
+a workspace.
 
 **Classification survives from v2**, unchanged in substance: every finding is classified before
 repair (current-scope defect, harness defect, pre-existing defect, invalid frozen assumption, new
@@ -288,6 +326,9 @@ is write-only history, what enters it is bounded:
   thousand lines of `.diff` files — 4.8× the product output of the stage they reviewed.
 - **No restatement packets.** A dispatch that failed is a ledger line; the re-dispatch carries the
   same paths the original did.
+- **No raw dumps and no persisted prompts.** A `.raw` capture of a verdict duplicates the
+  structured verdict beside it; a persisted dispatch prompt duplicates the recipe that generated
+  it. Both are banned classes the budget check rejects — one workspace held 468 of them.
 - **Verdicts, not reports, from judges.** Thirty lines, structured, persisted once — and named
   `<subject>-r<N>-<kind>.md`. The round marker on a persisted verdict is load-bearing: it is what
   the budget check counts, so a marker-free verdict filename is a methodology violation, not a
@@ -300,7 +341,10 @@ is write-only history, what enters it is bounded:
 finished, nor its workspace deleted, until each task's **distillation** is appended and committed:
 interfaces produced that later tasks consume; deferrals, each with an owning milestone;
 verification actually run, verbatim, including what was not run; surprises and corrected
-assumptions. The distillation rides in the task's own commit — never a batch at the end.
+assumptions. A distillation is five lines or fewer, and it rides in the task's own commit — never
+a batch at the end, never a process-only commit. The ledger is a record, not a narrative: the
+measured alternative grew one ledger by twelve thousand lines in a week while ninety-four of a
+hundred and fifty commits carried no product.
 
 **The milestone receipt carries the process metrics** (principle 8): product lines merged, process
 lines produced (tracked and workspace, measured at seal), plan-to-merge days, maximum review
@@ -324,6 +368,13 @@ The methodology says when; the persona pool says who, on which model, with which
 orchestrator holds the loop and serializes every write to a shared interface, manifest, registry,
 or generated artifact. Parallelize reads; serialize writes — concurrent implementers are capped,
 file-disjoint by their write sets, never concurrent on a shared artifact.
+
+**The orchestrator is one long-lived session per milestone.** Cold fresh-thread dispatch is
+reserved for the roles that need isolation — the judging personas. Implementation and stewardship
+run inside the controller's session or as warm subagents that inherit its context, because every
+cold session pays its full boot — system prompt, roster, rendered methodology — before its first
+token of work. The measured week put 438 cold sessions beside two warm ones: the cold sessions
+landed four commits, the warm ones a hundred and fifty-one.
 
 | Stage | Role |
 |---|---|
@@ -360,14 +411,40 @@ anything; v3.0 is the correction.
 
 ## Landing
 
-Small, single-purpose commits during the plan. One milestone-sized pull request at the end, merged
-with a merge commit and tagged — where there is no CI, commit history is the audit trail. Agent
+Small, single-purpose commits during the plan, landed in wave-sized pull requests as they turn
+green — main moves the same day a wave passes its gate, and nothing accumulates unmerged past the
+48-hour cadence invariant. The measured alternative was thirty commits and eight thousand product
+lines stranded on branches while main sat ten days stale. Merge commits, never squash, tagged at
+the milestone — where there is no CI, commit history is the audit trail. Agent
 work is never force-pushed. The README is updated with the change, not after it. A merge exists to
 land work: a merge whose entire content is an approval receipt is ceremony, and the receipt rides
 with the work it approves. Committing, pushing, opening a pull request, and merging are founder
 decisions; the methodology prepares them and never takes them.
 
 ## What changed, and what earned it
+
+### v3.1 — outcome focus and the unattended founder
+
+The week after v3.0 was measured the same way v2 was (2026-08-12..20, four repositories). The
+round cap held — no post-adoption subject anywhere exceeded two rounds — and that exposed the
+next constraint up the stack: every capped review failed closed onto a founder gate, and the
+founder is one person across four repositories. One repo froze six days on two unanswered briefs
+with a clean tree; another consumed five founder gates in one day; a third wrote ninety-four
+process-only commits against twenty-six product ones and grew its ledger twelve thousand lines;
+588 cold dispatch sessions landed nine commits while two warm sessions landed 151. Reviews exited
+via block-and-escalate rather than pass; harness refusals were counted as spent rounds.
+
+Added: the over-engineering guard on principle 7 (the spec is the ceiling); the default action on
+every non-safety escalation; the five-line distillation cap; the raw-dump and persisted-prompt
+banned classes; the long-lived orchestrator session; wave-sized landing; the founder-attention
+milestone shape (specs and task breakdown reviewed with the founder, plans machine-reviewed,
+execution autonomous), taken from the best-measured repository's own practice.
+
+Retired: the escalate-on-refusal exit (now apply-and-close for non-safety findings); the founder
+hard-block on non-safety escalations (now a named default after a short wait); rounds spent by
+dispatches that never ran (now zero-cost ledger lines); the single milestone-sized pull request
+(now wave-sized, main moving with every green wave); narrative ledger entries and process-only
+commits (now five lines, riding the product commit).
 
 ### v3.0 — the review budget, two lanes, and the process metric
 

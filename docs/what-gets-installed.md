@@ -63,7 +63,7 @@ rather than carrying its own list. `graphify` is listed because the installed la
 | `progressive-disclosure/scripts/check_toolchain.py` | Machine-global drift: persona pool vs generated agents, mirrored instruction blocks, Codex skills copy |
 | `agent-personas/scripts/sync_personas.py` | Renders the pool into both harnesses; prunes orphans |
 | `execution-methodology/scripts/sync_methodology.py` | Renders the methodology into a repository as `docs/agents/execution/methodology.md` |
-| `execution-methodology/scripts/check_review_budget.py` | Review-budget gate: refuses round three, bans diff snapshots and packets |
+| `execution-methodology/scripts/check_review_budget.py` | Review-budget receipt: counts round spend, bans debris classes; advisory |
 
 ### Session hooks — wired in `~/.claude/settings.json`
 

@@ -62,8 +62,8 @@ class MethodologySyncTest(unittest.TestCase):
         )
         return repo
 
-    def test_review_budget_contract_is_version_3_0(self) -> None:
-        self.assertEqual(installed_version(), "3.0")
+    def test_review_budget_contract_is_version_3_1(self) -> None:
+        self.assertEqual(installed_version(), "3.1")
 
     def test_pre_gate_adversarial_review_contract_is_published(self) -> None:
         for relative in ("SKILL.md", "methodology.md"):

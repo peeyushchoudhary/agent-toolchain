@@ -63,6 +63,7 @@ import argparse
 import ast
 import os
 import re
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -1569,6 +1570,24 @@ def check_path_coherence(card: dict[str, object], repo: Repo,
             if is_normalized_safe_literal(spec.pattern):
                 # An exact forbidden literal is an assertion of absence. Existing boundaries are
                 # also valid and are checked above solely for overlap with exclusive_writes.
+                #
+                # But a legitimate absence assertion and a MISTYPED PATH are indistinguishable
+                # here, and that is exactly where a fence that forbids nothing hides: the card's
+                # invariants and stop conditions go on citing it, and the real file stays
+                # untouched by luck rather than by the fence. One signature separates them — a
+                # file of the same basename existing ELSEWHERE in the tree means the path is
+                # wrong, not that the file must not exist. Observed 2026-08-17: a card forbade
+                # backend/core/.../bootstrap/CreateTenantRunner.java, which had never existed,
+                # while a sibling card in the same directory named the real
+                # backend/app/.../CreateTenantRunner.java correctly.
+                base = spec.pattern.rsplit("/", 1)[-1]
+                elsewhere = [p for p in repo.files if p.rsplit("/", 1)[-1] == base]
+                if elsewhere:
+                    f.add(ERROR, "forbidden_paths",
+                          f"{spec.pattern} does not exist, but {base} does — at "
+                          f"{', '.join(sorted(elsewhere)[:2])}. A forbidden path naming a file "
+                          "that is not there forbids nothing, while the invariants citing it read "
+                          "as enforced; correct the path or drop the entry")
                 continue
             f.add(WARNING, "forbidden_paths",
                   f"{spec.pattern} matches nothing in the tree and is not a safe exact absence "
@@ -1656,12 +1675,65 @@ def scan_for(root: Path, paths: list[str], needles: set[str],
     return hits
 
 
+def check_ignored_write_paths(repo: Repo, writes: list[PathSpec], f: Findings) -> None:
+    """A write path git ignores is a file no clone will ever have.
+
+    The failure is silent end to end: the task writes the file, its own gate reads it off DISK and
+    passes, `git add -A` skips it, review sees a green run, and the authority exists on exactly one
+    machine. Real instances, one milestone apart, both from the same blanket `*.tsv` rule --
+    baseline-aliases.tsv (repaired at c78a6b59, before it did harm) and role-additions.tsv. In both
+    the fix was one line un-ignoring the path, which means declaring .gitignore in the write set is
+    the whole remedy, so requiring it is the whole check.
+
+    git resolves negations itself: a re-admitted path exits 1 and is not reported here, verified on
+    git 2.50.1. And check-ignore answers for paths that DO NOT EXIST YET, which is the case that
+    matters, because a card declares a file before the task creates it.
+    """
+    literals = sorted({spec.pattern for spec in writes
+                       if is_normalized_safe_literal(spec.pattern)})
+    if not literals or ".gitignore" in literals:
+        return
+    try:
+        proc = subprocess.run(["git", "-C", str(repo.root), "check-ignore", "-v", "--stdin"],
+                              input="\n".join(literals), capture_output=True,
+                              text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError) as exc:
+        f.add(WARNING, "exclusive_writes",
+              f"git check-ignore could not be run ({exc}), so no write path was checked against "
+              ".gitignore; a path git ignores would not be caught here")
+        return
+    if proc.returncode not in (0, 1):
+        f.add(WARNING, "exclusive_writes",
+              f"git check-ignore exited {proc.returncode}, so no write path was checked against "
+              ".gitignore")
+        return
+    for line in proc.stdout.splitlines():
+        rule, _, path = line.partition("\t")
+        path = path.strip()
+        if not path:
+            continue
+        parts = rule.split(":", 2)
+        pattern = parts[2] if len(parts) == 3 else rule
+        # A DIRECTORY rule is a scratch area the repository chose to discard wholesale -- a plan
+        # workspace, build/, node_modules/ -- and a card writing its own report there is correct,
+        # not a defect. Firing on those made this check hit 19 of 73 real cards, which is how a
+        # guard becomes noise and gets switched off. The accident this exists to catch is a CONTENT
+        # glob (`*.tsv`) swallowing a durable artifact inside an otherwise tracked tree.
+        if pattern.endswith("/"):
+            continue
+        f.add(ERROR, "exclusive_writes",
+              f"{path} is IGNORED by .gitignore ({pattern}), so writing it produces a file no clone "
+              "will have -- and the task's own gate would still pass, because it reads the file off "
+              "disk. Add .gitignore to exclusive_writes and un-ignore the path, or drop it from the "
+              "write set")
+
+
 def check_write_set_satisfiable(card: dict[str, object], repo: Repo,
                                 writes: list[PathSpec], f: Findings) -> None:
     """C (defect 3). A card that may write a bookkeeping artifact must also be able to write the
     tests that pin that artifact, or the task is unsatisfiable as specified.
 
-    The real failure: `exclusive_writes` permitted the school data-export manifest but not the
+    The real failure: `exclusive_writes` permitted the tenant data-export manifest but not the
     tests asserting its contents. Adding an exported table requires both. The implementer correctly
     refused to widen its own scope and the task stalled until a human ruling amended the card.
 
@@ -1891,6 +1963,7 @@ def validate(card_path: Path, repo_root: Path,
         check_validation_cacheable(card, repo, writes, parsed_gradle, f)
     check_path_coherence(card, repo, writes, forbidden, phase, f)
     check_write_set_satisfiable(card, repo, writes, f)
+    check_ignored_write_paths(repo, writes, f)
     check_required_fields(card, f)
     check_title(card, f)
     check_cross_card_uniqueness(card, scan, f)

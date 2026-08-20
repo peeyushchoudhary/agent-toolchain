@@ -41,7 +41,10 @@ A light-lane task that turns out to touch a durable boundary stops and returns t
 
 One reviewer per round — `security-validator` joins only when a safety surface moves, at most one
 other domain specialist only when its invariant moves; never a panel. Two rounds per artifact: one
-correction and one scoped rereview, then escalation. An artifact that grows more than 20% in lines
+correction and one scoped rereview, then apply-and-close — the orchestrator applies the final
+verdict's named smallest correction and closes; only safety-class findings and principle-7 scope
+changes escalate, and every escalation brief names a default action executed after a short founder
+wait. A dispatch that never produced a verdict spends no round. An artifact that grows more than 20% in lines
 under review escalates immediately — that tripwire, the reviewer count, and the verdict form are
 applied by the orchestrator at dispatch construction; the round budget and artifact classes are
 enforced by the check. Run it **before every review dispatch**, naming the subject:
@@ -149,8 +152,9 @@ Design or Plan is explicitly named, preserving existing implementation-review ca
 The author gets one correction and one scoped rereview. Its dispatch names the persisted original
 finding or report path, correction or diff path, corrected artifact path, and governing frozen
 artifact paths; it never includes author conversation or rationale. Persisted verdicts are named
-`<subject>-r<N>-<kind>.md` — the round marker is what the budget check counts. If the same causal problem
-recurs, stop: Design recurrence returns to Gate 1; plan recurrence returns to Gate 2. The reviewer
+`<subject>-r<N>-<kind>.md` — the round marker is what the budget check counts. If a safety-class or scope-change
+cause recurs, stop: Design recurrence returns to Gate 1; plan recurrence returns to Gate 2; any
+other refusal is closed by applying the final verdict's named smallest correction. The reviewer
 never authors or applies its own correction, and the bounded rereview never becomes a consensus
 loop. Existing implementation review is unchanged.
 
