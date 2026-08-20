@@ -25,11 +25,14 @@ and installer behaviour: [install/README.md](install/README.md).
 
 The repository currently ships six published skills, thirteen generated personas, local session and
 Git guards, a cross-harness installer, and executable verification for the published toolchain. The
-execution methodology is at v3.0: work is bound to one approved outcome, tasks default to a
+execution methodology is at v3.1: work is bound to one approved outcome and capped at what the
+spec requires — a finding demanding more is over-engineering and non-blocking. Tasks default to a
 card-free light lane and earn a validated card only when they cross a durable boundary or safety
-surface, and review runs under a mechanical budget — one reviewer plus conditional specialists, two
-rounds, then escalation to a human gate, enforced by a pre-dispatch check rather than by
-instruction. Cards are capped at 150 lines with large frozen payloads held by reference, and every
+surface. Review runs under a budget — one reviewer plus conditional specialists, two rounds, then
+apply-and-close: the orchestrator applies the final verdict's named smallest correction, and only
+safety-class findings and scope changes escalate, each brief naming a default action taken after a
+short founder wait. The budget check is an advisory receipt read at the merge gate; the orchestrator
+is one long-lived session per milestone, and main moves with every green wave. Cards are capped at 150 lines with large frozen payloads held by reference, and every
 milestone receipt records what the process cost next to what it shipped. Validation commands remain
 direct processes; Gradle evidence must use exact `--rerun-tasks`, and single-use JUnit receipts
 verify that post-boundary XML records the expected classes and counts without failures, errors, or
@@ -142,6 +145,17 @@ independent review, and a merge commit that preserves the audit trail. See
 
 A concise record of one material repository improvement each week, newest first. Current tooling
 remains the authority for behaviour; each entry points to the implementation it describes.
+
+### Week of 17 August 2026 — methodology v3.1: outcome focus and the unattended founder
+
+The v3.0 round cap held everywhere it was adopted, and the same measurement pass that proved it
+found the next constraint: capped reviews escalated to a serialized human gate that did not drain,
+narration grew faster than product, and cold per-dispatch sessions paid a ~133 KB boot 588 times
+for nine commits. v3.1 replaces escalate-on-refusal with apply-and-close, gives every non-safety
+escalation a named default action, caps ledger distillations at five lines, bans raw verdict dumps
+and persisted prompts, states the long-lived controller session as the default, and lands work in
+wave-sized pull requests. The installer now carries the operator grants ledger across installs, and
+the vendored suite runs without it. Numbers in [measurements.md](docs/measurements.md).
 
 ### Week of 10 August 2026 — methodology v3.0: the review budget
 

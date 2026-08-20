@@ -73,6 +73,12 @@ install_tree() {
   local src="$1" dest="$2" staged="$2.staging.$$" aside="$2.replacing.$$"
   rm -rf "$staged" "$aside" || return 1
   if cp -R "$src" "$staged" && chmod_scripts "$staged"; then
+    # Operator data rides across installs. ROUND-GRANTS.tsv is a ledger of founder decisions made
+    # on THIS machine — it is not published behaviour, is deliberately absent from the vendored
+    # tree, and an install must never erase it.
+    if [ -f "$dest/ROUND-GRANTS.tsv" ] && [ ! -e "$staged/ROUND-GRANTS.tsv" ]; then
+      cp "$dest/ROUND-GRANTS.tsv" "$staged/ROUND-GRANTS.tsv" || { rm -rf "$staged"; return 1; }
+    fi
     if [ ! -e "$dest" ] || mv "$dest" "$aside"; then
       if mv "$staged" "$dest"; then
         [ ! -e "$aside" ] || rm -rf "$aside" ||

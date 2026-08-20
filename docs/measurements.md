@@ -30,8 +30,8 @@ over Sonnet 5 widened from 6 points to **16** — which is what settled the impl
 
 ## Cross-harness review experiment
 
-Identical task: a 34-line Java class with two planted authorization bugs — a caller-supplied
-`familyId` trusted without checking, and a `get()` with no authorization at all.
+One task: a 34-line Java class with two planted authorization bugs — `familyId` trusted
+unchecked, and a `get()` with no authorization.
 
 | Run | Uncached in | Cached in | Out | Shell | Wall | Cost | Findings |
 |---|---|---|---|---|---|---|---|
@@ -40,21 +40,16 @@ Identical task: a 34-line Java class with two planted authorization bugs — a c
 | 3 `codex exec` matched (repo + scoped prompt) | 48,611 | 138,240 | 1,827 | 4 | 66s | **$0.367** | 5, grounded |
 | 4 Claude subagent, `opus`, in-harness | 27,232 | 0 | ~3,025 | 7 | 80s | **$0.212** | 5, grounded |
 
-**Only rows 3 and 4 are comparable.** Rows 1–2 were not quality-matched; row 2 had no repo access at
-all, which is why it found less.
+**Only rows 3–4 are comparable**; rows 1–2 were not quality-matched.
 
-Findings:
-
-- **~23K input tokens is the floor** for any `codex exec` call — the Codex base system prompt, paid
-  before your content.
-- **A naive call costs 84% more than a disciplined one.** Run 1 burned 76K re-reading `AGENTS.md`
-  and both graphify `SKILL.md` files, then ran 6 shell commands rediscovering context the parent
-  already had.
-- **At matched quality, cross-harness costs ~1.7×.** 186K input against 30K, because a cold
-  subprocess shares nothing. Caching absorbed 138K at 10% rate; uncached, run 3 would be ~$0.98.
-- **The families found different defect classes.** Both caught the planted bugs. Codex/Sol
-  additionally caught that `ConsentLedger.hasActiveConsent()` **does not exist** — an API-existence
-  error the Claude subagent reasoned right past while proposing a fix built on it.
+- **~23K input tokens is the floor** for any `codex exec` call — the Codex base system prompt.
+- **A naive call costs 84% more.** Run 1 burned 76K re-reading `AGENTS.md` and two `SKILL.md`
+  files, then 6 shell commands rediscovering context the parent already had.
+- **At matched quality, cross-harness costs ~1.7×.** 186K input against 30K — a cold subprocess
+  shares nothing. Caching absorbed 138K at 10% rate; uncached, run 3 would be ~$0.98.
+- **The families found different defect classes.** Both caught the planted bugs; Codex/Sol also
+  caught that `ConsentLedger.hasActiveConsent()` **does not exist** — an API-existence error the
+  Claude subagent reasoned right past.
 
 ## Per-milestone cost model
 
@@ -94,24 +89,41 @@ open.
 
 ## Process overhead under methodology v1.4–v2.1
 
-Measured 2026-08-10 across the three private repositories that were under active development in the
-window 2026-07-27 → 2026-08-10, by classifying every commit and working-tree artifact as product
-(production code and its tests) or process (specs, plans, cards, review reports, ledgers, receipts,
-workspaces). These numbers are why methodology v3.0 exists; repository identities are withheld by
-this repository's boundary rules.
+Measured 2026-08-10 over 2026-07-27 → 2026-08-10, three private repositories, every commit and
+working-tree artifact classified as product (production code and tests) or process (specs, plans,
+cards, review reports, ledgers, receipts, workspaces). These numbers are why v3.0 exists;
+identities withheld by this repository's boundary rules.
 
 | Metric | Repo A | Repo B | Repo C |
 |---|---|---|---|
-| Process:product line ratio in the governed period | 10.9 : 1 | 15.5 : 1 | 2.5 : 1 (6 : 1 in the active stage) |
-| Maximum review rounds on one subject (written cap: 2) | 15 | 8, plus a sixth milestone attempt | 18 |
-| Merges shipping zero product code | 0 merges at all in the final 5 days | 12 of 14 merged in <90s (review was elsewhere) | 6 of 11 |
-| Longest zero-commit stall on an active milestone | 4 days | 4 days (card precondition deadlock, 5 days to clear) | 24h+, 327 artifacts, 0 commits |
-| Largest waste class | 135 review reports in 4 days against 1 commit | 144 `.diff` snapshots, 10.3 MB | 37 `.diff` snapshots, 68,447 lines — 4.8× the stage's product output |
+| Process:product line ratio, governed period | 10.9:1 | 15.5:1 | 2.5:1 (6:1 active stage) |
+| Max review rounds on one subject (cap: 2) | 15 | 8, plus a 6th milestone attempt | 18 |
+| Merges shipping zero product code | 0 merges in the final 5 days | 12 of 14 merged in <90s | 6 of 11 |
+| Longest zero-commit stall, active milestone | 4 days | 4 days (card deadlock, 5 to clear) | 24h+, 327 artifacts, 0 commits |
+| Largest waste class | 135 review reports in 4 days vs 1 commit | 144 `.diff` snapshots, 10.3 MB | 37 `.diff` snapshots, 68,447 lines — 4.8× stage product |
 
-Control, same fortnight, same repositories, lighter pre-v1.4 process: 10 PRs merged in 3 days at a
-1 : 2.6 process:product ratio in one repository; plan-to-merge in under a day in another. The
-contrast between those two rows, not any single failure, is the v3.0 evidence base.
+Control, same fortnight, lighter pre-v1.4 process: 10 PRs merged in 3 days at 1:2.6
+process:product in one repository; plan-to-merge under a day in another. The
+contrast between those rows is the v3.0 evidence base.
 
-Validation of the v3.0 enforcement script against the worst measured workspace (327 files, 5.6 MB):
-`check_review_budget.py` reported 6 subjects past the round cap, 90 banned-class artifacts, and the
-workspace-budget warning, exit 1 — one process invocation, no LLM involved.
+Validating v3.0's script against the worst workspace (327 files, 5.6 MB): `check_review_budget.py`
+reported 6 subjects past the cap, 90 banned artifacts, the budget warning, exit 1 — one process
+invocation, no LLM involved.
+
+## Process overhead under methodology v3.0
+
+Measured 2026-08-20 over the preceding eight days, four private repositories, classified as above,
+session transcripts as an effort proxy.
+
+| Shape | Commits | Prod:proc ins. | Sessions / MB | Merges to main |
+|---|---|---|---|---|
+| Warm controller, wave PRs, same-day gates | 46 | 42.7K:24.2K | few / 3.9 | 7 PRs, 7 tags |
+| Warm controller, heavy narration | 151 | 22.9K:37.3K | 2 / 82 | 1 PR |
+| Cold per-dispatch sessions | 5 | 8.7K:0.7K | 150 / 359 | 2 PRs, then frozen 6 d |
+| Cold per-dispatch sessions | 34 (all refs) | 15.6K:22.8K | 438 / 419 | 0; main stale 10 d |
+
+The round cap held: no post-adoption subject exceeded two rounds. Exposed instead: capped reviews
+escalated to a human gate that did not drain (two briefs unanswered six days); one ledger grew
+12,220 lines in a week, 94 of 150 commits carrying no product; 588 cold sessions (~133 KB boot
+each) landed 9 commits beside two warm sessions landing 151. Hence v3.1: apply-and-close, default actions,
+five-line distillations, long-lived controller.

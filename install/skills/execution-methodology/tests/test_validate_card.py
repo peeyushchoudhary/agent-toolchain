@@ -159,6 +159,9 @@ class ValidateCardTest(unittest.TestCase):
             python.parent.mkdir(parents=True, exist_ok=True)
             python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             python.chmod(0o755)
+        # The fixture must be a real git repository: the validator asks `git check-ignore` inside
+        # it, and without this the answer depends on whatever repository encloses $TMPDIR.
+        subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
         return repo
 
     def run_validator(self, card_text: str, repo: Path, *extra: str,
