@@ -7,7 +7,8 @@ needs.
 ## Boundaries and authority
 
 This public repository must contain no project names, personal paths, account identifiers, or
-private business facts.
+private business facts — in commit messages as well as files: no `Claude-Session:` trailers here.
+Nothing enforces the commit-message half; it is a rule, not a guard.
 
 <!-- public-exception: {"reason":"documentation and tooling repo, deliberately public so the setup is checkable by anyone; no project names or personal data belong here by invariant","date":"2026-07-30"} -->
 
