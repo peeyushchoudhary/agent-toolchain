@@ -53,8 +53,11 @@ and non-blocking by definition. The deliverable is the outcome, not its perfecti
 
 **8. The process is measured by a script that can fail the gate.** `scripts/ratio_meter.py`
 classifies committed churn into product, product thinking, and process, and exits non-zero when
-process exceeds **10%** of the classified total. It runs at the merge gate and in the weekly
-review. A subject that hits the review budget, a process-only commit outside a milestone seal, and
+process exceeds its band. The budget is **10%** of classified churn; the gate warns above **15%**
+and fails a merge above **30%**, and nothing fails below 500 classified lines. The target and the
+enforcement bands are different numbers on purpose: 10% is what the process is worth, and 30% is
+the point past which a merge is not worth arguing about. It runs at the merge gate and in the
+weekly review. A subject that hits the review budget, a process-only commit outside a milestone seal, and
 a 48-hour zero-commit stall on an active milestone remain process regressions, triaged at the
 merge gate with the same seriousness.
 
@@ -75,9 +78,11 @@ and `ratio_meter.py` enforces it:
 |---|---|---|
 | **Product** | Source, tests, migrations, build and infrastructure files | **at least 70%** |
 | **Product thinking** | PRD, feature specs, design, decision records, architecture, runbooks | about 20% |
-| **Process** | Workspace, ledger, cards, verdicts, receipts, deferrals, agent docs | **at most 10%** |
+| **Process** | Workspace, ledger, cards, verdicts, receipts, deferrals, agent docs | **10% target · 15% warns · 30% fails** |
 
-The product floor is advisory. The process ceiling is binding and fails the gate. Removing
+The product floor is advisory. The process band is binding: above 15% the gate warns, above 30% it
+fails. Only committed churn is measured, so the git-ignored workspace never reaches the meter —
+cards are bounded by their own 150-line cap and the workspace's 50-file / 500 KB limit instead. Removing
 bookkeeping is never a breach: a commit that only deletes process files is classified `cleanup` and
 is exempt, because a budget that punishes cleanup guarantees the corpus only grows.
 
@@ -524,7 +529,7 @@ no receipt recorded it. Meanwhile the rule that was provably unmechanizable, the
 received 1,085 lines of Python before being reclassified advisory. Every numeric limit v3.1 set was
 breached by its own author repository, most of them by more than an order of magnitude.
 
-Added: the three-bucket budget with a binding 10% process ceiling (`ratio_meter.py`); the weekly
+Added: the three-bucket budget with a 10% target, warning at 15% and failing at 30% (`ratio_meter.py`); the weekly
 review (`weekly_review.py`); gate enforcement for the five caps v3 wrote as prose; ledger rotation
 at 500 lines; the in-budget precondition on methodology changes.
 

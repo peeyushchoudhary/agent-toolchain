@@ -53,7 +53,7 @@ Usage:
   ratio_meter.py --since 2026-08-14                     # any date git log accepts
   ratio_meter.py --range main..HEAD --repo PATH         # default: the current directory
   ratio_meter.py --since 2026-08-14 --json              # machine-readable
-  ratio_meter.py --range main..HEAD --ceiling 0.15      # default 0.10
+  ratio_meter.py --range main..HEAD --ceiling 0.20      # default 0.30, warns above 0.15
 
 Exit codes: 0 within budget, 1 BREACH — the process share is over the ceiling, 2 the arguments or
 the repository could not be used. The product floor is advisory and never reaches the exit code:
