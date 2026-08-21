@@ -105,6 +105,29 @@ quota, and preferences or invented requirements cannot block an approved outcome
 PHI. Set at `high` rather than `xhigh`: `high` is already deep, and the extra tier did not earn its
 cost in testing.
 
+**`migration-validator` — opus / sol, high.** Same tier and the same argument as
+`security-validator`: adversarial reasoning over an irreversible surface, at `high` rather than
+`xhigh` because the extra tier did not earn its cost anywhere else on this roster. It runs about
+three times per milestone, at DESIGN, so the aggregate is a rounding error against the review line.
+
+Two things about it are deliberate and neither is a cost decision.
+
+It holds **no `Bash`**, and that is the whole design rather than an inherited default. The seat was
+added because three improvised reviews — `syntax`, `nullcheck`, `blocker` — landed on one 386-line
+migration that nobody owned. **Two of the three were work a tool does for free**: two missing
+closing parentheses, which a statement-level parenthesis scan finds, and a `CHECK` predicate that
+evaluates to UNKNOWN, which a dry run against a scratch database exposes. Granting this persona a
+shell would let it re-derive both by hand at model prices, which is the over-engineering the seat
+was created to remove. Denied the shell, it must demand the parse, the dry run and the migration's
+contract test as **inputs**, and refuse the review when they are absent. That refusal is the
+cheapest verdict on the roster and the one it should return most often.
+
+It is cast at **design**, not at implementation review, and that is measured. Project-local domain
+validators cast at implementation time returned 66 reviews and **zero** blocking verdicts across
+four repositories; the same validator names cast inside a design workspace returned 6 blocks in 14
+reviews. By implementation the migration has already been frozen into a card, so the only correction
+available is an expensive one.
+
 **`acceptance` — opus / sol, xhigh.** Runs once per milestone, so aggregate cost is irrelevant and
 being wrong means shipping something unfinished. The one place to over-invest.
 

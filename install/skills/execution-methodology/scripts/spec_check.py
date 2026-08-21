@@ -700,7 +700,7 @@ def check_deferred(doc: Doc, milestones: dict, specs: dict, f: Findings) -> list
 #
 #     covers: [tenancy, money handling]
 #
-# New authoring is ONE line per persona a repository chooses to bind. Nothing on the 13 base
+# New authoring is ONE line per persona a repository chooses to bind. Nothing on the 14 base
 # personas, which own no domain. Nothing new in a spec beyond the `reviewed_by:` list itself.
 #
 # THE POOL IS READ FROM THE REPOSITORY, never from `~/.claude/agents` or any other machine-global

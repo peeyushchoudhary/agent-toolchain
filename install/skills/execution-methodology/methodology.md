@@ -244,12 +244,42 @@ is what found 468 raw dumps in one workspace. The reviewer count, the verdict fo
 tripwire bind at dispatch construction. What binds mechanically is the process ceiling of principle
 8, which no orchestrator can satisfy by producing more process.
 
-**One reviewer.** A review round is one fresh, isolated, read-only `reviewer`, handed only named
-artifact paths, never the author conversation or rationale — plus `security-validator` when and
-only when the diff touches a declared safety surface, and at most one other domain specialist when
-and only when the diff touches that specialist's invariant. Never a panel. Reviewer count per
-round is capped at the surfaces the diff actually touches, maximum three, and two of the three
-exist only conditionally.
+**Width is scoped by STAGE, not capped by a count.** A review round dispatches a
+fresh, isolated, read-only `reviewer` — handed
+only named artifact paths, never the author conversation or rationale — and how MANY such lenses it
+dispatches depends on which stage the artifact is at. v3's flat cap of one reviewer at every stage,
+with no panel ever, is **falsified** and is corrected here.
+
+- **Design and plan: up to three, with DIFFERENT lenses**, plus `security-validator` when a safety
+  surface moves and `migration-validator` when the data plane moves.
+- **Implementation: ONE `reviewer`**, plus `security-validator` when and only when the diff touches
+  a declared safety surface. `test-judge` runs the gate alongside it and spends no round, because
+  running a command and reporting an exit code is not a lens.
+
+The evidence, measured across 1,051 round-marked review artifacts in four repositories. A design or
+plan review returns a blocking verdict at **0.74** per artifact; an implementation review at
+**0.09** — an **8x** gap that holds at every width. A three-wide design panel blocked in 7 groups of
+7; a four-or-more-wide implementation round blocked in 2 groups of 65. Panel findings are **not**
+redundant: across 21 groups where two or more reviewers blocked, the median overlap between the
+anchors they cite is a Jaccard of **0.20**, and the only three pairs above 0.5 share the subject id
+and not a finding. Three reviewers on one design returned three disjoint defects.
+
+What v3 measured was real and was misdiagnosed. Five-reviewer panels re-issuing the same verdict
+distribution nine hours apart is a **round** failure and a **stage** failure — those panels sat at
+implementation, where the yield is 0.09 — and v3 retired the panel when what needed retiring was the
+panel *at implementation*. The round budget below is what binds the loop that produced R15 and R18;
+width was never the dial.
+
+**Do not import the published "two reviewers is optimal" figure**, and this is a deliberate refusal
+rather than an oversight. That result measures the same lens applied twice to a diff, where a third
+reader adds overlap and not coverage. A design panel applies different lenses to a document, and the
+overlap was measured here and is low. Where the external number and this corpus disagree, this
+corpus wins, because the two are not measuring the same thing.
+
+**Cast a repository's own domain validators at definition and design, not at implementation
+review.** Across the same repositories they returned **66 implementation reviews and ZERO blocking
+verdicts**; the same validator names, cast inside a design workspace, returned **6 blocks in 14
+reviews**. A validator is a lens on a decision, and by implementation the decision is made.
 
 **Two rounds.** The author gets one correction and one scoped rereview of that correction and its
 causal area. There is no round three: before dispatching, the orchestrator names the subject to

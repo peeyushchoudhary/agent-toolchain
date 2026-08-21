@@ -727,6 +727,114 @@ class SilentUndercountTest(unittest.TestCase):
         self.assertEqual(cap[0]["round"], 3, proc.stdout)
 
 
+class RoundWidthTest(unittest.TestCase):
+    """WIDE_ROUND: how many lenses were filed against ONE round of ONE subject.
+
+    THE REASON THIS CLASS EXISTS AND THE REASON IT IS SMALL ARE THE SAME. The methodology's review
+    rule was "one reviewer, never a panel" at every stage, and the real corpus falsifies it: a
+    design or plan review returns a blocking verdict at 0.74 per artifact against 0.09 at
+    implementation. The rule is now scoped by STAGE. Only the CEILING half of that is a fact this
+    tool can see -- width is a count of files in a directory -- and the STAGE half is not on disk
+    at all. It is deliberately not inferred; see the WIDE_ROUND comment in the module.
+
+    VALIDATED AGAINST THE REAL CORPUS, not against these fixtures, because this repository has
+    shipped nine checkers that passed their own fixtures and saw nothing: run over four real
+    repositories, the module's own `subject_of` yields 672 (subject, round) groups from 1,203
+    round-marked prose artifacts, and 78 of those groups are four or more wide. This warning fires
+    78 times out of the box. The fixtures below only pin the shape.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._led = tempfile.TemporaryDirectory()
+        self.ws = Path(self._tmp.name)
+        self.grants = Path(self._led.name) / "ROUND-GRANTS.tsv"
+        self.grants.write_text("# none\n")
+        track(self.grants)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+        self._led.cleanup()
+
+    def touch(self, rel: str):
+        path = self.ws / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n")
+
+    def wide(self, proc):
+        return [w for w in findings(proc)["warnings"] if w["kind"] == "WIDE_ROUND"]
+
+    def test_four_lenses_on_one_round_are_reported(self):
+        for kind in ("reviewer", "security", "architect", "tenancy"):
+            self.touch(f"verdicts/T40-r1-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        found = self.wide(proc)
+        self.assertEqual(len(found), 1, proc.stdout)
+        self.assertEqual(found[0]["width"], 4, proc.stdout)
+        self.assertEqual(found[0]["subject"], "t40", proc.stdout)
+        self.assertEqual(found[0]["round"], 1, proc.stdout)
+
+    def test_three_lenses_are_the_design_panel_and_are_not_reported(self):
+        """The new rule ASKS for up to three at design. A warning at three would refuse it."""
+        for kind in ("reviewer", "security", "architect"):
+            self.touch(f"verdicts/T41-r1-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        self.assertEqual(self.wide(proc), [], proc.stdout)
+
+    def test_it_never_changes_the_exit_code(self):
+        """A four-wide DESIGN round is CORRECT under the new rule, and blocked in 3 of the 7
+        measured. An exit code here would refuse the panel the rule now asks for."""
+        for kind in ("reviewer", "security", "architect", "tenancy", "provider"):
+            self.touch(f"verdicts/T42-r1-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(self.wide(proc)[0]["width"], 5, proc.stdout)
+
+    def test_width_is_counted_per_round_and_not_across_a_lineage(self):
+        """Two rounds of two lenses each is the budget working, not a panel."""
+        for rnd in (1, 2):
+            for kind in ("reviewer", "security"):
+                self.touch(f"verdicts/T43-r{rnd}-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        self.assertEqual(self.wide(proc), [], proc.stdout)
+
+    def test_work_and_evidence_are_not_lenses(self):
+        """Only CHARGED review artifacts count. A fix brief and a JUnit XML are not reviewers, and
+        counting them would manufacture panels out of one reviewer's paperwork."""
+        self.touch("verdicts/T44-r1-reviewer.md")
+        for name in ("T44-r1-fix.md", "T44-r1-notes.md", "T44-r1-report.md",
+                     "evidence/T44-r1-GREEN.xml"):
+            self.touch(name)
+        proc = run(self.ws, "--grants", str(self.grants))
+        self.assertEqual(self.wide(proc), [], proc.stdout)
+
+    def test_the_receipt_names_every_artifact_in_the_wide_round(self):
+        """The binding control is a human reading the receipt, so the receipt must say WHICH."""
+        for kind in ("reviewer", "security", "architect", "tenancy"):
+            self.touch(f"verdicts/T45-r1-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants), "--json")
+        found = self.wide(proc)[0]
+        self.assertEqual(len(found["artifacts"]), 4, proc.stdout)
+        self.assertIn("verdicts/T45-r1-tenancy.md", found["artifacts"], proc.stdout)
+
+    def test_the_module_does_not_try_to_read_the_stage_off_a_filename(self):
+        """THE DELIBERATE OMISSION, pinned so a later edit has to argue with it.
+
+        Stage is the stronger half of the finding and it is not on disk. Two honest spellings of a
+        stage word-test over the same 1,203 real artifacts disagreed about 31 groups and moved the
+        design bucket by 13%. A `design` in a filename must therefore change NOTHING here.
+        """
+        source = SCRIPT.read_text(encoding="utf-8")
+        body = source.split("def main(", 1)[1]
+        for word in ("design", "implementation"):
+            self.assertNotIn(f'"{word}"', body,
+                             f"main() now tests for the literal {word!r}; stage is not on disk")
+        for kind in ("reviewer", "security", "architect", "tenancy"):
+            self.touch(f"verdicts/T46-design-r1-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        self.assertEqual(self.wide(proc)[0]["width"], 4, proc.stdout)
+
+
 class SuppressionOrderTest(unittest.TestCase):
     """BLOCK 1 and its family: a suppression must never run before bookkeeping it does not skip.
 
