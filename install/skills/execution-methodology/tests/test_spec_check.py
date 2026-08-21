@@ -29,7 +29,8 @@ SCRIPT = SCRIPTS / "spec_check.py"
 
 sys.path.insert(0, str(SCRIPTS))
 
-import spec_check  # noqa: E402  — the path insertion above has to happen first
+import ratio_meter  # noqa: E402  — the path insertion above has to happen first
+import spec_check  # noqa: E402
 
 
 PRD = """---
@@ -463,4 +464,332 @@ class DecisionQueueTest(SpecCheckFixture):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         after = sorted(p.relative_to(self.root).as_posix()
                        for p in self.root.rglob("*") if p.is_file())
+
+SURFACE_SPEC = """---
+id: F-101
+title: Orders
+prd: docs/product/prd.md
+status: {status}
+updated: 2026-03-04
+edge_cases: [empty]
+---
+
+# F-101 — Orders
+
+## Surface
+- `GET /api/orders`
+- `GET /api/orders/{{id}}`
+- `POST /api/orders/{{id}}/cancel`
+- `orders`
+
+## Acceptance criteria
+
+**AC-1** When an operator lists orders, given the ledger has entries, the response names every
+entry.
+"""
+
+
+class SurfaceFixture(unittest.TestCase):
+    """A real git repository: the surface check reads a diff, so there is nothing to test without
+    one. Every case here is a pair — a route that must be reported and a route that must not."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.git("init", "-q")
+        self.git("config", "user.email", "tester@example.invalid")
+        self.git("config", "user.name", "Tester")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def git(self, *args: str) -> None:
+        env = dict(os.environ, GIT_AUTHOR_DATE="2026-03-04T10:00:00",
+                   GIT_COMMITTER_DATE="2026-03-04T10:00:00")
+        subprocess.run(["git", "-C", str(self.root), *args], check=True, env=env,
+                       capture_output=True, text=True)
+
+    def write(self, relative: str, text: str) -> None:
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def baseline(self, status: str = "approved", spec: bool = True) -> None:
+        """The commit the range starts from: the product definition, and nothing else."""
+        self.write("docs/product/prd.md", PRD)
+        if spec:
+            self.write("docs/product/specs/F-101-orders.md", SURFACE_SPEC.format(status=status))
+        self.git("add", "-A")
+        self.git("commit", "-qm", "state the product definition")
+
+    def commit_code(self, files: dict[str, str], message: str = "add code") -> None:
+        for relative, text in files.items():
+            self.write(relative, text)
+        self.git("add", "-A")
+        self.git("commit", "-qm", message)
+
+    def restart(self) -> None:
+        """A fresh repository inside a subTest loop; the old one is cleaned before it is dropped."""
+        self.tearDown()
+        self.setUp()
+
+    def check(self) -> tuple[list, int]:
+        return spec_check.check_surfaces(self.root.resolve(), "HEAD~1..HEAD", None)
+
+    def run_cli(self, *extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(SCRIPT), "--root", str(self.root), "--surfaces",
+                               *extra], capture_output=True, text=True)
+
+
+class SurfaceAdoptionTest(SurfaceFixture):
+    """The guard that decides whether the check is allowed to speak at all. It is the reason this
+    can be switched on: a repository that never adopted specs is never blocked by them."""
+
+    UNNAMED = {"src/hostel.py": '@app.get("/api/hostel/rooms")\ndef rooms():\n    return []\n'}
+
+    def test_a_repository_without_specs_is_silent(self) -> None:
+        self.baseline(spec=False)
+        self.commit_code(self.UNNAMED)
+        findings, exempt = self.check()
+        self.assertEqual((list(findings), exempt), ([], 0))
+        result = self.run_cli("--range", "HEAD~1..HEAD")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_a_draft_spec_does_not_switch_the_check_on(self) -> None:
+        self.baseline(status="draft")
+        self.commit_code(self.UNNAMED)
+        self.assertEqual(list(self.check()[0]), [])
+
+    def test_approved_building_and_shipped_all_switch_it_on(self) -> None:
+        for status in ("approved", "building", "shipped"):
+            with self.subTest(status=status):
+                self.restart()
+                self.baseline(status=status)
+                self.commit_code(self.UNNAMED)
+                self.assertEqual([item.rule for item in self.check()[0]], ["S1"])
+
+    def test_a_spec_whose_surface_section_is_empty_stays_silent(self) -> None:
+        """No surfaces means no answer, and a check with no answer must not invent findings."""
+        self.write("docs/product/prd.md", PRD)
+        head, _, tail = SURFACE_SPEC.format(status="approved").partition("## Surface")
+        criteria = "## Acceptance" + tail.partition("## Acceptance")[2]
+        self.write("docs/product/specs/F-101-orders.md", head + "## Surface\n\nTBD\n\n" + criteria)
+        self.git("add", "-A")
+        self.git("commit", "-qm", "state the product definition")
+        self.commit_code(self.UNNAMED)
+        self.assertEqual(list(self.check()[0]), [])
+
+
+class SurfaceMatchTest(SurfaceFixture):
+    def test_a_route_named_in_the_surface_section_passes(self) -> None:
+        self.baseline()
+        self.commit_code({"src/orders.py": '@app.get("/api/orders")\ndef orders():\n    return []\n'})
+        result = self.run_cli("--range", "HEAD~1..HEAD")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_a_route_no_spec_names_is_reported_with_its_path_and_line(self) -> None:
+        self.baseline()
+        self.commit_code({"src/hostel.py": '@app.get("/api/hostel/rooms")\ndef rooms():\n    r = 1\n'})
+        result = self.run_cli("--range", "HEAD~1..HEAD")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("src/hostel.py:1", result.stdout)
+        self.assertIn("S1", result.stdout)
+        self.assertIn("/api/hostel/rooms is not named in the Surface section", result.stdout)
+
+    def test_only_added_lines_count_so_a_move_is_not_new_surface(self) -> None:
+        """A refactor that relocates a route exposes nothing; a check that fires on one is removed."""
+        self.baseline()
+        self.commit_code({"src/hostel.py": '@app.get("/api/hostel/rooms")\ndef rooms():\n    r = 1\n'},
+                         message="add the module")
+        self.commit_code({"src/hostel.py": '@app.get("/api/hostel/rooms")\ndef rooms():\n    r = 2\n'},
+                         message="touch the body, not the route")
+        self.assertEqual(list(self.check()[0]), [])
+
+    def test_a_class_level_request_mapping_prefixes_the_methods_below_it(self) -> None:
+        self.baseline()
+        self.commit_code({"src/OrderController.java":
+                          '@RequestMapping("/api/orders")\nclass OrderController {\n'
+                          '  @GetMapping("/{id}")\n  Order one() { return null; }\n}\n'})
+        self.assertEqual(list(self.check()[0]), [])
+
+    def test_a_class_level_prefix_is_never_reported_as_a_route_of_its_own(self) -> None:
+        self.baseline()
+        self.commit_code({"src/HostelController.java":
+                          '@RequestMapping("/api/hostel")\nclass HostelController {\n}\n'})
+        self.assertEqual(list(self.check()[0]), [])
+
+    def test_a_prefixed_method_outside_any_visible_prefix_matches_by_suffix(self) -> None:
+        """The prefix is normally outside the hunk, so `/{id}/cancel` has to reach the spec's
+        `/api/orders/{id}/cancel` on its own."""
+        self.baseline()
+        self.commit_code({"src/OrderController.java":
+                          '  @PostMapping("/{id}/cancel")\n  void cancel() {}\n'})
+        self.assertEqual(list(self.check()[0]), [])
+
+    def test_a_suffix_that_is_not_on_a_segment_boundary_does_not_match(self) -> None:
+        self.baseline()
+        self.commit_code({"src/orders.py": '@app.get("/api/backorders")\ndef back():\n    r = 1\n'})
+        self.assertEqual([item.rule for item in self.check()[0]], ["S1"])
+
+
+class SurfaceExtractorTest(SurfaceFixture):
+    """The pattern table, one dialect at a time. Each declares a route the spec does NOT name, so a
+    silent extractor fails the test rather than passing it."""
+
+    DIALECTS = {
+        "src/Hostel.java": '  @GetMapping("/api/hostel/rooms")\n  List<Room> rooms() { return null; }\n',
+        "src/hostel.js": "app.get('/api/hostel/rooms', (req, res) => res.json([]));\n",
+        "src/rooms.js": "router.post('/api/hostel/rooms', handler);\n",
+        "src/hostel.py": '@router.delete("/api/hostel/rooms")\ndef drop():\n    r = 1\n',
+        "src/flask_app.py": '@app.route("/api/hostel/rooms")\ndef page():\n    r = 1\n',
+        "src/cli.py": 'sub.add_parser("hostel")\n',
+        "src/commands.py": '@cli.command("hostel")\ndef hostel():\n    r = 1\n',
+    }
+
+    def test_every_documented_dialect_is_extracted(self) -> None:
+        for relative, text in self.DIALECTS.items():
+            with self.subTest(dialect=relative):
+                self.restart()
+                self.baseline()
+                self.commit_code({relative: text})
+                self.assertEqual([item.rule for item in self.check()[0]], ["S1"], text)
+
+    def test_the_pattern_table_is_a_readable_constant(self) -> None:
+        """The table is the documented coverage; a reader must be able to enumerate it."""
+        self.assertEqual([name for name, _ in spec_check.ROUTE_PATTERNS],
+                         ["spring", "js", "python", "cli"])
+        for _, pattern in spec_check.ROUTE_PATTERNS:
+            self.assertIn("route", pattern.groupindex)
+
+    def test_ordinary_code_declares_no_routes(self) -> None:
+        """The false-positive half. None of these lines exposes anything."""
+        for text in ("value = config.get('/api/orders')\n", "logger.info('/api/hostel/rooms')\n",
+                     "# see /api/hostel/rooms for the shape\n", "self.assertEqual(a, b)\n",
+                     "return requests.get(url).json()\n"):
+            with self.subTest(text=text):
+                self.restart()
+                self.baseline()
+                self.commit_code({"src/thing.py": text})
+                self.assertEqual(list(self.check()[0]), [], text)
+
+
+class SurfaceNormalisationTest(unittest.TestCase):
+    """Normalisation and matching, directly: these are the two places a false positive is born."""
+
+    def test_every_path_parameter_spelling_collapses_to_one_star(self) -> None:
+        for raw in ("/api/orders/{id}", "/API/Orders/:id/", "/api/orders/<int:id>",
+                    "/api/orders/<id>", "GET /api/orders/{orderId}"):
+            with self.subTest(raw=raw):
+                self.assertEqual(spec_check.normalise_route(raw), "/api/orders/*")
+
+    def test_a_command_name_normalises_like_a_path(self) -> None:
+        self.assertEqual(spec_check.normalise_route("orders"), "/orders")
+        self.assertEqual(spec_check.normalise_route(""), "/")
+
+    def test_a_suffix_matches_only_on_a_segment_boundary(self) -> None:
+        self.assertTrue(spec_check.surface_match("/*", "/api/orders/*"))
+        self.assertTrue(spec_check.surface_match("/api/orders/*", "/orders/*"))
+        self.assertTrue(spec_check.surface_match("/api/orders", "/api/orders"))
+        self.assertFalse(spec_check.surface_match("/api/backorders", "/api/orders"))
+        self.assertFalse(spec_check.surface_match("/api/orders/cancel", "/api/orders/close"))
+
+
+class SurfaceExemptionTest(SurfaceFixture):
+    """An exemption nobody can see is a hole; an exemption everyone can count is a decision."""
+
+    def test_an_exemption_on_the_route_line_is_skipped_and_counted(self) -> None:
+        self.baseline()
+        self.commit_code({"src/hostel.py":
+                          '@app.get("/api/hostel/rooms")  # spec-exempt: internal probe, F-102\n'
+                          'def rooms():\n    r = 1\n'})
+        findings, exempt = self.check()
+        self.assertEqual(list(findings), [])
+        self.assertEqual(exempt, 1)
+
+    def test_an_exemption_on_the_line_above_is_skipped_and_counted(self) -> None:
+        self.baseline()
+        self.commit_code({"src/hostel.py":
+                          '# spec-exempt: internal probe, tracked in F-102\n'
+                          '@app.get("/api/hostel/rooms")\ndef rooms():\n    r = 1\n'})
+        findings, exempt = self.check()
+        self.assertEqual(list(findings), [])
+        self.assertEqual(exempt, 1)
+
+    def test_the_count_is_printed_in_the_summary(self) -> None:
+        self.baseline()
+        self.commit_code({"src/hostel.py":
+                          '@app.get("/api/hostel/a")  # spec-exempt: probe\n'
+                          '@app.get("/api/hostel/b")  # spec-exempt: probe\n'
+                          '@app.get("/api/hostel/c")  # spec-exempt: probe\n'})
+        result = self.run_cli("--range", "HEAD~1..HEAD")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("3 route(s) exempt", result.stdout)
+
+    def test_an_exemption_reaches_one_line_and_no_further(self) -> None:
+        """It covers its own line and the line below, because that is where the comment sits. The
+        next route down is still reported: an exemption is one decision, not a switch."""
+        self.baseline()
+        self.commit_code({"src/hostel.py":
+                          '@app.get("/api/hostel/a")  # spec-exempt: probe\n'
+                          'def a():\n    r = 1\n'
+                          '@app.get("/api/hostel/b")\ndef b():\n    r = 2\n'})
+        findings, exempt = self.check()
+        self.assertEqual([item.message.split(" is not")[0] for item in findings],
+                         ["/api/hostel/b"])
+        self.assertEqual(exempt, 1)
+
+
+class SurfaceExclusionTest(SurfaceFixture):
+    def test_test_files_and_vendored_trees_are_not_new_surface(self) -> None:
+        for relative in ("tests/test_hostel.py", "src/__tests__/hostel.js", "src/hostel.test.ts",
+                         "src/HostelControllerTest.java", "node_modules/x/index.js",
+                         "vendor/x/app.js", "build/gen.js"):
+            with self.subTest(path=relative):
+                self.restart()
+                self.baseline()
+                self.commit_code({relative: '@app.get("/api/hostel/rooms")\nx = 1\n'
+                                            if relative.endswith(".py")
+                                            else "app.get('/api/hostel/rooms', h);\n"})
+                self.assertEqual(list(self.check()[0]), [], relative)
+
+    def test_the_exclusion_list_is_the_shared_one(self) -> None:
+        """Imported, not copied: two lists drift, and the drift is invisible until it matters."""
+        self.assertIs(spec_check.is_excluded, ratio_meter.is_excluded)
+
+
+class SurfaceCliTest(SurfaceFixture):
+    def test_surfaces_without_a_scope_is_a_usage_error(self) -> None:
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--range", result.stderr)
+
+    def test_since_selects_the_same_commits_as_a_range(self) -> None:
+        self.baseline()
+        self.commit_code({"src/hostel.py": '@app.get("/api/hostel/rooms")\ndef rooms():\n    r = 1\n'})
+        # `--since=<today>` is git approxidate: the date alone means this time of day, so the
+        # fixture asks for a date safely before the commits rather than the day they sit on.
+        findings, _ = spec_check.check_surfaces(self.root.resolve(), None, "2026-03-01")
+        self.assertEqual([item.rule for item in findings], ["S1"])
+
+    def test_json_carries_the_findings_and_the_exempt_count(self) -> None:
+        self.baseline()
+        self.commit_code({"src/hostel.py":
+                          '@app.get("/api/hostel/a")\n'
+                          '@app.get("/api/hostel/b")  # spec-exempt: probe\ndef a():\n    r = 1\n'})
+        result = self.run_cli("--range", "HEAD~1..HEAD", "--json")
+        payload = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(payload["exempt"], 1)
+        self.assertEqual([item["rule"] for item in payload["findings"]], ["S1"])
+
+    def test_the_surface_check_writes_nothing(self) -> None:
+        self.baseline()
+        self.commit_code({"src/hostel.py": '@app.get("/api/hostel/rooms")\ndef rooms():\n    r = 1\n'})
+        before = {path: path.stat().st_mtime_ns
+                  for path in sorted(self.root.rglob("*")) if path.is_file()}
+        self.assertEqual(self.run_cli("--range", "HEAD~1..HEAD").returncode, 1)
+        after = {path: path.stat().st_mtime_ns
+                 for path in sorted(self.root.rglob("*")) if path.is_file()}
         self.assertEqual(before, after)

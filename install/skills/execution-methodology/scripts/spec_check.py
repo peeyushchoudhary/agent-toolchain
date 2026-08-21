@@ -25,8 +25,9 @@ shouts at every repository it does not apply to gets deleted.
      result that some input can make false
   D  PRD front matter, one feature-index marker at most, references that resolve both ways, and
      no open-question marker once approved
+  S  --surfaces only: a route added in a git range that no approved spec names under `## Surface`
 
-Usage:  spec_check.py [--root DIR] [--json] [--warn-only]
+Usage:  spec_check.py [--root DIR] [--json] [--warn-only] [--surfaces (--range R | --since D)]
 Exit codes: 0 clean, 1 findings, 2 the arguments or the tree could not be read.
 """
 
@@ -39,6 +40,8 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import NamedTuple
+
+from ratio_meter import CODE_SUFFIXES, is_excluded  # one shared list, never a second copy of it
 
 PRINT_CAP = 40   # Findings printed before the rest are only counted; forty is about a screen.
 
@@ -454,6 +457,111 @@ def print_queue(rows: list[tuple[str, int, str, str]]) -> None:
         flag = "  <- blocks approval" if status in ("approved", "shipped") else ""
         print(f"  {path}:{line}  [{status or 'no status'}]{flag}")
         print(f"      {question}")
+# S1 — NEWLY EXPOSED SURFACE MUST BE NAMED IN A FEATURE SPEC. Measured failure, not a worry: a PRD
+# section headed "Out of scope for v1" named eight modules, all eight were built anyway — 229
+# endpoints, none reachable, because no role that could use them is assignable. ONLY ADDED LINES ARE
+# READ: moving a route exposes nothing new, and a check that fires on a refactor is off in a week.
+# Below is the coverage AND ITS LIMITS. Only code files are read and an annotation must open its
+# line: without those two rules a real 200-commit range gave 604 route lines, 280 of them markdown
+# quoting Java and one a `Map.get` on a variable called `app`; with them, 324 and one miss. Routes
+# built from constants, concatenation or a registry stay uncovered — the only side this may fail on.
+ROUTE_PATTERNS = (
+    ("spring", re.compile(r'^\s*@(?:Get|Post|Put|Patch|Delete)Mapping\s*\(\s*'
+                          r'(?:[A-Za-z]+\s*=\s*)?\{?\s*"(?P<route>[^"]*)"')),
+    ("js", re.compile(r'(?<![@\w.])(?:app|router)\s*\.\s*(?:get|post|put|patch|delete|all)'
+                      r'\s*\(\s*["\'`](?P<route>/[^"\'`]*)')),
+    ("python", re.compile(r'^\s*@\s*\w+\s*\.\s*(?:get|post|put|patch|delete|route)\s*\(\s*'
+                          r'["\'](?P<route>/[^"\']*)')),
+    ("cli", re.compile(r'(?:\badd_parser|@\s*\w+\s*\.\s*command)\s*\(\s*["\'](?P<route>[^"\']+)')),
+)
+# A bare @RequestMapping is a CLASS PREFIX, not a route: it prefixes the methods declared below.
+SPRING_PREFIX_RE = re.compile(r'^\s*@RequestMapping\s*\(\s*(?:[A-Za-z]+\s*=\s*)?\{?\s*"([^"]*)"')
+PARAM_RE = re.compile(r"\{[^{}]*\}|<[^<>]*>|(?<=/):[^/]+")
+DIFF_FILE_RE = re.compile(r"^\+\+\+ b/(.+)$")
+DIFF_HUNK_RE = re.compile(r"^@@ -\S+ \+(\d+)")
+TEST_PATH_RE = re.compile(r"(^|/)([Tt]ests?|__tests__|testing|fixtures?|mocks?)/|(^|/)test_[^/]+$"
+                          r"|[._](test|spec)\.[A-Za-z]+$|[a-z0-9]Tests?\.[A-Za-z]+$")
+SURFACE_TOKEN_RE = re.compile(r"`([^`]+)`|(?<![\w`])(/[^\s`,;)\]]*)")
+
+
+def normalise_route(text: str) -> str:
+    """One shape for both sides: lower case, no trailing slash, `{id}`, `:id`, `<int:id>` and
+    `<id>` all collapsed to `*`, and only the last field kept so a verb never decides a match."""
+    fields = text.strip().split()
+    return "/" + PARAM_RE.sub("*", fields[-1].lower() if fields else "").strip("/")
+
+
+def surface_match(route: str, surface: str) -> bool:
+    """Equal, or one a suffix of the other. SUFFIX MATCHING IS REQUIRED, not leniency: a class-level
+    Spring prefix usually sits outside the hunk adding the method, so the extractor sees `/{id}`
+    where the spec names `/api/orders/{id}`. Both start with `/`, so `endswith` needs a boundary."""
+    return route == surface or route.endswith(surface) or surface.endswith(route)
+
+
+def diff_added_lines(root: Path, rev_range: str | None, since: str | None):
+    """(path, line, added text, the line above it) for the range. One context line is asked for
+    because a `spec-exempt:` comment usually sits on an unchanged line above the route."""
+    out = git(root, "log", "-p", "--format=", "--unified=1", "--no-color",
+              rev_range or f"--since={since}", "--")
+    if out is None:
+        raise SpecError("git could not read the requested range")
+    path, number, previous = "", 0, ""
+    for line in out.splitlines():
+        if line.startswith("+++ "):
+            header = DIFF_FILE_RE.match(line)   # `+++ /dev/null` clears it: a deletion adds nothing
+            path, number, previous = (header.group(1) if header else ""), 0, ""
+        elif hunk := DIFF_HUNK_RE.match(line):
+            number, previous = int(hunk.group(1)), ""
+        elif path and line[:1] in ("+", " "):
+            if line.startswith("+"):
+                yield path, number, line[1:], previous
+            previous, number = line[1:], number + 1
+
+
+def approved_surfaces(root: Path) -> list[str]:
+    """Every route under `## Surface` in a spec that is approved or later. AN EMPTY LIST MEANS
+    SILENCE, and that guard is why this can be switched on at all: a repository with no
+    `docs/product/specs/`, or none past draft, never agreed to the rule."""
+    surfaces, directory = [], root / "docs" / "product" / "specs"
+    for path in sorted(directory.glob("F-*.md")) if directory.is_dir() else []:
+        doc = Doc(path, root)
+        if doc.front_error or doc.scalar("status") not in ("approved", "building", "shipped"):
+            continue
+        inside = False
+        for _, text in doc.body():
+            if text.startswith("## "):
+                inside = text.strip().lower() == "## surface"
+            elif inside and text.strip():
+                surfaces += [normalise_route(a or b) for a, b in SURFACE_TOKEN_RE.findall(text)]
+    return surfaces
+
+
+def check_surfaces(root: Path, rev_range: str | None, since: str | None) -> tuple[Findings, int]:
+    """Findings for added routes no approved spec names, and the count skipped by an exemption. The
+    exemption is not a flag on purpose: a flag is set once and forgotten, while `spec-exempt:
+    <reason>` is read by whoever opens the file next, and a counted total is a decision, not a
+    hole."""
+    f, surfaces = Findings(), approved_surfaces(root)
+    if not surfaces:
+        return f, 0
+    prefixes, exempt = {}, 0
+    for path, number, text, previous in diff_added_lines(root, rev_range, since):
+        if is_excluded(path) or TEST_PATH_RE.search(path) or not path.endswith(CODE_SUFFIXES):
+            continue
+        found = list(dict.fromkeys(match.group("route") for _, pattern in ROUTE_PATTERNS
+                                   for match in pattern.finditer(text)))
+        if not found:
+            prefix = SPRING_PREFIX_RE.search(text)
+            prefixes[path] = prefix.group(1) if prefix else prefixes.get(path, "")
+        elif "spec-exempt:" in text or "spec-exempt:" in previous:
+            exempt += len(found)
+        else:
+            for route in found:
+                full = (prefixes.get(path, "").rstrip("/") if route[:1] == "/" else "") + route
+                if not any(surface_match(normalise_route(full), s) for s in surfaces):
+                    f.append(Finding(path, number, "S1", f"{full} is not named in the Surface "
+                                     "section of any approved feature spec"))
+    return f, exempt
 
 
 def main() -> int:
@@ -463,8 +571,13 @@ def main() -> int:
     parser.add_argument("--warn-only", action="store_true", help="print findings but exit 0")
     parser.add_argument("--questions", action="store_true",
                         help="list every open decision across the product definition and exit 0")
+    parser.add_argument("--surfaces", action="store_true", help="check routes added in a range")
+    parser.add_argument("--range", dest="revision_range", help="a git range, e.g. main..HEAD")
+    parser.add_argument("--since", help="a date git log accepts, e.g. 2026-08-14")
     args = parser.parse_args()
 
+    if args.surfaces and not (args.revision_range or args.since):
+        parser.error("--surfaces needs a scope: --range <range> or --since <date>")
     root = Path(args.root).expanduser()
     if not root.is_dir():
         print(f"ERROR: --root is not a directory: {root}", file=sys.stderr)
@@ -484,14 +597,16 @@ def main() -> int:
             print_queue(rows)
         return 0
     try:
-        findings = sorted(run(root.resolve()))
+        found, exempt = (check_surfaces(root.resolve(), args.revision_range, args.since)
+                         if args.surfaces else (run(root.resolve()), 0))
+        findings = sorted(found)
     except SpecError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     code = 0 if (args.warn_only or not findings) else 1
     if args.json:
         json.dump({"root": str(root.resolve()), "count": len(findings), "exit": code,
-                   "findings": [item._asdict() for item in findings]},
+                   "exempt": exempt, "findings": [item._asdict() for item in findings]},
                   sys.stdout, indent=2)
         sys.stdout.write("\n")
     elif findings:
@@ -500,6 +615,8 @@ def main() -> int:
             print(f"{item.path}:{item.line}".ljust(width) + f"  {item.rule}  {item.message}")
         if len(findings) > PRINT_CAP:
             print(f"... and {len(findings) - PRINT_CAP} more finding(s); fix these and run again")
+    if exempt and not args.json:
+        print(f"{exempt} route(s) exempt")
     return code
 
 
