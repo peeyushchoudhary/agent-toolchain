@@ -11,10 +11,24 @@ the three cases below the damage survives any later cleanup of the local branch.
   warn   a newly added .env-style file     — sometimes deliberate, so it asks rather than stops
   warn   source changed, README untouched  — the front-page question, asked while it is cheap
 
+TWO MORE, AND ONLY IN A REPOSITORY THAT HAS ADOPTED THE PRODUCT-DEFINITION STANDARD — that is,
+one holding `docs/product/`. Elsewhere this half does nothing and says nothing; see PRODUCT_ROOT.
+
+  BLOCK  the product definition is not current-state — spec_check.py's findings, at the one
+         boundary in this toolchain that has been measured to fire. A specification says what is
+         TRUE NOW; a document appended to instead of updated accumulates conflicting decisions and
+         every reader then works out which of four statements is current, differently.
+  BLOCK  a milestone sealed without evidence — a document moving to `status: shipped` is the claim
+         that the cross-feature journeys no single feature's suite can prove were proved. Only the
+         transition is gated, and the evidence is a receipt from milestone_seal.py bound to the
+         pushed tree.
+
 Reads the standard pre-push payload on stdin: `<local ref> <local oid> <remote ref> <remote oid>`.
 
-For an intentional main push, use `PD_ALLOW_MAIN_PUSH=1 git push`. Secret and size findings must
-be fixed before pushing.
+Three escape hatches, each of which PRINTS that it fired — a silent escape leaves a push that looks
+identical to a checked one. `PD_ALLOW_MAIN_PUSH=1` for an intentional main push,
+`PD_SKIP_SPEC_CHECK=1` for the product-definition lint, `PD_ALLOW_UNSEALED_MILESTONE=1` for the
+seal. Secret and size findings have none and must be fixed before pushing.
 """
 
 from __future__ import annotations
@@ -71,6 +85,35 @@ except Exception as _exc:                                                   # no
     raise SystemExit(2) from _exc
 
 DEFAULT_BRANCHES = ("refs/heads/main", "refs/heads/master")
+
+# THE ADOPTION GUARD, AND IT IS THE LOAD-BEARING PART OF THE PRODUCT-DEFINITION WIRING BELOW.
+# A repository with no `docs/product/` has not adopted the product-definition standard, and this
+# guard then does nothing and SAYS nothing there — not a warning, not a hint, not a blank line.
+# Adoption is staggered across a fleet, so the great majority of repositories are in that state on
+# any given day, and a gate that blocks (or even chatters at) a push in a repository that never
+# opted in is a gate that gets removed from the machine. Removed from the machine, it protects
+# nothing anywhere — including the repositories that DID opt in. Silence in the unadopted case is
+# what buys the right to block in the adopted one.
+PRODUCT_ROOT = "docs/product"
+
+# The sibling skill's scripts. push_guard.py lives at
+# `<skills>/progressive-disclosure/scripts/push_guard.py`, so two levels up is `<skills>`.
+#
+# Resolved at RUNTIME and never imported. `import spec_check` would put that module's import graph
+# (ratio_meter today, anything tomorrow) inside this process, so a breakage over there would take
+# the credential scan down with it — and the credential scan is the check that must survive
+# everything. A subprocess boundary keeps the two skills decoupled in exactly the way install_hooks.py
+# already relies on: neither imports the other.
+METHODOLOGY_SCRIPTS = Path(__file__).resolve().parents[2] / "execution-methodology" / "scripts"
+PRODUCT_CHECKERS = ("spec_check.py", "plan_waves.py")
+
+# A milestone document, and the seal that this guard gates. `M<n>-<slug>.md` under
+# `docs/product/milestones/`, matched on the full repository-relative path so a file of the same
+# shape somewhere else is not mistaken for one.
+MILESTONE_DOC_RE = re.compile(r"^docs/product/milestones/M\d+-[^/]+\.md$")
+SHIPPED = "shipped"
+FRONT_FENCE = "---"
+FINDING_CAP = 10   # Findings a hook prints before it stops; the checker prints the rest on request.
 
 # Not configurable, deliberately. A limit chosen at the call site is a limit that will eventually be
 # chosen at its weakest — this was `float(os.environ.get("PD_MAX_FILE_MB", "10"))`, which also
@@ -394,6 +437,208 @@ def readme_stale(base: str | None, local: str) -> bool:
     return bool(top - {"docs", ".github", ".claude", "graphify-out"})
 
 
+def product_definition_adopted(root: Path) -> bool:
+    """Has this repository opted into the product-definition standard? See PRODUCT_ROOT."""
+    return (root / PRODUCT_ROOT).is_dir()
+
+
+def repo_root() -> Path:
+    """The worktree this push is leaving from.
+
+    Derived from git rather than from `Path.cwd()`. git runs a hook with the cwd set to the top
+    level of the worktree today, but `core.hooksPath`, a `git -C` invocation and a bare-repo push
+    are all shapes where that is not something to rely on, and every one of them would silently
+    move the adoption probe to a directory with no `docs/product/` — which is the exact failure the
+    adoption guard is designed to be quiet about, arriving where it must NOT be quiet.
+    """
+    return Path(git("rev-parse", "--show-toplevel").strip())
+
+
+def checker(name: str, *args: str) -> tuple[int, list[str]]:
+    """Run one methodology checker and return (exit code, output lines).
+
+    A missing checker is a GuardError, not a skip, and that asymmetry against PRODUCT_ROOT is the
+    whole design. `docs/product/` absent means the repository never agreed to the rule — nothing to
+    check, so nothing to say. `docs/product/` present with the checker absent means the repository
+    DID agree and the check could not run, which is not a clean result and must never read as one.
+    It is the same sentence the identifier guard says twice in install_hooks.py.
+
+    Exit 2 from the checker itself lands here too: both of these reserve 2 for "the tree could not
+    be read", so it arrives already meaning what GuardError means.
+    """
+    script = METHODOLOGY_SCRIPTS / name
+    if not script.is_file():
+        raise GuardError(
+            f"this repository has {PRODUCT_ROOT}/, so the product-definition checks apply — but "
+            f"{name} is not installed at {script}. The specs were NOT checked, and a check that "
+            f"did not run is not a clean result. Reinstall the execution-methodology skill")
+    try:
+        proc = subprocess.run([sys.executable, str(script), *args],
+                              capture_output=True, timeout=120, check=False,
+                              env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+    except subprocess.TimeoutExpired as exc:
+        raise GuardError(f"{name} timed out after 120s — the product definition was not "
+                         f"checked") from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GuardError(f"{name} could not execute: {exc}") from exc
+    if proc.returncode not in (0, 1):
+        detail = _decode(proc.stderr or b"").strip().splitlines()
+        raise GuardError(f"{name} exited {proc.returncode}"
+                         f"{': ' + detail[-1] if detail else ''} — the product definition was NOT "
+                         f"checked, so this is not a clean result")
+    return proc.returncode, [ln for ln in _decode(proc.stdout).splitlines() if ln.strip()]
+
+
+def indented(lines: list[str], remedy: str) -> str:
+    """One blocking entry carrying a checker's findings, capped, in the guard's own indentation."""
+    body = "\n".join(f"      {ln}" for ln in lines[:FINDING_CAP])
+    if len(lines) > FINDING_CAP:
+        body += f"\n      ... and {len(lines) - FINDING_CAP} more"
+    return f"{body}\n      {remedy}"
+
+
+def product_findings(root: Path) -> list[str]:
+    """Blocking entries from the current-state lint and the wave planner.
+
+    Both are run over the WHOLE tree rather than over the pushed range, and that is a measurement
+    rather than a preference. On a real repository holding 204 product documents, median of seven
+    runs: spec_check.py 107 ms, plan_waves.py 41 ms, and 154 ms added to the guard end to end.
+    Range-scoping would buy a hook nothing a human can feel, and it would add a second, subtler way
+    to be wrong — a spec broken by an edit OUTSIDE `docs/product/` (a route added with no approved
+    Surface, a plan whose feature spec moved milestone) would then push clean. Re-measure before
+    changing this; the number is the argument, not the preference for whole-tree checking.
+    """
+    entries: list[str] = []
+    code, lines = checker("spec_check.py", "--root", str(root))
+    if code == 1:
+        entries.append(
+            f"the product definition is not in current-state form ({len(lines)} finding(s)). A "
+            f"spec states what is TRUE NOW; history lives in git and WHY lives in a decision "
+            f"record:\n" + indented(lines, f"Full report: spec_check.py --root {root}"))
+    code, lines = checker("plan_waves.py", "--root", str(root))
+    if code == 1:
+        entries.append(
+            f"the wave plan does not schedule ({len(lines)} finding(s)). Two tasks in one wave "
+            f"writing one path corrupt a parallel run:\n"
+            + indented(lines, f"Full report: plan_waves.py --root {root}"))
+    return entries
+
+
+def front_scalar(text: str, key: str) -> str:
+    """One scalar out of a leading `---` block, with no YAML parser and no third-party dependency.
+
+    Deliberately not a re-implementation of spec_check.py's parser. This reads two keys off a
+    document whose shape that checker is already asserting on the same push — `status:` and
+    `milestone:` — and everything richer (flow lists, duplicate keys, an unclosed block) is that
+    checker's finding to make, not this one's. An unparseable document therefore yields "" here and
+    is reported over there, which is the right split: the guard must not grow a second, weaker
+    opinion about the same file.
+    """
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != FRONT_FENCE:
+        return ""
+    for line in lines[1:]:
+        if line.strip() == FRONT_FENCE:
+            break
+        name, separator, value = line.partition(":")
+        if separator and name.strip() == key:
+            return value.strip().strip("'\"")
+    return ""
+
+
+def gate_command(text: str) -> str | None:
+    """The `Gate:` line under `## Cross-feature validation`. Kept identical to milestone_seal.py.
+
+    Two readers of one line is a second copy, and the two would drift. They do not drift silently:
+    `test_the_two_gate_readers_agree` drives both over the same documents and fails when they
+    disagree. A shared import would be the alternative, and it is rejected above — this guard does
+    not put the other skill's import graph inside the process that runs the credential scan.
+    """
+    inside, found = False, None
+    for line in text.splitlines():
+        if line.startswith("#"):
+            inside = line.strip().lower() == "## cross-feature validation"
+            continue
+        if inside:
+            stripped = line.strip()
+            if stripped.startswith("Gate:") and stripped[5:].strip():
+                found = stripped[5:].strip()
+    return found
+
+
+def show(ref: str, path: str) -> str:
+    """A file's content at a revision, or "" when it did not exist there.
+
+    The one tolerated failure in this function's family, and it is the same carve-out `base_for`
+    documents: a path absent from a commit is answered by git with a non-zero exit, and that IS the
+    answer — a milestone document added by this push has no previous status to compare against.
+    """
+    return git("show", f"{ref}:{path}", tolerate_failure=True)
+
+
+def sealing_milestones(base: str | None, local: str) -> list[tuple[str, str | None]]:
+    """(document path, declared gate) for every milestone this push moves TO `status: shipped`.
+
+    ONLY THE TRANSITION GATES, and the restriction is what makes the gate affordable. A milestone
+    that is already shipped, or is still building, is not re-validated on every later push through
+    the same branch — that would re-run an end-to-end suite for a typo fix and teach the founder to
+    reach for --no-verify, which is the habit this whole file exists to prevent. The seal is a
+    one-time claim, so it is checked exactly once, on the push that makes it.
+    """
+    sealing: list[tuple[str, str | None]] = []
+    for path in changed_files(base, local):
+        if not MILESTONE_DOC_RE.match(path):
+            continue
+        after = show(local, path)
+        if front_scalar(after, "status") != SHIPPED:
+            continue
+        # A document absent from the base is a milestone added already shipped, which is a seal.
+        if base and front_scalar(show(base, path), "status") == SHIPPED:
+            continue
+        sealing.append((path, gate_command(after)))
+    return sealing
+
+
+def unsealed(base: str | None, local: str) -> list[str]:
+    """Blocking entries for a milestone sealed without evidence that its gate ran and passed."""
+    seals = sealing_milestones(base, local)
+    if not seals:
+        return []
+    if env_allows("PD_ALLOW_UNSEALED_MILESTONE"):
+        for path, _ in seals:
+            print(f"  pre-push SKIPPED: {path} is being sealed and its cross-feature gate was NOT "
+                  f"verified (PD_ALLOW_UNSEALED_MILESTONE). This is not a clean result.")
+        return []
+
+    script = METHODOLOGY_SCRIPTS / "milestone_seal.py"
+    entries: list[str] = []
+    for path, command in seals:
+        name = Path(path).stem.split("-")[0]
+        if not command:
+            entries.append(
+                f"{path} moves to `status: {SHIPPED}` but declares no cross-feature gate. A seal "
+                f"is the claim that the journeys no single feature's suite can prove were proved:\n"
+                f"      add a `## Cross-feature validation` section ending in `Gate: <command>`")
+            continue
+        if not script.is_file():
+            raise GuardError(
+                f"{path} is being sealed, but milestone_seal.py is not installed at {script}, so "
+                f"whether its gate passed is UNKNOWN. That is not the same as it having passed. "
+                f"Reinstall the execution-methodology skill")
+        tree = git("rev-parse", f"{local}^{{tree}}").strip()
+        code, lines = checker("milestone_seal.py", "--verify", "--tree", tree,
+                              "--command", command)
+        if code == 1:
+            reason = lines[0] if lines else "no gate receipt for the pushed tree"
+            entries.append(
+                f"{path} moves to `status: {SHIPPED}` without evidence: {reason}.\n"
+                f"      The gate is `{command}` and a seal is the claim it passed against the "
+                f"content being pushed:\n"
+                f"      python3 {script} --root . --record {name}\n"
+                f"      Deliberate exception: PD_ALLOW_UNSEALED_MILESTONE=1 git push")
+    return entries
+
+
 def main() -> int:
     """Entry point. Exit 0 clean, 1 blocking finding, 2 the check could not run."""
     # `verify.sh` probes this script with `--help`. There is no argparse here, so that flag used to
@@ -460,6 +705,24 @@ def run() -> int:
     blocking: list[str] = []
     warnings: list[str] = []
 
+    # ONCE PER PUSH, NOT ONCE PER REF. The lint reads the worktree and the wave planner reads the
+    # plans; neither answer changes between the refs of a single `git push`, and running them per
+    # ref would multiply the cost by the number of refs while printing every finding twice.
+    root = repo_root()
+    adopted = product_definition_adopted(root)
+    if adopted and env_allows("PD_SKIP_SPEC_CHECK"):
+        # LOUD, AND ON THE SAME CHANNEL AS EVERY OTHER LINE THIS GUARD PRINTS. An escape hatch has
+        # to exist — the alternative is --no-verify, which turns off the credential scan too, and a
+        # founder who learns that reflex has disabled every check on the machine to skip one. But a
+        # SILENT escape is worse than none: it leaves a push that looks identical to a checked one,
+        # and an environment variable exported months ago in a shell profile then reads as a clean
+        # result forever. So it says, every time, that the check did not run.
+        print(f"  pre-push SKIPPED: the product-definition checks "
+              f"({', '.join(PRODUCT_CHECKERS)}) did NOT run — PD_SKIP_SPEC_CHECK is set. This is "
+              f"not a clean result; nothing below is a verdict about {PRODUCT_ROOT}/.")
+    elif adopted:
+        blocking += product_findings(root)
+
     for parts in payload:
         if len(parts) != 4:
             # Not `continue`. An unparseable line means the guard does not know what is being
@@ -495,6 +758,13 @@ def run() -> int:
         for path in added_files(base, local_oid):
             if ENV_FILE.search(path) and not ENV_ALLOWED.search(path):
                 warnings.append(f"{path} is a new .env-style file. Confirm it holds no secrets.")
+
+        # Range-derived, unlike the two checks above, and it has to be: the question is which
+        # milestone this PUSH moves to shipped, and the working tree cannot answer it. A tree shows
+        # the current status and nothing about what the remote already has, so a tree-derived
+        # version would re-gate an already-sealed milestone on every later push through the branch.
+        if adopted:
+            blocking += unsealed(base, local_oid)
 
         # The README advisory is about branch work becoming a PR. A tag names a commit; it never
         # becomes a PR, and an archive tag exists precisely to preserve a superseded snapshot, so
