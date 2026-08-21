@@ -544,6 +544,111 @@ class KindVocabularyTest(unittest.TestCase):
                                  {w["kind"] for w in data["warnings"]})
 
 
+class KindBeforeTheMarkerTest(unittest.TestCase):
+    """The kind written BEFORE the round marker: `<subject>-<kind>-r<N>.md`.
+
+    MEASURED, on the four real repositories, before this test existed. Run over 59 real review
+    workspaces the tool emitted 264 UNCLASSIFIED_ROUND_ARTIFACT warnings. 129 of those carry a
+    round marker that ENDS the name, and 70 of the 129 end in a token `REVIEW_KIND_TOKENS` or
+    `WORK_KIND_TOKENS` ALREADY CONTAINS. The vocabulary was right; the position was wrong.
+
+    These fixtures are transcriptions of REAL FILENAMES, not shapes invented here. That is the
+    point: a checker validated only against its author's fixtures passes and is still inert.
+    """
+
+    def setUp(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import check_review_budget as module
+        self.module = module
+        self._tmp = tempfile.TemporaryDirectory()
+        self._led = tempfile.TemporaryDirectory()
+        self.ws = Path(self._tmp.name)
+        self.grants = Path(self._led.name) / "ROUND-GRANTS.tsv"
+        self.grants.write_text("# none\n")
+        track(self.grants)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+        self._led.cleanup()
+
+    def touch(self, rel: str):
+        path = self.ws / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n")
+
+    def test_a_kind_before_a_terminal_marker_is_classified(self):
+        """Real names. `-review-rN` alone accounts for 50 of the 70."""
+        for name in ("M1-01-erasure-boundary-contract-review-r5.md",
+                     "M1-01-spotless-amendment-security-r14.md",
+                     "app-module-view-authz-r1-reviewer.md"):
+            with self.subTest(name=name):
+                stem = Path(name).stem
+                marks = list(self.module.ROUND_RE.finditer(stem))
+                self.assertTrue(marks, name)
+                self.assertEqual(self.module.kind_of(stem, marks[-1]), "review", name)
+
+    def test_a_work_kind_before_a_terminal_marker_does_not_spend_a_round(self):
+        """`-fix-r2`, `-design-r1`, `-plan-r3` are WORK either side of the marker or the fix a
+        verdict provoked starts charging itself as the verdict."""
+        for name, kind in (("T4-fix-r2.md", "work"), ("f009e-design-r1.md", "work"),
+                           ("f009-static-plan-r3.md", "work")):
+            with self.subTest(name=name):
+                stem = Path(name).stem
+                marks = list(self.module.ROUND_RE.finditer(stem))
+                self.assertEqual(self.module.kind_of(stem, marks[-1]), kind, name)
+
+    def test_an_unrecognised_pre_marker_token_stays_unclassified(self):
+        """`builder` (12 real files), `authority` (11), `prerequisite` (6), `methodology` (4) are
+        NOT in the vocabulary and MUST stay unclassified. Widening the word list to silence them
+        would be the eighth checker that passes its own tests and sees nothing."""
+        for name in ("M1-01-spotless-amendment-builder-r14.md",
+                     "f009j-authority-r2.md",
+                     "M1-01-spotless-amendment-contract-prerequisite-r10.md"):
+            with self.subTest(name=name):
+                stem = Path(name).stem
+                marks = list(self.module.ROUND_RE.finditer(stem))
+                self.assertIsNone(self.module.kind_of(stem, marks[-1]), name)
+
+    def test_the_kind_is_taken_out_of_the_subject_key(self):
+        """The load-bearing half. One artifact reviewed by six kinds became six subjects, each
+        spending its own budget: the real `<subj>-spotless-amendment-{architecture,builder,
+        contract,general,methodology,security}-rN` family, 51 artifacts, rounds to r14."""
+        self.assertEqual(self.module.subject_of("M1-01-erasure-boundary-contract-review-r5.md"),
+                         "m1-01-erasure-boundary-contract")
+        self.assertEqual(self.module.subject_of("M1-01-spotless-amendment-security-r14.md"),
+                         "m1-01-spotless-amendment")
+
+    def test_a_subject_that_is_only_a_kind_word_keeps_its_name(self):
+        """NEVER consume the whole head. An empty subject key would collapse unrelated lineages
+        into one bucket, which is the opposite of failing closed."""
+        self.assertEqual(self.module.subject_of("review-r1.md"), "review")
+        self.assertEqual(self.module.subject_of("security-r2.md"), "security")
+
+    def test_a_kind_after_the_marker_is_untouched(self):
+        """The mandated shape still wins: nothing is stripped when a tail exists."""
+        self.assertEqual(self.module.subject_of("TC-101-r1-security-validator.md"), "tc-101")
+        self.assertEqual(self.module.subject_of("D185D-r1-reviewer.md"), "d185d")
+        for name, expected in TERMINAL_SHAPES:
+            with self.subTest(name=name):
+                self.assertEqual(self.module.subject_of(name), expected)
+
+    def test_the_two_lineages_merge_and_the_cap_bites_once(self):
+        """End to end. Stripping can only MERGE subjects, so it can only RAISE a spent count."""
+        # Two naming forms, one lineage: the kind-first form the projects write, and the
+        # kind-last form the methodology mandates. Before this change they were two subjects.
+        self.touch("reports/S-spotless-contract-review-r1.md")
+        self.touch("reports/S-spotless-contract-review-r2.md")
+        self.touch("reports/S-spotless-contract-r3-reviewer.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        data = findings(proc)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        caps = [e for e in data["errors"] if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(len(caps), 1, proc.stdout)
+        self.assertEqual(caps[0]["subject"], "s-spotless-contract", proc.stdout)
+        self.assertNotIn("UNCLASSIFIED_ROUND_ARTIFACT",
+                         {w["kind"] for w in data["warnings"]}, proc.stdout)
+
+
 class SilentUndercountTest(unittest.TestCase):
     """The two measured silent-undercount classes: a missing round marker, and non-prose files."""
 
