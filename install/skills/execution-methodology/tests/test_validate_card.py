@@ -1605,7 +1605,8 @@ class ValidateCardTest(unittest.TestCase):
                                                            "persona: junior"), repo)
 
             self.assertEqual(result.returncode, 1)
-            self.assertIn("[persona] must be one of developer | senior-developer", result.stdout)
+            self.assertIn("is not an implementer this repository offers", result.stdout)
+            self.assertIn("castable: developer | senior-developer", result.stdout)
 
     def test_missing_persona_is_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1958,7 +1959,8 @@ class ValidateCardTest(unittest.TestCase):
             result = self.run_validator(card, repo)
 
             self.assertEqual(result.returncode, 1)
-            self.assertIn("[persona] must be one of developer | senior-developer", result.stdout)
+            self.assertIn("is not an implementer this repository offers", result.stdout)
+            self.assertIn("castable: developer | senior-developer", result.stdout)
 
     # --- fields the card no longer carries ---------------------------------------------------- #
 
@@ -2704,3 +2706,70 @@ class MidPhaseTest(unittest.TestCase):
             result = self.run_validator(card, repo)
             self.assertTrue(any("record_to" in line for line in self.findings(result, "ERROR")),
                             result.stdout)
+
+
+class RepoPersonaPoolTest(ValidateCardTest):
+    """A card must be able to name the pool the repository installed — and no further.
+
+    Measured across four real repositories: 289 `persona:` casts, 287 the base pair and 2 naming a
+    JUDGE. Widening the allow-list to the whole pool would be taste; refusing those 2 is the point.
+    A judge's whole value is that it cannot change what it judges, so casting one to implement hands
+    back the edit rights the restriction withholds — the hazard this methodology already records
+    about a third-party template dispatching general-purpose subagents.
+
+    The persona files carry the distinction themselves in `writes:`, so there is no second list here
+    to drift from the first, and the pool is read from the REPOSITORY, never from `$HOME`.
+    """
+
+    def with_pool(self, repo: Path, **who: str) -> None:
+        directory = repo / "docs" / "agents" / "personas"
+        directory.mkdir(parents=True, exist_ok=True)
+        for raw, writes in who.items():
+            name = raw.replace("_", "-")
+            body = f"---\nname: {name}\n" + (f"writes: {writes}\n" if writes else "") + "---\n\n# x\n"
+            (directory / f"{name}.md").write_text(body, encoding="utf-8")
+
+    def cast(self, repo: Path, persona: str):
+        return self.run_validator(
+            CLEAN_CARD.replace("persona: senior-developer", f"persona: {persona}"), repo)
+
+    def test_a_judge_may_not_be_cast_as_the_implementer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.with_pool(repo, tenancy_validator="no")
+
+            result = self.cast(repo, "tenancy-validator")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("is a judge in this repository's pool", result.stdout)
+
+    def test_a_project_implementer_is_castable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.with_pool(repo, platform_developer="yes")
+
+            self.assertNotIn("[persona]", self.cast(repo, "platform-developer").stdout)
+
+    def test_an_unknown_name_names_what_the_repository_offers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.with_pool(repo, platform_developer="yes")
+
+            result = self.cast(repo, "nobody")
+
+            self.assertIn("castable:", result.stdout)
+            self.assertIn("platform-developer", result.stdout)
+
+    def test_a_persona_declaring_nothing_is_read_as_a_judge(self) -> None:
+        """Fail closed: being wrong this way costs a rename, the other way costs the guarantee."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.with_pool(repo, vague="")
+
+            self.assertIn("is a judge", self.cast(repo, "vague").stdout)
+
+    def test_no_pool_falls_back_to_the_base_pair_and_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+
+            self.assertIn("no docs/agents/personas/ here", self.cast(repo, "nobody").stdout)

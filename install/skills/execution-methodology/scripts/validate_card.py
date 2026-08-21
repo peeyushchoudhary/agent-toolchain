@@ -176,6 +176,49 @@ TITLE_MAX_CHARS = 72
 # What counts as a sibling card when scanning the directory. Deliberately not "every file".
 CARD_SUFFIXES = (".yaml", ".yml")
 VALID_PERSONAS = ("developer", "senior-developer")
+# The base pair is a FLOOR, not the pool. A repository installs its own domain personas as overlays
+# in `docs/agents/personas/`, and until now a card could name none of them: the allow-list was a
+# hardcoded pair, so the pool a repository actually adopted was unreachable from the artifact that
+# dispatches work.
+#
+# Widening it to "any persona" would be wrong in the other direction, and MEASURED rather than
+# assumed: across four repositories there are 289 real `persona:` casts, 287 of them the base pair
+# and 2 naming a JUDGE. Those 2 are the case this rule exists to catch. A judge's whole value is
+# that it cannot change what it judges — casting one as the implementer destroys the guarantee the
+# pool enforces by restriction, which is the same hazard this methodology already records about a
+# third-party template dispatching general-purpose subagents.
+#
+# The persona files carry the distinction themselves: a judge declares `writes: no`. So the split is
+# read from the pool rather than restated here, and no second list can drift from the first.
+PERSONA_WRITES_RE = re.compile(r"^writes:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def repo_personas(repo: "Repo") -> tuple[list[str], list[str], bool]:
+    """(implementers, judges, pool_found) from the repository's own overlays.
+
+    Reads the REPO, never `$HOME`: a check that consults the machine gives one answer locally and
+    another in CI, and this toolchain has already been caught pruning a machine-global directory
+    from a repository-scoped command.
+    """
+    directory = repo.root / "docs" / "agents" / "personas"
+    if not directory.is_dir():
+        return list(VALID_PERSONAS), [], False
+    implementers, judges = list(VALID_PERSONAS), []
+    for path in sorted(directory.glob("*.md")):
+        try:
+            head = path.read_text(encoding="utf-8")[:2000]
+        except (OSError, UnicodeError):
+            continue
+        name = path.stem
+        match = PERSONA_WRITES_RE.search(head)
+        declared = (match.group(1).strip().lower() if match else "")
+        # Anything that is not plainly a claim to write is treated as a judge. Fail-closed in the
+        # direction that costs a rename rather than a lost guarantee.
+        if declared.startswith("no") or not declared:
+            judges.append(name)
+        elif name not in implementers:
+            implementers.append(name)
+    return implementers, sorted(judges), True
 # `tier` was the old name for `persona`. It collided with the unrelated rollout-tier concept, so it
 # was renamed; a card still using it validates and is warned rather than failed.
 DEPRECATED_ALIASES = {"tier": "persona"}
@@ -929,7 +972,7 @@ class Findings:
         return sum(1 for s, _, _ in self.rows if s == WARNING)
 
 
-def check_required_fields(card: dict[str, object], f: Findings) -> None:
+def check_required_fields(card: dict[str, object], f: Findings, repo: "Repo | None" = None) -> None:
     """D. Enforce the complete v1.5 schema without making sealed history unreadable."""
     resolved = dict(card)
     for old, new in DEPRECATED_ALIASES.items():
@@ -965,8 +1008,21 @@ def check_required_fields(card: dict[str, object], f: Findings) -> None:
                 str(v).strip() for v in as_list(resolved[field])):
             f.add(ERROR, field, "required field is present but empty")
     persona = str(resolved.get("persona", "")).strip()
-    if persona and persona not in VALID_PERSONAS:
-        f.add(ERROR, "persona", f"must be one of {' | '.join(VALID_PERSONAS)}, got {persona!r}")
+    if persona:
+        # `repo` is optional so the schema check still runs for callers that have no repository in
+        # hand; without one the base pair is the only honest answer and the message says so.
+        implementers, judges, pool_found = (repo_personas(repo) if repo is not None
+                                            else (list(VALID_PERSONAS), [], False))
+        if persona in judges:
+            f.add(ERROR, "persona", f"{persona!r} is a judge in this repository's pool — it "
+                  "declares `writes: no`, and that refusal is the whole reason its verdict is "
+                  "worth anything. Casting it to implement gives it back the edit rights the "
+                  f"restriction withholds. Implementers here: {' | '.join(implementers)}")
+        elif persona not in implementers:
+            where = ("docs/agents/personas/" if pool_found else
+                     "no docs/agents/personas/ here, so only the base pair is castable")
+            f.add(ERROR, "persona", f"{persona!r} is not an implementer this repository offers "
+                  f"({where}); castable: {' | '.join(implementers)}")
 
     for field, value in card.items():
         if field in ("exclusive_writes", "forbidden_paths", "validation"):
@@ -2116,7 +2172,7 @@ def validate(card_path: Path, repo_root: Path,
     check_path_coherence(card, repo, writes, forbidden, card_phase, f)
     check_write_set_satisfiable(card, repo, writes, f)
     check_ignored_write_paths(repo, writes, f)
-    check_required_fields(card, f)
+    check_required_fields(card, f, repo)
     check_title(card, f)
     check_cross_card_uniqueness(card, scan, f)
     check_obsolete_fields(card, f)
