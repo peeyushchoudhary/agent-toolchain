@@ -478,8 +478,8 @@ def check_wave_writes(tasks: Sequence[Task], waves: Sequence[Sequence[str]],
             f.add(two.doc, two.where.get("writes", two.line), "W4",
                   f"`{left}` and `{right}` are both in wave {wave_of[left]} and their write sets "
                   f"meet: `{hit[0]}` and `{hit[1]}` can match one path. Re-cut the tasks so the "
-                  f"write sets are disjoint, or declare `serialises: [{left}]` on `{right}` to "
-                  "record that the overlap is known and deliberate")
+                  f"write sets are disjoint, or order them with `needs: [{left}]` on `{right}` and "
+                  f"declare `serialises: [{left}]` so the shared ownership is stated")
         elif left not in two.serialises and right not in one.serialises:
             f.add(two.doc, two.where.get("writes", two.line), "W6",
                   f"`{left}` and `{right}` write the same paths (`{hit[0]}` and `{hit[1]}`) and are "

@@ -602,3 +602,28 @@ class ReferenceShapeTest(CommitWritesTest):
         result = self.run_cli("--commit", "HEAD")
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("`T6` declares it", result.stdout)
+
+
+class SameWaveRemedyTest(PlanFixture):
+    """A finding must recommend something that works.
+
+    W4 told the reader to declare `serialises:` and W4 never read it, so following the advice left
+    the finding exactly where it was. The temptation was to make `serialises` reorder the schedule
+    instead — but a deliberate test already says declaring shared ownership is not permission to run
+    a pair concurrently, and that is right: a wave is what runs at once, and auto-serialising would
+    hide a decomposition the planner should look at. So the remedy is the wrong half, not the rule.
+    """
+
+    def test_the_same_wave_remedy_names_an_ordering_edge(self) -> None:
+        self.plan(task("T1", writes="backend/shared/**"),
+                  task("T2", writes="backend/shared/auth.java"))
+        out = self.run_cli().stdout
+        self.assertIn("W4", out)
+        self.assertIn("needs: [T1]", out,
+                      "the remedy must order the pair; serialises alone does not clear W4")
+
+    def test_following_that_remedy_actually_clears_it(self) -> None:
+        """The advice, applied literally, must leave no finding."""
+        self.plan(task("T1", writes="backend/shared/**"),
+                  task("T2", needs="[T1]", serialises="[T1]", writes="backend/shared/auth.java"))
+        self.assertEqual(self.rules(), [])
