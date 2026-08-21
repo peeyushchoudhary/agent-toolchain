@@ -108,6 +108,7 @@ TASK_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]*$")
 MAX_WRITES = 5        # (P5) one green commit's worth of files in one module.
 MAX_FULL_LANE = 12    # (P5) above this it is two features, and no wave plan repairs that.
 
+FEATURE_ID_RE = re.compile(r"^F-\d+[A-Z]?$")
 QUALIFY = "/"                                 # `F-12/T1`: the feature, then its plan-local task id
 MILESTONE_RE = re.compile(r"^M\d+$")
 FEATURE_RE = re.compile(r"^F-\d+$")
@@ -646,7 +647,34 @@ def print_findings(findings: Sequence) -> None:
 # wave check exists to prevent, happening at commit time where no check was looking. W4 and W6 read
 # intent; this reads the tree.
 
-COMMIT_TASK_RE = re.compile(r"\b(?P<task>[A-Za-z][A-Za-z0-9._-]*)\b")
+# A subject reference is `F-12/T3` or a bare `T3`. Splitting the subject into bare words could not
+# see the qualified form at all — `F-12/T3` tokenised to `F-12` and `T3` as separate words, so under
+# a milestone (where every id carries its feature) NO subject ever resolved and W7 reported nothing.
+# Measured on a two-feature fixture: a commit subject `F-7/T1` writing into F-8/T1's declared set —
+# the exact defect W7 exists to catch — exited 0 with no findings.
+COMMIT_TASK_RE = re.compile(r"(?<![\w/-])(?P<task>(?:F-\d+[A-Z]?/)?T[A-Za-z0-9._-]+)(?![\w/-])")
+
+
+def plan_feature(doc: Doc) -> list[str]:
+    """Every id this plan answers to, for resolving a qualified commit reference.
+
+    Three spellings exist in the wild and depending on one of them is how this check came to read
+    nothing: the template writes `feature:`, older plans wrote `id:`, and the filename carries the
+    id under the same `F-12-slug.md` rule the milestone loader already uses. Any of the three
+    qualifying the same task is unambiguous, so all three are accepted rather than one enforced —
+    enforcing here would report a naming finding from the scheduler, which is the spec checker's
+    job and would be reported twice.
+    """
+    names = []
+    for key in ("feature", "id"):
+        value = doc.front.get(key)
+        if isinstance(value, str) and value.strip():
+            names.append(value.strip())
+    stem = Path(doc.rel).stem
+    head = stem.split("-")[0] + "-" + stem.split("-")[1] if stem.count("-") >= 1 else stem
+    if FEATURE_ID_RE.match(head):
+        names.append(head)
+    return list(dict.fromkeys(names))
 
 
 def commit_paths(root: Path, commit: str) -> list[str]:
@@ -668,7 +696,35 @@ def check_commit_writes(root: Path, commit: str, tasks: Sequence[Task], f: Findi
     """
     subject = git(root, "log", "-1", "--format=%s", commit) or ""
     index = {task.ident: task for task in tasks}
-    named = [index[word] for word in COMMIT_TASK_RE.findall(subject) if word in index]
+    # A bare `T1` is unambiguous inside one plan and ambiguous across a milestone, where two
+    # features may each own a `T1`. Resolve it only when exactly one task answers to it.
+    bare: dict[str, list[Task]] = {}
+    for task in tasks:
+        bare.setdefault(task.ident.split(QUALIFY)[-1], []).append(task)
+        # Per-plan scope carries bare idents, so a correctly-written `F-7/T1` subject would not have
+        # resolved there either. The plan's own `feature:` supplies the qualifier.
+        if QUALIFY not in task.ident:
+            for qualifier in plan_feature(task.doc):
+                index.setdefault(f"{qualifier}{QUALIFY}{task.ident}", task)
+    refs = COMMIT_TASK_RE.findall(subject)
+    named, unresolved = [], []
+    for ref in refs:
+        if ref in index:
+            named.append(index[ref])
+        elif QUALIFY not in ref and len(bare.get(ref, [])) == 1:
+            named.append(bare[ref][0])
+        else:
+            unresolved.append(ref)
+    # Silence here was the second half of the same defect. A subject naming NO task is ordinary
+    # light-lane work and stays silent, but a subject that names a task-shaped id which does not
+    # resolve is a card that has drifted from its plan, and reporting nothing let it push clean.
+    if not named and unresolved:
+        doc = tasks[0].doc if tasks else None
+        if doc is not None:
+            f.add(doc, tasks[0].line, "W7",
+                  f"commit subject names {', '.join(sorted(set(unresolved)))}, which no task in "
+                  "scope declares — the card and the plan disagree about what this work is")
+        return 0
     if len(named) != 1:
         return 0
     task = named[0]
@@ -707,6 +763,12 @@ def main() -> int:
     try:
         if args.milestone:
             found, milestone = run_milestone(root.resolve(), args.milestone)
+            # This call was absent, which made `--milestone M<n> --commit REV` accept the flag and
+            # silently never check it — the milestone view is the ONLY one that can see a commit
+            # landing in another FEATURE's declared set, since a per-plan run never loads the other
+            # plan. The scope that mattered most was the scope that was not wired.
+            if args.commit and milestone is not None and milestone.tasks:
+                check_commit_writes(root.resolve(), args.commit, milestone.tasks, found)
         else:
             found, plans = run(root.resolve())
             if args.commit:

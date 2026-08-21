@@ -502,3 +502,40 @@ class CommitWritesTest(PlanFixture):
         self.repo(task("T1", writes="backend/a/**"))
         self.commit("chore: unrelated tidy-up", "docs/notes.md")
         self.assertEqual(self.run_cli("--commit", "HEAD").returncode, 0)
+
+
+class QualifiedCommitReferenceTest(CommitWritesTest):
+    """W7 could not read the id this methodology tells people to write.
+
+    A subject reference is `F-12/T3`. The old word-split saw `F-12` and `T3` as two separate words
+    and matched neither, so under `--milestone` — where every id carries its feature — NO subject
+    resolved and the check reported nothing. Worse, `--milestone` never called the check at all: the
+    flag was accepted and silently ignored, and the milestone view is the ONLY scope that can see a
+    commit landing in another FEATURE's set, because a per-plan run never loads the other plan.
+    """
+
+    def test_a_qualified_id_resolves_in_plan_scope(self) -> None:
+        self.repo(task("T1", writes="backend/a/**"), task("T2", needs="[T1]", writes="backend/b/**"))
+        self.commit("feat(T1): also touches b", "backend/a/one.java", "backend/b/two.java")
+        bare = self.run_cli("--commit", "HEAD")
+        self.git("reset", "-q", "--hard", "HEAD~1")
+        self.commit("feat(F-7/T1): also touches b", "backend/a/one.java", "backend/b/two.java")
+        qualified = self.run_cli("--commit", "HEAD")
+        self.assertEqual(bare.returncode, 1)
+        self.assertEqual(qualified.returncode, 1,
+                         "a qualified id must resolve where a bare one does")
+        self.assertIn("backend/b/two.java", qualified.stdout)
+
+    def test_a_task_shaped_id_that_resolves_to_nothing_is_reported(self) -> None:
+        """Silence here let a card that had drifted from its plan push clean."""
+        self.repo(task("T1", writes="backend/a/**"))
+        self.commit("feat(T9): a task no plan declares", "backend/a/one.java")
+        result = self.run_cli("--commit", "HEAD")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("T9", result.stdout)
+
+    def test_ordinary_prose_stays_silent(self) -> None:
+        """Light-lane work has no card. Inventing a violation for it gets the check removed."""
+        self.repo(task("T1", writes="backend/a/**"))
+        self.commit("docs: tidy the README", "backend/a/one.java")
+        self.assertEqual(self.run_cli("--commit", "HEAD").returncode, 0)
