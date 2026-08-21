@@ -369,6 +369,15 @@ verdict line verbatim; then acceptance against that exact commit. A read-only Co
 never runs a write-producing gate against the source referent — the standalone-copy sandbox
 protocol is in the skill's `references/codex-gate-sandbox.md`.
 
+**The seal is gated at the push, and the gate wants evidence rather than a claim.** A milestone
+document declares its cross-feature command under `## Cross-feature validation`; moving it to
+`status: shipped` is the claim that the journeys no single feature's suite can prove were proved.
+`milestone_seal.py --record M<n>` runs that command from a clean tree and receipts a pass, and the
+pre-push guard refuses the seal without a receipt bound to the pushed tree. Only the transition is
+checked, so a milestone already shipped costs nothing on any later push. The receipt is written
+outside the repository: evidence that can travel in a clone lets one machine's run seal another
+machine's push.
+
 **A gate pass authorizes nothing.** Not deployment, not provider activation, not a production
 write.
 
