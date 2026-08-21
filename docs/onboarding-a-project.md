@@ -29,9 +29,10 @@ No action needed — these come from user level and apply the moment you open an
 | A GitHub remote, private | One repo per project |
 | Persona overlays and specialists | Derived from *this* project's guardrails |
 
-## The five steps
+## The six steps
 
-Run in order. Steps 1–2 are mechanical; step 3 is the real work.
+Run in order. Steps 1–2 are mechanical; step 3 is the real work; step 6 is the one that
+gets forgotten.
 
 ### 1 — Look before touching · 2 min
 
@@ -97,15 +98,42 @@ python3 ~/.claude/skills/agent-personas/scripts/sync_personas.py --repo .
 
 Commit overlays **and** the generated `.claude/agents/` + `.codex/agents/`.
 
+### 6 — Adopt or defer the execution methodology · 10 min, mandatory
+
+The easiest step to skip and the one nothing else catches: **adoption is deliberate and per
+repository — nothing adopts a repository on its own.** Skip it and the project runs no shared
+methodology, and only a conformance run will ever say so.
+
+```bash
+python3 ~/.claude/skills/execution-methodology/scripts/sync_methodology.py --repo . --adoption-check
+```
+
+That command **always exits 0** — read the text, not the status. Then record one of two outcomes:
+
+- **Adopt.** `sync_methodology.py --repo .` renders the copy both harnesses read, and the route
+  points at it. Bindings to this repository's real commands go in the hand-authored overlay beside
+  the rendered file, never inside it. `--repo . --check` gates staleness and does exit non-zero.
+- **Defer.** Record the marker with a real reason and a date.
+
+Leaving both unrecorded is the failure mode. It looks identical to a project nobody has reached yet.
+
 ## Verify
 
 ```bash
-python3 ~/.claude/skills/progressive-disclosure/scripts/validate_disclosure.py . --readme --standard
-python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py . --check
-python3 ~/.claude/skills/progressive-disclosure/scripts/check_github.py . --refresh
-python3 ~/.claude/skills/progressive-disclosure/scripts/check_toolchain.py
+python3 "$HOME/.claude/skills/project-conformance/scripts/check_conformance.py" .
 make check
 ```
+
+One call, not a hand-rolled list. The list that used to sit here ran five of the same checks with
+weaker flags and judged them by **exit code** — which three of those checkers set to 0 while
+carrying the finding on stdout. It printed green over unprotected judges.
+
+Exit 0 is the only pass; exit 2 means a check did not run, so read which one. **That skill is
+optional and this installer does not ship it — if it is absent, say conformance was NOT CHECKED and
+stop.** Never substitute the old commands, never call the result green.
+
+**Know what `--fix` reaches before you type it.** It is not confined to the repository you name: the
+persona sync writes into and prunes both harnesses' machine-global agent directories on every run.
 
 Then start a fresh session in the project. **A healthy project produces a silent session hook.**
 Anything it reports is real.
@@ -121,9 +149,9 @@ raw state with `check_github.py --sweep <projects-dir>`. An example shape:
 | Project | Git | Remote | Route | Remaining |
 |---|---|---|---|---|
 | reference-app | yes | private | full | done — the worked example |
-| service-a | yes | private | partial | steps 3–5 |
-| service-b | yes | none | none | all five; has unpushed commits — push first |
-| scratch-tool | no | none | none | `git init`, then all five |
+| service-a | yes | private | partial | steps 3–6 |
+| service-b | yes | none | none | all six; has unpushed commits — push first |
+| scratch-tool | no | none | none | `git init`, then all six |
 | notes-and-data | no | none | none | not a software project — judge whether any of this applies |
 
 **Do the unpushed ones first.** A missing route is an inconvenience; a few hundred commits existing

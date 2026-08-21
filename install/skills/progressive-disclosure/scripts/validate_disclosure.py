@@ -154,7 +154,12 @@ def is_lessons_file(name: str) -> bool:
 # A record is not exempt from being readable. It gets the same entry-count observation, set from
 # the same measured basis: this file holds 8 sections today, so the threshold speaks only when the
 # document has grown into something that wants archiving.
-RECORD_NAME = re.compile(r"^(measurements|benchmarks)(?:[-_][a-z0-9]+)?\.md$")
+# `decisions.md` belongs here for the same reason and was missed on the first pass, which is worth
+# recording: the first fix named the file that happened to be full rather than the CLASS the rule
+# was about. A decision record accretes by definition — a decision that stops being listed stops
+# being findable — and it sat at 1185 of 1200 words, so it was two decisions from the same wall
+# measurements had just hit. A rule aimed at one filename would have had to be written a third time.
+RECORD_NAME = re.compile(r"^(measurements|benchmarks|decisions|adr|rulings)(?:[-_][a-z0-9]+)?\.md$")
 
 
 def is_record_file(name: str) -> bool:
