@@ -859,3 +859,57 @@ class TemplateSelfCheckTest(SpecCheckFixture):
         self.assertEqual(data["status"], "draft")
         self.assertEqual(data["title"], "keeps the #3", "a quoted value keeps its hash")
         self.assertEqual(data["id"], "F-12#a", "no space before # means it is part of the value")
+
+
+class RecordExemptionTest(SpecCheckFixture):
+    """A rule binds the documents it was written for.
+
+    Measured on a real repository: 12 findings, of which 9 were this category error. A change
+    request exists to say "this was X, make it Y", and a ruling inside one is dated because the date
+    is the point. Applying the current-state rule there is the same mistake as demanding front
+    matter from every README, which this checker already made once.
+    """
+
+    DATED = "\n## RULING 2026-08-11 — the row closes\n\nx\n"
+
+    def test_a_change_request_may_record_its_own_history(self) -> None:
+        self.corpus()
+        self.write("docs/product/change-requests/CR-2026-08-09-thing.md",
+                   "# CR — a thing\n" + self.DATED)
+        self.assertDoesNotFind("A1")
+
+    def test_a_decision_record_and_a_changelog_are_exempt(self) -> None:
+        self.corpus()
+        self.write("docs/product/decisions/0004-timing.md", "# 0004\n" + self.DATED)
+        self.write("docs/product/CHANGELOG.md", "# Changelog\n\n## Revision history\n\nx\n")
+        self.assertEqual(self.rules(), [])
+
+    def test_a_specification_is_not_exempt_by_sitting_beside_one(self) -> None:
+        """The exemption is the document's purpose, not its neighbourhood."""
+        self.corpus()
+        self.write("docs/product/screens/thing/specification.md",
+                   "# Thing\n\n## Changelog\n\nx\n")
+        self.assertFinds("A2")
+
+
+class HistoryHeadingPrecisionTest(SpecCheckFixture):
+    """The heading must BE a history section, not mention one.
+
+    `# Run history` is a real screen in a real product — an audit log a user reads — and the
+    word-anywhere pattern told a feature about history to stop being a changelog. Third instance of
+    the same collision after `receipt`/`cards` in the classifier and `superseded` in the prose rule.
+    """
+
+    def assertHeading(self, flagged: bool, *headings: str) -> None:
+        for heading in headings:
+            with self.subTest(heading=heading):
+                self.assertEqual(bool(spec_check.HISTORY_HEADING_RE.match(heading)), flagged)
+
+    def test_a_product_feature_named_history_is_not_a_changelog(self) -> None:
+        self.assertHeading(False, "# Run history (`aut_runs`)", "## Run history",
+                           "## Payment history", "### Order history and receipts")
+
+    def test_a_real_history_section_is_still_caught(self) -> None:
+        self.assertHeading(True, "## Changelog", "## Change log", "## Revision history",
+                           "### History of changes", "## What changed since the last handoff",
+                           "## Revisions")

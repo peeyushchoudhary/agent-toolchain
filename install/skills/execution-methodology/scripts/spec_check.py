@@ -46,8 +46,16 @@ from ratio_meter import CODE_SUFFIXES, is_excluded  # one shared list, never a s
 PRINT_CAP = 40   # Findings printed before the rest are only counted; forty is about a screen.
 
 DATED_HEADING_RE = re.compile(r"^#{2,3} .*\d{4}-\d{2}-\d{2}")
+# The heading must BE a history section, not merely mention one. `# Run history` is a real screen
+# in a real product — an audit log the user reads — and the previous pattern matched anywhere in the
+# line, so a feature about history was told to stop being a changelog. Third instance of the same
+# collision after `receipt`/`cards` in the classifier and `superseded` in the prose rule: process
+# vocabulary is product vocabulary too, and a rule that matches a word rather than a structure will
+# keep finding the product.
 HISTORY_HEADING_RE = re.compile(
-    r"^#{1,6}\s+.*\b(changelog|change log|history|revisions?|what changed)\b", re.IGNORECASE)
+    r"^#{1,6}\s+(?:the\s+)?(changelog|change log|change history|revision log|revision history|"
+    r"version history|history of changes|history|revisions?|what changed[\w\s]*)\s*:?\s*$",
+    re.IGNORECASE)
 
 # NARROW ON PURPOSE, AND THE NARROWNESS IS A MEASUREMENT RATHER THAN A PREFERENCE. A broad
 # history-vocabulary pattern (superseded|deprecated|formerly|no longer|replaced|revised|…) was run
@@ -260,7 +268,27 @@ def git(root: Path, *args: str) -> str | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
+# Documents whose PURPOSE is to record a change, and which are therefore append-only by design.
+# The current-state rule does not reach them: a change request exists to say "this was X, make it
+# Y", and a ruling inside one is dated because the date is the point. Measured on a real
+# repository, 9 of 12 findings were this category error — the same shape as demanding front matter
+# from every README, and the same remedy: a rule binds the documents it was written for.
+# A screen specification with a changelog section is NOT exempt. It states current behaviour, and
+# the section is exactly the drift this rule exists to stop.
+RECORD_SEQUENCES = ("/change-requests/", "/decisions/", "/adr/", "/rulings/")
+RECORD_NAMES = ("changelog.md", "history.md")
+
+
+def is_record(doc: Doc) -> bool:
+    """A document that records a change rather than stating current state."""
+    lowered = "/" + doc.rel.lower()
+    return (any(part in lowered for part in RECORD_SEQUENCES)
+            or lowered.rsplit("/", 1)[-1] in RECORD_NAMES)
+
+
 def check_current_state(doc: Doc, f: Findings) -> None:
+    if is_record(doc):
+        return
     for number, text in doc.body():
         if DATED_HEADING_RE.match(text):
             f.add(doc, number, "A1", "dated heading: the document is being appended to rather "
