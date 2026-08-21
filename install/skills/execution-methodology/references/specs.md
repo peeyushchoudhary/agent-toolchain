@@ -63,6 +63,7 @@ title: <product>
 status: draft | approved | building | shipped | dropped
 updated: <YYYY-MM-DD>
 reach: <who can use this today, one line>      # optional
+reviewed_by: [product-steward]                 # optional — the personas that actually read this
 ---
 
 # <Product>
@@ -137,6 +138,7 @@ depends: [F-3]                            # optional
 milestone: M2                             # optional — absent means specified and waiting
 withdrawn: [3, 9]                         # optional — retired AC numbers
 decisions: [docs/decisions/<adr>.md]      # optional
+reviewed_by: [tenancy-rls-validator]      # optional — the personas that actually read this
 edge_cases: [empty, concurrent, permission-denied]
 ---
 
@@ -172,18 +174,75 @@ Literal values, not shapes. One line per case, input → observable result. An e
 `<amount>` instead of `1200` has moved the decision to the implementer.
 
 ## Horizontals
-One or two sentences: which of tenancy, authorization, audit, money, personal data, retention,
-accessibility, localisation and runtime cost this feature moves, and why the rest do not apply.
+One LABELLED LINE per concern that moves — `- **<concern>:** <what it does here>` — drawn from
+tenancy, authorization, audit, money, personal data, retention, accessibility, localisation and
+runtime cost. A concern that does not apply opens its line with `N/A` or `Not applicable` and says
+why. The label is what binds this section to the repository's own domain validators; see below.
 
 ## Assumptions and open questions
 Anything guessed rather than known, marked where it sits. An unmarked assumption becomes a
 requirement three stages later and nobody remembers it was invented.
 ````
 
-**The horizontals pass survives; the table does not.** Going through the nine concerns takes a
-minute, and not going through it is how a feature ships without an audit row. The nine-row table was
-the ceremony around that pass: seven rows are "N/A" on a typical feature, which trains the reader to
-skim the two that are not.
+**The horizontals pass survives, and so does the label.** Going through the nine concerns takes a
+minute, and not going through it is how a feature ships without an audit row.
+
+An earlier draft of this reference dropped the labelled form for a paragraph, on the argument that
+"seven rows are N/A on a typical feature, which trains the reader to skim the two that are not".
+THAT ARGUMENT WAS MEASURED AND IT IS WRONG. Across four real repositories the horizontals sections
+carry **805 labelled concern rows and 45 of them are N/A — 5.6%, about half a row per feature, not
+seven.** The table is not ceremony around the pass; it is almost entirely load-bearing content. What
+the paragraph would have cost is the label, and the label is the only part a machine can read: see
+`reviewed_by:` below.
+
+The heavy `| Concern | Disposition |` table is optional and a bullet list is cheaper. Both are read.
+A free paragraph is not read, and `spec_check.py --personas` says so rather than passing it.
+
+## `reviewed_by:` — the domain validator arrives while the product is still being defined
+
+MEASURED across four real repositories: their domain invariants are not written in this
+methodology's vocabulary at all. They are written as PERSONAS — 15 custom validator overlays in
+`docs/agents/personas/`, one per invariant, each with a reader attached. Counted by where those
+validators are cited: **review 100, task card 83, ledger 10, plan 7, feature spec 5, PRD and
+milestone 0.** The invariant arrives at review time. Review is the most expensive place to learn
+that the product was defined wrong.
+
+So a validator persona declares, in one key, which concerns it owns:
+
+```yaml
+# docs/agents/personas/tenancy-rls-validator.md
+covers: [tenancy, personal data]
+```
+
+and a spec, PRD or milestone records who read it:
+
+```yaml
+reviewed_by: [tenancy-rls-validator, product-steward]
+```
+
+`spec_check.py` rule **F3** then fails a document whose own horizontals say it MOVES a concern some
+persona owns while `reviewed_by:` does not name that persona. Nothing is required of the 13 base
+personas: a persona with no `covers:` is never demanded, so the whole cost is one line per
+validator, once.
+
+The rule refuses to be inert, and that refusal is the design:
+
+- **F4** fails a `covers:` that matches no concern label anywhere in the corpus. A binding that
+  cannot match is invisible from the document side — the document simply never gets a demand — so
+  the check runs from the persona side, where the fix is.
+- Every run with a persona pool prints what rule F reached: personas, how many declare `covers:`,
+  documents read, concern rows found, live rows, demands raised. A run that matched nothing prints
+  **RULE F CHECKED NOTHING** and why. `--personas` shows the pool and the concern labels the corpus
+  actually offers.
+- Concern labels match by TOKEN-SET containment, never substring: `covers: [tenancy]` reaches
+  `Tenancy / isolation`, and `covers: [cost]` does not reach `Costume design`.
+- The pool is this REPOSITORY's `docs/agents/personas/`, never a machine-global agents directory. A
+  checker whose verdict depends on the laptop it runs on is not a checker.
+- There is no closed roster of persona names. `VALID_PERSONAS` in `validate_card.py` is exactly
+  ("developer", "senior-developer") and real cards already declare `test-judge`, `docs-steward` and
+  `chief-of-staff`, so they fail today for naming personas that exist. `reviewed_by:` checks the
+  SHAPE of a name and never its membership, because the names that matter most are the ones only
+  the project knows.
 
 Also gone: **Behaviour** and **User stories** each restated what the criteria and the Why already
 said, and a restatement is a second copy that goes stale silently. A separate **Edge cases** section
@@ -204,6 +263,7 @@ milestone: M<n>
 title: <what this milestone delivers>
 status: draft | approved | building | shipped | dropped
 updated: <YYYY-MM-DD>
+reviewed_by: [chief-of-staff]             # optional — the personas that actually read this
 ---
 
 # M<n> — <milestone>
@@ -472,6 +532,7 @@ status: draft
 updated: 2026-01-14
 withdrawn: [3]
 edge_cases: [expired, rate-limited, permission-denied]
+reviewed_by: [product-steward, tenancy-rls-validator]
 ---
 
 # F-7 — Resend a pending invite
@@ -502,8 +563,15 @@ actor, the invite, and the result. `[audit]`
 - invite already accepted → the action is absent from the row
 
 ## Horizontals
-Authorization and audit move: resend is admin-only and every attempt is logged. No money, no new
-personal data (the address is already held), no retention or localisation change.
+- **Authorization:** resend is admin-only; a non-admin caller is refused before any mail is sent.
+- **Audit:** every attempt writes a row naming the actor, the invite and the result.
+- **Personal data:** the address is already held; this feature collects none.
+- **Tenancy / isolation:** the invite is read inside the caller's tenant, by the database.
+- **Money handling:** N/A — resending an invite is free.
+- **Retention / erasure:** N/A — no new record class.
+- **Accessibility:** the action is a button on an existing row and inherits its keyboard path.
+- **Localisation:** N/A — the mail body is already localised.
+- **Runtime cost:** one extra mail send per resend, floored at one per five minutes.
 
 ## Assumptions and open questions
 Assumes the 5-minute floor satisfies the mail provider's rate guidance.
@@ -522,8 +590,9 @@ that pairing, which is the whole of what `approved` means here.
 
 A feature that touches two files does not need three pages. It does need the Why, the scope
 boundary, the surface, and the criteria — that is where the incompleteness that costs rework lives.
-What can shrink: three criteria instead of twelve, two examples instead of six, and a horizontals
-line reading "no persisted state, no money, no personal data; authorization unchanged".
+What can shrink: three criteria instead of twelve, two examples instead of six, and horizontals
+that are three labelled lines instead of nine — `- **Money handling:** N/A — nothing is charged.`
+still carries the label, which is what the persona binding reads.
 
 What cannot be skipped: the horizontals pass, the `Out` half of scope, and the current-state rule.
 The first two are cheap to write and expensive to discover; the third is what keeps the document

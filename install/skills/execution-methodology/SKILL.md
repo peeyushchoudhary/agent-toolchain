@@ -173,7 +173,10 @@ correctness one (a central list is a second source of truth that drifts).
 **Starting something new** — invoke `product-steward` for the PRD, then the feature spec. Do not skip
 to design because the feature seems small; skip to a *short* spec instead. The scope boundary, the
 surface, and the horizontals pass are where specs are actually incomplete, and they are cheap to
-write and expensive to discover. Both artifacts are updated in place: a spec states what is true now
+write and expensive to discover. Cast the repository's own domain validators HERE, not at review:
+a validator that declares `covers:` is required in the document's `reviewed_by:` by `spec_check.py`
+rule F whenever the horizontals say that concern moves. `spec_check.py --personas` shows the pool,
+what each owns, and what the corpus offers it to own. Both artifacts are updated in place: a spec states what is true now
 and never what it used to say.
 
 **Design and plan** — `architect` for the design; `planner` for the plan, with `contract-architect`
