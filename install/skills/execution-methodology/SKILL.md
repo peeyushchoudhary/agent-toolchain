@@ -208,11 +208,12 @@ other refusal is closed by applying the final verdict's named smallest correctio
 never authors or applies its own correction, and the bounded rereview never becomes a consensus
 loop. Existing implementation review is unchanged.
 
-**Executing** — hand the approved plan to `chief-of-staff`. It assigns lanes from the plan,
-generates cards for full-lane tasks, dispatches, routes reviews under the budget, keeps the ledger,
-and stops only on a blocker, a genuine ambiguity, an exhausted review budget, or a writer-failure
-escalation (a writer that returns nothing twice is not replaced a third time). A milestone branch
-with no commit in 48 hours is a blocker escalation, not silence.
+**Executing** — hand the approved plan to `chief-of-staff`. The loop it runs — resume, select,
+dispatch, drift, validate, review, commit check, deferrals, coverage, seal, with the command and
+the exit-code handling for each step, who is cast where, and what stops it — is
+[references/execution-loop.md](references/execution-loop.md). Two properties bind everything in it:
+status is derived from `git` by `plan_waves.py --since`, never read back from the ledger, and the
+orchestrator writes nothing but the ledger, the cards and the reports.
 
 **A report is not a request.** Milestone reports inform; they do not pause the loop. Before
 stopping, name the decision — if it is not one of the three gates, a spend, an irreversible or
