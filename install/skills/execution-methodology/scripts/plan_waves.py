@@ -101,9 +101,9 @@ from typing import Callable, NamedTuple, Sequence
 # One parser, one fence rule, one finding shape, one print cap — never a second copy of any of them.
 from spec_check import PRINT_CAP, Doc, Findings, SpecError, FENCE_RE, parse_front_matter
 
-TASK_KEYS = (("task",), ("title", "lane", "needs", "writes", "covers"))
+TASK_KEYS = (("task",), ("title", "lane", "needs", "writes", "covers", "serialises"))
 LANES = ("light", "full")
-LIST_KEYS = ("needs", "writes", "covers")
+LIST_KEYS = ("needs", "writes", "covers", "serialises")
 TASK_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]*$")
 MAX_WRITES = 5        # (P5) one green commit's worth of files in one module.
 MAX_FULL_LANE = 12    # (P5) above this it is two features, and no wave plan repairs that.
@@ -116,7 +116,8 @@ FEATURE_RE = re.compile(r"^F-\d+$")
 # per-plan run passes tasks from one file and the milestone run passes tasks from several, and a
 # finding is charged to the right file either way without a second copy of any check.
 Task = NamedTuple("Task", [("ident", str), ("line", int), ("lane", str), ("needs", list),
-                           ("writes", list), ("covers", list), ("where", dict), ("doc", Doc)])
+                           ("writes", list), ("covers", list), ("serialises", list),
+                           ("where", dict), ("doc", Doc)])
 Plan = NamedTuple("Plan", [("rel", str), ("tasks", list), ("waves", list), ("stuck", list)])
 Milestone = NamedTuple("Milestone", [("name", str), ("rel", str), ("features", list),
                                      ("unplanned", list), ("tasks", list), ("waves", list),
@@ -185,7 +186,7 @@ def parse_task(doc: Doc, fence: int, block: list[str], f: Findings) -> Task | No
     values = {key: [data[key]] if isinstance(data.get(key), str) and data[key] else
                    list(data.get(key) or []) for key in LIST_KEYS}
     return Task(ident, at.get("task", fence), lane, values["needs"], values["writes"],
-                values["covers"], at, doc)
+                values["covers"], values["serialises"], at, doc)
 
 
 def read_plan(doc: Doc, f: Findings) -> list[Task]:
@@ -411,19 +412,33 @@ def check_wave_writes(tasks: Sequence[Task], waves: Sequence[Sequence[str]],
     Over a milestone the ids are qualified and the pair may sit in two different files, which is
     the collision the per-plan scope could not see at all. The finding is charged to the second
     task's own plan, and both qualified ids name the features involved.
+
+    EVERY colliding pair is compared, not only same-wave pairs, because the wave-scoped version was
+    defeated by its own advice: it told the planner to add a `needs` edge, and doing so moved the
+    pair into different waves and silenced the finding while both tasks still owned one file. On a
+    real 51-task graph, 41 such edges silenced all 37 collisions. A pair held apart by a dependency
+    is reported as W6 until `serialises:` states that the shared ownership is deliberate — which
+    turns a silent workaround into a declaration a reader can audit.
     """
     index = {task.ident: task for task in tasks}
-    for number, wave in enumerate(waves, start=1):
-        for left, right in combinations(wave, 2):
-            one, two = index[left], index[right]
-            hit = next(((a, b) for a in one.writes for b in two.writes if overlap(a, b)), None)
-            if hit is None:
-                continue
+    wave_of = {ident: number for number, wave in enumerate(waves, start=1) for ident in wave}
+    for left, right in combinations(sorted(index), 2):
+        one, two = index[left], index[right]
+        hit = next(((a, b) for a in one.writes for b in two.writes if overlap(a, b)), None)
+        if hit is None:
+            continue
+        same = wave_of.get(left) == wave_of.get(right)
+        if same:
             f.add(two.doc, two.where.get("writes", two.line), "W4",
-                  f"`{left}` and `{right}` are both in wave {number} and their write sets meet: "
-                  f"`{hit[0]}` and `{hit[1]}` can match one path. Re-cut the tasks so the write "
-                  f"sets are disjoint, or add `needs: [{left}]` to `{right}` and own the "
-                  "serialisation — this is not resolved automatically")
+                  f"`{left}` and `{right}` are both in wave {wave_of[left]} and their write sets "
+                  f"meet: `{hit[0]}` and `{hit[1]}` can match one path. Re-cut the tasks so the "
+                  f"write sets are disjoint, or declare `serialises: [{left}]` on `{right}` to "
+                  "record that the overlap is known and deliberate")
+        elif left not in two.serialises and right not in one.serialises:
+            f.add(two.doc, two.where.get("writes", two.line), "W6",
+                  f"`{left}` and `{right}` write the same paths (`{hit[0]}` and `{hit[1]}`) and are "
+                  f"held apart only by a dependency edge. Declare `serialises: [{left}]` on "
+                  f"`{right}` so the shared ownership is stated, or re-cut the write sets")
 
 
 def check_cycle(tasks: Sequence[Task], stuck: Sequence[str], f: Findings) -> None:

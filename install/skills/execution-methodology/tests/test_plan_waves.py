@@ -44,11 +44,13 @@ updated: 2026-01-01
 
 
 def task(ident: str, needs: str = "", writes: str = "src/{}/**", covers: str = "[AC-1]",
-         lane: str = "light") -> str:
+         lane: str = "light", serialises: str = "") -> str:
     """One task block. `writes` takes the id, so tasks are disjoint unless a test says otherwise."""
     lines = [f"task: {ident}", f"title: work for {ident}", f"lane: {lane}"]
     if needs:
         lines.append(f"needs: {needs}")
+    if serialises:
+        lines.append(f"serialises: {serialises}")
     lines.append(f"writes: [{writes.format(ident.lower())}]")
     lines.append(f"covers: {covers}")
     return "\n```task\n" + "\n".join(lines) + "\n```\n"
@@ -425,3 +427,30 @@ class OutputTest(PlanFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SerialisedOverlapTest(PlanFixture):
+    """W6 — the check may not be defeated by the remedy it recommends.
+
+    The wave-scoped version told the planner to add a `needs` edge, and doing so moved the pair into
+    different waves and silenced the finding while both tasks still owned one file. Measured on a
+    real 51-task graph: 41 such edges silenced all 37 collisions.
+    """
+
+    def test_a_dependency_edge_no_longer_hides_a_shared_write_set(self) -> None:
+        self.plan(task("T1", writes="backend/shared/**"),
+                  task("T2", needs="[T1]", writes="backend/shared/auth.java"))
+        found = self.rules()
+        self.assertIn("W6", found, found)
+        self.assertNotIn("W4", found, "different waves, so it reports as W6 rather than W4")
+
+    def test_declaring_the_overlap_closes_it(self) -> None:
+        self.plan(task("T1", writes="backend/shared/**"),
+                  task("T2", needs="[T1]", serialises="[T1]", writes="backend/shared/auth.java"))
+        self.assertEqual(self.rules(), [], "a declared overlap is a statement, not a defect")
+
+    def test_serialises_does_not_excuse_a_same_wave_collision(self) -> None:
+        """Declaring shared ownership is not permission to run the pair concurrently."""
+        self.plan(task("T1", writes="backend/shared/**"),
+                  task("T2", serialises="[T1]", writes="backend/shared/auth.java"))
+        self.assertIn("W4", self.rules())
