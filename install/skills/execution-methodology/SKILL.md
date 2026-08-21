@@ -11,7 +11,7 @@ Codex. The rules live in [methodology.md](methodology.md) — read that; this fi
 ## The shape, in one screen
 
 ```
-product spec → feature spec → design → budgeted review →│GATE│
+PRD → feature spec → design → budgeted review →│GATE│
                                       plan → budgeted review →│GATE│→ tasks
                                                               ↓
               per task, unattended: context → implement → review (2 rounds max)
@@ -170,10 +170,11 @@ correctness one (a central list is a second source of truth that drifts).
 
 ## Running it
 
-**Starting something new** — invoke `product-steward` for the product spec, then the feature spec.
-Do not skip to design because the feature seems small; skip to a *short* spec instead. The edge-case
-and horizontals sections are where specs are actually incomplete, and they are cheap to write and
-expensive to discover.
+**Starting something new** — invoke `product-steward` for the PRD, then the feature spec. Do not skip
+to design because the feature seems small; skip to a *short* spec instead. The scope boundary, the
+surface, and the horizontals pass are where specs are actually incomplete, and they are cheap to
+write and expensive to discover. Both artifacts are updated in place: a spec states what is true now
+and never what it used to say.
 
 **Design and plan** — `architect` for the design; `planner` for the plan, with `contract-architect`
 on anything crossing a durable boundary. A domain specialist reviews only when the artifact touches
@@ -316,8 +317,10 @@ standalone-copy nested-sandbox protocol is in
 
 ## Spec templates
 
-[references/specs.md](references/specs.md) holds the product-spec and feature-spec skeletons,
-including the acceptance-criteria form that turns into test names without translation.
+[references/specs.md](references/specs.md) holds the PRD and feature-spec skeletons, the
+current-state rule that governs both, and the acceptance-criteria form that turns into test names
+without translation. [references/readme.md](references/readme.md) holds the repository README
+template, whose first job is to state what is true today, including what is not shipped.
 
 ## What this does not decide
 
