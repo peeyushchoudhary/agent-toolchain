@@ -4,8 +4,8 @@ How work travels from a product intent to a merged milestone. Authored once, ren
 repository, followed identically by Claude Code and Codex.
 
 This document is the *sequence between* roles. The personas say who; this says what must exist
-before a stage begins, what must be true before it ends — and, new in v3, what the process itself
-is allowed to cost.
+before a stage begins, what must be true before it ends — and, declared in v3 and enforced since
+v4, what the process itself is allowed to cost.
 
 ## Principles
 
@@ -51,14 +51,43 @@ well as the floor: build what the PRD, the spec, and the plan say, and stop. A f
 more than the spec requires — extra hardening, extra generality, extra polish — is over-engineering
 and non-blocking by definition. The deliverable is the outcome, not its perfection.
 
-**8. The process is measured, and it can fail.** Every milestone receipt records what the process
-cost next to what it shipped. Process lines mean bookkeeping — workspace, ledger, verdicts, cards,
-escalations — not product specs or design documents, which are product thinking. A
-bookkeeping:product ratio worse than 1:4, a subject that hits the review budget, a process-only
-commit outside a milestone seal, or a 48-hour zero-commit stall on an active milestone is a
-*process regression* —
-triaged like any other regression, at the merge gate, with the same seriousness. A methodology
-that measures everything except itself discovers its own failure two weeks late, from the outside.
+**8. The process is measured by a script that can fail the gate.** `scripts/ratio_meter.py`
+classifies committed churn into product, product thinking, and process, and exits non-zero when
+process exceeds **10%** of the classified total. It runs at the merge gate and in the weekly
+review. A subject that hits the review budget, a process-only commit outside a milestone seal, and
+a 48-hour zero-commit stall on an active milestone remain process regressions, triaged at the
+merge gate with the same seriousness.
+
+This principle is new in substance, not in wording. v3 stated the budget as a ratio and left it to
+intention, and the measured consequence in one repository was a process share that climbed from 4%
+to 75% over eight weeks while product output fell 97% — with no rule firing, because the rule had
+no mechanism. Principle 1 says a check must prove it ran. Principle 8 is now the same kind of
+claim: a number a script produced, or nothing. The meter binds where a round-counter could not,
+because it reads git's own numstat and nobody can inflate the product side without writing
+product.
+
+## The budget
+
+Every methodology spends someone's attention. This one declares the split it is allowed to spend,
+and `ratio_meter.py` enforces it:
+
+| Bucket | What it is | Share |
+|---|---|---|
+| **Product** | Source, tests, migrations, build and infrastructure files | **at least 70%** |
+| **Product thinking** | PRD, feature specs, design, decision records, architecture, runbooks | about 20% |
+| **Process** | Workspace, ledger, cards, verdicts, receipts, deferrals, agent docs | **at most 10%** |
+
+The product floor is advisory. The process ceiling is binding and fails the gate. Removing
+bookkeeping is never a breach: a commit that only deletes process files is classified `cleanup` and
+is exempt, because a budget that punishes cleanup guarantees the corpus only grows.
+
+Two consequences follow, and they are the whole of v4:
+
+- **A process artifact earns its place against the ceiling, not against usefulness.** Every
+  artifact in the record was arguably useful. The question is whether it is worth part of the 10%.
+- **Process is capped per week, not per artifact.** Ten percent of a week that shipped a feature is
+  a real budget. Ten percent of a week that shipped nothing is nothing — which is the correct
+  amount of bookkeeping for a week that shipped nothing.
 
 ## Two lanes
 
@@ -171,11 +200,16 @@ with its own durable authority is a new product boundary and returns to Gate 1.
 This section is the reason v3 exists. Review in v2 had a written stop-loss and no mechanism, and
 the measured result was rounds numbered to fifteen and eighteen, five-reviewer panels issuing
 blocks for free, and designs that *grew* 140% under review before ending blocked with the same
-verdict distribution they started with. The rules here bind in two ways: the round budget and the
-banned workspace artifact classes are enforced by `scripts/check_review_budget.py`, which the orchestrator
-runs before every review dispatch; the reviewer count, the verdict form, and the growth tripwire
-bind at dispatch construction, where the orchestrator applies them and records any breach in the
-milestone receipt as a process regression.
+verdict distribution they started with. The round budget binds by counting round markers on persisted verdict filenames — the
+`<subject>-r<N>-<kind>.md` convention in the workspace rules below, which is why that convention is
+mandatory. v3 spent 1,085 lines of Python on that count and then reclassified the tool advisory,
+for a correct reason: a checker run by the party it binds cannot bind that party. The count is
+cheap and the honesty is the orchestrator's either way, so **v4 stops treating that count as a
+control**. The script stays for the half of its job that is a control: the banned-artifact scan
+reads what is on disk, which is a fact about a directory rather than a claim by its author, and it
+is what found 468 raw dumps in one workspace. The reviewer count, the verdict form, and the growth
+tripwire bind at dispatch construction. What binds mechanically is the process ceiling of principle
+8, which no orchestrator can satisfy by producing more process.
 
 **One reviewer.** A review round is one fresh, isolated, read-only `reviewer`, handed only named
 artifact paths, never the author conversation or rationale — plus `security-validator` when and
@@ -333,8 +367,17 @@ is write-only history, what enters it is bounded:
   `<subject>-r<N>-<kind>.md`. The round marker on a persisted verdict is load-bearing: it is what
   the budget check counts, so a marker-free verdict filename is a methodology violation, not a
   style choice. This is the one deliberate exception to the retired round-numbered lineages.
-- **A workspace growing past ~50 files or ~500 KB is a process-regression signal** and is reported
-  in the next milestone receipt, not silently accumulated. Twenty-one megabytes of review record
+- **No reports.** A report is a verdict that outgrew thirty lines. The class is banned wherever a
+  verdict, a ledger line, or a commit message can carry the finding — which is everywhere except a
+  spec, a design, or a decision record, all of which are product thinking and live in the tracked
+  tree. The measured cost of the exception was 453 report files and 6.35 MB in one workspace, a
+  third of its entire process corpus, restating findings already recorded in the verdicts beside
+  them.
+- **The caps are gate-enforced, not advisory.** Card 150 lines, verdict 30 lines, distillation 5
+  lines, workspace 50 files or 500 KB, ledger 500 lines before rotation. v3 wrote all five as prose
+  and the author repository breached every one of them — the workspace by 28x on files and 37x on
+  bytes, the largest card by 15x, twenty artifacts past a round cap that reads "there is no round
+  three". A cap only a human notices is a preference. Twenty-one megabytes of review record
   scheduled for deletion at merge is not an audit trail; it is heat.
 
 **The program ledger** (tracked, append-only) is the durable record. A plan may not be marked
@@ -344,12 +387,29 @@ verification actually run, verbatim, including what was not run; surprises and c
 assumptions. A distillation is five lines or fewer, and it rides in the task's own commit — never
 a batch at the end, never a process-only commit. The ledger is a record, not a narrative: the
 measured alternative grew one ledger by twelve thousand lines in a week while ninety-four of a
-hundred and fifty commits carried no product.
+hundred and fifty commits carried no product. **The ledger rotates at 500 lines** — the live file
+carries the open milestone, closed milestones move to a dated archive nothing reads by default. An
+eighteen-thousand-line ledger is not a record; it is a file every session pays to skim, and the one
+in the record held entries averaging seventy-four lines against a five-line cap.
 
 **The milestone receipt carries the process metrics** (principle 8): product lines merged, process
 lines produced (tracked and workspace, measured at seal), plan-to-merge days, maximum review
 rounds reached and by which subject, and writer-failure count. Acceptance reads them; a breach is
 recorded as a process regression against the next methodology-change window.
+
+## The weekly review
+
+Once a week, `scripts/weekly_review.py` reports each repository's three-bucket split for the last
+eight weeks, its process share against the ceiling, and a trend verdict. It takes ten minutes, and
+it is the only recurring process ceremony this methodology schedules.
+
+It exists because the failure it catches is invisible from inside a single week. Every individual
+bookkeeping commit is defensible on its own; the eighth consecutive week of them is not, and
+nothing in one session's context can see the eighth week. Read the trend, not the week — three
+weeks degrading is a signal, one week over is noise.
+
+The review has exactly two possible outputs: a decision about what to build next, and at most one
+methodology change, which is itself subject to the rule below.
 
 ## Stopping and resuming
 
@@ -404,6 +464,12 @@ measured alternative was four versions in six days, landing mid-milestone, with 
 hand-edited ahead of its own source — the process definition churning faster than any milestone
 completed under it.
 
+**A process change requires a week that was in budget.** A methodology edit may only be authored
+in a week whose process share read at or below the ceiling. Every self-generating loop in the
+record began as a process change made while already over budget: a stale receipt bought a staleness
+sweep, which bought a review round, which bought a process-only commit, which was itself the
+regression. A process permitted to rewrite itself while failing its own budget has no fixed point.
+
 **Every version that adds a rule retires one.** The changelog records both, and what earned each.
 A methodology whose changelog only ratchets tighter is compounding: every failure buys a rule,
 every rule buys artifacts, and the artifacts buy failures. v1.1 was the last version to remove
@@ -422,6 +488,32 @@ with the work it approves. Committing, pushing, opening a pull request, and merg
 decisions; the methodology prepares them and never takes them.
 
 ## What changed, and what earned it
+
+### v4.0 — the budget binds
+
+Earned by an eight-week external audit of the whole portfolio (2026-08-21, eleven repositories),
+which found the failure v3.0's own principle 8 predicted and could not see. In the largest
+repository the process share of committed churn ran 4% in week 27 and 75% in week 34; product
+output fell from 404,312 lines to 11,129, a 97% collapse; of the last hundred commits, 73 were
+`docs` and 8 were `feat`, with 67 subjects naming process machinery and 5 naming a product noun.
+Two unrelated repositories collapsed in the same week — the week each adopted v3. The one
+repository that never adopted it, and which methodology.md already cites as its gold standard,
+carried bookkeeping at 3% of product lines and out-shipped the rest of the fleet by 3.5x.
+
+The cause was not strictness. It was that principle 8 — the one principle that measures the
+methodology itself — was the only principle with no mechanism. No script computed the ratio, and
+no receipt recorded it. Meanwhile the rule that was provably unmechanizable, the review round count,
+received 1,085 lines of Python before being reclassified advisory. Every numeric limit v3.1 set was
+breached by its own author repository, most of them by more than an order of magnitude.
+
+Added: the three-bucket budget with a binding 10% process ceiling (`ratio_meter.py`); the weekly
+review (`weekly_review.py`); gate enforcement for the five caps v3 wrote as prose; ledger rotation
+at 500 lines; the in-budget precondition on methodology changes.
+
+Retired: reports as an artifact class; the advisory framing of all five numeric caps; and the
+review-round count as a control — the script keeps its banned-artifact scan, which reads the disk
+rather than the author, and the count keeps the verdict filename convention it always used. Nothing
+here deletes a check that binds; what goes is the ceremony around the two that never did.
 
 ### v3.1 — outcome focus and the unattended founder
 

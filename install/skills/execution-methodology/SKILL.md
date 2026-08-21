@@ -46,8 +46,10 @@ verdict's named smallest correction and closes; only safety-class findings and p
 changes escalate, and every escalation brief names a default action executed after a short founder
 wait. A dispatch that never produced a verdict spends no round. An artifact that grows more than 20% in lines
 under review escalates immediately — that tripwire, the reviewer count, and the verdict form are
-applied by the orchestrator at dispatch construction; the round budget and artifact classes are
-enforced by the check. Run it **before every review dispatch**, naming the subject:
+applied by the orchestrator at dispatch construction, as is the round budget, which it counts from
+the round markers on persisted verdict filenames. The check below is authoritative for the banned
+artifact classes and advisory for the count. Run it **before every review dispatch**, naming the
+subject:
 
 ```bash
 check_review_budget.py WORKSPACE_DIR --next SUBJECT   # exit 1: budget spent, round 3+ recorded,
@@ -80,8 +82,10 @@ product floor prints as an advisory line, so one number decides the verdict and 
 argument about which one did. A breach names the five largest process files by churn, because a
 budget that only scolds cannot be acted on.
 
-**This one binds, and `check_review_budget.py` does not.** That check was reclassified advisory on
-the ruling that the tool is run by the party it binds — it reads a workspace the same party writes.
+**This one binds where the round count could not.** That count was reclassified advisory on the
+ruling that a tool run by the party it binds cannot bind that party. Its sibling check — the
+banned-artifact scan — still binds, because what is on disk is a fact about a directory rather than
+a claim by its author; only the round count lost its standing as a control.
 This meter reads committed history instead, so the product side of the ratio cannot be inflated
 without committing product code. Two ways to pass, both of them the thing the budget wants.
 
