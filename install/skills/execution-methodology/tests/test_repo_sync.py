@@ -62,8 +62,21 @@ class MethodologySyncTest(unittest.TestCase):
         )
         return repo
 
-    def test_review_budget_contract_is_version_3_1(self) -> None:
-        self.assertEqual(installed_version(), "3.1")
+    def test_process_budget_contract_is_version_4_0(self) -> None:
+        """The stamp and the rules it stamps move together.
+
+        A version pin on its own only proves someone edited a constant. v4.0's substance is the
+        process ceiling, so the published text has to carry it in both files a repository can
+        reach — the skill entry point and the rendered methodology. The version left behind at
+        1.4 while its rules shipped is the recorded reason this asserts more than the number.
+        """
+        self.assertEqual(installed_version(), "4.0")
+        for relative in ("SKILL.md", "methodology.md"):
+            with self.subTest(relative=relative):
+                body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
+                self.assertIn("ratio_meter.py", body)
+                self.assertIn("weekly_review.py", body)
+                self.assertIn("10%", body)
 
     def test_pre_gate_adversarial_review_contract_is_published(self) -> None:
         for relative in ("SKILL.md", "methodology.md"):
