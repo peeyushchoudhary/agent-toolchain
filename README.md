@@ -25,15 +25,21 @@ and installer behaviour: [install/README.md](install/README.md).
 
 The repository currently ships six published skills, thirteen generated personas, local session and
 Git guards, a cross-harness installer, and executable verification for the published toolchain. The
-execution methodology is at v3.1: work is bound to one approved outcome and capped at what the
-spec requires — a finding demanding more is over-engineering and non-blocking. Tasks default to a
+execution methodology is at v4.0: the process has a spending limit, and a script enforces it.
+Committed churn splits three ways — product, product thinking, and process — and `ratio_meter.py`
+exits non-zero when bookkeeping exceeds 10% of the classified total, with `weekly_review.py`
+reporting the trend across repositories. Work is bound to one approved outcome and capped at what
+the spec requires — a finding demanding more is over-engineering and non-blocking. Tasks default to a
 card-free light lane and earn a validated card only when they cross a durable boundary or safety
 surface. Review runs under a budget — one reviewer plus conditional specialists, two rounds, then
 apply-and-close: the orchestrator applies the final verdict's named smallest correction, and only
 safety-class findings and scope changes escalate, each brief naming a default action taken after a
-short founder wait. The budget check is an advisory receipt read at the merge gate; the orchestrator
-is one long-lived session per milestone, and main moves with every green wave. Cards are capped at 150 lines with large frozen payloads held by reference, and every
-milestone receipt records what the process cost next to what it shipped. Validation commands remain
+short founder wait. The round count is advisory, because a checker run by the party it binds cannot
+bind that party; the banned-artifact scan beside it still binds, because what is on disk is a fact
+about a directory rather than a claim by its author. The orchestrator is one long-lived session per
+milestone, and main moves with every green wave. Cards are capped at 150 lines with large frozen
+payloads held by reference, reports are not an artifact class, the ledger rotates at 500 lines, and
+every milestone receipt records what the process cost next to what it shipped. Validation commands remain
 direct processes; Gradle evidence must use exact `--rerun-tasks`, and single-use JUnit receipts
 verify that post-boundary XML records the expected classes and counts without failures, errors, or
 skips. Receipts are not tamper-resistant against a deliberate local writer; the full trust boundary
@@ -145,6 +151,30 @@ independent review, and a merge commit that preserves the audit trail. See
 
 A concise record of one material repository improvement each week, newest first. Current tooling
 remains the authority for behaviour; each entry points to the implementation it describes.
+
+### Week of 21 August 2026 — methodology v4.0: the budget binds
+
+An eight-week external audit measured every repository the methodology reaches and found the
+failure principle 8 was written to predict, in the one place v3 never looked: at itself. In the
+largest repository the process share of committed churn ran 4% in week 27 and 75% in week 34, while
+product output fell 97% and 73 of the last 100 commits were `docs`. Two unrelated repositories
+crossed into breach in the same week — the week each adopted v3. No rule fired, because principle 8
+was the only one of the eight with no mechanism behind it, while the review round count — a rule
+that cannot be mechanized, since the tool is run by the party it binds — had received 1,085 lines
+of Python.
+
+v4.0 adds the mechanism. `ratio_meter.py` splits committed churn into product, product thinking,
+and process, and fails the gate above a 10% process ceiling; it binds because no orchestrator can
+inflate the product side without committing product code. `weekly_review.py` reports the trend,
+since the failure is a slope rather than a bad day. The five caps v3 wrote as prose are now gate
+enforced, reports stop being an artifact class, the ledger rotates at 500 lines, and a methodology
+change may only be authored in a week that read in budget — which closes the loops where a stale
+receipt bought a sweep that bought a round that bought a process-only commit.
+
+Calibration is part of the change: run against the repository this methodology already cites as its
+gold standard, the first meter read 0.45 by charging design plans and UI mockups to bookkeeping. It
+now reads 0.02 there and 0.39 on the audited repository. A meter that cannot separate those two
+teaches its operator to ignore it.
 
 ### Week of 17 August 2026 — methodology v3.1: outcome focus and the unattended founder
 

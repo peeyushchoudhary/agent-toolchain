@@ -46,8 +46,10 @@ verdict's named smallest correction and closes; only safety-class findings and p
 changes escalate, and every escalation brief names a default action executed after a short founder
 wait. A dispatch that never produced a verdict spends no round. An artifact that grows more than 20% in lines
 under review escalates immediately — that tripwire, the reviewer count, and the verdict form are
-applied by the orchestrator at dispatch construction; the round budget and artifact classes are
-enforced by the check. Run it **before every review dispatch**, naming the subject:
+applied by the orchestrator at dispatch construction, as is the round budget, which it counts from
+the round markers on persisted verdict filenames. The check below is authoritative for the banned
+artifact classes and advisory for the count. Run it **before every review dispatch**, naming the
+subject:
 
 ```bash
 check_review_budget.py WORKSPACE_DIR --next SUBJECT   # exit 1: budget spent, round 3+ recorded,
@@ -59,6 +61,50 @@ It also rejects banned workspace artifact classes — `.diff` snapshots (name th
 stores the diff), restatement packets, and files recording failed dispatches (those are one ledger
 line each) — and warns when the workspace outgrows its budget, which is a process-regression
 signal for the milestone receipt.
+
+## The process-cost budget
+
+Principle 8 says the process is measured and can fail. `ratio_meter.py` is what measures it. It
+reads `git log --numstat` over a committed range and splits the churn three ways — **product**
+(source, tests, build files, infrastructure), **product thinking** (specs, decision records,
+architecture, runbooks, API contracts), and **process** (bookkeeping: cards, verdicts, reports,
+workspace, ledger, lessons, receipts, agent instructions). Generated and vendored trees are
+excluded and reported separately.
+
+```bash
+ratio_meter.py --range main..HEAD        # exit 1: process share over the ceiling
+ratio_meter.py --since 2026-08-14        # any date git log accepts
+ratio_meter.py --range main..HEAD --json # machine-readable, for the milestone receipt
+```
+
+Target model: **product ≥ 70%, process ≤ 10%.** Only the process ceiling reaches the exit code; the
+product floor prints as an advisory line, so one number decides the verdict and there is no
+argument about which one did. A breach names the five largest process files by churn, because a
+budget that only scolds cannot be acted on.
+
+**This one binds where the round count could not.** That count was reclassified advisory on the
+ruling that a tool run by the party it binds cannot bind that party. Its sibling check — the
+banned-artifact scan — still binds, because what is on disk is a fact about a directory rather than
+a claim by its author; only the round count lost its standing as a control.
+This meter reads committed history instead, so the product side of the ratio cannot be inflated
+without committing product code. Two ways to pass, both of them the thing the budget wants.
+
+A commit that **only deletes** bookkeeping is reported as `cleanup` and can never breach. Removing
+bookkeeping is the budget being repaid; a meter that punished it would argue against its own
+purpose. Deleting bookkeeping alongside other work is ordinary process churn.
+
+`weekly_review.py` is the cadence, and it is a report rather than a gate — a degrading trend exits
+0. The failure principle 8 exists to catch is a slope, not a single bad day: no individual week
+breaches while the ratio moves by an order of magnitude.
+
+```bash
+weekly_review.py --repo PATH --weeks 8                  # one repository
+weekly_review.py --repo PATH --repo PATH --weeks 8      # portfolio roll-up
+```
+
+Per ISO week it prints product / product-thinking / process lines, the process share, and a
+PASS/BREACH marker; then a trend verdict per repository from the last three weeks against the
+previous three. It imports the classifier from `ratio_meter.py` rather than restating it.
 
 ## Where it lives, and why in two places
 
