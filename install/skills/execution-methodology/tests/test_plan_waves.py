@@ -454,3 +454,51 @@ class SerialisedOverlapTest(PlanFixture):
         self.plan(task("T1", writes="backend/shared/**"),
                   task("T2", serialises="[T1]", writes="backend/shared/auth.java"))
         self.assertIn("W4", self.rules())
+
+
+class CommitWritesTest(PlanFixture):
+    """W7 — the declared write set against what a commit actually wrote.
+
+    Measured on 16 sealed cards against their real commits: 4 of 83 files landed outside the
+    declaring task's set, and all four sat inside ANOTHER task's set. That is the collision the wave
+    checks exist to prevent, happening at commit time where nothing was looking.
+    """
+
+    def repo(self, *blocks: str) -> None:
+        self.plan(*blocks)
+        self.git("init", "-q", ".")
+        self.git("config", "user.email", "a@b.c")
+        self.git("config", "user.name", "t")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "base")
+
+    def git(self, *args: str) -> None:
+        subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True, check=False)
+
+    def commit(self, subject: str, *paths: str) -> None:
+        for relative in paths:
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("x\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", subject)
+
+    def test_a_file_outside_the_declared_set_is_named_with_its_real_owner(self) -> None:
+        self.repo(task("T1", writes="backend/a/**"), task("T2", needs="[T1]", writes="backend/b/**"))
+        self.commit("feat(T1): also touches b", "backend/a/one.java", "backend/b/two.java")
+        result = self.run_cli("--commit", "HEAD")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("W7", result.stdout)
+        self.assertIn("backend/b/two.java", result.stdout)
+        self.assertIn("`T2` declares it", result.stdout)
+
+    def test_a_commit_inside_its_own_set_is_clean(self) -> None:
+        self.repo(task("T1", writes="backend/a/**"), task("T2", needs="[T1]", writes="backend/b/**"))
+        self.commit("feat(T1): stays home", "backend/a/one.java")
+        self.assertEqual(self.run_cli("--commit", "HEAD").returncode, 0)
+
+    def test_a_commit_naming_no_task_is_not_a_finding(self) -> None:
+        """Light-lane work has no card. Inventing a violation for it gets the check removed."""
+        self.repo(task("T1", writes="backend/a/**"))
+        self.commit("chore: unrelated tidy-up", "docs/notes.md")
+        self.assertEqual(self.run_cli("--commit", "HEAD").returncode, 0)

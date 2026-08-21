@@ -99,7 +99,7 @@ from pathlib import Path
 from typing import Callable, NamedTuple, Sequence
 
 # One parser, one fence rule, one finding shape, one print cap — never a second copy of any of them.
-from spec_check import PRINT_CAP, Doc, Findings, SpecError, FENCE_RE, parse_front_matter
+from spec_check import PRINT_CAP, Doc, Findings, SpecError, FENCE_RE, git, parse_front_matter
 
 TASK_KEYS = (("task",), ("title", "lane", "needs", "writes", "covers", "serialises"))
 LANES = ("light", "full")
@@ -633,6 +633,52 @@ def print_findings(findings: Sequence) -> None:
     print()
 
 
+
+# --- W7: what a commit actually wrote ------------------------------------------------------------
+# The declared write set is the parallelism contract, and until now nothing compared it to reality.
+# Measured on 16 sealed cards against their real commits: 4 of 83 files landed OUTSIDE the declaring
+# task's set, and all four sat inside ANOTHER task's set — which is precisely the collision the
+# wave check exists to prevent, happening at commit time where no check was looking. W4 and W6 read
+# intent; this reads the tree.
+
+COMMIT_TASK_RE = re.compile(r"\b(?P<task>[A-Za-z][A-Za-z0-9._-]*)\b")
+
+
+def commit_paths(root: Path, commit: str) -> list[str]:
+    """Files a commit touched. A merge has no single author's write set, so it is skipped."""
+    parents = git(root, "rev-list", "--parents", "-n", "1", commit) or ""
+    if len(parents.split()) > 2:
+        return []
+    listed = git(root, "show", "--name-only", "--pretty=format:", commit) or ""
+    return [line.strip() for line in listed.splitlines() if line.strip()]
+
+
+def check_commit_writes(root: Path, commit: str, tasks: Sequence[Task], f: Findings) -> int:
+    """W7, for the task the commit subject names. Returns the number of files checked.
+
+    The task is taken from the commit SUBJECT, which is where this methodology already puts the id
+    (`commit_subject` is a card field). A commit naming no known task is not a finding: light-lane
+    work has no card, and inventing a violation for it would make the check fire on ordinary commits
+    until somebody removed it.
+    """
+    subject = git(root, "log", "-1", "--format=%s", commit) or ""
+    index = {task.ident: task for task in tasks}
+    named = [index[word] for word in COMMIT_TASK_RE.findall(subject) if word in index]
+    if len(named) != 1:
+        return 0
+    task = named[0]
+    stray = [path for path in commit_paths(root, commit)
+             if not any(overlap(path, glob) for glob in task.writes)]
+    for path in stray:
+        owner = next((other.ident for other in tasks if other.ident != task.ident
+                      and any(overlap(path, glob) for glob in other.writes)), None)
+        f.add(task.doc, task.where.get("writes", task.line), "W7",
+              f"`{task.ident}` wrote `{path}`, which its `writes` does not cover"
+              + (f" — `{owner}` declares it, so the two tasks shared a file the plan said they "
+                 "did not" if owner else "; widen the write set or split the task"))
+    return len(stray)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", default=".", help="repository root (default: the current dir)")
@@ -640,6 +686,8 @@ def main() -> int:
                         help="schedule every feature whose spec declares this milestone as ONE "
                              "graph, with qualified `F-<id>/T<n>` task ids")
     parser.add_argument("--json", action="store_true", help="machine-readable output on stdout")
+    parser.add_argument("--commit", metavar="REV",
+                        help="also check that this commit wrote only what its task declared")
     args = parser.parse_args()
 
     root = Path(args.root).expanduser()
@@ -656,6 +704,9 @@ def main() -> int:
             found, milestone = run_milestone(root.resolve(), args.milestone)
         else:
             found, plans = run(root.resolve())
+            if args.commit:
+                every = [task for plan in plans for task in plan.tasks]
+                check_commit_writes(root.resolve(), args.commit, every, found)
     except SpecError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
