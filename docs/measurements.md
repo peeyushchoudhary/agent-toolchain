@@ -200,3 +200,35 @@ identical to a coverage-farming one; and whether the changed body asserts anythi
 of those was deliberately left alone — the assertion-token idea flags 0.55% of 5,866 Java test
 methods but 4.30% of 32,141 Python test functions in 1,537 files, and shipping one regex across that
 gap is the same "matched a WORD not a STRUCTURE" failure this file already records three times.
+
+## Adoption cost of the product-definition layer, measured on four repositories
+
+Measured 2026-08-21 by running the shipped checkers against four private repositories that had not
+adopted the layer, and by transcribing one repository's specs into the bound layout to price the
+migration rather than estimate it.
+
+| repository | product docs | findings | specs the checker could not read |
+|---|---|---|---|
+| A | 204 | 1 | 0 |
+| B | 24 | 22 | 1 |
+| C | — | 21 | 0 |
+| D | 236 | 0 | **233** |
+
+Repository D is the important row and it was misread three times before the count existed. It
+reports zero findings because it names every feature spec `specs/<slug>/spec.md` while the schema
+rules bind `docs/product/specs/F-*.md`. Nothing was wrong with it and nothing had been checked.
+A checker that inspects none of a repository's specs and exits 0 is indistinguishable from one that
+inspected them all, which is why the unread count is now printed on every run.
+
+**The migration was priced, not guessed.** Transcribing repository D's 64 nested specs into the
+bound layout — a rename, with no content edited — produces 40 findings, all of ONE class: the
+absence of a `---` block. Adding minimal front matter clears all 40 and leaves only a parent-link
+finding, because that repository names its top-level product document something other than
+`prd.md`. So the cost is one mechanical pass over 64 files, not 40 distinct defects.
+
+That result generalises to the fleet: across all four repositories 27 feature specs exist and NONE
+carries front matter. The front-matter contract is the single largest adoption cost in the layer,
+and it is mechanical.
+
+Repository B's 22 findings are the same class. Repository C's 21 are a backlog accumulating dated
+sections, which is the drift the current-state rule exists to name.
