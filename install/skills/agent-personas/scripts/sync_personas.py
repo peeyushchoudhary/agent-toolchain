@@ -172,6 +172,14 @@ KNOWN_WRITES_VALUES = frozenset({
     "yes",
     "ledger, task cards, and reports only",
     "product specs only",
+    # The product-definition layer renamed what this persona owns: it writes the PRD and the
+    # feature specs, not "product specs". The persona file was updated and this closed vocabulary
+    # was not, so its declaration fell outside the set and `claims_no_writes` read it — correctly,
+    # by its own fail-closed rule — as a claim NOT to write. The result was a persona that writes
+    # the most upstream artifact in the methodology being reported as an unprotected judge, and
+    # `sync_personas.py` refusing to render ANYTHING machine-wide until it was resolved.
+    # Adding a value here is deliberate by design; this one is the deliberate act.
+    "product definition only — the PRD and feature specs",
 })
 
 
