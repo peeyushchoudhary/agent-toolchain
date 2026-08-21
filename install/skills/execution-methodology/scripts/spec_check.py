@@ -101,7 +101,11 @@ EARS_RE = re.compile(
     re.IGNORECASE)
 FEATURE_MARKER = "<!-- features: docs/product/specs/F-*.md -->"
 FEATURE_REF_RE = re.compile(r"\bF-\d+\b")
-ID_RE = re.compile(r"^F-\d+$")
+# A suffix letter is a real feature id, not a typo. When a feature turns out to be several — the
+# recorded case split one into ten — renumbering the survivors would repoint every test that already
+# cites them, so the split takes letters and the original number is spent. Same rule the criteria
+# already follow with AC-8A.
+ID_RE = re.compile(r"^F-\d+[A-Z]?$")
 # `milestone:` is OPTIONAL, and its absence carries meaning: the feature is specified and waiting.
 # Most of a healthy backlog is in that state, so requiring the key would turn the backlog into
 # findings and teach the reader to fill it in with whatever milestone is nearest.
@@ -362,12 +366,32 @@ def check_spec(doc: Doc, root: Path, seen: dict[str, str], f: Findings) -> None:
     # withdrawn ledger holds the same string form so the two sets compare directly.
     withdrawn: set[str] = set()
     raw = doc.front.get("withdrawn") or []
+    # `3` retires a number outright. `3>11` retires it INTO a successor, which is the difference
+    # between "this requirement is gone" and "this requirement moved". A test still citing a plain
+    # retirement is a test of something nobody wants; a test citing a superseded one needs
+    # repointing, and only the spec knows where to. Without the notation both looked identical and
+    # a tracer could only say the id was dead.
+    successors: dict[str, str] = {}
     for item in ([raw] if isinstance(raw, str) else raw):
-        if re.fullmatch(r"\d+[A-Z]?", item) and item.lstrip("0")[:1] not in ("", "0"):
-            withdrawn.add(item)
-        else:
+        head, arrow, tail = item.partition(">")
+        head, tail = head.strip(), tail.strip()
+        if not (re.fullmatch(r"\d+[A-Z]?", head) and head.lstrip("0")[:1] not in ("", "0")):
             f.add(doc, doc.at("withdrawn"), "B5",
                   f"withdrawn entry {item!r} is not a positive criterion number")
+            continue
+        if arrow and not re.fullmatch(r"\d+[A-Z]?", tail):
+            f.add(doc, doc.at("withdrawn"), "B5",
+                  f"withdrawn entry {item!r} names no successor after `>`; write `3>11`, or `3` "
+                  "alone if the requirement is gone rather than moved")
+            continue
+        withdrawn.add(head)
+        if arrow:
+            successors[head] = tail
+    for retired, successor in successors.items():
+        if successor in withdrawn:
+            f.add(doc, doc.at("withdrawn"), "B5",
+                  f"AC-{retired} is superseded by AC-{successor}, which is itself withdrawn; the "
+                  "chain has to end at a criterion that exists")
     check_criteria(doc, withdrawn, f)
 
 

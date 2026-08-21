@@ -913,3 +913,39 @@ class HistoryHeadingPrecisionTest(SpecCheckFixture):
         self.assertHeading(True, "## Changelog", "## Change log", "## Revision history",
                            "### History of changes", "## What changed since the last handoff",
                            "## Revisions")
+
+
+class WithdrawnSuccessorTest(SpecCheckFixture):
+    """`3` and `3>11` mean different things to whoever holds a test citing AC-3.
+
+    A plain retirement means the test asserts something nobody wants and should go. A supersession
+    means it should be repointed, and only the spec knows where to. Without the arrow both read as
+    "dead id" and a tracer could say nothing more useful.
+    """
+
+    def front(self, withdrawn: str) -> str:
+        return ("---\nid: F-7\ntitle: T\nprd: docs/product/prd.md\nstatus: draft\n"
+                f"updated: 2026-01-01\nedge_cases: [empty]\nwithdrawn: {withdrawn}\n---\n")
+
+    def spec_with(self, withdrawn: str) -> None:
+        self.write("docs/product/prd.md", PRD)
+        self.write("docs/product/specs/F-7-thing.md", self.front(withdrawn) + CRITERIA)
+
+    def test_a_supersession_is_accepted(self) -> None:
+        self.spec_with("[3>11]")
+        self.assertDoesNotFind("B5")
+
+    def test_an_arrow_with_no_successor_is_refused(self) -> None:
+        self.spec_with("[3>]")
+        self.assertFinds("B5")
+
+    def test_a_chain_may_not_end_on_a_withdrawn_id(self) -> None:
+        self.spec_with("[3>11, 11]")
+        self.assertFinds("B5")
+
+    def test_a_split_feature_takes_a_letter(self) -> None:
+        """F-9 becoming F-9A..F-9J must not require renumbering what tests already cite."""
+        self.assertTrue(spec_check.ID_RE.match("F-9A"))
+        self.assertTrue(spec_check.ID_RE.match("F-009"))
+        self.assertFalse(spec_check.ID_RE.match("F-9AB"))
+        self.assertFalse(spec_check.ID_RE.match("F-9a"))

@@ -39,6 +39,16 @@ retired number is never reused and never renumbered once the spec is approved; b
 nothing cites it, so a duplicate can still be fixed. The body stays current, the id space stays
 stable, and the append-only residue is two integers instead of a history section.
 
+**A requirement that MOVED is written `3>11`.** `withdrawn: [3, 9>14]` says AC-3 is gone and AC-9
+became AC-14. The distinction is the only thing that tells a reader what to do with a test that
+still cites the old number: a plain retirement means the test is asserting something nobody wants
+any more and should go; a supersession means it should be repointed, and only the spec knows where
+to. Without the arrow both read as "dead id" and the tracer could say nothing more useful than that.
+
+**A feature that turns out to be several takes letters** — `F-9` becomes `F-9A`..`F-9J`, and the
+bare number is spent. Renumbering the survivors would repoint every test already citing them, which
+is the same reason criterion ids never get reused.
+
 ---
 
 ## The PRD
