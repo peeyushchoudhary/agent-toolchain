@@ -949,3 +949,241 @@ class WithdrawnSuccessorTest(SpecCheckFixture):
         self.assertTrue(spec_check.ID_RE.match("F-009"))
         self.assertFalse(spec_check.ID_RE.match("F-9AB"))
         self.assertFalse(spec_check.ID_RE.match("F-9a"))
+
+
+class DeferralRegisterTest(SpecCheckFixture):
+    """Rule E — the milestone's `## Deferred` register.
+
+    Principle 6 promised "deferrals live in a register that a milestone can fail against" and no
+    script could fail against anything. These tests are written in both directions for every rule,
+    and the shape tests below are the ones that matter most: this parser was first written to read
+    a key as "any indent, then `word:`" and, run over 178 rows of a REAL register, called 22 of
+    them malformed because a wrapped line of prose began `design:` or `confirmed:`. The indent rule
+    that replaced it is tested here directly.
+    """
+
+    ENTRY = """- **D-1** the export re-reads the manifest for every row
+  found_by: F-007/T3
+  site: `src/export/writer.py:214`
+  threatens: AC-1
+  trigger: `python3 -m unittest tests.test_export` — 1 failure, 3.9 s
+  owner: M4
+  raised: 2026-01-05
+"""
+
+    def milestone(self, name: str = "M1", status: str = "building", register: str | None = None,
+                  slug: str = "core") -> None:
+        body = f"## Deferred\n\n{register}" if register is not None else ""
+        self.write(f"docs/product/milestones/{name}-{slug}.md",
+                   f"---\nmilestone: {name}\ntitle: {slug}\nstatus: {status}\n"
+                   f"updated: 2026-01-01\n---\n\n# {name} — {slug}\n\n## Goal\nIt ships.\n\n"
+                   + body)
+
+    def member_spec(self, milestone: str = "M1") -> None:
+        self.write("docs/product/specs/F-007-export.md",
+                   SPEC_HEAD.replace("updated: 2026-01-01",
+                                     f"updated: 2026-01-01\nmilestone: {milestone}") + CRITERIA)
+
+    def setUpRegister(self, register: str, status: str = "building") -> None:
+        self.corpus()
+        self.member_spec()
+        self.milestone(status=status, register=register)
+        self.write("docs/product/milestones/M4-later.md",
+                   "---\nmilestone: M4\ntitle: later\nstatus: draft\nupdated: 2026-01-01\n"
+                   "---\n\n# M4 — later\n\n## Goal\nLater.\n")
+
+    # --- the pass side -------------------------------------------------------------------------
+
+    def test_a_well_formed_entry_is_silent(self) -> None:
+        self.setUpRegister(self.ENTRY)
+        self.assertEqual([r for r in self.rules() if r.startswith("E")], [])
+
+    def test_a_milestone_with_no_register_is_silent(self) -> None:
+        """Adoption: a milestone document written before the register existed is not a finding."""
+        self.corpus()
+        self.member_spec()
+        self.milestone()
+        self.assertEqual([r for r in self.rules() if r.startswith("E")], [])
+
+    def test_none_is_legal_for_threatens_trigger_and_owner(self) -> None:
+        """A finding with no trigger is exactly what the fix/record rule sends here. Requiring one
+        would make the register refuse the entries it exists to hold."""
+        self.setUpRegister(self.ENTRY.replace("threatens: AC-1", "threatens: none")
+                           .replace("trigger: `python3 -m unittest tests.test_export` — 1 "
+                                    "failure, 3.9 s", "trigger: none")
+                           .replace("owner: M4", "owner: none"))
+        self.assertEqual([r for r in self.rules() if r.startswith("E")], [])
+
+    def test_threatens_may_name_an_invariant_rather_than_a_criterion(self) -> None:
+        self.setUpRegister(self.ENTRY.replace("threatens: AC-1", "threatens: exports-are-append-only"))
+        self.assertDoesNotFind("E4")
+
+    def test_a_bare_task_id_is_legal(self) -> None:
+        self.setUpRegister(self.ENTRY.replace("found_by: F-007/T3", "found_by: T3"))
+        self.assertDoesNotFind("E3")
+
+    def test_a_lead_paragraph_under_the_heading_is_not_an_entry(self) -> None:
+        self.setUpRegister("Open items only; closing one deletes it.\n\n" + self.ENTRY)
+        self.assertEqual([r for r in self.rules() if r.startswith("E")], [])
+
+    def test_a_fenced_example_of_the_shape_is_not_linted(self) -> None:
+        """A document showing its own template must stay lintable, the rule `doc.body()` already
+        applies to every other check."""
+        self.setUpRegister("```yaml\n- **D-9** an example with no keys at all\n```\n")
+        self.assertEqual([r for r in self.rules() if r.startswith("E")], [])
+
+    # --- shape, E1 and E2 ----------------------------------------------------------------------
+
+    def test_a_missing_key_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY.replace("  raised: 2026-01-05\n", ""))
+        self.assertFinds("E1")
+
+    def test_an_unknown_key_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY + "  severity: high\n")
+        self.assertFinds("E1")
+
+    def test_a_repeated_key_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY + "  owner: M4\n")
+        self.assertFinds("E1")
+
+    def test_an_entry_with_no_headline_text_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY.replace(
+            "- **D-1** the export re-reads the manifest for every row", "- **D-1**"))
+        self.assertFinds("E1")
+
+    def test_a_continuation_line_beginning_with_a_word_and_a_colon_is_not_a_key(self) -> None:
+        """THE REGRESSION THIS PARSER WAS BUILT WRONG FOR ONCE. Measured on a real 178-row
+        register: 22 rows were called malformed because a wrapped line of prose began `design:`,
+        `known:`, `confirmed:` or `verbatim:`. Four spaces of indent is continuation, always."""
+        wrapped = self.ENTRY.replace(
+            "  trigger: `python3 -m unittest tests.test_export` — 1 failure, 3.9 s",
+            "  trigger: `python3 -m unittest tests.test_export` — 1 failure, 3.9 s\n"
+            "    design: the writer opens the manifest inside the row loop\n"
+            "    confirmed: reproduced on a clean tree")
+        self.setUpRegister(wrapped)
+        self.assertEqual([r for r in self.rules() if r.startswith("E")], [])
+
+    def test_a_key_at_two_spaces_is_still_a_key(self) -> None:
+        """The other direction of the same rule: tightening the indent must not stop reading the
+        keys that are there."""
+        self.setUpRegister(self.ENTRY.replace("  owner: M4", "  ownr: M4"))
+        rules = [r for r in self.rules() if r.startswith("E")]
+        self.assertIn("E1", rules)
+
+    def test_two_entries_under_one_id_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY + self.ENTRY)
+        self.assertFinds("E2")
+
+    def test_an_empty_site_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY.replace("  site: `src/export/writer.py:214`", "  site:"))
+        self.assertFinds("E1")
+
+    # --- the cross-references, E3 to E6 --------------------------------------------------------
+
+    def test_found_by_that_is_not_a_task_id_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY.replace("found_by: F-007/T3", "found_by: the reviewer"))
+        self.assertFinds("E3")
+
+    def test_found_by_naming_a_feature_outside_this_milestone_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY.replace("found_by: F-007/T3", "found_by: F-900/T3"))
+        self.assertFinds("E3")
+
+    def test_threatens_naming_a_criterion_no_member_declares_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY.replace("threatens: AC-1", "threatens: AC-77"))
+        self.assertFinds("E4")
+
+    def test_an_owner_that_is_not_a_milestone_id_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY.replace("owner: M4", "owner: next quarter"))
+        self.assertFinds("E5")
+
+    def test_an_owner_with_no_milestone_document_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY.replace("owner: M4", "owner: M9"))
+        self.assertFinds("E5")
+
+    def test_an_open_entry_owned_by_a_shipped_milestone_is_a_finding(self) -> None:
+        """The one outcome a register exists to make impossible: the milestone closed and the
+        deferral did not. This is the rule a real project's own gate enforces in bash."""
+        self.setUpRegister(self.ENTRY)
+        self.write("docs/product/milestones/M4-later.md",
+                   "---\nmilestone: M4\ntitle: later\nstatus: shipped\nupdated: 2026-01-01\n"
+                   "---\n\n# M4 — later\n\n## Goal\nLater.\n")
+        self.assertFinds("E5")
+
+    def test_sealing_a_milestone_with_an_unowned_entry_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY.replace("owner: M4", "owner: none"), status="shipped")
+        self.assertFinds("E5")
+
+    def test_an_unowned_entry_before_the_seal_is_not_a_finding(self) -> None:
+        """The other direction. `owner: none` is the honest state of a finding nobody has scheduled
+        yet, and failing it before the seal trains authors to guess an owner."""
+        self.setUpRegister(self.ENTRY.replace("owner: M4", "owner: none"), status="building")
+        self.assertDoesNotFind("E5")
+
+    def test_a_raised_date_that_is_not_a_date_is_a_finding(self) -> None:
+        self.setUpRegister(self.ENTRY.replace("raised: 2026-01-05", "raised: last week"))
+        self.assertFinds("E6")
+
+    # --- rule A stands back from the register ---------------------------------------------------
+
+    def test_a3_does_not_fire_inside_the_register(self) -> None:
+        """A deferral entry describes A DEFECT's past, not the document's. Measured: A3 fired on 7
+        of 178 real register rows on the other reading."""
+        self.setUpRegister(self.ENTRY.replace(
+            "the export re-reads the manifest for every row",
+            "the earlier drafts of the writer were wrong about the manifest"))
+        self.assertDoesNotFind("A3")
+
+    def test_a3_still_fires_outside_the_register_in_the_same_document(self) -> None:
+        self.setUpRegister(self.ENTRY)
+        path = self.root / "docs/product/milestones/M1-core.md"
+        path.write_text(path.read_text(encoding="utf-8")
+                        + "\n## Where it stops\nAn earlier version of this milestone said more.\n",
+                        encoding="utf-8")
+        self.assertFinds("A3")
+
+    def test_a2_still_fires_inside_the_register(self) -> None:
+        """A1 and A2 are NOT relaxed: a changelog heading inside the register is the register being
+        appended to, which is precisely what rule A is for."""
+        self.setUpRegister(self.ENTRY)
+        path = self.root / "docs/product/milestones/M1-core.md"
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            "## Deferred", "## Deferred\n\n### Changelog\n"), encoding="utf-8")
+        self.assertFinds("A2")
+
+    # --- the listing ----------------------------------------------------------------------------
+
+    def test_deferred_lists_the_register_and_exits_zero(self) -> None:
+        self.setUpRegister(self.ENTRY)
+        result = self.run_cli("--deferred")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("D-1", result.stdout)
+        self.assertIn("1 open deferral(s)", result.stdout)
+
+    def test_deferred_counts_the_unowned_separately(self) -> None:
+        """The count is the whole reason this mode exists: a register nobody counts only grows."""
+        self.setUpRegister(self.ENTRY.replace("owner: M4", "owner: none"))
+        result = self.run_cli("--deferred")
+        self.assertIn("1 open, 1 with no owner", result.stdout)
+
+    def test_deferred_json_is_machine_readable(self) -> None:
+        self.setUpRegister(self.ENTRY)
+        result = self.run_cli("--deferred", "--json")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["deferred"][0]["id"], "D-1")
+        self.assertEqual(payload["deferred"][0]["milestone"], "M1")
+
+    def test_deferred_on_a_corpus_with_no_milestone_says_so(self) -> None:
+        self.corpus()
+        result = self.run_cli("--deferred")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("no deferral register", result.stdout)
+
+    def test_a_malformed_entry_does_not_break_the_listing(self) -> None:
+        """`--deferred` is a list, not a gate: `run()` owns the shape findings, and a register that
+        cannot be listed because one row is wrong is a register nobody can triage."""
+        self.setUpRegister(self.ENTRY + "- **D-2** no keys at all\n")
+        result = self.run_cli("--deferred")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("D-2", result.stdout)

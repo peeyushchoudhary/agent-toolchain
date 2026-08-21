@@ -273,3 +273,45 @@ class VerifyTest(SealFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeferralRegisterNeighbourTest(unittest.TestCase):
+    """The milestone document grew a `## Deferred` register. This proves it did not break the
+    document's other reader.
+
+    Three of this session's drifts share one shape: the repaired thing had an unrepaired sibling.
+    A register entry's `trigger` holds a verbatim command and its output, so a register entry can
+    legitimately contain the four characters `Gate:` — and `gate_command` scans lines for exactly
+    that. If the register were read as part of the gate section, a seal would run whatever a
+    deferral quoted.
+    """
+
+    REGISTER = """---
+milestone: M1
+title: Launch
+status: building
+updated: 2026-01-01
+---
+
+# M1 — Launch
+
+## Deferred
+- **D-1** the export re-reads the manifest for every row
+  found_by: F-7/T3
+  site: `src/export/writer.py:214`
+  threatens: none
+  trigger: `sh check.sh` printed `Gate: sh not-the-real-gate.sh` and exited 1
+  owner: none
+  raised: 2026-01-05
+
+## Cross-feature validation
+The journeys no single feature's suite can prove.
+Gate: sh gate.sh
+"""
+
+    def test_a_register_entry_quoting_a_gate_line_does_not_become_the_gate(self) -> None:
+        self.assertEqual(milestone_seal.gate_command(self.REGISTER), "sh gate.sh")
+
+    def test_the_register_does_not_hide_the_gate_when_it_comes_first(self) -> None:
+        """The other direction: the section is still found with a register above it."""
+        self.assertIsNotNone(milestone_seal.gate_command(self.REGISTER))

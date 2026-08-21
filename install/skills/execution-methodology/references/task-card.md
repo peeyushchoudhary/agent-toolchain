@@ -30,11 +30,12 @@ tests:               # the tests to write, and the existing pattern to follow
 gate_risk:           # bookkeeping artifacts this task touches
 validation:          # direct {cwd, argv} processes, in order, that prove this task
 stop_conditions:     # what makes this task stop rather than infer
+record_to:           # docs/product/milestones/M<n>-<slug>.md — where a RECORD goes
 handoff:             # who receives the report
 commit_subject:      # the exact commit subject line
 ```
 
-These seventeen keys are the complete current schema. Do not add local convenience keys: unknown
+These eighteen keys are the complete current schema. Do not add local convenience keys: unknown
 fields are ignored with a warning, and `--strict` rejects them. A title-bearing card is treated as
 current and a missing field is an error. Titleless sealed cards retain the documented compatibility
 diagnostic, but strict mode still rejects their omissions. `prerequisites`, `forbidden_paths`, and
@@ -241,6 +242,30 @@ validate_card.py CARD --repo REPO --strict --phase pre
 validate_card.py CARD --repo REPO --strict --phase post
 ```
 
+### `--phase mid` — drift, caught before the commit
+
+```bash
+validate_card.py CARD --repo REPO --phase mid     # at every turn boundary, mid-task
+```
+
+`mid` runs the `pre` checks and adds one comparison: every path with an uncommitted change in
+`REPO`, against this card's `exclusive_writes` and `forbidden_paths`, using the same glob
+intersection `plan_waves.py` W7 uses **after** the commit. A path no write glob covers is an ERROR;
+so is an uncommitted change to a forbidden path.
+
+It is the same question W7 asks, asked while the answer is still free to act on: an uncommitted edit
+reverts, a committed one costs a round. **56 real cards were matched to the commit their own
+`commit_subject` names, out of 187 read across four repositories. Of 558 files compared, 116 were
+written outside what the card allowed — 99 that no write glob covers and 17 inside a
+`forbidden_paths` glob — across 25 of the 56 cards, 9 of which broke a fence they declared
+themselves.** Cost is one `git status`: 19–39 ms measured on four real repositories.
+
+Two things it will report that are not code drift, and both are correct. Writes to the workspace's
+own bookkeeping — the report, the ledger, the register — are reported when the card does not
+declare them; the fix is one line in `exclusive_writes`, not a filter, because a filter would have
+to match project-specific file *names*. And the card file itself is the single exemption: a card
+cannot be required to declare itself.
+
 `pre` is the default and permits an owned absent `Create`. `post` requires it to exist at the
 declared path, contain a real package plus top-level class resolving to the declared FQCN, and
 contain a JUnit test declaration. Comments and strings do not satisfy source declarations. Do not relabel
@@ -327,6 +352,54 @@ execution, a required bypass, or failed cleanup. The source stays read-only. Pla
 cannot widen the outer sandbox, and plain unsandboxed gate execution is forbidden. For Gradle,
 exact `--rerun-tasks` is the sole freshness evidence; `cleanTest` does not qualify.
 
+### The fix/record rule — the binding answer to "I found something else"
+
+**This is the rule. Run it per finding, at the moment you find it, before you touch anything.**
+
+> **FIX it** only if all three are true:
+>
+> 1. **OWNED** — the change lands inside `exclusive_writes` and touches no `forbidden_paths`.
+> 2. **LINKED** — it advances a criterion or invariant id **already written on this card**
+>    (`invariants`, `frozen_values`, `goal`). Not one you can argue for. One that is there.
+> 3. **TRIGGERED** — you can paste a command and its observed output, **or** this card's own
+>    `validation` block fails because of it. A mechanism argued from reading the source is not a
+>    trigger.
+>
+> **Otherwise RECORD it** in the register at `record_to` and carry on with the task.
+
+All three read fields already on the card, so the rule costs **zero model calls and zero extra
+reading**. Question 1 is a path comparison — `validate_card.py CARD --repo REPO --phase mid` answers
+it against your actual working tree. Question 2 is a lookup in a list you have already read.
+Question 3 is a terminal you already have open. Only "is this output really the trigger" is
+judgement, and it is narrow: **no pasted output, no trigger.**
+
+The rule is deliberately one-sided. It bounds over-fixing, not under-fixing, because over-fixing is
+what has actually happened: one measured milestone produced 51 cards, 230 reports, 64 review
+artifacts and 37 fix rounds, with card creation flat at 14 → 18 → 14 per day for three days and
+three cards subdividing rather than closing. A human stopped it by hand with a severity floor.
+**Fixing every found issue with no floor did not converge.** This is that floor, applied at
+find-time instead of afterwards by a person.
+
+**Safety findings bypass the rule.** They always have; nothing here changes that.
+
+**A RECORD is not a dropped finding.** It becomes an entry in the milestone's `## Deferred`
+register — six keyed lines — where `spec_check.py` rule E lints it and refuses to let the owning
+milestone ship while it is unowned. Recording takes about a minute. Fixing takes a round.
+
+### `record_to`
+
+```yaml
+record_to: docs/product/milestones/M4-fees.md
+```
+
+The one field the fix/record rule adds, and the only one it needs: the register a RECORD goes to.
+`validate_card.py` checks that the path is a milestone document and that it **exists** — a register
+that is not there is indistinguishable from an empty one, which is exactly how deferrals were lost
+before. All 187 cards measured across four real repositories predate this field, so its absence is
+a WARNING that still exits 0; `--strict` fails it. This is the migration policy `title` already
+uses, and it is the same policy: fail closed on history that cannot be edited and nothing gets
+adopted.
+
 ### `stop_conditions`
 
 What makes this task hand back rather than infer. The cheap implementation persona is only safe because
@@ -346,6 +419,11 @@ or a reusable API; when the same causal mechanism recurs after one independently
 or when a third distinct ordinary repair needs human continue/replan authority. Distinct safety
 findings do not share a counter and may still block release. Budgets trigger human review only and
 never change a gate verdict.
+
+**A stop is not the answer to an unrelated finding.** Run the fix/record rule above first: most
+findings that feel like a stop are a RECORD, and stopping the task to report one costs a dispatch
+round to move a line into a register. Stop when the CARD cannot proceed — the entries above are all
+of that shape. Record when the card can proceed and something else is wrong.
 
 ## Report contract
 

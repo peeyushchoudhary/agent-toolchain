@@ -25,9 +25,12 @@ shouts at every repository it does not apply to gets deleted.
      result that some input can make false
   D  PRD front matter, one feature-index marker at most, references that resolve both ways, and
      no open-question marker once approved
+  E  milestone `## Deferred` register: entries parse, `found_by` names a feature in this milestone,
+     `threatens` names a live criterion, an unowned or already-shipped-owner entry fails at seal
   S  --surfaces only: a route added in a git range that no approved spec names under `## Surface`
 
-Usage:  spec_check.py [--root DIR] [--json] [--warn-only] [--surfaces (--range R | --since D)]
+Usage:  spec_check.py [--root DIR] [--json] [--warn-only] [--deferred]
+                      [--surfaces (--range R | --since D)]
 Exit codes: 0 clean, 1 findings, 2 the arguments or the tree could not be read.
 """
 
@@ -203,6 +206,12 @@ class Doc:
     def is_prd(self) -> bool:
         return self.rel == "docs/product/prd.md"
 
+    @property
+    def is_milestone(self) -> bool:
+        """A milestone document, by path — the same `docs/product/milestones/M<n>-<slug>.md` rule
+        `plan_waves.py` and the push guard already resolve milestones by."""
+        return self.path.match("docs/product/milestones/M*.md")
+
     def at(self, key: str) -> int:
         return self.where.get(key, 1)
 
@@ -293,6 +302,7 @@ def is_record(doc: Doc) -> bool:
 def check_current_state(doc: Doc, f: Findings) -> None:
     if is_record(doc):
         return
+    register = deferred_lines(doc) if doc.is_milestone else set()
     for number, text in doc.body():
         if DATED_HEADING_RE.match(text):
             f.add(doc, number, "A1", "dated heading: the document is being appended to rather "
@@ -300,7 +310,7 @@ def check_current_state(doc: Doc, f: Findings) -> None:
         if HISTORY_HEADING_RE.match(text):
             f.add(doc, number, "A2", "changelog section: what changed is in git log, and why it "
                                      "changed belongs in a decision record")
-        match = SELF_REFERENTIAL_RE.search(text)
+        match = None if number in register else SELF_REFERENTIAL_RE.search(text)
         if match:
             f.add(doc, number, "A3", f"self-referential history prose ({match.group(0)!r}): state "
                                      "the current requirement, not the document's past")
@@ -442,6 +452,195 @@ def check_prd(doc: Doc, spec_ids: dict[str, str], f: Findings) -> None:
                                          f"docs/product/specs/{reference}-*.md declares that id")
 
 
+# --- E: the deferral register ---------------------------------------------------------------------
+
+# Principle 6 says "deferrals live in a register that a milestone can fail against". Until now
+# `defer` appeared in exactly two scripts in this toolchain and neither of them was a gate, so no
+# milestone could fail against anything and the promise was prose.
+#
+# MEASURED, on a real project that built its own register rather than waiting for one:
+# 205 rows, 178 open, 27 closed, 17 with no owner, and 423 KB of file — an average of 2,046
+# characters PER ROW. That register works (its gate catches an open row owned by a milestone whose
+# tag already exists) and it costs about ten times what it needs to, because a row is free-form
+# prose with no shape a reader can skim. The six keys below are the same information at about
+# seven short lines.
+#
+# THE REGISTER HOLDS OPEN ITEMS ONLY. The real one keeps its 27 closed rows and they are 13% of its
+# weight; a closed deferral is history, history lives in git, and a product document that describes
+# its own past is exactly what rule A forbids. Closing an entry deletes it.
+#
+# NO NUMERIC CAP, and this was considered rather than skipped. A ceiling the seal refuses to grow
+# past would have bound that real register at around row 40 of 205, and the pressure would land on
+# RECORDING the finding rather than on fixing it — the register would go quiet while the findings
+# went on happening, which is the state that existed before the register. What a cap is FOR is a
+# number somebody looks at, so the number is printed instead: `--deferred` lists the register with
+# its counts, and E5 fails a milestone that ships while an entry it owns has no owner.
+DEFERRED_HEADING_RE = re.compile(r"^#{2,3}\s+Deferred\s*$", re.IGNORECASE)
+ANY_HEADING_RE = re.compile(r"^#{1,6}\s+")
+DEFERRED_ITEM_RE = re.compile(r"^\s*[-*]\s*\*\*(?P<id>D-\d+)\*\*\s*(?P<what>.*)$")
+# INDENT SEPARATES A KEY FROM A CONTINUATION, and the depth is not a style preference. Read as
+# "any indent, then `word:`", this parser was run over 178 rows of a REAL deferral register and
+# called 22 of them malformed — 12% — because a wrapped line of ordinary prose began `known:`,
+# `design:`, `confirmed:`, `verbatim:`. A key sits at 1-3 spaces; anything at 4 or more is
+# continuation text and is never read as a key, whatever it starts with. Same failure as matching a
+# WORD rather than a STRUCTURE, caught this time by running it against a real corpus first.
+DEFERRED_KEY_RE = re.compile(r"^ {1,3}(?P<key>[a-z_]+):\s*(?P<value>.*)$")
+DEFERRED_KEYS = ("found_by", "site", "threatens", "trigger", "owner", "raised")
+# `F-11/T3` and a bare `T3`, the two spellings `plan_waves.py` already resolves. Nothing else: an
+# entry whose finder cannot be named is an entry nobody can ask about.
+FOUND_BY_RE = re.compile(r"^(?:(?P<feature>F-\d+[A-Z]?)/)?T[A-Za-z0-9._-]+$")
+CRITERION_REF_RE = re.compile(r"^AC-(?P<number>\d+[A-Z]?)$")
+
+
+DeferredItem = NamedTuple("DeferredItem", [("ident", str), ("line", int), ("what", str),
+                                           ("keys", dict), ("at", dict)])
+
+
+def deferred_items(doc: Doc, f: Findings) -> list[DeferredItem]:
+    """Parse `## Deferred`. Shape findings are E1; everything cross-referential is E2 upward.
+
+    A continuation line folds onto the key above it, the same way `criteria()` folds a wrapped
+    criterion: a `trigger` holding a command and its output does not fit in 100 columns, and a
+    parser that made the author choose between a legible file and a parseable one would get the
+    illegible file.
+    """
+    lines = doc.body()
+    start = next((index for index, (_, text) in enumerate(lines)
+                  if DEFERRED_HEADING_RE.match(text)), None)
+    if start is None:
+        return []
+    items: list[DeferredItem] = []
+    current: DeferredItem | None = None
+    last_key = ""
+    for number, text in lines[start + 1:]:
+        if ANY_HEADING_RE.match(text):
+            break
+        item = DEFERRED_ITEM_RE.match(text)
+        if item:
+            current = DeferredItem(item.group("id"), number, item.group("what").strip(), {}, {})
+            items.append(current)
+            last_key = ""
+            continue
+        if current is None:
+            continue                      # A lead paragraph under the heading is not an entry.
+        key = DEFERRED_KEY_RE.match(text)
+        if key:
+            name, value = key.group("key"), key.group("value").strip()
+            if name in current.keys:
+                f.add(doc, number, "E1", f"`{current.ident}` repeats `{name}:`; one entry holds "
+                                         "one value per key and a second copy is a second answer")
+            current.keys[name] = value
+            current.at[name] = number
+            last_key = name
+        elif text.strip() and last_key:
+            current.keys[last_key] = (current.keys[last_key] + " " + text.strip()).strip()
+        elif text.strip():
+            f.add(doc, number, "E1",
+                  f"`{current.ident}` carries a line before its first key: {text.strip()[:60]!r}; "
+                  f"an entry is its headline and then {', '.join(DEFERRED_KEYS)}")
+    return items
+
+
+def deferred_lines(doc: Doc) -> set[int]:
+    """The body line numbers inside `## Deferred`, so rule A can stand back from them.
+
+    A3 forbids a document describing its own past. A deferral entry describes A DEFECT's past — "the
+    original sweep missed the fourth site", "the earlier value was wrong" — and that is the entry's
+    CONTENT, about code, not about this document. Measured: A3 fired on 7 of 178 real register rows
+    on exactly that reading. A1 and A2 still apply here: a dated heading or a changelog section
+    inside the register is a register being appended to, which is the thing rule A is for.
+    """
+    lines = doc.body()
+    start = next((index for index, (_, text) in enumerate(lines)
+                  if DEFERRED_HEADING_RE.match(text)), None)
+    if start is None:
+        return set()
+    inside = set()
+    for number, text in lines[start + 1:]:
+        if ANY_HEADING_RE.match(text):
+            break
+        inside.add(number)
+    return inside
+
+
+def check_deferred(doc: Doc, milestones: dict, specs: dict, f: Findings) -> list[DeferredItem]:
+    """Rule E. `doc` is a milestone document; `milestones` maps M<n> to its document, `specs` maps
+    M<n> to the feature specs declaring it."""
+    name = doc.scalar("milestone")
+    items = deferred_items(doc, f)
+    seen: dict[str, int] = {}
+    members = {spec.scalar("id"): spec for spec in specs.get(name, [])}
+    live: dict[str, str] = {}
+    for spec in specs.get(name, []):
+        for criterion in criteria(spec):
+            live[f"AC-{criterion.number}"] = spec.rel
+    for item in items:
+        if item.ident in seen:
+            f.add(doc, item.line, "E2", f"`{item.ident}` is already used at line {seen[item.ident]}"
+                                        "; two findings under one id is one of them lost")
+        seen.setdefault(item.ident, item.line)
+        if not item.what:
+            f.add(doc, item.line, "E1", f"`{item.ident}` says nothing after its id — the entry has "
+                                        "to state WHAT WAS FOUND, in one line a reader can triage")
+        for key in DEFERRED_KEYS:
+            if key not in item.keys:
+                f.add(doc, item.line, "E1", f"`{item.ident}` has no `{key}:`; all six of "
+                                            f"{', '.join(DEFERRED_KEYS)} are required, and "
+                                            "`none` is a legal value for threatens, trigger "
+                                            "and owner")
+        for key in item.keys:
+            if key not in DEFERRED_KEYS:
+                f.add(doc, item.at[key], "E1", f"`{item.ident}` carries an unknown key `{key}:`; "
+                                               f"the register holds {', '.join(DEFERRED_KEYS)}")
+        found_by = item.keys.get("found_by", "")
+        if found_by:
+            match = FOUND_BY_RE.match(found_by)
+            if not match:
+                f.add(doc, item.at["found_by"], "E3",
+                      f"`{item.ident}` found_by `{found_by}` is not a task id; write `F-11/T3`, or "
+                      "a bare `T3` when the milestone holds one feature")
+            elif match.group("feature") and match.group("feature") not in members:
+                f.add(doc, item.at["found_by"], "E3",
+                      f"`{item.ident}` was found by `{found_by}`, but no spec in {name} declares "
+                      f"`{match.group('feature')}` — the finding is filed against a milestone that "
+                      "did not do the work, so nobody here can answer for it")
+        if not item.keys.get("site", "").strip():
+            f.add(doc, item.at.get("site", item.line), "E1",
+                  f"`{item.ident}` has an empty `site:`; WHERE it was found is what makes the "
+                  "entry actionable a milestone later, and `unknown` is a legal answer")
+        threatens = item.keys.get("threatens", "")
+        reference = CRITERION_REF_RE.match(threatens)
+        if reference and threatens not in live:
+            f.add(doc, item.at["threatens"], "E4",
+                  f"`{item.ident}` threatens `{threatens}`, which no live criterion in {name} "
+                  "declares — it was renumbered, withdrawn, or belongs to another milestone")
+        owner = item.keys.get("owner", "")
+        if owner and owner != "none":
+            if not MILESTONE_RE.match(owner):
+                f.add(doc, item.at["owner"], "E5",
+                      f"`{item.ident}` owner `{owner}` is not M<number> or `none`")
+            elif owner not in milestones:
+                f.add(doc, item.at["owner"], "E5",
+                      f"`{item.ident}` is owned by `{owner}`, which has no milestone document — "
+                      "an owner that does not exist cannot close anything")
+            elif milestones[owner].scalar("status") == "shipped":
+                f.add(doc, item.at["owner"], "E5",
+                      f"`{item.ident}` is still open and owned by `{owner}`, which has already "
+                      "shipped — the milestone closed and the deferral did not, which is the one "
+                      "outcome a register exists to make impossible")
+        raised = item.keys.get("raised", "")
+        if raised and not DATE_RE.match(raised):
+            f.add(doc, item.at["raised"], "E6",
+                  f"`{item.ident}` raised `{raised}` is not a YYYY-MM-DD date; an undated deferral "
+                  "cannot be aged, and age is the only thing that distinguishes a decision from a "
+                  "thing everybody stopped looking at")
+        if doc.scalar("status") == "shipped" and item.keys.get("owner", "") == "none":
+            f.add(doc, item.at.get("owner", item.line), "E5",
+                  f"{name} is `status: shipped` and `{item.ident}` has no owner — sealing here "
+                  "drops the finding on the floor; assign a milestone or close the entry")
+    return items
+
+
 def run(root: Path) -> Findings:
     f = Findings()
     product = root / "docs" / "product"
@@ -480,7 +679,31 @@ def run(root: Path) -> Findings:
     for doc in documents:
         if doc.is_prd and not doc.front_error:
             check_prd(doc, seen, f)
+    milestones, members = milestone_index(documents)
+    for doc in milestones.values():
+        check_deferred(doc, milestones, members, f)
     return f
+
+
+def milestone_index(documents: list[Doc]) -> tuple[dict, dict]:
+    """`M<n>` -> its milestone document, and `M<n>` -> the specs declaring it.
+
+    MEMBERSHIP DERIVES FROM THE SPECS and the milestone holds no list to disagree with them — the
+    same rule `plan_waves.milestone_features` already applies, restated here rather than imported
+    because that one walks the disk and this one is handed documents already read.
+    """
+    docs: dict[str, Doc] = {}
+    members: dict[str, list[Doc]] = {}
+    for doc in documents:
+        if doc.is_milestone and not doc.front_error:
+            name = doc.scalar("milestone")
+            if MILESTONE_RE.match(name):
+                docs.setdefault(name, doc)
+        if doc.is_spec and not doc.front_error:
+            name = doc.scalar("milestone")
+            if MILESTONE_RE.match(name):
+                members.setdefault(name, []).append(doc)
+    return docs, members
 
 
 
@@ -572,6 +795,38 @@ TEST_PATH_RE = re.compile(r"(^|/)([Tt]ests?|__tests__|testing|fixtures?|mocks?)/
 SURFACE_TOKEN_RE = re.compile(r"`([^`]+)`|(?<![\w`])(/[^\s`,;)\]]*)")
 
 
+def deferral_queue(root: Path) -> list[tuple[str, str, int, str, str, str, str]]:
+    """Every open deferral in the corpus, milestone by milestone. Shape findings are discarded:
+    this is a LIST, not a gate, and `run()` is where a malformed entry is reported."""
+    product = root / "docs" / "product"
+    paths = sorted(path for path in product.glob("**/*.md") if path.is_file())
+    documents = [Doc(path, root) for path in paths]
+    rows = []
+    for name, doc in sorted(milestone_index(documents)[0].items()):
+        for item in deferred_items(doc, Findings()):
+            rows.append((name, doc.rel, item.line, item.ident,
+                         item.keys.get("owner", "") or "none",
+                         item.keys.get("raised", "") or "undated", item.what))
+    return rows
+
+
+def print_deferred(rows: list[tuple[str, str, int, str, str, str, str]]) -> None:
+    """The count is the point. A register nobody counts is a register that only grows."""
+    if not rows:
+        print("no deferral register found, or every register is empty")
+        return
+    width = max(len(row[3]) for row in rows)
+    for name in sorted({row[0] for row in rows}):
+        owned = [row for row in rows if row[0] == name]
+        unowned = [row for row in owned if row[4] == "none"]
+        print(f"{name}  {len(owned)} open, {len(unowned)} with no owner")
+        for _, path, line, ident, owner, raised, what in owned:
+            print(f"  {ident.ljust(width)}  {owner:<6} {raised:<10} {what[:70]}")
+            print(f"  {' ' * width}  {path}:{line}")
+    print(f"{len(rows)} open deferral(s) across "
+          f"{len({row[0] for row in rows})} milestone(s)")
+
+
 def normalise_route(text: str) -> str:
     """One shape for both sides: lower case, no trailing slash, `{id}`, `:id`, `<int:id>` and
     `<id>` all collapsed to `*`, and only the last field kept so a verb never decides a match."""
@@ -659,6 +914,8 @@ def main() -> int:
     parser.add_argument("--warn-only", action="store_true", help="print findings but exit 0")
     parser.add_argument("--questions", action="store_true",
                         help="list every open decision across the product definition and exit 0")
+    parser.add_argument("--deferred", action="store_true",
+                        help="list every milestone's deferral register with its counts, exit 0")
     parser.add_argument("--surfaces", action="store_true", help="check routes added in a range")
     parser.add_argument("--range", dest="revision_range", help="a git range, e.g. main..HEAD")
     parser.add_argument("--since", help="a date git log accepts, e.g. 2026-08-14")
@@ -670,6 +927,21 @@ def main() -> int:
     if not root.is_dir():
         print(f"ERROR: --root is not a directory: {root}", file=sys.stderr)
         return 2
+    if args.deferred:
+        try:
+            rows = deferral_queue(root.resolve())
+        except SpecError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            json.dump({"root": str(root.resolve()), "count": len(rows),
+                       "deferred": [{"milestone": m, "path": p, "line": n, "id": i,
+                                     "owner": o, "raised": r, "what": w}
+                                    for m, p, n, i, o, r, w in rows]}, sys.stdout, indent=2)
+            sys.stdout.write("\n")
+        else:
+            print_deferred(rows)
+        return 0
     if args.questions:
         try:
             rows = decision_queue(root.resolve())
