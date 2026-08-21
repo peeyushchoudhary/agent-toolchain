@@ -91,7 +91,7 @@ file's own `feature:` key qualifies it, so a bare id there is unambiguous and co
 | `T4` | an executed test citing an id no spec declares, or citing one without its feature |
 | `T5` | a criterion in the absence claim AND carried by a coverage row — two answers |
 | `T6` | an executed test citing an id the spec retired in `withdrawn:` |
-
+| `T7` | *(`--commit RANGE` only)* a criterion whose id ARRIVED in that range on a test whose body the range never touched |
 **Why this is not grep.** The executed set never comes from the source tree. It comes from XML the
 verifier above already bound to a single-use nonce, proved count-consistent, skip-free and green. A
 string in a comment cannot enter it and a disabled test cannot enter it.
@@ -105,3 +105,53 @@ ends the run with exit 2 rather than reporting a clean trace.
 
 **An absent input is named, never silent.** No feature plans, or no `--evidence`, exits 0 and says
 which input was missing. "Traced clean" and "traced nothing" must never print the same way.
+
+## T7 — an id that arrived without the work
+
+T3 asks one question: did a test carrying this id run and pass. **Renaming an already-green test
+answers it in full.** Scanned across four sibling repositories: **1,073 Java test files, 5,866
+`@Test` methods, and zero of them carrying a criterion id.** The migration T3 asks for is therefore
+a bulk rename of about six thousand methods, and the cheapest way to finish that migration is to
+change nothing else. This is not a theoretical shortcut; it is the default path.
+
+```bash
+python3 trace_check.py --root . --evidence .work/reports/EX-01-junit.json --commit F6..HEAD
+```
+
+`--commit` takes one commit or an `A..B` range, the same way `plan_waves.py --commit` does. For
+every criterion T3 reports green, T7 asks whether that criterion's id **arrived inside the range**,
+and if it did, whether the test carrying it also had **body lines added, changed or removed** there.
+A rename writes one signature line and no body line, so T7 fires on it.
+
+**What T7 proves and does not prove.** It proves the range touched that test's body. It does **not**
+prove the body asserts anything — a body changed to `{ /* TODO */ }` satisfies T7 exactly as a real
+assertion does, because "the body changed" is all a diff can say. It also fires on an **honest**
+rename: a commit that improves a test's name without touching its body looks identical to one that
+farms coverage, and T7 cannot tell them apart. Carry the id in the commit that writes the test.
+
+**It parses no language.** T7 matches the executed test's own `name=` (or `classname=` when the id
+lives there) against changed line numbers in a diff, and bounds the body by indentation alone: from
+the line the id arrived on, forward until a non-blank line indented no further. Java closes on `}`
+at the signature's indent, Python on the next `def`, and neither is named anywhere in the rule. A
+Java-shaped rule was rejected deliberately — an assertion-token regex flags 0.55% of 5,866 Java test
+methods and 4.30% of 32,141 Python test functions, an eightfold difference that is the "a rule
+matched a WORD not a STRUCTURE" failure waiting to happen.
+
+**Three decisions that came out of the corpus, not out of fixtures.**
+
+- **"Arrived" is decided against the LEFT side of the range, not against the added lines.** One real
+  project keeps a pinned-defect registry that names its own test methods in string literals, so
+  editing that registry made long-standing tests look newly named: **18 of 494 judgeable methods,
+  3.6%**, all false. A token is new only when the file it lands in did not already contain it.
+- **A removed body line counts as a touched body.** The single disagreement in 581 judgeable methods
+  of another repository was a commit that renamed a test and moved eight of its assertion lines into
+  a new one: the body changed by subtraction. This costs the rename check nothing, because renaming
+  deletes the signature line and never a body line.
+- **Only the file that owns the class can answer for it.** `classRegistryIsComplete` exists in
+  several suites of one real project, and a repository-wide token search let an unrelated file's
+  added body satisfy the claim.
+
+**An id older than the range is counted, never passed.** T7 has no opinion on work that predates
+`RANGE`, and every run prints how many criteria fell into that bucket, next to how many it judged.
+An inert T7 has to read as inert.
+

@@ -146,10 +146,57 @@ threshold, range-scoping saves nothing a human feels and would let a spec broken
 
 `trace_check.py` reads only the results directory a receipt names. A full pass over that
 repository's 51,604 XML files and 267,943 testcases through the same parser takes 5.5 s, which is
-the cost the receipt scope avoids on every run.
+the cost the receipt scope avoids on every run. `--commit RANGE` keeps that bound: measured against
+a real repository over a commit renaming 400 test methods across 64 files, the whole run took
+96 ms, because the diff is read once and only the files a carrier appears in are read back.
 
 Wave scheduling, measured on a real 51-task graph: 8 waves from the dependency edges alone, and 37
 task pairs inside those waves declaring overlapping write sets. Across a 5-feature milestone the
 per-plan view reported zero findings while six cross-feature pairs collided. Glob overlap is decided
 without touching the filesystem; a differential check over 14,706 random pattern pairs missed no
 real overlap and reported 26% without a witness at four segments deep.
+
+## T7, the coverage-by-rename check — corpus note
+
+No checker here merges without the repositories it was run against, the denominator, the hit count
+and a hand audit of every hit. Six checkers in one week passed their own fixtures and were inert or
+wrong against real work; each would have been caught by this note.
+
+**Repositories scanned:** four sibling product repositories, three of them Java/JUnit and one
+Python. **Adoption of the carrier T3 depends on: 1,073 Java test files, 5,866 `@Test` methods, 0
+carrying a criterion id.** T3 is unarmed everywhere today, so a bulk rename is the cheapest possible
+green and T7 is the check that has to hold.
+
+**False positives — does T7 fire on honest work?** Over the last 60 test-touching commits of each
+Java repository, every test method in every touched file was classified independently by comparing
+its pre- and post-image body text, and that classification was compared to T7's verdict.
+
+| repository | methods T7 judged | T7 fired | disagreements |
+|---|---|---|---|
+| A | 580 | 0 | 0 |
+| B | 303 | 0 | 0 |
+| C | 473 | 1 | 1 |
+| total | **1,356** | 1 | **1 (0.07%)** |
+
+The one hit was hand-audited: `void unrelatedGreenProbe() {}`, a deliberately empty bait test added
+in that commit. It has no body, so no body line changed, and T7 firing on it is the rule working —
+`void ac2() {}` is the exact case this toolchain has always said T3 cannot see. **The audited
+false-positive rate is 0 of 1,356.** A further 2,201 methods whose bodies the range did not change
+produced no finding at all.
+
+**False negatives — does T7 catch the attack it exists for?** 400 real `@Test` methods in a clone of
+a Java repository and 400 real `test_*` functions in a clone of the Python one were renamed to carry
+`__F1_AC1` and committed, changing nothing else. **T7 fired on 800 of 800**, and the Python half
+fired under the same rule, with no language-specific code.
+
+Two earlier revisions were measured and rejected rather than tuned. Triggering on "the name appears
+on an added line" fired on 18 of 494 methods (3.6%) in one repository, because its pinned-defect
+registry names test methods in string literals; deciding arrival against the left side of the range
+removed all 18. Ignoring deleted lines misread a commit that moved a test's assertions elsewhere as
+a rename. Both fixes were made against the CLASS of accident, not against the file that broke.
+
+**What T7 still cannot see:** a rename that landed outside the range; an honest rename, which looks
+identical to a coverage-farming one; and whether the changed body asserts anything at all. The last
+of those was deliberately left alone — the assertion-token idea flags 0.55% of 5,866 Java test
+methods but 4.30% of 32,141 Python test functions in 1,537 files, and shipping one regex across that
+gap is the same "matched a WORD not a STRUCTURE" failure this file already records three times.

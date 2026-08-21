@@ -425,5 +425,281 @@ class EvidenceBindingTest(TraceFixture):
         self.assertFinds("T3", receipt)
 
 
+JAVA = """package com.x;
+
+import org.junit.jupiter.api.Test;
+
+class ResendTest {{
+
+    @Test
+    void {one}() {{
+        assertTrue(mailer.sentTo("a@b.c"));
+    }}
+
+    @Test
+    void {two}() {{
+{body}    }}
+}}
+"""
+PY = """import unittest
+
+
+class ResendTest(unittest.TestCase):
+
+    def {one}(self):
+        self.assertTrue(mailer.sent)
+
+    def {two}(self):
+        self.assertTrue(limiter.blocked)
+"""
+KEPT = '        assertTrue(limiter.blocked());\n'
+
+
+class NewlyCarriedIdTest(TraceFixture):
+    """T7 — the id arrived and the body did not.
+
+    T3 asks only whether a test carrying the id ran and passed, and renaming an already-green test
+    answers that in full. This is not a hypothetical shortcut: across the four repositories this
+    methodology runs on, 1,073 Java test files hold 5,866 `@Test` methods and NOT ONE of them
+    carries a criterion id, so the migration T3 asks for is literally a bulk rename and the cheapest
+    way to finish it is to change nothing else. Every test below is written in both directions,
+    because a T7 that fires on honest work is a T7 somebody deletes.
+    """
+
+    SOURCE = "backend/src/test/java/com/x/ResendTest.java"
+    PYSOURCE = "backend/tests/ResendTest.py"
+
+    def git(self, *args: str) -> None:
+        subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True, check=False)
+
+    def repo(self, *relative: str) -> None:
+        self.git("init", "-q", ".")
+        self.git("config", "user.email", "a@b.c")
+        self.git("config", "user.name", "t")
+        self.commit("base", *relative)
+
+    def commit(self, subject: str, *relative: str) -> None:
+        """Staged BY NAME, so the JUnit XML this fixture also writes never enters the history."""
+        for item in relative:
+            self.git("add", "--", item)
+        self.git("commit", "-q", "-m", subject)
+
+    def source(self, one: str, two: str, body: str = KEPT, template: str = JAVA,
+               where: str = None) -> None:
+        self.write(where or self.SOURCE, template.format(one=one, two=two, body=body))
+
+    def t7(self, *evidence: Path, rev: str = "HEAD") -> list[str]:
+        result = self.run_cli(*evidence, extra=("--json", "--commit", rev))
+        self.assertIn(result.returncode, (0, 1), result.stdout + result.stderr)
+        return json.loads(result.stdout)
+
+    def test_a_bulk_rename_that_adds_the_id_and_nothing_else_is_a_finding(self) -> None:
+        """The whole reason T7 exists: `sed` over 5,866 method names makes T3 green for free."""
+        self.corpus()
+        self.source("sendsMail", "refuses")
+        self.repo(self.SOURCE, "docs")
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2")
+        self.commit("chore: carry criterion ids", self.SOURCE)
+        payload = self.t7(self.evidence())
+        self.assertEqual(payload["exit"], 1, payload["summary"])
+        self.assertEqual([item["rule"] for item in payload["findings"]], ["T7", "T7"])
+        self.assertIn("the id arrived without the work", payload["findings"][0]["message"])
+
+    def test_a_test_written_in_the_range_is_clean(self) -> None:
+        """A criterion covered by real work must pass, or nobody keeps the check."""
+        self.corpus()
+        self.write("docs/product/prd.md", "# product\n")
+        self.repo("docs")
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2")
+        self.commit("feat(F-7/T1): resend limits", self.SOURCE)
+        payload = self.t7(self.evidence())
+        self.assertEqual(payload["exit"], 0, payload["summary"])
+        self.assertEqual(payload["t7"], {"green": 2, "arrived": 2, "worked": 2, "stale": 0})
+
+    def test_an_id_that_predates_the_range_is_counted_rather_than_judged(self) -> None:
+        """T7 has no opinion on work older than the range, and an opinion it does not have must
+        not print as a pass — the count is how an inert T7 stays visible."""
+        self.corpus()
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2")
+        self.repo(self.SOURCE, "docs")
+        self.write("README.md", "unrelated\n")
+        self.commit("docs: unrelated", "README.md")
+        payload = self.t7(self.evidence())
+        self.assertEqual(payload["exit"], 0)
+        self.assertEqual(payload["t7"], {"green": 2, "arrived": 0, "worked": 0, "stale": 2})
+        self.assertIn("2 carried the id before the range", payload["summary"])
+
+    def test_a_body_emptied_in_the_range_counts_as_touched(self) -> None:
+        """Measured: the ONE disagreement in 581 judgeable real methods was a commit that renamed a
+        test and moved its assertions into a new one, so its body changed by subtraction. T7 claims
+        the range touched the body, and a deletion touched it; it claims nothing about assertions."""
+        self.corpus()
+        self.source("sendsMail", "refuses", body=KEPT + "        assertTrue(clock.frozen());\n")
+        self.repo(self.SOURCE, "docs")
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2", body=KEPT)
+        self.commit("refactor(F-7/T1): move the clock assertion out", self.SOURCE)
+        payload = self.t7(self.evidence())
+        self.assertEqual([item["rule"] for item in payload["findings"]], ["T7"],
+                         "only the untouched body may be reported: " + payload["summary"])
+
+    def test_a_python_test_is_judged_by_the_same_rule(self) -> None:
+        """T7 matches a name against changed line numbers and parses no language. The seat's own
+        measurement said an assertion regex flags 4.30% of 32,141 Python test functions against
+        0.55% of Java, so anything language-shaped here would be the same mistake twice."""
+        self.corpus()
+        self.source("test_sends", "test_refuses", template=PY, where=self.PYSOURCE)
+        self.repo(self.PYSOURCE, "docs")
+        self.source("test_sends__F7_AC1", "test_refuses__F7_AC2", template=PY,
+                    where=self.PYSOURCE)
+        self.commit("chore: carry criterion ids", self.PYSOURCE)
+        payload = self.t7(self.evidence([("tests.ResendTest", "test_sends__F7_AC1"),
+                                         ("tests.ResendTest", "test_refuses__F7_AC2")]))
+        self.assertEqual([item["rule"] for item in payload["findings"]], ["T7", "T7"],
+                         payload["summary"])
+
+    def test_a_name_a_registry_already_mentioned_is_not_a_new_id(self) -> None:
+        """Measured false positive, and the reason "arrived" is decided against the left side of the
+        range rather than against the added lines: one real project keeps a pinned-defect registry
+        that names its own test methods in string literals, so editing that registry made every
+        long-standing test look newly named — 18 of 494 judgeable methods, 3.6%."""
+        self.corpus()
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2")
+        self.repo(self.SOURCE, "docs")
+        self.write(self.SOURCE, (self.root / self.SOURCE).read_text(encoding="utf-8").replace(
+            "class ResendTest {", 'class ResendTest {\n\n    // pinnedBy "refuses__F7_AC2"\n'))
+        self.commit("chore(F-7/T1): pin the defect", self.SOURCE)
+        payload = self.t7(self.evidence())
+        self.assertEqual(payload["exit"], 0, payload["summary"])
+        self.assertEqual(payload["t7"]["stale"], 2)
+
+    def test_a_same_named_method_in_another_file_cannot_answer_for_this_one(self) -> None:
+        """`classRegistryIsComplete` exists in several suites of one real project, and a global
+        token search let an unrelated file's added body satisfy the claim."""
+        self.corpus()
+        self.source("sendsMail", "refuses")
+        self.repo(self.SOURCE, "docs")
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2")
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2",
+                    body=KEPT + "        assertTrue(other.thing());\n",
+                    where="backend/src/test/java/com/x/OtherTest.java")
+        self.commit("chore: carry criterion ids", self.SOURCE,
+                    "backend/src/test/java/com/x/OtherTest.java")
+        payload = self.t7(self.evidence())
+        self.assertEqual([item["rule"] for item in payload["findings"]], ["T7", "T7"],
+                         payload["summary"])
+
+    def test_a_range_spelled_with_two_dots_reads_the_same_work(self) -> None:
+        self.corpus()
+        self.source("sendsMail", "refuses")
+        self.repo(self.SOURCE, "docs")
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2")
+        self.commit("chore: carry criterion ids", self.SOURCE)
+        self.assertEqual([item["rule"] for item in self.t7(self.evidence(),
+                                                           rev="HEAD~1..HEAD")["findings"]],
+                         ["T7", "T7"])
+
+    def test_a_root_commit_is_read_against_the_empty_tree_not_the_working_tree(self) -> None:
+        """`git diff <root>` compares a root commit to the WORKING TREE, which would let an
+        uncommitted edit answer for a committed claim. That default is not inherited."""
+        self.corpus()
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2")
+        self.repo(self.SOURCE, "docs")
+        payload = self.t7(self.evidence())
+        self.assertEqual(payload["exit"], 0)
+        self.assertEqual(payload["t7"]["worked"], 2)
+
+    def test_a_revision_git_cannot_resolve_is_a_usage_error(self) -> None:
+        """Silently reading an unresolvable range as "no diff" would report every claim as
+        pre-existing and find nothing, which is the shape of every inert check in this toolchain."""
+        self.corpus()
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2")
+        self.repo(self.SOURCE, "docs")
+        result = self.run_cli(self.evidence(), extra=("--commit", "no-such-rev"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("cannot resolve", result.stderr)
+
+    def test_the_flag_is_never_accepted_in_silence(self) -> None:
+        """A `--commit` accepted and never acted on is how the last check here became inert."""
+        self.corpus()
+        result = self.run_script("trace_check.py", "--root", str(self.root), "--commit", "HEAD")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("T7 did not run", result.stdout)
+
+    def test_the_honest_limit_names_what_t7_does_not_prove(self) -> None:
+        """T7 proves the body changed. It does not prove the body asserts anything, and the run
+        that reports it must say so on the same line as the number."""
+        self.corpus()
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2")
+        self.repo(self.SOURCE, "docs")
+        result = self.run_cli(self.evidence(), extra=("--commit", "HEAD"))
+        self.assertIn("A changed body is work, not an assertion.", result.stdout)
+        self.assertIn("not that it asserts anything", result.stdout)
+
+    def test_t7_is_silent_without_the_flag(self) -> None:
+        """The pre-push gate has no range; T7 is an extra question, not a new default."""
+        self.corpus()
+        self.source("sendsMail__F7_AC1", "refuses__F7_AC2")
+        self.repo(self.SOURCE, "docs")
+        result = self.run_cli(self.evidence(), extra=("--json",))
+        payload = json.loads(result.stdout)
+        self.assertIsNone(payload["t7"])
+        self.assertEqual(payload["exit"], 0)
+
+    def test_a_criterion_t3_already_reports_is_not_reported_twice(self) -> None:
+        """T7 judges what T3 calls green. A criterion with no executed test is T3's finding alone."""
+        self.corpus()
+        self.source("sendsMail__F7_AC1", "refuses")
+        self.repo(self.SOURCE, "docs")
+        payload = self.t7(self.evidence([("com.x.ResendTest", "sendsMail__F7_AC1")]))
+        self.assertEqual([item["rule"] for item in payload["findings"]], ["T3"])
+        self.assertEqual(payload["t7"]["green"], 1)
+
+
+class BodySpanTest(unittest.TestCase):
+    """The span rule, which is the only thing here that could be called parsing — and is not."""
+
+    def test_a_java_body_ends_on_the_brace_at_the_signature_indent(self) -> None:
+        lines = ["class A {", "    void t() {", "        one();", "    }", "}"]
+        self.assertEqual(list(trace_check.body_span(lines, 1)), [3])
+
+    def test_a_python_body_ends_on_the_next_definition(self) -> None:
+        lines = ["class A:", "    def t(self):", "        one()", "", "    def u(self):"]
+        self.assertEqual(list(trace_check.body_span(lines, 1)), [3, 4])
+
+    def test_an_empty_body_spans_nothing(self) -> None:
+        """`void ac2() {}` is the case this file has always named. T7 sees no body to change."""
+        self.assertEqual(list(trace_check.body_span(["    void t() {}", "    void u() {}"], 0)), [])
+
+    def test_a_call_site_is_not_a_declaration_because_it_opens_nothing(self) -> None:
+        lines = ["    void other() {", "        t();", "        more();", "    }"]
+        self.assertEqual(list(trace_check.body_span(lines, 1)), [])
+
+
+class CarrierTest(unittest.TestCase):
+    """Which identifier T7 goes looking for. The wild answers are not all identifiers."""
+
+    def test_the_method_name_carries_when_it_holds_the_id(self) -> None:
+        self.assertEqual(trace_check.carrier(trace_check.Key("7", "2"),
+                                             "com.x.ResendTest#refuses__F7_AC2"),
+                         "refuses__F7_AC2")
+
+    def test_a_parameterised_case_falls_back_to_its_class(self) -> None:
+        """3.0% of 267,943 real testcases render `name="[2] ..."` and the method name is gone."""
+        self.assertEqual(trace_check.carrier(trace_check.Key("7", "2"),
+                                             "com.x.Resend__F7_AC2#[2] 2026-12-31"),
+                         "Resend__F7_AC2")
+
+    def test_a_display_name_that_is_not_an_identifier_is_refused(self) -> None:
+        """`@DisplayName("F-7/AC-2 rejects a blank")` names no token any diff contains."""
+        self.assertIsNone(trace_check.carrier(trace_check.Key("7", "2"),
+                                              "com.x.Other#F-7/AC-2 rejects a blank"))
+
+    def test_a_class_stem_decides_which_file_owns_the_test(self) -> None:
+        self.assertTrue(trace_check.owns("a/b/ResendTest.java", "com.x.ResendTest"))
+        self.assertTrue(trace_check.owns("a/tests/gate.py", "tests.gate.Cases"))
+        self.assertFalse(trace_check.owns("a/b/OtherTest.java", "com.x.ResendTest"))
+        self.assertFalse(trace_check.owns("com/x/Helper.java", "com.x.ResendTest"))
+
+
 if __name__ == "__main__":
     unittest.main()

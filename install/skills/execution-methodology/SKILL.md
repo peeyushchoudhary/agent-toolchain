@@ -313,6 +313,12 @@ its trust boundary, and how `trace_check.py` reads that same evidence to diff th
 requires against the ids a verified run actually carried — which proves a test with that id ran and
 passed, and never that it asserts anything.
 
+Because renaming an already-green test satisfies that check for free — 0 of 5,866 real `@Test`
+methods carry a criterion id today, so the migration IS a bulk rename — pass `--commit RANGE` when
+sealing a milestone. T7 then requires that an id which arrived in that range sits on a test whose
+body the range also changed. It proves the body changed, not that it asserts anything, and it
+prints how many ids were older than the range and therefore not judged.
+
 A read-only Codex `test-judge` never runs a write-producing gate against the source referent; the
 standalone-copy nested-sandbox protocol is in
 [references/codex-gate-sandbox.md](references/codex-gate-sandbox.md).
