@@ -123,6 +123,29 @@ class ClassifyTest(unittest.TestCase):
     def test_unclassified_paths_are_other(self) -> None:
         self.assert_bucket(ratio_meter.OTHER, "notes.txt", "assets/logo.svg", "data/seed.json")
 
+
+    def test_a_bookkeeping_root_outranks_a_plans_or_design_subdirectory(self) -> None:
+        """The strong roots win over the product-thinking overrides, and must.
+
+        The opposite ordering shipped for one day. Under it, a workspace verdict filed at
+        `.superpowers/sdd/plans/verdicts/...` classified as product thinking — the exact artifact
+        class the budget exists to bound, escaping through a directory name.
+        """
+        self.assert_bucket(
+            ratio_meter.PROCESS,
+            "x/.superpowers/sdd/plans/ledger.md",
+            "x/.superpowers/sdd/plans/verdicts/TC-01-r1-reviewer.md",
+            "work/workspace/design/cards/TC-09.md",
+        )
+        # And the calibration it must not undo: a plan in the docs tree is still product thinking.
+        self.assert_bucket(
+            ratio_meter.PRODUCT_THINK,
+            "docs/superpowers/plans/2026-01-01-ship-plan.md",
+            "design/sync/cards/screen-01.html",
+        )
+        # A docs subtree that is not a plan stays bookkeeping.
+        self.assert_bucket(ratio_meter.PROCESS, "docs/superpowers/notes.md")
+
     def test_configuration_and_shell_are_product(self) -> None:
         """Config, orchestration, and shell are how a product is built and run, not commentary."""
         self.assert_bucket(ratio_meter.PRODUCT, "config/app.yml", "deploy/stack.yaml",
@@ -237,12 +260,12 @@ class MeterTest(GitFixture):
 
     def test_excluded_churn_cannot_move_the_verdict(self) -> None:
         """A vendored tree outweighs everything and must not dilute the process share."""
-        self.write("src/main/java/Service.java", 10)
-        self.write("docs/agents/progress.md", 40)
+        self.write("src/main/java/Service.java", 100)
+        self.write("docs/agents/progress.md", 400)
         self.write("node_modules/pkg/index.js", 100000)
         self.commit("chore: vendor a tree")
         data = self.payload("--since", "2000-01-01")
-        self.assertEqual(data["ratio_lines"], 50)
+        self.assertEqual(data["ratio_lines"], 500)
         self.assertAlmostEqual(data["process_share"], 0.8)
         self.assertTrue(data["breach"])
 
@@ -257,15 +280,15 @@ class MeterTest(GitFixture):
         self.assertEqual(data["files"]["other"], 1)
 
     def test_deleting_bookkeeping_alongside_other_work_is_process_churn(self) -> None:
-        self.write("docs/agents/progress.md", 30)
+        self.write("docs/agents/progress.md", 600)
         self.commit("chore: bookkeeping")
         (self.repo / "docs/agents/progress.md").unlink()
-        self.write("src/main/java/Service.java", 5)
+        self.write("src/main/java/Service.java", 100)
         self.commit("chore: remove notes and add code")
         data = self.payload("--range", "HEAD~1..HEAD")
         self.assertEqual(data["cleanup_commits"], 0)
-        self.assertEqual(data["lines"]["process"], 30)
-        self.assertEqual(data["lines"]["product"], 5)
+        self.assertEqual(data["lines"]["process"], 600)
+        self.assertEqual(data["lines"]["product"], 100)
         self.assertTrue(data["breach"])
 
     def test_a_commit_that_only_deletes_bookkeeping_is_cleanup_and_never_breaches(self) -> None:
@@ -288,35 +311,37 @@ class MeterTest(GitFixture):
 
     def test_a_cleanup_commit_does_not_exempt_the_rest_of_the_range(self) -> None:
         """The exemption is per commit. A breaching commit beside a cleanup still breaches."""
-        self.write("docs/agents/progress.md", 100)
-        self.write("src/main/java/Service.java", 10)
+        self.write("docs/agents/progress.md", 1000)
+        self.write("src/main/java/Service.java", 100)
         self.commit("chore: seed")
         (self.repo / "docs/agents/progress.md").unlink()
         self.commit("chore: delete the bookkeeping")
-        self.write("docs/agents/lessons.md", 60)
-        self.write("src/main/java/Service.java", 12)
+        self.write("docs/agents/lessons.md", 600)
+        self.write("src/main/java/Service.java", 120)
         self.commit("chore: write more bookkeeping")
         data = self.payload("--range", "HEAD~2..HEAD")
         self.assertEqual(data["cleanup_commits"], 1)
-        self.assertEqual(data["cleanup_lines"], 100)
-        self.assertEqual(data["lines"]["process"], 60)
+        self.assertEqual(data["cleanup_lines"], 1000)
+        self.assertEqual(data["lines"]["process"], 600)
         self.assertTrue(data["breach"])
 
     def test_a_rewrite_of_bookkeeping_is_not_a_cleanup(self) -> None:
-        self.write("docs/agents/progress.md", 40)
+        self.write("docs/agents/progress.md", 400)
         self.commit("chore: seed")
-        self.write("docs/agents/progress.md", 40, first=1000)
+        self.write("docs/agents/progress.md", 400, first=1000)
         self.commit("chore: rewrite the notes")
         data = self.payload("--range", "HEAD~1..HEAD")
         self.assertEqual(data["cleanup_commits"], 0)
-        self.assertEqual(data["lines"]["process"], 80)
+        self.assertEqual(data["lines"]["process"], 800)
         self.assertTrue(data["breach"])
 
     def test_a_breach_exits_one_and_names_the_largest_process_files(self) -> None:
-        self.write("src/main/java/Service.java", 10)
-        self.write("docs/agents/progress.md", 50)
-        self.write("docs/agents/lessons.md", 30)
-        self.write("work/cards/TC-01.yaml", 20)
+        # Sized above MIN_CLASSIFIED_LINES on purpose: under the volume floor this same mix
+        # reports without failing, which is a separate test below.
+        self.write("src/main/java/Service.java", 100)
+        self.write("docs/agents/progress.md", 500)
+        self.write("docs/agents/lessons.md", 300)
+        self.write("work/cards/TC-01.yaml", 200)
         self.commit("chore: bookkeeping")
         result = self.run_meter("--since", "2000-01-01")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
@@ -351,11 +376,11 @@ class MeterTest(GitFixture):
         self.assertFalse(data["breach"])
 
     def test_the_ceiling_is_configurable_and_the_verdict_follows_it(self) -> None:
-        self.write("src/main/java/Service.java", 85)
-        self.write("docs/agents/progress.md", 15)
-        self.commit("chore: fifteen percent")
+        self.write("src/main/java/Service.java", 600)
+        self.write("docs/agents/progress.md", 400)
+        self.commit("chore: forty percent")
         self.assertEqual(self.run_meter("--since", "2000-01-01").returncode, 1)
-        self.assertEqual(self.run_meter("--since", "2000-01-01", "--ceiling", "0.2").returncode, 0)
+        self.assertEqual(self.run_meter("--since", "2000-01-01", "--ceiling", "0.5").returncode, 0)
 
     def test_a_share_exactly_on_the_ceiling_is_within_budget(self) -> None:
         self.write("src/main/java/Service.java", 90)
@@ -367,17 +392,64 @@ class MeterTest(GitFixture):
 
     def test_a_share_just_over_the_ceiling_prints_two_distinguishable_numbers(self) -> None:
         """A verdict line may not print `0.10 is over the 0.10 ceiling` and expect to be believed."""
-        self.write("src/main/java/Service.java", 905)
-        self.write("docs/agents/progress.md", 101)
+        self.write("src/main/java/Service.java", 700)
+        self.write("docs/agents/progress.md", 301)
         self.commit("chore: just over the line")
         result = self.run_meter("--since", "2000-01-01")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("0.1004 is over the 0.1000 ceiling", result.stdout)
+        self.assertIn("0.301 is over the 0.300 ceiling", result.stdout)
 
     def test_contrast_stops_at_the_first_precision_that_separates_two_shares(self) -> None:
         self.assertEqual(ratio_meter.contrast(0.5, 0.1), ("0.50", "0.10"))
         self.assertEqual(ratio_meter.contrast(0.1004, 0.10), ("0.1004", "0.1000"))
         self.assertEqual(ratio_meter.contrast(0.1, 0.1), ("0.100000", "0.100000"))
+
+
+    def test_below_the_volume_floor_it_reports_but_cannot_fail(self) -> None:
+        """A quiet week may not fail a merge on a handful of bookkeeping lines.
+
+        Measured: a brand-new repository whose first commit is a PRD reads 0.17, and a week holding
+        one bug fix and its distillation reads 0.26. Both would have failed a bare 0.10 gate, and a
+        budget that fires on a quiet week teaches its operator to ignore it.
+        """
+        self.write("src/main/java/Service.java", 20)
+        self.write("docs/agents/progress.md", 60)
+        self.commit("chore: a quiet week")
+        data = self.payload("--since", "2000-01-01")
+        self.assertTrue(data["below_volume_floor"])
+        self.assertGreater(data["process_share"], 0.30)
+        self.assertFalse(data["breach"])
+        self.assertEqual(data["verdict"], "WARN")
+        self.assertEqual(self.run_meter("--since", "2000-01-01").returncode, 0)
+
+    def test_the_warn_band_reports_without_failing(self) -> None:
+        """Between the two ceilings the verdict is WARN and the exit code stays 0."""
+        self.write("src/main/java/Service.java", 800)
+        self.write("docs/agents/progress.md", 160)
+        self.commit("chore: drifting")
+        data = self.payload("--since", "2000-01-01")
+        self.assertGreater(data["process_share"], 0.15)
+        self.assertLess(data["process_share"], 0.30)
+        self.assertTrue(data["warn"])
+        self.assertFalse(data["breach"])
+        self.assertEqual(data["verdict"], "WARN")
+        self.assertEqual(self.run_meter("--since", "2000-01-01").returncode, 0)
+
+    def test_a_definition_phase_is_never_failed_by_the_budget(self) -> None:
+        """Rich product definition is wanted, not tolerated.
+
+        A repository writing its PRD and feature specs has a low product share by design. Only
+        bookkeeping is capped, so a definition week with little bookkeeping passes cleanly.
+        """
+        self.write("docs/product/prd.md", 400)
+        self.write("docs/product/specs/F-001-signup.md", 500)
+        self.write("docs/agents/progress.md", 60)
+        self.commit("docs: define the product")
+        data = self.payload("--since", "2000-01-01")
+        self.assertEqual(data["lines"]["product"], 0)
+        self.assertLess(data["process_share"], 0.10)
+        self.assertFalse(data["breach"])
+        self.assertEqual(self.run_meter("--since", "2000-01-01").returncode, 0)
 
     def test_json_carries_the_whole_payload(self) -> None:
         self.write("src/main/java/Service.java", 10)
@@ -387,11 +459,13 @@ class MeterTest(GitFixture):
                     "cleanup_lines", "cleanup_files", "excluded_lines", "excluded_files",
                     "binary_files", "process_ceiling", "process_share", "product_floor",
                     "product_share", "product_floor_met", "breach", "largest_process_files",
-                    "verdict", "scope", "repo"):
+                    "verdict", "scope", "repo", "warn_ceiling", "min_classified_lines",
+                    "below_volume_floor", "warn"):
             self.assertIn(key, data)
         self.assertEqual(sorted(data["lines"]), ["other", "process", "product", "product_think"])
         self.assertEqual(data["verdict"], "WITHIN BUDGET")
-        self.assertEqual(data["process_ceiling"], 0.10)
+        self.assertEqual(data["process_ceiling"], 0.30)
+        self.assertEqual(data["warn_ceiling"], 0.15)
         self.assertEqual(data["product_floor"], 0.70)
 
     def test_a_range_with_no_commits_is_reported_as_no_data_rather_than_a_pass(self) -> None:
