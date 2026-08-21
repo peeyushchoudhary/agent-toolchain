@@ -83,7 +83,47 @@ dynamic program over path segments with a second one over the characters inside 
   rule takes the second number to 1.2% and is the whole of the difference — so that one rule is
   where the caution is spent, and it is spent on the pattern a planner actually writes by hand.
 
-Usage:  plan_waves.py [--root DIR] [--milestone M<n>] [--json]
+WHERE THE WORK ACTUALLY IS, DERIVED FROM GIT AND NEVER FROM A LEDGER. `--since <REV>` reads
+`<REV>..HEAD`, resolves each commit subject to a task by the SAME rule `--commit` uses, and prints
+per task `done | duplicate | in-flight | ready | blocked-on <ids>`. A ledger is a claim written by
+the same agent it would bind; a commit is a fact. It is the resume primitive after a context loss,
+and the milestone-completion check, and it costs zero model calls — against a ledger read that has
+been measured at ~188,000 tokens for one 745 KB file.
+
+`--ready` then emits the DISPATCHABLE SET: every task whose `needs` are done, whose `writes` meet
+nothing in flight, and none of whose `serialises` partners is in flight. `--in-flight` supplies what
+is already running, so the question answered is "what may I start NOW, given these". The wave list
+is a LEGALITY CERTIFICATE, not a dispatch schedule: `schedule()` is Kahn LEVELS, so wave N+1 waits
+on all of wave N even where a task needs one predecessor. Because W4/W6 compare EVERY pair rather
+than same-wave pairs, a continuous ready set carries the identical guarantee with no barrier.
+
+  MEASURED, on the 51-task cross-feature graph reconstructed from a real fleet plan set (rounds to
+  finish, unit tasks, K workers): barrier 27/19/15/12/11/10/9 for K=2..8 against ready-set
+  26/17/13/11/9/8/7. The ready set is never slower, and 4% to 22% faster across that band. ORDER IS
+  PART OF THE RESULT: dispatching the ready set in id order instead of most-unlocked-first gives
+  27/19/15/13/11/10/9 — at K=5 that is SLOWER than the barrier it replaced. So the set is ordered by
+  how many tasks sit transitively downstream of each, and that ordering is not decoration.
+
+  THERE IS NO BUILT-IN CONCURRENCY CAP, and that is an argument rather than an omission.
+   - It cannot be a safety number. Legality is re-derived against the ACTUAL in-flight set at every
+     dispatch, so the set is disjoint at any size; a cap can neither make a colliding pair safe nor
+     make a disjoint pair unsafe.
+   - The measured stray — 4 of 83 committed files outside the declaring task's `writes`, all four
+     inside ANOTHER task's set, i.e. 1 to 4 of 16 cards — is a per-task probability, and running
+     fewer tasks at once does not lower it. What catches it is W7 at commit time, which runs at any
+     size. At the top of that measured range the chance no in-flight task is straying is 0.75^K:
+     56% at two writers and 42% at three. No K on that curve is comfortable, which is the proof
+     that throttling is the wrong control for it.
+   - It can only be a throughput number, and that number belongs to the graph, not to this script.
+     On the same 51-task graph worker utilisation is 1.00 at K=3, 0.98 at K=4 and 0.93 at K=5, and
+     adding writers stops buying anything at K=11, where the dispatch bottoms out at 5 rounds
+     against a 4-level critical path. A constant compiled in here would be right for that milestone
+     and wrong for the next one.
+  So `--limit` exists, takes the operator's own bound, and DEFAULTS TO NONE; the deferred tasks are
+  printed with the reason, so a cap that is costing throughput is visible rather than assumed.
+
+Usage:  plan_waves.py [--root DIR] [--milestone M<n>] [--json] [--commit REV]
+                      [--since REV [--in-flight ID,...] [--ready] [--limit N]]
 Exit codes: 0 clean, 1 findings, 2 the arguments or the tree could not be read.
 """
 
@@ -537,10 +577,20 @@ def qualify(feature: str, tasks: Sequence[Task]) -> list[Task]:
     A `needs` entry that already carries a feature is left exactly as written — that is the
     explicit cross-feature edge — and every other entry is read against THIS feature, which keeps
     the plan-local default intact in both scopes.
+
+    `serialises` IS QUALIFIED BY THE SAME RULE, and it was not. The reference page documents
+    `serialises: [T1]`, every reader of that key compares it against an id that is qualified here,
+    and so the documented form matched nothing in the only scope where cross-feature collisions are
+    visible: measured on a 51-task graph rebuilt from real fleet plans, declaring the documented
+    `serialises: [T6]` on the pair that really collides left the W6 finding standing, while the
+    undocumented `serialises: [F-1/T6]` silenced it. A key that works only when written the way the
+    documentation does not say is a key that does nothing.
     """
+    def resolve(entry: str) -> str:
+        return entry if QUALIFY in entry else f"{feature}{QUALIFY}{entry}"
     return [task._replace(ident=f"{feature}{QUALIFY}{task.ident}",
-                          needs=[need if QUALIFY in need else f"{feature}{QUALIFY}{need}"
-                                 for need in task.needs])
+                          needs=[resolve(need) for need in task.needs],
+                          serialises=[resolve(partner) for partner in task.serialises])
             for task in tasks]
 
 
@@ -621,9 +671,16 @@ def milestone_json(root: Path, m: Milestone | None, findings: Sequence, code: in
             "unplanned": list(m.unplanned) if m else [],
             "waves": [list(wave) for wave in m.waves] if m else [],
             "unscheduled": list(m.stuck) if m else [],
+            # `serialises` was the one key this interface omitted, and it is the one key a
+            # dispatcher cannot do without: it is the declared mutex between two tasks that share a
+            # write set on purpose. Without it a consumer reading this JSON can compute "their
+            # `writes` overlap" but not "the overlap is deliberate and they must not run together",
+            # so the interface described itself as the dispatch interface while withholding the
+            # only thing that makes concurrent dispatch decidable.
             "tasks": {task.ident: {"feature": task.ident.split(QUALIFY)[0],
                                    "lane": task.lane, "needs": list(task.needs),
                                    "writes": list(task.writes), "covers": list(task.covers),
+                                   "serialises": list(task.serialises),
                                    "plan": task.doc.rel} for task in (m.tasks if m else [])},
             "findings": [item._asdict() for item in findings]}
 
@@ -653,6 +710,24 @@ def print_findings(findings: Sequence) -> None:
 # Measured on a two-feature fixture: a commit subject `F-7/T1` writing into F-8/T1's declared set —
 # the exact defect W7 exists to catch — exited 0 with no findings.
 COMMIT_TASK_RE = re.compile(r"(?<![\w/-])(?P<task>(?:F-\d+[A-Z]?/)?T[A-Za-z0-9._-]+)(?![\w/-])")
+
+# WHICH UNRESOLVED REFERENCE IS WORTH A FINDING — measured, because the answer above was wrong.
+# Over 2,672 real commit subjects in eight repositories the shape above matches 198 references and
+# 136 of them (69%) are ordinary English: `TLS`, `TOTP`, `TTL`, `TDD`, `TOCTOU`, `Task`, `Tasks`,
+# `TaskStop`, `Terraform`, `Telegram`, `Twilio`, `Timeline`, `Transport`, `TypeScript`,
+# `THE_INVARIANT`, `Tier-1`, `TRS-C4`. Each one made W7 report "the card and the plan disagree"
+# about a commit that never claimed a task. Every one of the 62 REAL references in that same corpus
+# — `T1`..`T11`, `T1a`, `T1b`, `T-4`, `T-1b`, `T-FE1`, `T-DOCS`, `T-STEPUP` — carries a DIGIT OR A
+# HYPHEN immediately after the `T`, and not one English word does. A qualified `F-9/...` reference
+# is admitted whatever follows, because nothing writes that shape by accident.
+# This gates the FINDING only. A plan that declares `task: TOTP` still resolves, because resolution
+# is driven by the ids the scope actually declares and this pattern never gets to veto them.
+COMMIT_ID_RE = re.compile(r"^(?:F-\d+[A-Z]?/)?T[0-9-]")
+
+# `Implement TRS-C11 moderation backend T1-T5.` is a real subject. The trailing separator belongs to
+# the sentence and not to the id, and carrying it made `T5.` resolve to nothing and then report
+# itself as a card that had drifted.
+REF_TAIL = "._-"
 
 
 def plan_feature(doc: Doc) -> list[str]:
@@ -686,15 +761,13 @@ def commit_paths(root: Path, commit: str) -> list[str]:
     return [line.strip() for line in listed.splitlines() if line.strip()]
 
 
-def check_commit_writes(root: Path, commit: str, tasks: Sequence[Task], f: Findings) -> int:
-    """W7, for the task the commit subject names. Returns the number of files checked.
+def task_index(tasks: Sequence[Task]) -> tuple[dict, dict]:
+    """The two lookups a commit reference resolves against: qualified ids, and bare-id buckets.
 
-    The task is taken from the commit SUBJECT, which is where this methodology already puts the id
-    (`commit_subject` is a card field). A commit naming no known task is not a finding: light-lane
-    work has no card, and inventing a violation for it would make the check fire on ordinary commits
-    until somebody removed it.
+    ONE copy, used by `--commit` and by `--since` alike. A second copy of this is exactly how W7
+    came to match a bare `T1` and never the qualified `F-7/T1` this methodology tells people to
+    write: two readers of the same id drift the moment one of them is fixed.
     """
-    subject = git(root, "log", "-1", "--format=%s", commit) or ""
     index = {task.ident: task for task in tasks}
     # A bare `T1` is unambiguous inside one plan and ambiguous across a milestone, where two
     # features may each own a `T1`. Resolve it only when exactly one task answers to it.
@@ -706,15 +779,39 @@ def check_commit_writes(root: Path, commit: str, tasks: Sequence[Task], f: Findi
         if QUALIFY not in task.ident:
             for qualifier in plan_feature(task.doc):
                 index.setdefault(f"{qualifier}{QUALIFY}{task.ident}", task)
-    refs = COMMIT_TASK_RE.findall(subject)
+    return index, bare
+
+
+def resolve_subject(subject: str, index: dict, bare: dict) -> tuple[list, list]:
+    """The tasks one commit subject names, and the task-shaped ids that resolved to nothing."""
     named, unresolved = [], []
-    for ref in refs:
+    for ref in COMMIT_TASK_RE.findall(subject):
+        ref = ref.rstrip(REF_TAIL)
         if ref in index:
             named.append(index[ref])
         elif QUALIFY not in ref and len(bare.get(ref, [])) == 1:
             named.append(bare[ref][0])
-        else:
+        elif COMMIT_ID_RE.match(ref):
             unresolved.append(ref)
+    return named, unresolved
+
+
+def check_commit_writes(root: Path, commit: str, tasks: Sequence[Task], f: Findings,
+                        subject: str | None = None) -> int:
+    """W7, for the task the commit subject names. Returns the number of files checked.
+
+    The task is taken from the commit SUBJECT, which is where this methodology already puts the id
+    (`commit_subject` is a card field). A commit naming no known task is not a finding: light-lane
+    work has no card, and inventing a violation for it would make the check fire on ordinary commits
+    until somebody removed it.
+
+    `subject` is passed in by `--since`, which has already read the whole log in one call; leaving
+    it None reads the one commit here, which is what `--commit REV` needs.
+    """
+    if subject is None:
+        subject = git(root, "log", "-1", "--format=%s", commit) or ""
+    index, bare = task_index(tasks)
+    named, unresolved = resolve_subject(subject, index, bare)
     # Silence here was the second half of the same defect. A subject naming NO task is ordinary
     # light-lane work and stays silent, but a subject that names a task-shaped id which does not
     # resolve is a card that has drifted from its plan, and reporting nothing let it push clean.
@@ -740,6 +837,210 @@ def check_commit_writes(root: Path, commit: str, tasks: Sequence[Task], f: Findi
     return len(stray)
 
 
+# --- derived state: where the milestone actually is ----------------------------------------------
+# A LEDGER IS A CLAIM AND GIT IS THE FACT. The agent that keeps the ledger is the agent the ledger
+# would bind, and no in-process control binds its own operator; so status is RE-DERIVED from
+# (plans, `git log <base>..HEAD`) on every run and held nowhere. That is also what makes a context
+# loss survivable: the loop recomputes instead of trusting a recollection, and a task dropped by a
+# replan surfaces as an unresolved commit rather than vanishing.
+
+LOG_SEP = "\x1f"     # a subject may contain anything a shell allows, including tabs; \x1f may not
+
+Status = NamedTuple("Status", [("ident", str), ("state", str), ("blocked_on", list),
+                               ("commits", list)])
+STATES = ("done", "duplicate", "in-flight", "ready", "blocked")
+
+
+def commit_log(root: Path, rev: str) -> list[tuple[str, str]] | None:
+    """`(sha, subject)` for `<rev>..HEAD`, oldest first, or None when the range cannot be read.
+
+    None rather than an empty list, and the caller turns it into exit 2. An unreadable revision
+    that answered "no commits" would read exactly like "nothing has been done yet", which is the
+    one answer a resume primitive must never give by accident.
+    """
+    out = git(root, "log", "--reverse", f"--format=%H{LOG_SEP}%s", f"{rev}..HEAD")
+    if out is None:
+        return None
+    rows = []
+    for line in out.splitlines():
+        sha, _, subject = line.partition(LOG_SEP)
+        if sha.strip():
+            rows.append((sha.strip(), subject.strip()))
+    return rows
+
+
+def derive_status(root: Path, rev: str, tasks: Sequence[Task], in_flight: Sequence[str],
+                  f: Findings) -> tuple[list, list]:
+    """Per-task state out of `<rev>..HEAD`, and the commits that named no task in scope.
+
+    `done` is "a commit in the range resolves to this task", by the SAME resolution `--commit`
+    uses — not a checkbox, not a ledger line. W7 runs over every commit in the range as a side
+    effect, so a resume also re-audits what the finished work actually wrote.
+
+    `duplicate` is REPORTED AND NOT FAILED. Two commits naming one task is a follow-up fix as often
+    as it is a re-dispatch, and a rule that fires on the ordinary case gets switched off. It counts
+    as done for every dependency, because the work landed either way.
+
+    `in-flight` is the one ADVISORY input here, and it is an argument rather than a file: what is
+    running is the only thing git cannot say, and writing it down would recreate the ledger this
+    exists to replace.
+    """
+    log = commit_log(root, rev)
+    if log is None:
+        raise SpecError(f"cannot read the commit range `{rev}..HEAD`; --since takes a revision "
+                        "this repository can resolve")
+    index, bare = task_index(tasks)
+    landed: dict[str, list[str]] = {task.ident: [] for task in tasks}
+    unclaimed: list[dict] = []
+    for sha, subject in log:
+        named, unresolved = resolve_subject(subject, index, bare)
+        for task in named:
+            landed[task.ident].append(sha)
+        if not named and unresolved:
+            unclaimed.append({"commit": sha, "subject": subject,
+                              "names": sorted(set(unresolved))})
+        # The finding for both cases — a stray path, and a task-shaped id that resolves to nothing
+        # — belongs to W7 and is raised there, so this loop never grows a second copy of it.
+        check_commit_writes(root, sha, tasks, f, subject=subject)
+    known = {task.ident for task in tasks}
+    done = {ident for ident, shas in landed.items() if shas}
+    running = set(in_flight)
+    states = []
+    for task in tasks:
+        shas = landed[task.ident]
+        # Only edges this scope can resolve block anything; a dangling edge is W1's finding, and
+        # counting it as a blocker here would report the same defect twice and wedge the dispatcher.
+        blocked = sorted(need for need in task.needs
+                         if need in known and need != task.ident and need not in done)
+        if len(shas) > 1:
+            state = "duplicate"
+        elif shas:
+            state = "done"
+        elif task.ident in running:
+            state = "in-flight"
+        elif blocked:
+            state = "blocked"
+        else:
+            state = "ready"
+        states.append(Status(task.ident, state, blocked, shas))
+    return states, unclaimed
+
+
+def unlocks(tasks: Sequence[Task]) -> dict:
+    """How many tasks sit transitively downstream of each id — the dispatch priority.
+
+    Removing the barrier is only half the gain. Measured on the reconstructed 51-task graph, a ready
+    set dispatched in id order is no faster than the waves it replaced and at five writers is
+    SLOWER; ordered by this count it is 11%-22% faster across two to eight writers. Longest-chain
+    first is the standard list-scheduling heuristic and this is its cheapest usable proxy.
+    """
+    forward: dict[str, set] = {task.ident: set() for task in tasks}
+    for task in tasks:
+        for need in task.needs:
+            if need in forward:
+                forward[need].add(task.ident)
+    counts = {}
+    for start in forward:
+        seen, stack = set(), list(forward[start])
+        while stack:
+            node = stack.pop()
+            if node in seen:
+                continue
+            seen.add(node)
+            stack.extend(forward.get(node, ()))
+        counts[start] = len(seen)
+    return counts
+
+
+def dispatch_block(task: Task, running: Sequence[Task]) -> str | None:
+    """Why this task may not start beside those, or None. The wave certificate, applied to a SET.
+
+    `serialises` is tested before the write sets so the message names the DECLARED mutex rather
+    than the overlap that implies it: a pair that serialises always overlaps, and reporting the
+    overlap would tell the reader to fix something that is already deliberate.
+    """
+    for other in running:
+        if other.ident == task.ident:
+            continue
+        if other.ident in task.serialises or task.ident in other.serialises:
+            return f"serialises with `{other.ident}`, which is in flight"
+    for other in running:
+        if other.ident == task.ident:
+            continue
+        hit = next(((a, b) for a in task.writes for b in other.writes if overlap(a, b)), None)
+        if hit is not None:
+            return (f"writes `{hit[0]}`, which meets `{hit[1]}` in `{other.ident}`, "
+                    "which is in flight")
+    return None
+
+
+def ready_set(tasks: Sequence[Task], states: Sequence[Status], in_flight: Sequence[str],
+              limit: int | None = None) -> tuple[list, list]:
+    """The tasks that may start NOW, and the ones deferred with the reason they were.
+
+    Each admitted task JOINS the in-flight set for the candidates after it, so the emitted set is
+    legal against itself and not only against what was already running. That matters because the
+    milestone need not be clean: on a graph that still has W4 findings this still hands back a set
+    no two members of which collide, instead of a set that is only safe if the plan was.
+    """
+    index = {task.ident: task for task in tasks}
+    rank = unlocks(tasks)
+    running = [index[ident] for ident in in_flight if ident in index]
+    candidates = sorted((index[s.ident] for s in states if s.state == "ready" and s.ident in index),
+                        key=lambda task: (-rank.get(task.ident, 0), task.ident))
+    chosen, deferred = [], []
+    for task in candidates:
+        reason = dispatch_block(task, running)
+        if reason is None and limit is not None and len(chosen) >= limit:
+            reason = f"--limit {limit} reached"
+        if reason is None:
+            chosen.append(task)
+            running.append(task)
+        else:
+            deferred.append({"task": task.ident, "reason": reason})
+    return chosen, deferred
+
+
+def status_json(states: Sequence[Status], unclaimed: Sequence[dict], chosen: Sequence[Task],
+                deferred: Sequence[dict], rev: str, in_flight: Sequence[str],
+                limit: int | None) -> dict:
+    """The `--since`/`--ready` half of the dispatch interface.
+
+    `complete` is a KEY AND NOT AN EXIT CODE. Exit 1 means findings; a milestone that is merely
+    half-built has no findings, and overloading exit 1 with "not finished yet" would make the
+    resume primitive fail on every run until the last one — which is the shape of a check that
+    gets switched off.
+    """
+    return {"since": rev, "in_flight": list(in_flight), "limit": limit,
+            "complete": all(s.state in ("done", "duplicate") for s in states) and bool(states),
+            "counts": {name: sum(1 for s in states if s.state == name) for name in STATES},
+            "status": {s.ident: {"state": s.state, "blocked_on": list(s.blocked_on),
+                                 "commits": list(s.commits)} for s in states},
+            "unclaimed_commits": [dict(item) for item in unclaimed],
+            "ready": [task.ident for task in chosen],
+            "deferred": [dict(item) for item in deferred]}
+
+
+def print_status(payload: dict, states: Sequence[Status]) -> None:
+    counts = payload["counts"]
+    print(f"since {payload['since']}  " + "  ".join(f"{counts[name]} {name}" for name in STATES)
+          + ("  MILESTONE COMPLETE" if payload["complete"] else ""))
+    for state in states:
+        detail = ""
+        if state.state == "blocked":
+            detail = "  <- " + ", ".join(state.blocked_on)
+        elif state.commits:
+            detail = "  " + " ".join(sha[:9] for sha in state.commits)
+        print(f"  {state.state:<9} {state.ident}{detail}")
+    for item in payload["unclaimed_commits"]:
+        print(f"  UNCLAIMED {item['commit'][:9]}  names {', '.join(item['names'])}  "
+              f"{item['subject']}")
+    if payload["ready"]:
+        print(f"  READY {len(payload['ready'])}  {', '.join(payload['ready'])}")
+    for item in payload["deferred"]:
+        print(f"  DEFERRED  {item['task']}  {item['reason']}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", default=".", help="repository root (default: the current dir)")
@@ -749,6 +1050,18 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="machine-readable output on stdout")
     parser.add_argument("--commit", metavar="REV",
                         help="also check that this commit wrote only what its task declared")
+    parser.add_argument("--since", metavar="REV",
+                        help="derive per-task status from the commits in REV..HEAD, and run the "
+                             "commit-versus-declaration check over every one of them")
+    parser.add_argument("--in-flight", metavar="ID[,ID...]", default="",
+                        help="qualified ids already running; the one thing git cannot tell this "
+                             "script, and an argument rather than a file on purpose")
+    parser.add_argument("--ready", action="store_true",
+                        help="also emit the dispatchable set: needs done, writes disjoint from "
+                             "everything in flight, no `serialises` partner in flight")
+    parser.add_argument("--limit", type=int, metavar="N",
+                        help="the operator's own cap on the dispatchable set (default: none; the "
+                             "module docstring argues why no number is compiled in)")
     args = parser.parse_args()
 
     root = Path(args.root).expanduser()
@@ -760,6 +1073,23 @@ def main() -> int:
     if args.milestone is not None and not MILESTONE_RE.match(args.milestone):
         print(f"ERROR: --milestone takes M<number>, not {args.milestone!r}", file=sys.stderr)
         return 2
+    # Refused rather than answered across plans. Task ids are plan-local, so `T1` names a different
+    # task in every feature; a merged status view over the per-plan scope would resolve no bare
+    # subject at all and report the whole fleet as `ready`, which is the most dangerous wrong answer
+    # this script could give. The milestone is the scope where the ids are qualified.
+    if (args.since or args.ready) and not args.milestone:
+        print("ERROR: --since and --ready need --milestone M<n>; task ids are plan-local, so "
+              "status across plans would fuse every feature's `T1` into one task", file=sys.stderr)
+        return 2
+    if args.ready and not args.since:
+        print("ERROR: --ready needs --since REV; the dispatchable set is derived from what is "
+              "already done, and there is no other source for that", file=sys.stderr)
+        return 2
+    if args.limit is not None and args.limit < 1:
+        print(f"ERROR: --limit takes a positive count, not {args.limit}", file=sys.stderr)
+        return 2
+    in_flight = [item.strip() for item in args.in_flight.split(",") if item.strip()]
+    status_payload, states = None, []
     try:
         if args.milestone:
             found, milestone = run_milestone(root.resolve(), args.milestone)
@@ -769,6 +1099,27 @@ def main() -> int:
             # plan. The scope that mattered most was the scope that was not wired.
             if args.commit and milestone is not None and milestone.tasks:
                 check_commit_writes(root.resolve(), args.commit, milestone.tasks, found)
+            if args.since:
+                if milestone is None or not milestone.tasks:
+                    print(f"ERROR: nothing to derive status for: milestone {args.milestone} has no "
+                          "task in any plan", file=sys.stderr)
+                    return 2
+                known = {task.ident for task in milestone.tasks}
+                # An in-flight id naming no task is exit 2 and not a finding. It means the caller
+                # and the plan disagree about what exists — usually a replan that dropped the task
+                # — and continuing would compute a ready set against a mutex that is not there.
+                unknown = [ident for ident in in_flight if ident not in known]
+                if unknown:
+                    print(f"ERROR: --in-flight names {', '.join(sorted(unknown))}, which no task "
+                          f"in {args.milestone} declares; ids are qualified, as `F-9/T1`",
+                          file=sys.stderr)
+                    return 2
+                states, unclaimed = derive_status(root.resolve(), args.since, milestone.tasks,
+                                                  in_flight, found)
+                chosen, deferred = (ready_set(milestone.tasks, states, in_flight, args.limit)
+                                    if args.ready else ([], []))
+                status_payload = status_json(states, unclaimed, chosen, deferred, args.since,
+                                             in_flight, args.limit)
         else:
             found, plans = run(root.resolve())
             if args.commit:
@@ -780,14 +1131,21 @@ def main() -> int:
     findings = sorted(found)
     code = 1 if findings else 0
     if args.milestone:
-        if args.json:
-            json.dump(milestone_json(root.resolve(), milestone, findings, code), sys.stdout,
-                      indent=2)
+        if args.json or args.ready:
+            # `--ready` emits JSON whether or not `--json` was asked for: the dispatchable set
+            # exists to be consumed by a program, and a caller that had to parse a printed line
+            # would rebuild the id join this interface is here to hand over.
+            payload = milestone_json(root.resolve(), milestone, findings, code)
+            if status_payload is not None:
+                payload.update(status_payload)
+            json.dump(payload, sys.stdout, indent=2)
             sys.stdout.write("\n")
             return code
         print_findings(findings)
         if milestone is not None:
             print_milestone(milestone)
+        if status_payload is not None:
+            print_status(status_payload, states)
         return code
     if args.json:
         json.dump({"root": str(root.resolve()), "count": len(findings), "exit": code,

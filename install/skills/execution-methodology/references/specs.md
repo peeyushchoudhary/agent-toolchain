@@ -338,9 +338,19 @@ One block per task. `needs` names the tasks that must finish first; `writes` is 
 task may touch, and it is the parallelism contract; `covers` names the criteria the task satisfies.
 An optional `serialises: [T1]` declares that a shared write set with another task is known and
 deliberate — without it, two tasks that write the same paths are a finding whether or not a
-dependency happens to hold them apart.
+dependency happens to hold them apart. `serialises` is plan-local like `needs`, and qualified the
+same way: `serialises: [F-11/T4]` names a task in another feature.
 
-The orchestrator derives the waves; nobody writes them down.
+The orchestrator derives the waves; nobody writes them down. **The wave list is a legality
+certificate, not a dispatch schedule.** It is Kahn levels, so wave N+1 waits on the whole of wave N
+even where a task needs one predecessor, and that barrier idles writers. Because the collision check
+compares EVERY pair rather than same-wave pairs, `plan_waves.py --milestone M<n> --since <rev>
+--ready` hands back a continuous ready set under the identical guarantee: every `needs` done, every
+`writes` disjoint from what is in flight, no `serialises` partner in flight. Status in that command
+is DERIVED FROM `git log`, never from a ledger — a ledger is written by the agent it would bind, and
+recomputing is what makes a lost context survivable. There is no built-in concurrency cap: legality
+is re-derived against the actual in-flight set at every dispatch, so `--limit` carries the
+operator's own bound and nothing is compiled in.
 
 ## Validation plan
 
