@@ -141,7 +141,7 @@ minutes.
 PRODUCT SPEC        why this exists, who it serves, where it stops
     │               → product-steward
     ▼
-FEATURE SPEC        scope · stories · behaviour · edge cases · horizontals · acceptance criteria
+FEATURE SPEC        why · scope · surface · acceptance criteria · examples · horizontals
     │               → product-steward
     ▼
 DESIGN              structure, boundaries, invariants at risk
@@ -181,8 +181,17 @@ migration file — one of them for a syntax fix — is the measured cost of forg
 ### Specs, design, plan
 
 Spec skeletons live in the execution-methodology skill's `references/specs.md`; the
-acceptance-criteria form turns into test names without translation. A feature spec with no edge-case section is not finished, and every
-horizontal is addressed or declared not-applicable with a reason.
+acceptance-criteria form turns into test names without translation. Edge cases are acceptance
+criteria like any other — a feature whose criteria describe only the happy path is not finished,
+and `edge_cases:` in the front matter names the classes that were considered. Every horizontal is
+addressed or declared not-applicable with a reason.
+
+**A spec states what is true now.** Both templates are updated in place and never appended to: no
+dated headings, no changelog section, no correction standing beside the thing it corrects. History
+is in git, *why* is in an ADR under `docs/decisions/`, and the append-only residue — a retired
+criterion number — is a front-matter key rather than a paragraph. A reader who has to date the
+sentences to find which one binds is interpreting the document at runtime, and two readers will
+interpret it differently.
 
 The design (`docs/superpowers/specs/<date>-<topic>-design.md`, owned by `architect`) carries
 structure, module boundaries, dependency direction, and the section that earns the gate: **which
