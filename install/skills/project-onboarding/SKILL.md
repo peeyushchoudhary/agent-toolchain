@@ -137,6 +137,36 @@ Read that state, never its exit code, then propose one of two outcomes:
 
 Never invent the reason; never leave both unrecorded.
 
+**Adoption is not finished when the file renders — it also configures this repository's
+validators.** The same state report carries the persona half: which personas this repository has in
+`docs/agents/personas/`, which of them declare `covers:`, and **which horizontal concerns in its own
+specs are owned by nobody**. That last list is the one to act on; it names the invariants this
+product writes down and binds to no reader.
+
+Measured across four repositories: a project's own domain validators are cited 100 times at review
+time, 5 times on a spec, and zero times on a PRD or a milestone. They arrive after the product is
+defined, which is the expensive end. For each unowned concern, decide which validator holds it, then
+add ONE line inside that persona's front matter — in the source under `docs/agents/personas/`, never
+in the generated `.claude/agents/` copy:
+
+```yaml
+covers: [tenancy, money handling]
+```
+
+`covers:` is read from the source by `spec_check.py`; the persona renderers do not emit it, so it
+changes no harness file and needs no re-render. Once a persona covers a concern, rule F demands that
+persona in `reviewed_by:` on every spec, PRD and milestone that says it moves that concern. Until
+then rule F reports `RULE F CHECKED NOTHING` — the state all four repositories are in today.
+
+```bash
+spec_check.py --root . --personas   # the pool, what each covers, and the concerns it could
+```
+
+**Nothing writes that line for you.** Deciding which validator holds which invariant is a judgement;
+a binding a script guessed is a binding nobody holds. A repository with no `docs/agents/personas/`
+has not adopted overlays (step 5) — a state, not a fault: the base pool applies unchanged and there
+is nothing here to bind.
+
 ## Verify
 
 Onboarding is done when the repository conforms, and one tool already owns that answer:

@@ -117,6 +117,35 @@ That command **always exits 0** — read the text, not the status. Then record o
 
 Leaving both unrecorded is the failure mode. It looks identical to a project nobody has reached yet.
 
+**The same report also configures this repository's validators**, because adoption is not finished
+when the file renders. It names the personas in `docs/agents/personas/`, which of them declare
+`covers:`, and **which horizontal concerns in this repository's own specs are owned by nobody** —
+the invariants the product writes down and binds to no reader.
+
+Measured across four repositories: a project's own domain validators are cited 100 times at review
+time, 5 times on a spec, and zero times on a PRD or a milestone. They arrive after the product is
+defined. For each unowned concern, decide which validator holds it and add ONE line to that
+persona's front matter — in the source under `docs/agents/personas/`, never in the generated
+`.claude/agents/` copy:
+
+```yaml
+covers: [tenancy, money handling]
+```
+
+`covers:` is read from the source by `spec_check.py`; the persona renderers do not emit it, so it
+changes no harness file and needs no re-render. Once a persona covers a concern, spec_check's rule F
+demands that persona in `reviewed_by:` on every spec, PRD and milestone that says it moves that
+concern; until then rule F reports `RULE F CHECKED NOTHING`, which is the state all four
+repositories are in today.
+
+```bash
+python3 ~/.claude/skills/execution-methodology/scripts/spec_check.py --root . --personas
+```
+
+Nothing writes that line for you: a binding a script guessed is a binding nobody holds. A repository
+with no `docs/agents/personas/` has not adopted overlays (step 5) — a state, not a fault. The base
+pool applies unchanged and there is nothing to bind.
+
 ## Verify
 
 ```bash

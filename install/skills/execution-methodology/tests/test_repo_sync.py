@@ -817,6 +817,280 @@ class AdoptionCheckTest(unittest.TestCase):
                              sorted(p.relative_to(repo).as_posix() for p in repo.rglob("*")))
 
 
+# --- persona configuration ------------------------------------------------------------------------
+# Adoption renders the methodology AND reports the repository's persona configuration, because doing
+# only the first is what the fleet already did: measured over four repositories, a project's own
+# domain validators are cited 100 times at review time, 5 times on a spec and 0 times on a PRD or a
+# milestone, and spec_check's rule F reports `RULE F CHECKED NOTHING` in every one of them because no
+# persona declares a `covers:`.
+#
+# THESE TESTS ARE WRITTEN AGAINST THE SHAPES THE REAL REPOSITORIES ACTUALLY WRITE, not against the
+# shape that is easiest to assert. Seven checkers in this toolchain passed their own fixtures and
+# were inert against the corpus; the last one matched a bare `T1` where the methodology tells authors
+# to write `F-7/T1`. So one test below uses `docs/product/specs/<slug>/spec.md` — the layout one real
+# repository uses for all 65 of its specs, and the layout rule F's path filter does not bind — and
+# another applies the proposal this script prints and asserts the result is readable by the parser
+# that has to read it. A proposal nobody can apply is the same defect wearing different clothes.
+
+PERSONA_REL = Path("docs") / "agents" / "personas"
+
+PERSONA = """---
+name: {name}
+description: Use when a change touches {name}'s territory.
+{covers}writes: no
+claude.model: opus
+claude.tools: Read, Grep, Glob
+codex.sandbox: read-only
+---
+
+You hold one invariant.
+"""
+
+HORIZONTALS = """# {title}
+
+## Horizontals
+
+| Concern | Disposition |
+| --- | --- |
+{rows}
+"""
+
+
+def persona(repo: Path, name: str, covers: str | None = None) -> Path:
+    """One persona overlay in the repository's own pool, with or without a `covers:` key."""
+    directory = repo / PERSONA_REL
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.md"
+    line = f"covers: [{covers}]\n" if covers else ""
+    path.write_text(PERSONA.format(name=name, covers=line), encoding="utf-8")
+    return path
+
+
+def product_doc(repo: Path, relative: str, rows: dict[str, str]) -> Path:
+    """A product document carrying a `## Horizontals` table, at whatever path is asked for."""
+    path = repo / "docs" / "product" / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = "\n".join(f"| {label} | {disposition} |" for label, disposition in rows.items())
+    path.write_text(HORIZONTALS.format(title=path.stem, rows=body), encoding="utf-8")
+    return path
+
+
+class PersonaConfigurationTest(unittest.TestCase):
+    """Adopting the methodology in a repository also reports that repository's persona configuration."""
+
+    def run_sync(self, repo: Path, *extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(SCRIPT), "--repo", str(repo), *extra],
+                              capture_output=True, text=True)
+
+    def make_repo(self, root: Path) -> Path:
+        repo = root / "project"
+        (repo / "docs" / "agents").mkdir(parents=True)
+        (repo / "docs" / "agents" / "README.md").write_text(
+            "| Lane | Read next |\n| --- | --- |\n"
+            "| Executing a plan | [execution/methodology.md](execution/methodology.md) |\n",
+            encoding="utf-8")
+        return repo
+
+    def test_a_repository_with_no_pool_is_told_so_plainly_and_is_not_a_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            result = self.run_sync(repo, "--check")
+            self.assertIn("no docs/agents/personas/", result.stdout)
+            self.assertIn("has not adopted persona overlays", result.stdout)
+            # The render is what --check gates. A repository that never adopted overlays is in a
+            # legitimate state, and the exit code must carry the render's verdict alone.
+            self.assertNotIn("UNOWNED", result.stdout)
+
+    def test_it_names_the_personas_and_which_of_them_declare_covers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            persona(repo, "tenancy-validator", covers="tenancy")
+            persona(repo, "money-validator")
+            product_doc(repo, "specs/F-1-thing.md",
+                        {"Tenancy / isolation": "per-tenant rows", "Money handling": "invoices"})
+            out = self.run_sync(repo, "--check").stdout
+            self.assertIn("2 persona(s) in docs/agents/personas/, 1 with `covers:`", out)
+            self.assertIn("tenancy-validator", out)
+            self.assertRegex(out, r"money-validator\s+-- declares no `covers:`")
+            self.assertRegex(out, r"tenancy-validator\s+covers: tenancy")
+
+    def test_it_names_the_concerns_nobody_owns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            persona(repo, "tenancy-validator", covers="tenancy")
+            product_doc(repo, "specs/F-1-thing.md",
+                        {"Tenancy / isolation": "per-tenant rows",
+                         "Money handling": "invoices",
+                         "Audit trail": "every write"})
+            out = self.run_sync(repo, "--check").stdout
+            self.assertIn("2 of 3 live concern(s) owned by nobody", out)
+            self.assertIn("UNOWNED  Money handling", out)
+            self.assertIn("UNOWNED  Audit trail", out)
+            self.assertNotIn("UNOWNED  Tenancy", out)
+
+    def test_a_concern_declared_inapplicable_is_not_a_concern_nobody_owns(self) -> None:
+        """`N/A — invites are free.` is a decision, not an unowned invariant.
+
+        Measured: no row in the 805 real ones writes a bare `N/A`; all 45 real exemptions open with
+        the declaration. Counting them would put 45 phantom invariants in front of a reader.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            persona(repo, "tenancy-validator")
+            product_doc(repo, "specs/F-1-thing.md",
+                        {"Money handling": "N/A — this feature moves no money",
+                         "Audit trail": "every write"})
+            out = self.run_sync(repo, "--check").stdout
+            self.assertIn("1 of 1 live concern(s) owned by nobody", out)
+            self.assertIn("UNOWNED  Audit trail", out)
+            self.assertNotIn("Money handling", out)
+
+    def test_it_reads_the_carrier_where_a_real_repository_writes_it(self) -> None:
+        """THE ANTI-INERTNESS TEST. One real repository writes every one of its 65 specs as
+        `docs/product/specs/<slug>/spec.md`. Rule F binds documents by path — `specs/F-*.md`, the
+        PRD, `milestones/M*.md` — so it binds NONE of them, and 545 live concern rows sit outside
+        it. A configuration report that copied that path filter would tell that repository it has
+        no concerns. So the scan reads the carrier wherever it is authored, AND says which rows rule
+        F cannot reach, because telling someone to bind a persona that will never be demanded is
+        the same silence with more words.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            persona(repo, "plane-validator")
+            product_doc(repo, "specs/c11-moderation/spec.md",
+                        {"Tenancy / isolation": "one plane per credential"})
+            out = self.run_sync(repo, "--check").stdout
+            self.assertIn("UNOWNED  Tenancy / isolation", out)
+            self.assertIn("(in no document rule F binds)", out)
+            self.assertIn("1 of them appear only in documents rule F does not bind", out)
+
+    def test_it_proposes_a_line_that_the_parser_which_must_read_it_can_read(self) -> None:
+        """Apply the proposal exactly as printed, then check the binding is live.
+
+        The proposal names a file and a line. If that line lands outside the front matter block,
+        `read_persona_overlay` never sees it, the report keeps saying `declares no covers:`, and
+        the advice is a loop. This applies it mechanically and re-runs.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            path = persona(repo, "money-validator")
+            product_doc(repo, "specs/F-1-thing.md", {"Money handling": "invoices"})
+            out = self.run_sync(repo, "--check").stdout
+            match = re.search(r"docs/agents/personas/money-validator\.md:(\d+)\s+insert before",
+                              out)
+            self.assertIsNotNone(match, f"no insertion point was proposed:\n{out}")
+            lines = path.read_text(encoding="utf-8").splitlines()
+            lines.insert(int(match.group(1)) - 1, "covers: [money handling]")
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            after = self.run_sync(repo, "--check").stdout
+            self.assertIn("1 with `covers:`", after)
+            self.assertIn("every live concern in this product definition is owned by a persona",
+                          after)
+
+    def test_it_writes_nothing_into_a_persona(self) -> None:
+        """Scripts here write nothing, and a `covers:` line is a judgement about which validator
+        holds which invariant. A script that guesses it produces a binding nobody decided."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            path = persona(repo, "money-validator")
+            product_doc(repo, "specs/F-1-thing.md", {"Money handling": "invoices"})
+            before = path.read_bytes()
+            for mode in (("--check",), ("--adoption-check",), ()):
+                with self.subTest(mode=mode):
+                    self.run_sync(repo, *mode)
+                    self.assertEqual(before, path.read_bytes(),
+                                     "the persona file changed; this script writes nothing")
+
+    def test_adoption_check_reports_the_persona_state_and_still_exits_zero(self) -> None:
+        """It is a state report. The methodology's own onboarding step says read the text, never
+        the exit code, and a session hook that can fail is a session hook somebody removes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            persona(repo, "money-validator")
+            product_doc(repo, "specs/F-1-thing.md", {"Money handling": "invoices"})
+            # Render first, so the methodology half of the state is current and silent: what is
+            # left is the persona half alone.
+            self.assertEqual(0, self.run_sync(repo).returncode)
+            result = self.run_sync(repo, "--adoption-check")
+            self.assertEqual(0, result.returncode)
+            self.assertIn("persona configuration is incomplete", result.stdout)
+            self.assertIn("Money handling", result.stdout)
+            self.assertIn("no persona here declares `covers:`", result.stdout)
+
+    def test_adoption_check_stays_silent_when_there_is_nothing_to_configure(self) -> None:
+        """Silence is the reward for a healthy repository, and a line printed at every session
+        start in every repository it does not apply to is a line somebody mutes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            persona(repo, "money-validator", covers="money handling")
+            product_doc(repo, "specs/F-1-thing.md", {"Money handling": "invoices"})
+            self.assertEqual(0, self.run_sync(repo).returncode)
+            result = self.run_sync(repo, "--adoption-check")
+            self.assertEqual(0, result.returncode)
+            self.assertEqual("", result.stdout.strip())
+
+    def test_adoption_check_says_nothing_about_personas_when_there_is_no_pool(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            product_doc(repo, "specs/F-1-thing.md", {"Money handling": "invoices"})
+            self.assertEqual(0, self.run_sync(repo).returncode)
+            result = self.run_sync(repo, "--adoption-check")
+            self.assertEqual(0, result.returncode)
+            self.assertEqual("", result.stdout.strip())
+
+    def test_adoption_check_exits_zero_in_every_persona_state(self) -> None:
+        states = ("none", "unbound", "bound", "unreadable")
+        for state in states:
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as tmp:
+                repo = self.make_repo(Path(tmp))
+                product_doc(repo, "specs/F-1-thing.md", {"Money handling": "invoices"})
+                if state == "unbound":
+                    persona(repo, "money-validator")
+                elif state == "bound":
+                    persona(repo, "money-validator", covers="money handling")
+                elif state == "unreadable":
+                    directory = repo / PERSONA_REL
+                    directory.mkdir(parents=True, exist_ok=True)
+                    (directory / "broken.md").write_text("no front matter here\n", encoding="utf-8")
+                self.assertEqual(0, self.run_sync(repo, "--adoption-check").returncode)
+
+    def test_a_persona_that_cannot_be_read_is_reported_not_skipped(self) -> None:
+        """A pool half-read is how a rule goes inert while looking green."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            directory = repo / PERSONA_REL
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / "broken.md").write_text("no front matter here\n", encoding="utf-8")
+            product_doc(repo, "specs/F-1-thing.md", {"Money handling": "invoices"})
+            out = self.run_sync(repo, "--check").stdout
+            self.assertIn("broken", out)
+            self.assertIn("unreadable", out)
+
+    def test_the_persona_report_never_changes_the_exit_code(self) -> None:
+        """`--check` gates the RENDER. spec_check's rule F already owns the binding, and one file
+        answering to two checkers with two opinions is a thing this toolchain refuses on purpose."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            persona(repo, "money-validator")
+            product_doc(repo, "specs/F-1-thing.md", {"Money handling": "invoices"})
+            self.assertEqual(0, self.run_sync(repo).returncode)
+            checked = self.run_sync(repo, "--check")
+            self.assertIn("UNOWNED  Money handling", checked.stdout)
+            self.assertEqual(0, checked.returncode,
+                             "an unowned concern failed the render gate; it is a decision to make, "
+                             "not a drift to repair")
+
+    def test_list_carries_the_persona_state_for_a_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            persona(repo, "money-validator")
+            product_doc(repo, "specs/F-1-thing.md", {"Money handling": "invoices"})
+            result = self.run_sync(repo, "--list")
+            self.assertEqual(0, result.returncode)
+            self.assertIn("personas", result.stdout)
+            self.assertIn("1 of 1 live concern(s) owned by nobody", result.stdout)
+
+
 class ToolchainCarriesNoProjectIdentityTest(unittest.TestCase):
     """This skill directory is about to become its own repository.
 
