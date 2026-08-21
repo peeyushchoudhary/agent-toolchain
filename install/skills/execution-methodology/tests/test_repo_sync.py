@@ -70,7 +70,7 @@ class MethodologySyncTest(unittest.TestCase):
         reach — the skill entry point and the rendered methodology. The version left behind at
         1.4 while its rules shipped is the recorded reason this asserts more than the number.
         """
-        self.assertEqual(installed_version(), "4.0")
+        self.assertEqual(installed_version(), "4.1")
         for relative in ("SKILL.md", "methodology.md"):
             with self.subTest(relative=relative):
                 body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())

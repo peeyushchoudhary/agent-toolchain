@@ -25,10 +25,15 @@ and installer behaviour: [install/README.md](install/README.md).
 
 The repository currently ships six published skills, thirteen generated personas, local session and
 Git guards, a cross-harness installer, and executable verification for the published toolchain. The
-execution methodology is at v4.0: the process has a spending limit, and a script enforces it.
-Committed churn splits three ways — product, product thinking, and process — and `ratio_meter.py`
-exits non-zero when bookkeeping exceeds 10% of the classified total, with `weekly_review.py`
-reporting the trend across repositories. Work is bound to one approved outcome and capped at what
+execution methodology is at v4.1: the process has a spending limit, a script enforces it, and the
+product definition it protects is checkable. Committed churn splits three ways — product, product
+thinking, and process — and `ratio_meter.py` warns at a 15% process share and fails a merge at 30%,
+with a volume floor below which a quiet week cannot fail at all. `weekly_review.py` reports the
+trend across repositories. Product definition is never capped: a repository writing its PRD and
+feature specs has a low product share by design, and only bookkeeping is bounded. `spec_check.py`
+holds the other half — one PRD and its feature specs, each stating what is true now rather than
+accumulating what it used to say — and binds a newly exposed route to the Surface section of an
+approved feature spec, so a module the PRD excluded cannot ship unnoticed. Work is bound to one approved outcome and capped at what
 the spec requires — a finding demanding more is over-engineering and non-blocking. Tasks default to a
 card-free light lane and earn a validated card only when they cross a durable boundary or safety
 surface. Review runs under a budget — one reviewer plus conditional specialists, two rounds, then
@@ -151,6 +156,38 @@ independent review, and a merge commit that preserves the audit trail. See
 
 A concise record of one material repository improvement each week, newest first. Current tooling
 remains the authority for behaviour; each entry points to the implementation it describes.
+
+### Week of 21 August 2026 — v4.1: the product definition is checkable
+
+The budget landed first and needed two corrections within a day. Its calibration had put the
+product-thinking overrides ahead of the bookkeeping roots, so a workspace verdict filed under a
+`plans/` subdirectory classified as product thinking — the exact class the budget bounds, escaping
+through a directory name. And one ceiling could not do two jobs: 0.10 failed a new repository whose
+first commit was a PRD, and failed a week holding one bug fix. Both are fixed. WARN at 0.15, FAIL at
+0.30, and nothing fails below 500 classified lines. Back-tested against the collapse that earned
+v4.0, the warning fires in the first week of the inversion and the failure in the week product
+output fell 97%, while no healthy week trips either.
+
+The rest is the half the budget could not reach. A budget bounds what the process costs; it says
+nothing about whether the product was defined well enough to build. `references/specs.md` becomes
+one PRD per repository and its feature specs, governed by a rule that outranks the rest of the file:
+**a spec states what is true now.** It is updated in place, never appended to, and it never says what
+it used to say — history is in git, *why* is in a decision record, and the append-only residue is a
+front-matter key rather than a paragraph. `spec_check.py` enforces that structurally, because the
+semantic version does not work: a broad word-match for history language fired 1,057 times across 164
+real documents, mostly on domain vocabulary.
+
+Two things were built as the cheap substitute rather than the thing asked for. The interactive HTML
+explainer is a decision queue behind `--questions`, because a stdlib markdown renderer is ~540 lines
+to display prose that is deleted on sight, while the one thing it could add — every open question
+across a PRD and a dozen specs, in one place — is thirty lines. The approval interview is a single
+clause: the agent answers its own question from the spec first, and asks only what survives. There
+is no transcript. A comprehension check that stores its own results has become the thing it was
+measuring.
+
+`--surfaces` is the one with a measured failure behind it. In the record a PRD section headed "out
+of scope" named eight modules and all eight were built — 229 endpoints, none reachable. A route
+added in a diff must now appear in the Surface section of an approved feature spec.
 
 ### Week of 21 August 2026 — methodology v4.0: the budget binds
 

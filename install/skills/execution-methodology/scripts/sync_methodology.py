@@ -44,7 +44,7 @@ SOURCE = SKILL / "methodology.md"
 # works — a stage removed, a gate moved, an artifact renamed. MINOR for additive clarification.
 # Rendered copies carry this stamp so a repo running an older methodology can be detected instead of
 # silently drifting. validate_disclosure.py reads this constant to decide WARN versus ERROR.
-METHODOLOGY_VERSION = "4.0"
+METHODOLOGY_VERSION = "4.1"
 
 TARGET_REL = Path("docs") / "agents" / "execution" / "methodology.md"
 OVERLAY_REL = Path("docs") / "agents" / "execution" / "overlay.md"
