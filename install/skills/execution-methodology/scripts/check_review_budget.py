@@ -284,6 +284,9 @@ JUDGE_NAME_TOKENS = frozenset({
     "rereview", "reviewer", "security", "tenancy", "validator", "verdict",
 })
 KIND_SPLIT_RE = re.compile(r"[-_.]+")
+# Every token that names a KIND, either side of the union. Used only by `trailing_kind_tokens`,
+# which reads the kind that sits BEFORE a round marker rather than after it.
+KIND_TOKENS = REVIEW_KIND_TOKENS | WORK_KIND_TOKENS
 # Non-prose artifacts are EVIDENCE, not judgements. A JUnit XML named `T4-R3-GREEN-*.xml`, a probe
 # log, a captured diff or a source file dropped in the workspace carries a round marker only
 # because it belongs to a round — reading it as a verdict charged 27 phantom rounds.
@@ -345,16 +348,56 @@ FILE_BUDGET = 50
 BYTE_BUDGET = 500 * 1024
 
 
+def trailing_kind_tokens(head: str) -> list[str]:
+    """The recognised KIND tokens at the END of `head`, longest run first, never all of them.
+
+    MEASURED, not supposed. The methodology mandates `<subject>-r<N>-<kind>.md`, and the kind
+    reader below only ever looked AFTER the marker. Across 59 real review workspaces the tool
+    emitted 264 UNCLASSIFIED_ROUND_ARTIFACT warnings; **129 of them carry a round marker that ENDS
+    the name** — the projects write `<subject>-<kind>-r<N>.md`, kind FIRST. 70 of those 129 end in
+    a token these very sets already recognise (`-review-r5` x50, `-security-r15` x15, `-fix-`,
+    `-design-`, `-plan-`). The tool held the right vocabulary and read it in the wrong position:
+    a WORD test where a STRUCTURE test was needed, which is the failure this repository has now
+    recorded seven times.
+
+    Two consequences, and the second is the load-bearing one:
+      1. the kind is classifiable, so a judge verdict stops being charged as an unknown; and
+      2. `subject_of` can take the kind OUT of the subject. Without that, one artifact reviewed by
+         six kinds becomes six subjects each spending its own budget. This is not hypothetical:
+         one real workspace shows `<subj>-spotless-amendment-{architecture,builder,contract,
+         general,methodology,security}-rN`, six pseudo-subjects, 51 artifacts, rounds to r14.
+
+    NEVER consumes the whole head. A subject that IS a kind word (`review-r1.md`) keeps its name;
+    an empty subject key would collapse unrelated lineages into one bucket, which is the opposite
+    of failing closed.
+    """
+    tokens = [t for t in KIND_SPLIT_RE.split(head.strip("-_.").lower()) if t]
+    cut = len(tokens)
+    while cut > 1 and tokens[cut - 1] in KIND_TOKENS:
+        cut -= 1
+    return tokens[cut:]
+
+
 def subject_of(name: str) -> str:
     """Everything before the first round marker is the subject.
 
     Real lineages name the round then qualify it (`S2-01-R18-R1`, `T6b-round5-rereview`), so the
     tail after the first marker is round-specific and must not split the subject.
+
+    When the marker ENDS the name the kind sits before it instead, and it is stripped too — see
+    `trailing_kind_tokens`. Stripping can only MERGE subjects, never split one, so it can only
+    raise a subject's spent count. It fails closed by construction.
     """
     stem = Path(name).stem
     m = ROUND_RE.search(stem)
     if m:
-        stem = stem[: m.start()]
+        head = stem[: m.start()]
+        if not ROUND_RE.search(stem[m.end():]) and not stem[m.end():].strip("-_."):
+            trailing = trailing_kind_tokens(head)
+            for _ in trailing:
+                head = SEPARATOR_RE.split(head.strip("-_."))
+                head = "-".join(head[:-1])
+        stem = head
     t = TERMINAL_RE.search(stem)
     if t:
         # A terminal pass belongs to its subject, not to a subject of its own. Without this,
@@ -370,7 +413,13 @@ def kind_of(stem: str, mark: re.Match) -> str | None:
     Returns "review" (spends a round), "work" (does not), or None (kind unrecognised — the caller
     charges it as a review and reports it, because silence here is the defect this check carries).
     """
-    tokens = {t for t in KIND_SPLIT_RE.split(stem[mark.end():].strip("-_.").lower()) if t}
+    tail = stem[mark.end():]
+    tokens = {t for t in KIND_SPLIT_RE.split(tail.strip("-_.").lower()) if t}
+    if not tokens:
+        # The marker ENDS the name: the kind is written BEFORE it. 129 of the 264 unclassified
+        # artifacts across the real workspaces have this shape. Reading the head here is the same
+        # test on the same vocabulary, applied at the position the corpus actually uses.
+        tokens = set(trailing_kind_tokens(stem[: mark.start()]))
     if tokens & REVIEW_KIND_TOKENS:
         return "review"
     if tokens & WORK_KIND_TOKENS:
