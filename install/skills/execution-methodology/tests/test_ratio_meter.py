@@ -121,7 +121,26 @@ class ClassifyTest(unittest.TestCase):
         )
 
     def test_unclassified_paths_are_other(self) -> None:
-        self.assert_bucket(ratio_meter.OTHER, "notes.txt", "assets/logo.svg", "config/app.yml")
+        self.assert_bucket(ratio_meter.OTHER, "notes.txt", "assets/logo.svg", "data/seed.json")
+
+    def test_configuration_and_shell_are_product(self) -> None:
+        """Config, orchestration, and shell are how a product is built and run, not commentary."""
+        self.assert_bucket(ratio_meter.PRODUCT, "config/app.yml", "deploy/stack.yaml",
+                           "scripts/release-gate.sh", "web/vite.config.mts", "tools/build.mjs")
+
+    def test_plans_and_design_outrank_a_process_shaped_parent(self) -> None:
+        """The two overrides, each earned by a false positive on a real repository.
+
+        A plan filed under a process-shaped parent is still a design document, and a directory of
+        UI mockups is design work even when its leaf directory is called `cards`.
+        """
+        self.assert_bucket(ratio_meter.PRODUCT_THINK,
+                           "docs/superpowers/plans/2026-01-01-ship-plan.md",
+                           "design/sync/cards/screen-01-empty-state.html")
+        # The override is scoped: bookkeeping outside those two sequences still charges to process.
+        self.assert_bucket(ratio_meter.PROCESS,
+                           "docs/superpowers/progress.md",
+                           "workspace/cards/task-01.md")
 
     def test_process_wins_an_ambiguous_path_and_the_cost_is_asserted(self) -> None:
         """The documented ordering, both directions, including the false positive it produces."""

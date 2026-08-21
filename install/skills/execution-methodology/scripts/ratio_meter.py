@@ -94,14 +94,26 @@ EXCLUDED_SEGMENTS = ("node_modules", "dist", "build", "target", ".venv", "vendor
 EXCLUDED_SUFFIXES = (".lock", ".gen.ts")
 EXCLUDED_NAMES = ("package-lock.json",)
 
-PRODUCT_SUFFIXES = (".java", ".kt", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".swift",
-                    ".sql", ".css", ".scss", ".html", ".vue", ".tf", ".tfvars")
+PRODUCT_SUFFIXES = (".java", ".kt", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts",
+                    ".cts", ".py", ".go", ".rs", ".swift", ".rb", ".php", ".cs", ".c", ".h",
+                    ".cpp", ".hpp", ".m", ".sql", ".css", ".scss", ".less", ".html", ".vue",
+                    ".svelte", ".sh", ".bash", ".zsh", ".tf", ".tfvars", ".yaml", ".yml", ".toml")
 PRODUCT_NAMES = ("package.json", "pom.xml", "cargo.toml", "pyproject.toml")
 PRODUCT_NAME_PREFIXES = ("build.gradle", "dockerfile", "docker-compose", "requirements")
 PRODUCT_SEQUENCES = ("/.github/workflows/",)
 
 PRODUCT_THINK_SEQUENCES = ("/docs/product/", "/docs/architecture/", "/docs/decisions/",
                            "/docs/runbooks/", "/specs/", "/design/")
+
+# Checked BEFORE process, and the only sequences that are. Principle 8 names the exception itself:
+# process is "workspace, ledger, verdicts, cards, escalations — not product specs or design
+# documents, which are product thinking". A plan is a design document, and plans are conventionally
+# filed under a process-shaped parent such as docs/superpowers/plans/. Charging them to process
+# read the best-measured repository in the fleet at a 0.45 share on plans alone, which is the
+# false positive that teaches an operator to ignore the meter. `/design/` is here for the same
+# reason and cost the same way: a directory of UI mockups filed as `design/<x>/cards/` is design
+# work, and `/cards/` alone charged 63,000 lines of it to bookkeeping.
+PRODUCT_THINK_OVERRIDE_SEQUENCES = ("/plans/", "/design/")
 PRODUCT_THINK_NAMES = ("readme.md",)
 PRODUCT_THINK_NAME_PREFIXES = ("openapi",)
 PRODUCT_THINK_SUBSTRINGS = ("prd",)
@@ -220,6 +232,8 @@ def classify(path: str) -> str:
     name = norm.rstrip("/").rsplit("/", 1)[-1]
     if is_excluded(path):
         return EXCLUDED
+    if any(sequence in norm for sequence in PRODUCT_THINK_OVERRIDE_SEQUENCES):
+        return PRODUCT_THINK
     if (any(sequence in norm for sequence in PROCESS_SEQUENCES)
             or any(token in norm for token in PROCESS_SUBSTRINGS)
             or any(name.endswith(suffix) for suffix in PROCESS_SUFFIXES)):
