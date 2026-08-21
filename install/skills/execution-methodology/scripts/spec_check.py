@@ -123,6 +123,19 @@ def parse_front_matter(lines: list[str]) -> tuple[dict[str, object], dict[str, i
         match = QUOTED_RE.match(raw.strip())
         return match.group(2) if match else raw.strip()
 
+    def strip_comment(raw: str) -> str:
+        """Drop a trailing `# ...` from an UNQUOTED value, the way YAML does.
+
+        The docstring above always claimed comments were handled; only whole-line comments were.
+        A trailing one survived into the value, so the shipped templates — which annotate optional
+        keys inline — produced spurious findings when copied verbatim: `withdrawn: [3, 9] # optional`
+        parsed the comment as part of the list. The rule is YAML's: whitespace followed by `#`
+        starts a comment, so `title: fix the #3 bug` truncates to `fix the` exactly as it would in
+        YAML — quote the value to keep it. A `#` with no space before it, as in `id: F-12#a`, is
+        part of the value.
+        """
+        return re.split(r"\s#", raw, maxsplit=1)[0] if re.search(r"\s#", raw) else raw
+
     if not lines or lines[0].strip() != "---":
         raise SpecError("no `---` front matter block at the top of the file")
     data: dict[str, object] = {}
@@ -136,7 +149,10 @@ def parse_front_matter(lines: list[str]) -> tuple[dict[str, object], dict[str, i
         # The key is matched UNSTRIPPED, so an indented line — a nested mapping or a block list —
         # fails the shape test and raises rather than being silently flattened into a flat key.
         key, separator, value = raw.partition(":")
-        value = value.strip()
+        # The comment goes before anything looks at the value's shape. Stripping it inside unquote
+        # was too late: `withdrawn: [3, 9]  # optional` no longer ended in `]`, so it never reached
+        # the flow-list branch and arrived as a string that every list check then mis-read.
+        value = strip_comment(value).strip() if not QUOTED_RE.match(value.strip()) else value.strip()
         if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", key):
             raise SpecError(f"line {index + 1}: not a `key: value` line -> {stripped!r}")
         if key in data:

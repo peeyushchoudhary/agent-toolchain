@@ -198,8 +198,30 @@ updated: <YYYY-MM-DD>
 
 # M<n> — <milestone>
 
+## Goal
+One paragraph, in the user's terms, of what is true when this milestone lands. Not a feature list —
+a state of the world. This is the only sentence in the corpus that spans features, which is why it
+cannot be derived from them and why the milestone document has to exist at all.
+
 ## Why now
 What becomes possible when these features land together, and what stays impossible until they do.
+
+## Success criteria
+Outcome-level, and NONE of them may be any single feature's acceptance criterion. If a line here
+could be written as `**AC-n** When …` inside one spec, it belongs in that spec instead.
+
+## Cross-feature validation
+The journeys no feature's own suite can prove, because each proves only its own slice. One row per
+journey: what it crosses, and what it establishes that the parts do not.
+
+| journey | crosses | proves |
+|---|---|---|
+| J-1 <name> | F-11 → F-12 → F-13 | <the handoff that only the whole path exercises> |
+
+Gate: `<the exact command that runs these journeys>`
+
+The `Gate:` line is read by the push guard when this milestone moves to `status: shipped`. Sealing a
+milestone runs its end-to-end validation; a seal whose journeys never ran is a claim, not evidence.
 
 ## Where it stops
 What is deliberately NOT in this milestone, and what that costs.
@@ -231,6 +253,112 @@ hold, and each is a cost paid on every future edit. The schedule in particular i
 `plan_waves.py --milestone M2` merges the plans of the member features into one graph with qualified
 task ids (`F-12/T1`) and derives the waves. A wave list written into the milestone would disagree
 with the plans the first time a task moves.
+
+---
+
+## The feature plan
+
+`docs/product/plans/F-<id>-<slug>.md` — one per feature, holding the implementation plan and the
+validation plan in one file. Two files would let the tasks and the tests they justify disagree, and
+the disagreement would be invisible because each file would read complete on its own.
+
+It is product thinking, not bookkeeping: it is committed, it counts toward the ~20% that is wanted,
+and it is where implementation detail belongs. **The plan explains; the card names.** Anything that
+would be identical for a second task belongs here or in a committed file; only what makes THIS task
+stop belongs in a card.
+
+````markdown
+---
+feature: F-<id>
+title: <feature>
+spec: docs/product/specs/F-<id>-<slug>.md
+status: draft | approved | building | shipped
+updated: <YYYY-MM-DD>
+---
+
+# F-<id> — implementation and validation plan
+
+## Approach
+How this is being built, in a paragraph. The shape of the change, the existing seams it uses, and
+the one thing a reader would otherwise get wrong. Not a restatement of the spec.
+
+## Frozen interfaces
+Signatures, payload shapes and event names that later tasks consume, verbatim. A task may not
+invent one of these, and a task that needs one that is not here returns to the plan.
+
+## Tasks
+
+```task
+task: T1
+title: <what is true after this task that was not before>
+lane: full
+needs: []
+writes: [backend/x/**]
+covers: [AC-1, AC-4]
+```
+
+```task
+task: T2
+title: <the next one>
+lane: light
+needs: [T1]
+writes: [web/src/y/**]
+covers: [AC-3]
+```
+
+One block per task. `needs` names the tasks that must finish first; `writes` is the only paths this
+task may touch, and it is the parallelism contract; `covers` names the criteria the task satisfies.
+An optional `serialises: [T1]` declares that a shared write set with another task is known and
+deliberate — without it, two tasks that write the same paths are a finding whether or not a
+dependency happens to hold them apart.
+
+The orchestrator derives the waves; nobody writes them down.
+
+## Validation plan
+
+### Coverage map
+Every criterion, its level, and the task that carries it. A criterion with no row is a gap; a
+criterion whose level is `none` needs a reason in the absence claim below.
+
+| AC | level | task | note |
+|---|---|---|---|
+| AC-1 | unit | T2 | |
+| AC-4 | integration | T3 | crosses the vendor boundary |
+| AC-8 | e2e | T5 | |
+
+### Planned tests
+Two fields per test, and both exist to stop the same defect.
+
+```test
+covers: AC-4
+assert: schedules at 2026-02-13T09:30Z          # a value computed by hand, never read from the code
+and_not: does not schedule when the appointment is cancelled
+```
+
+`assert` is a literal a human worked out. A value copied from what the code currently returns
+asserts that the code does what it does, and a correct and an incorrect program pass it equally.
+
+`and_not` is the paired negative — the thing that must NOT happen. It is the field a tautological
+test cannot fill in honestly, which is the whole reason it is mandatory.
+
+### End-to-end set
+At most three, and each names the journey it proves. An e2e suite that grows past that stops being
+run, and a suite that is not run is worse than one that does not exist, because it is cited.
+
+### Not tested, and why
+The absence claim. Every criterion the plan deliberately leaves untested, with the reason. This
+section is the one most likely to be empty and the one most worth writing: an untested criterion
+that nobody declared is indistinguishable from an oversight, and it will be read as covered.
+
+### Gate
+`<the exact command that runs this feature's tests>`
+````
+
+**Why there is no `expected_red`.** An earlier draft required the exact failure string a test emits
+before the code exists. It is a fact about the tree at authoring time and goes stale the moment
+anything else lands — three of three such literals in a real plan were already false when they were
+checked. Watching the test fail for the stated reason is still required; recording last week's
+failure text is not evidence that it did.
 
 ---
 

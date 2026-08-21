@@ -17,6 +17,7 @@ is the same reason the script skips it in CI: the answer does not exist without 
 from __future__ import annotations
 
 import json
+import re
 import os
 import subprocess
 import sys
@@ -810,3 +811,51 @@ class SurfaceCliTest(SurfaceFixture):
         after = {path: path.stat().st_mtime_ns
                  for path in sorted(self.root.rglob("*")) if path.is_file()}
         self.assertEqual(before, after)
+
+
+class TemplateSelfCheckTest(SpecCheckFixture):
+    """Every template this skill ships must pass the checker that reads it.
+
+    Both shipped templates failed this the first time it was run: `withdrawn: [3, 9]  # optional`
+    kept its comment, so the value never reached the flow-list branch and arrived as a string that
+    every list check mis-read. The templates are the one input guaranteed to be copied verbatim, so
+    a template the checker rejects is a defect in one of the two, every time.
+    """
+
+    REFERENCE = SCRIPT.parent.parent / "references" / "specs.md"
+
+    def extract(self, heading: str) -> str:
+        text = self.REFERENCE.read_text(encoding="utf-8")
+        start = text.index(heading)
+        block = re.search(r"````markdown\n(.*?)\n````", text[start:], re.S)
+        self.assertIsNotNone(block, f"no fenced template under {heading}")
+        return block.group(1)
+
+    def concrete(self, template: str) -> str:
+        """Fill the angle-bracket placeholders; everything else must already be valid."""
+        for token, value in (("F-<id>", "F-12"), ("<slug>", "reminders"), ("<feature>", "Reminder"),
+                             ("<YYYY-MM-DD>", "2026-02-11"), ("<n>", "1"),
+                             ("draft | approved | building | shipped | dropped", "draft"),
+                             ("draft | approved | building | shipped", "draft"),
+                             ("light | full", "full"), ("<trigger>", "x happens"),
+                             ("<precondition>", "y holds"),
+                             ("<observable result>", "the system shall z")):
+            template = template.replace(token, value)
+        return re.sub(r"<[^>\n]{1,60}>", "placeholder", template)
+
+    def test_the_feature_spec_template_passes_the_checker(self) -> None:
+        self.write("docs/product/prd.md",
+                   "---\ntitle: T\nstatus: draft\nupdated: 2026-02-11\n---\n\n"
+                   "# T\n\n## Why this exists\nx\n")
+        self.write("docs/product/specs/F-12-reminders.md",
+                   self.concrete(self.extract("## The feature spec")))
+        self.assertEqual(self.rules(), [], "the shipped feature-spec template must self-check")
+
+    def test_a_trailing_comment_never_reaches_the_value(self) -> None:
+        data, _, _ = spec_check.parse_front_matter(
+            ["---", "withdrawn: [3, 9]   # optional", "status: draft  # a note",
+             'title: "keeps the #3"', "id: F-12#a", "---"])
+        self.assertEqual(data["withdrawn"], ["3", "9"])
+        self.assertEqual(data["status"], "draft")
+        self.assertEqual(data["title"], "keeps the #3", "a quoted value keeps its hash")
+        self.assertEqual(data["id"], "F-12#a", "no space before # means it is part of the value")
