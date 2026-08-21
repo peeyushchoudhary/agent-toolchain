@@ -282,6 +282,23 @@ class SpecStructureTest(SpecCheckFixture):
             "edge_cases: [empty, concurrent]"))
         self.assertDoesNotFind("B2")
 
+    def test_b2_accepts_an_optional_milestone_key(self) -> None:
+        """The key is optional and its ABSENCE carries meaning: the feature is specified and
+        waiting, which is the normal state of most of a backlog. Requiring it would turn the
+        backlog into findings and teach the reader to fill in whichever milestone is nearest."""
+        self.corpus(front=SPEC_HEAD.replace("status: draft", "status: draft\nmilestone: M2"))
+        self.assertDoesNotFind("B2")
+        self.corpus()
+        self.assertDoesNotFind("B2")
+
+    def test_b3_rejects_a_milestone_that_is_not_an_id(self) -> None:
+        """Features are collected by an exact match on this value, so a near miss is not a loud
+        failure — it is a feature quietly missing from the schedule that claims to hold it."""
+        self.corpus(front=SPEC_HEAD.replace("status: draft", "status: draft\nmilestone: Q2"))
+        self.assertFinds("B3")
+        self.corpus(front=SPEC_HEAD.replace("status: draft", "status: draft\nmilestone: M12"))
+        self.assertDoesNotFind("B3")
+
     def test_b3_binds_the_id_to_the_filename(self) -> None:
         self.corpus(front=SPEC_HEAD.replace("id: F-007", "id: F-008"))
         self.assertFinds("B3")

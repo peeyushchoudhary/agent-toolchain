@@ -74,7 +74,7 @@ VAGUE_RE = re.compile(r"\b(" + "|".join(VAGUE_WORDS) + r")\b", re.IGNORECASE)
 
 STATUSES = ("draft", "approved", "building", "shipped", "dropped")
 SPEC_KEYS = (("id", "title", "prd", "status", "updated"),
-             ("depends", "withdrawn", "decisions", "edge_cases"))
+             ("depends", "withdrawn", "decisions", "edge_cases", "milestone"))
 PRD_KEYS = (("title", "status", "updated"), ("reach",))
 # Both authored forms, because the real corpus uses both: 221 criteria write `**AC-1** When ...`
 # and 195 write `**AC-1 — a short title:** When ...`. The stricter pattern shipped first and matched
@@ -94,6 +94,10 @@ EARS_RE = re.compile(
 FEATURE_MARKER = "<!-- features: docs/product/specs/F-*.md -->"
 FEATURE_REF_RE = re.compile(r"\bF-\d+\b")
 ID_RE = re.compile(r"^F-\d+$")
+# `milestone:` is OPTIONAL, and its absence carries meaning: the feature is specified and waiting.
+# Most of a healthy backlog is in that state, so requiring the key would turn the backlog into
+# findings and teach the reader to fill it in with whatever milestone is nearest.
+MILESTONE_RE = re.compile(r"^M\d+$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 QUOTED_RE = re.compile(r"^(['\"])(.*)\1$")
@@ -301,6 +305,11 @@ def check_spec(doc: Doc, root: Path, seen: dict[str, str], f: Findings) -> None:
                                        "ids are unique across the corpus and are never reused")
     elif identifier:
         seen[identifier] = doc.rel
+    milestone = doc.scalar("milestone")
+    if milestone and not MILESTONE_RE.match(milestone):
+        f.add(doc, doc.at("milestone"), "B3",
+              f"milestone `{milestone}` is not of the form M<number>; the schedule collects "
+              "features by an exact match on this value, so a near miss is silently unscheduled")
     target = doc.scalar("prd")
     if target and not any(p.is_file() for p in (root / target, doc.path.parent / target)):
         f.add(doc, doc.at("prd"), "D3",
