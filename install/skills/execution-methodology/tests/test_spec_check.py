@@ -434,6 +434,281 @@ class OutputTest(SpecCheckFixture):
         self.assertIn("A2", result.stdout)
 
 
+
+# --- F: the persona binding ----------------------------------------------------------------------
+
+HORIZONTALS = """
+## Horizontals
+
+| Concern | Disposition |
+|---|---|
+| Tenancy / isolation | Every read is scoped to the requesting tenant by the database. |
+| Money handling | Export totals are recomputed from the ledger, never carried. |
+| Accessibility | N/A -- this feature exposes no screen. |
+"""
+
+VALIDATOR = """---
+name: {name}
+description: Use when a change touches this domain.
+writes: no
+claude.model: opus
+codex.sandbox: read-only
+{covers}---
+
+You validate one invariant.
+"""
+
+
+class PersonaBindingFixture(SpecCheckFixture):
+    """Rule F needs two corpora at once: the product documents and this REPOSITORY's persona pool."""
+
+    def persona(self, name: str, covers: str = "") -> None:
+        self.write(f"docs/agents/personas/{name}.md",
+                   VALIDATOR.format(name=name, covers=f"covers: {covers}\n" if covers else ""))
+
+    def binding(self) -> spec_check.Binding:
+        return spec_check.analyse(self.root.resolve())[1]
+
+
+class PersonaPoolTest(PersonaBindingFixture):
+    def test_a_repository_with_no_pool_says_nothing_at_all(self) -> None:
+        """Most repositories have no personas. Rule F prints nothing there, findings or none."""
+        self.corpus(CRITERIA + HORIZONTALS)
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_the_pool_is_read_from_the_repository_not_from_the_home_directory(self) -> None:
+        """A checker whose verdict depends on the laptop it runs on is not a checker.
+
+        The base pool lives in a machine-global agents directory. If any part of rule F reached it,
+        this fixture -- which has exactly one persona on disk -- would report thirteen or more.
+        """
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.persona("tenancy-validator", "[tenancy]")
+        binding = self.binding()
+        self.assertEqual([p.name for p in binding.personas], ["tenancy-validator"])
+        self.assertEqual(binding.pool_dir, "docs/agents/personas")
+
+    def test_a_persona_overlay_with_no_front_matter_is_a_finding_not_a_silence(self) -> None:
+        """A pool the rule half-read is how it goes inert without saying so."""
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.write("docs/agents/personas/broken.md", "no front matter here\n")
+        self.assertFinds("F1")
+
+
+class BindingInertnessTest(PersonaBindingFixture):
+    """The whole reason rule F exists in this shape. Seven checkers in this toolchain passed their
+    own tests and matched nothing real; the guard against being the eighth is that a run which
+    checked nothing has to SAY so, on stdout, next to its exit code."""
+
+    def test_personas_with_no_covers_report_that_nothing_was_checked(self) -> None:
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.persona("tenancy-validator")
+        self.persona("money-validator")
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("RULE F CHECKED NOTHING", result.stdout)
+        self.assertIn("0 with `covers:`", result.stdout)
+
+    def test_a_corpus_with_no_concern_rows_reports_that_nothing_was_checked(self) -> None:
+        """A `## Horizontals` written as prose yields no row. That is not a pass."""
+        self.corpus(CRITERIA + "\n## Horizontals\n\nAuthorization and audit move; nothing else.\n")
+        self.persona("tenancy-validator", "[tenancy]")
+        result = self.run_cli()
+        self.assertIn("RULE F CHECKED NOTHING", result.stdout)
+        self.assertIn("prose", result.stdout)
+        self.assertEqual(self.binding().unreadable, 1)
+
+    def test_a_covers_that_matches_no_concern_in_the_corpus_is_a_finding(self) -> None:
+        """F4, and it fires at the PERSONA because that is where the fix is. From the document side
+        a binding that cannot match is invisible: the document simply never gets a demand."""
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.persona("drift-validator", "[model drift]")
+        self.assertFinds("F4")
+
+    def test_a_covers_that_does_match_is_not_a_finding(self) -> None:
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.persona("tenancy-validator", "[tenancy]")
+        self.assertDoesNotFind("F4")
+
+    def test_the_note_is_printed_even_when_there_are_no_findings(self) -> None:
+        self.corpus(CRITERIA + HORIZONTALS,
+                    front=SPEC_HEAD.replace("status: draft",
+                                            "status: draft\nreviewed_by: [tenancy-validator]"))
+        self.persona("tenancy-validator", "[tenancy]")
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("persona binding:", result.stdout)
+        self.assertNotIn("CHECKED NOTHING", result.stdout)
+
+    def test_the_json_payload_states_whether_anything_was_checked(self) -> None:
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.persona("tenancy-validator")
+        payload = json.loads(self.run_cli("--json").stdout)
+        self.assertTrue(payload["binding"]["checked_nothing"])
+        self.assertEqual(payload["binding"]["bound"], 0)
+
+
+class BindingDemandTest(PersonaBindingFixture):
+    def test_an_owned_live_concern_demands_the_validator(self) -> None:
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.persona("tenancy-validator", "[tenancy]")
+        self.assertFinds("F3")
+
+    def test_naming_the_validator_satisfies_the_demand(self) -> None:
+        self.corpus(CRITERIA + HORIZONTALS,
+                    front=SPEC_HEAD.replace("status: draft",
+                                            "status: draft\nreviewed_by: [tenancy-validator]"))
+        self.persona("tenancy-validator", "[tenancy]")
+        self.assertDoesNotFind("F3")
+
+    def test_a_concern_declared_inapplicable_demands_nobody(self) -> None:
+        """`N/A -- this feature exposes no screen.` is the spec answering the question. Measured:
+        every one of the 45 real exemptions in an 805-row corpus is a prefix like that one."""
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.persona("a11y-validator", "[accessibility]")
+        self.assertDoesNotFind("F3")
+
+    def test_a_mid_sentence_mention_of_not_applicable_does_not_buy_silence(self) -> None:
+        """The declaration has to open the cell, where a reader sees it too."""
+        self.corpus(CRITERIA + """
+## Horizontals
+
+| Concern | Disposition |
+|---|---|
+| Money handling | Totals are recomputed; the rounding rule is not applicable here. |
+""")
+        self.persona("money-validator", "[money]")
+        self.assertFinds("F3")
+
+    def test_a_persona_without_covers_is_never_demanded(self) -> None:
+        """The 13 base personas own no domain and must stay free of new authoring."""
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.persona("reviewer")
+        self.persona("tenancy-validator", "[tenancy]")
+        findings = [f for f in spec_check.run(self.root.resolve()) if f.rule == "F3"]
+        self.assertEqual(len(findings), 1)
+        self.assertIn("tenancy-validator", findings[0].message)
+
+    def test_one_finding_per_document_and_persona_not_one_per_row(self) -> None:
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.persona("both-validator", "[tenancy, money]")
+        findings = [f for f in spec_check.run(self.root.resolve()) if f.rule == "F3"]
+        self.assertEqual(len(findings), 1)
+
+    def test_a_document_with_no_front_matter_is_still_bound(self) -> None:
+        """MEASURED AND DECISIVE: zero of the 23 feature specs across four real repositories carry a
+        `---` block. Gating rule F on parsed front matter -- as every other schema rule here does --
+        would have made it inert on the entire real corpus while passing every fixture above."""
+        self.write("docs/product/prd.md", PRD)
+        self.write("docs/product/specs/F-007-export.md",
+                   "# F-007 -- Export\n" + CRITERIA + HORIZONTALS)
+        self.persona("tenancy-validator", "[tenancy]")
+        self.assertFinds("F3")
+        self.assertEqual(self.binding().no_front_matter, 1)
+
+    def test_the_bullet_form_of_the_section_is_read(self) -> None:
+        self.corpus(CRITERIA + """
+## Horizontals
+
+- **Tenancy / isolation:** every read is scoped by the database.
+- **Accessibility:** N/A -- no screen.
+""")
+        self.persona("tenancy-validator", "[tenancy]")
+        self.assertFinds("F3")
+        self.assertEqual(self.binding().live_rows, 1)
+
+    def test_the_milestone_and_the_prd_are_bound_by_the_same_carrier(self) -> None:
+        self.corpus()
+        self.write("docs/product/milestones/M1-first.md",
+                   "---\nmilestone: M1\n---\n\n# M1\n" + HORIZONTALS)
+        self.persona("tenancy-validator", "[tenancy]")
+        paths = {f.path for f in spec_check.run(self.root.resolve()) if f.rule == "F3"}
+        self.assertEqual(paths, {"docs/product/milestones/M1-first.md"})
+
+
+class ReviewedByShapeTest(PersonaBindingFixture):
+    def test_reviewed_by_is_an_accepted_key_on_a_spec_and_on_the_prd(self) -> None:
+        self.corpus(CRITERIA,
+                    prd=PRD.replace("status: draft", "status: draft\nreviewed_by: [reviewer]"),
+                    front=SPEC_HEAD.replace("status: draft",
+                                            "status: draft\nreviewed_by: [reviewer]"))
+        self.assertClean()
+
+    def test_a_malformed_entry_is_a_finding(self) -> None:
+        self.corpus(CRITERIA, front=SPEC_HEAD.replace(
+            "status: draft", "status: draft\nreviewed_by: [Tenancy Validator]"))
+        self.assertFinds("F2")
+
+    def test_a_repeated_entry_is_a_finding(self) -> None:
+        self.corpus(CRITERIA, front=SPEC_HEAD.replace(
+            "status: draft", "status: draft\nreviewed_by: [reviewer, reviewer]"))
+        self.assertFinds("F2")
+
+    def test_an_empty_list_is_a_finding(self) -> None:
+        self.corpus(CRITERIA, front=SPEC_HEAD.replace(
+            "status: draft", "status: draft\nreviewed_by: []"))
+        self.assertFinds("F2")
+
+    def test_no_closed_roster_a_project_may_name_its_own_validator(self) -> None:
+        """`VALID_PERSONAS` in validate_card.py is ("developer", "senior-developer") and real cards
+        already declare test-judge, docs-steward and chief-of-staff, so they fail today for naming
+        personas that exist. A hardcoded roster here would repeat that AND stop a project naming its
+        own validator, which is the entire point of the rule."""
+        self.corpus(CRITERIA, front=SPEC_HEAD.replace(
+            "status: draft", "status: draft\nreviewed_by: [tenancy-rls-validator, chief-of-staff]"))
+        self.assertDoesNotFind("F2")
+
+
+class ConcernMatchTest(unittest.TestCase):
+    """Token-set containment, never substring. Three rules in this toolchain have already flagged
+    real product by matching a WORD where they meant a STRUCTURE."""
+
+    def test_a_short_declaration_reaches_a_longer_label(self) -> None:
+        self.assertTrue(spec_check.concern_match("tenancy", "Tenancy / isolation"))
+        self.assertTrue(spec_check.concern_match("audit", "Audit trail"))
+
+    def test_a_longer_declaration_reaches_a_shorter_label(self) -> None:
+        self.assertTrue(spec_check.concern_match("money handling", "Money"))
+        self.assertTrue(spec_check.concern_match("personal data", "Isolation and personal data"))
+
+    def test_a_substring_is_not_a_match(self) -> None:
+        self.assertFalse(spec_check.concern_match("cost", "Costume design"))
+        self.assertFalse(spec_check.concern_match("audit", "Auditorium booking"))
+
+    def test_an_unrelated_pair_is_not_a_match(self) -> None:
+        self.assertFalse(spec_check.concern_match("tenancy", "Isolation and personal data"))
+        self.assertFalse(spec_check.concern_match("money", "Runtime cost"))
+
+
+class PersonasViewTest(PersonaBindingFixture):
+    def test_the_view_answers_why_the_rule_was_silent(self) -> None:
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.persona("tenancy-validator")
+        result = self.run_cli("--personas")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("tenancy-validator", result.stdout)
+        self.assertIn("declares no `covers:`", result.stdout)
+        self.assertIn("Tenancy / isolation", result.stdout)
+
+    def test_the_view_is_honest_about_an_absent_pool(self) -> None:
+        self.corpus(CRITERIA + HORIZONTALS)
+        result = self.run_cli("--personas")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("rule F does not apply here", result.stdout)
+
+    def test_the_view_writes_nothing(self) -> None:
+        self.corpus(CRITERIA + HORIZONTALS)
+        self.persona("tenancy-validator", "[tenancy]")
+        before = sorted(p.relative_to(self.root).as_posix()
+                        for p in self.root.rglob("*") if p.is_file())
+        self.run_cli("--personas")
+        self.run_cli("--personas", "--json")
+        after = sorted(p.relative_to(self.root).as_posix()
+                       for p in self.root.rglob("*") if p.is_file())
+        self.assertEqual(before, after)
+
 if __name__ == "__main__":
     unittest.main()
 

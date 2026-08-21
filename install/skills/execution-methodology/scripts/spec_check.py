@@ -27,10 +27,13 @@ shouts at every repository it does not apply to gets deleted.
      no open-question marker once approved
   E  milestone `## Deferred` register: entries parse, `found_by` names a feature in this milestone,
      `threatens` names a live criterion, an unowned or already-shipped-owner entry fails at seal
+  F  persona binding: this repo's `docs/agents/personas/*.md` pool reads, `reviewed_by:` is shaped,
+     a validator owning a horizontal concern the document says it MOVES is named in `reviewed_by:`,
+     and a `covers:` that matches no concern in the corpus is a finding rather than a silence
   S  --surfaces only: a route added in a git range that no approved spec names under `## Surface`
 
-Usage:  spec_check.py [--root DIR] [--json] [--warn-only] [--deferred]
-                      [--surfaces (--range R | --since D)]
+Usage:  spec_check.py [--root DIR] [--json] [--warn-only] [--deferred] [--personas]
+                      [--questions] [--surfaces (--range R | --since D)]
 Exit codes: 0 clean, 1 findings, 2 the arguments or the tree could not be read.
 """
 
@@ -85,8 +88,12 @@ VAGUE_RE = re.compile(r"\b(" + "|".join(VAGUE_WORDS) + r")\b", re.IGNORECASE)
 
 STATUSES = ("draft", "approved", "building", "shipped", "dropped")
 SPEC_KEYS = (("id", "title", "prd", "status", "updated"),
-             ("depends", "withdrawn", "decisions", "edge_cases", "milestone"))
-PRD_KEYS = (("title", "status", "updated"), ("reach",))
+             ("depends", "withdrawn", "decisions", "edge_cases", "milestone", "reviewed_by"))
+# `reviewed_by:` is OPTIONAL on both, and the optionality is the design. Required, it would produce
+# a finding on all 89 real specs on the day it shipped, and a checker that opens with ninety
+# findings is switched off before it reports a true one. It is demanded a name at a time, by rule
+# F3, and only where the document's OWN horizontals say the concern moves.
+PRD_KEYS = (("title", "status", "updated"), ("reach", "reviewed_by"))
 # Both authored forms, because the real corpus uses both: 221 criteria write `**AC-1** When ...`
 # and 195 write `**AC-1 — a short title:** When ...`. The stricter pattern shipped first and matched
 # 0 of 416 real criteria, so every criterion check was silently inert on every existing spec — a
@@ -641,12 +648,388 @@ def check_deferred(doc: Doc, milestones: dict, specs: dict, f: Findings) -> list
     return items
 
 
+# --- F: binding the domain validators to the product definition ----------------------------------
+
+# MEASURED, across four real repositories: a repository's domain invariants are not written in this
+# methodology's vocabulary. They are written as PERSONAS. Those four ship 15 custom validator
+# personas between them (4, 5, 4, 2) in `docs/agents/personas/` — a tenancy isolation validator, a
+# clinical safety validator, a financial integrity validator, a plane boundary validator. Each is a
+# domain invariant with a reader attached. Counted by WHERE they are cited: review 100, task card
+# 83, ledger 10, plan 7, feature spec 5, PRD and milestone 0. The invariant arrives at review and
+# execution time and essentially never while the product is being DEFINED, which is the most
+# expensive possible moment to discover it.
+#
+# `reviewed_by:` records which personas actually read the artifact. Rule F makes that list earn its
+# keep: a validator that owns a concern this document says it moves must be on it.
+#
+# WHAT THE BINDING IS, AND WHY IT IS NOT ONE OF THE CHEAPER THINGS IT COULD HAVE BEEN:
+#
+#   * NOT the persona's `description:`. Every persona already has one — "Use when a change adds or
+#     alters a tenant table, a migration, a native SQL site, a grant ..." — so matching it needs
+#     zero new authoring, which is why it is tempting. It is a free-text grep over prose. This
+#     toolchain has flagged real product as process three separate times for matching a WORD rather
+#     than a STRUCTURE (`receipt`/`cards`, `superseded`, `history`). Declined on that record.
+#   * NOT the criterion tags `[authz] [audit] [money] [pii] [a11y]` that `references/specs.md`
+#     already publishes. Counted over the same four repositories: ZERO occurrences, in any spec, in
+#     any repository. A rule built on an unadopted carrier reports green because it recognises
+#     nothing, which is the exact failure the AC pattern already made once here.
+#   * NOT path globs. A glob binds a validator to CODE, and at product-definition time there is no
+#     code yet. That binding already exists one stage later as the task card's `exclusive_writes` —
+#     and being one stage later is the whole problem this rule exists to get in front of.
+#
+# The carrier is the HORIZONTALS section, because it is already written and already structured:
+# `## Horizontals` appears in 89 specs across three of the four repositories and carries 805
+# labelled concern rows drawn from a vocabulary of nine labels — the same nine
+# `references/specs.md` names. So a persona declares which concerns it owns, in one key, once:
+#
+#     covers: [tenancy, money handling]
+#
+# New authoring is ONE line per persona a repository chooses to bind. Nothing on the 13 base
+# personas, which own no domain. Nothing new in a spec beyond the `reviewed_by:` list itself.
+#
+# THE POOL IS READ FROM THE REPOSITORY, never from `~/.claude/agents` or any other machine-global
+# directory. A checker whose verdict depends on the laptop it runs on is not a checker.
+
+PERSONA_DIR = ("docs", "agents", "personas")
+HORIZONTALS_HEADING_RE = re.compile(r"^#{2,3}\s+Horizontals\s*$", re.IGNORECASE)
+# The two AUTHORED shapes, both measured in the corpus: a `| concern | disposition |` table row
+# (805 rows) and a `- **Concern:** disposition` bullet. Free prose under the heading is a third
+# shape and it is deliberately NOT parsed — deciding from a sentence whether a concern "moves" is
+# the word-not-a-structure trap again. Unparsable sections are COUNTED AND PRINTED instead, the way
+# `ratio_meter` prints `unattributable` and `trace_check` prints its own limit every run.
+HZ_ROW_RE = re.compile(r"^\|\s*(?P<label>[^|]+?)\s*\|\s*(?P<disposition>[^|]*?)\s*\|\s*$")
+HZ_BULLET_RE = re.compile(r"^\s*[-*]\s+\*\*(?P<label>[^*]+?)\*\*\s*:?\s*(?P<disposition>.*)$")
+# A row is EXEMPT only when it opens by declaring itself inapplicable. Measured: no row in 805
+# writes a bare `N/A` — every one of the 45 real exemptions is a prefix, `N/A — invites are free.`
+# or `Not applicable because this feature performs no money ...`. Matching the phrase anywhere in
+# the cell instead would let a passing mention mid-sentence buy silence, so the declaration has to
+# be the first thing in the cell, where a reader sees it too.
+NOT_APPLICABLE_RE = re.compile(r"^\**\s*(?:n/?a|not applicable|none)\b", re.IGNORECASE)
+# Dropped before two labels are compared, so `Money handling` and `Money` are the same concern and
+# `Tenancy / isolation` and `tenancy` are the same concern. Comparison is on TOKEN SETS and never
+# on substrings: `cost` must not match `costume`, and `audit` must not match `auditorium`.
+LABEL_STOPWORDS = frozenset({"and", "or", "the", "a", "an", "of", "for", "to"})
+PERSONA_NAME_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
+
+Persona = NamedTuple("Persona", [("name", str), ("rel", str), ("covers", tuple),
+                                 ("line", int), ("error", str)])
+Concern = NamedTuple("Concern", [("line", int), ("label", str), ("live", bool)])
+
+
+class Binding:
+    """What rule F actually looked at, so that checking nothing is never mistaken for a pass.
+
+    This is the anti-inertness apparatus and it is not decoration. Seven checkers in this
+    toolchain's history passed their own tests and were inert against the real corpus; the most
+    recent matched a bare `T1` while the methodology tells people to write `F-7/T1`. Every one of
+    them would have been caught in a minute by a run that said out loud how many things it had
+    matched. So rule F counts its own reach and prints it whenever a persona pool exists.
+    """
+
+    def __init__(self) -> None:
+        self.personas: list[Persona] = []
+        self.pool_dir = ""
+        self.product_docs = 0     # every `docs/product/**/*.md` read
+        self.documents = 0        # ... of those, the specs, PRD and milestones F binds
+        self.no_front_matter = 0  # ... of those, ones with no `---` block to hold `reviewed_by:`
+        self.with_section = 0     # ... of those, ones carrying a `## Horizontals` heading
+        self.unreadable = 0       # ... of those, ones whose section yielded no labelled row
+        self.rows = 0             # labelled concern rows read
+        self.live_rows = 0        # ... of those, ones not declared inapplicable
+        self.labels: dict[str, int] = {}
+        self.demands = 0          # (document, persona) pairs the binding actually required
+        self.matched_bindings = 0  # `covers:` tokens that matched at least one concern label
+
+    @property
+    def bound(self) -> list[Persona]:
+        return [p for p in self.personas if p.covers]
+
+    def note(self) -> str:
+        """One line, printed on every run that has a pool. It says what was checked, or that
+        nothing was — never nothing at all, which is what exit 0 alone would say."""
+        head = (f"persona binding: {len(self.personas)} persona(s) in {self.pool_dir}, "
+                f"{len(self.bound)} with `covers:`")
+        if not self.personas:
+            return ""
+        reach = (f"{self.documents} spec/PRD/milestone document(s) of {self.product_docs} under "
+                 f"docs/product, {self.with_section} with a `## Horizontals` section, "
+                 f"{self.rows} labelled concern row(s), {self.live_rows} live")
+        why = []
+        if self.unreadable:
+            why.append(f"{self.unreadable} `## Horizontals` section(s) are prose rather than a "
+                       "labelled table or bullet list, and prose is not read")
+        if self.no_front_matter:
+            why.append(f"{self.no_front_matter} document(s) carry no `---` block, so no "
+                       "`reviewed_by:` can be read from them")
+        if self.documents and not self.product_docs:
+            why.append("no document under docs/product matches the spec, PRD or milestone paths")
+        suffix = ("; " + "; ".join(why)) if why else ""
+        if not self.bound:
+            return (f"{head}, {reach} -- RULE F CHECKED NOTHING. No persona in this repository "
+                    "declares which horizontal concerns it owns, so no spec, PRD or milestone can "
+                    "be held to one. Add `covers: [<concern>, ...]` to the validator personas"
+                    + suffix + ".")
+        if not self.live_rows:
+            return (f"{head}, {reach} -- RULE F CHECKED NOTHING. There is no live concern row for "
+                    "a declared `covers:` to bind to" + suffix + ".")
+        return f"{head}, {reach}, {self.demands} review demand(s){suffix}."
+
+
+def label_tokens(label: str) -> frozenset:
+    """A concern label reduced to the words that identify it. `Tenancy / isolation` and
+    `**Money handling:**` become `{tenancy, isolation}` and `{money, handling}`."""
+    words = re.findall(r"[a-z0-9]+", label.lower())
+    return frozenset(word for word in words if word not in LABEL_STOPWORDS)
+
+
+def concern_match(declared: str, label: str) -> bool:
+    """Does a `covers:` token name this concern label?
+
+    Containment in EITHER direction over token sets, so `covers: [tenancy]` reaches
+    `Tenancy / isolation` and `covers: [money handling]` reaches a row headed just `Money`. Never
+    substring containment: that is how `cost` starts matching `costume`, and this toolchain has
+    already shipped three rules that matched a word where they meant a structure.
+    """
+    left, right = label_tokens(declared), label_tokens(label)
+    if not left or not right:
+        return False
+    return left <= right or right <= left
+
+
+def read_persona_overlay(path: Path) -> Persona:
+    """Read `name:` and `covers:` out of one persona overlay. Reads nothing else, on purpose.
+
+    A persona's front matter is owned by the persona skill and carries keys this parser has no
+    business ruling on — `claude.model`, `codex.sandbox`, a dotted key `parse_front_matter` would
+    reject outright. So this scans the block for the two keys it needs and stays silent about the
+    rest. Adjudicating another skill's schema from here would make one file fail two checkers with
+    two opinions.
+    """
+    name = path.stem
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        return Persona(name, path.name, (), 1, f"cannot read: {exc}")
+    if not lines or lines[0].strip() != "---":
+        return Persona(name, path.name, (), 1, "no `---` front matter block at the top of the file")
+    covers: tuple = ()
+    at = 1
+    for index in range(1, len(lines)):
+        stripped = lines[index].strip()
+        if stripped == "---":
+            break
+        key, separator, value = lines[index].partition(":")
+        if not separator or key.strip().lower() != "covers":
+            continue
+        at, raw = index + 1, re.split(r"\s#", value, maxsplit=1)[0].strip()
+        if raw.startswith("[") and raw.endswith("]"):
+            raw = raw[1:-1]
+        covers = tuple(part.strip().strip("'\"") for part in raw.split(",") if part.strip())
+        if not covers:
+            return Persona(name, path.name, (), at,
+                           "`covers:` is present but empty; delete the key or name a concern")
+    return Persona(name, path.name, covers, at, "")
+
+
+def persona_pool(root: Path, f: Findings) -> tuple[list[Persona], str]:
+    """This REPOSITORY's persona pool, or an empty one.
+
+    Absence is silence: most repositories have no `docs/agents/personas/`, and a rule that shouts
+    at every repository it does not apply to gets deleted. A file inside it that cannot be read is
+    NOT silence — that is a pool the rule half-read, and half-reading is how it goes inert.
+    """
+    directory = root.joinpath(*PERSONA_DIR)
+    if not directory.is_dir():
+        return [], ""
+    rel = "/".join(PERSONA_DIR)
+    personas = [read_persona_overlay(path) for path in sorted(directory.glob("*.md"))]
+    for persona in personas:
+        if persona.error:
+            f.append(Finding(f"{rel}/{persona.rel}", persona.line, "F1",
+                             f"persona overlay could not be read for its binding: {persona.error}"))
+        elif not PERSONA_NAME_RE.match(persona.name):
+            f.append(Finding(f"{rel}/{persona.rel}", 1, "F1",
+                             f"persona filename `{persona.rel}` is not a persona slug, so no "
+                             "`reviewed_by:` entry can name it"))
+    return personas, rel
+
+
+def horizontals(doc: Doc) -> tuple[list[Concern], bool, bool]:
+    """The concern rows of `## Horizontals`, whether the section exists, and whether it was read.
+
+    Returns rows in the two authored shapes only. A section that yields no row is reported as
+    unreadable rather than as clean — a spec whose horizontals are a paragraph has genuinely not
+    been checked, and saying so is the difference between this rule and an inert one.
+    """
+    rows: list[Concern] = []
+    inside = False
+    present = False
+    for number, text in doc.body():
+        if ANY_HEADING_RE.match(text):
+            inside = bool(HORIZONTALS_HEADING_RE.match(text))
+            present = present or inside
+            continue
+        if not inside or not text.strip():
+            continue
+        match = HZ_ROW_RE.match(text.strip()) or HZ_BULLET_RE.match(text)
+        if not match:
+            continue
+        # A bullet writes `- **Money handling:** ...`, a table writes `| Money handling |`. The
+        # trailing colon belongs to the bullet syntax, not to the concern, and leaving it on split
+        # one label into two in a real corpus reading.
+        label = match.group("label").strip().strip("*").rstrip(":").strip()
+        # The table's own header and its `|---|---|` separator are not concerns.
+        if not label_tokens(label) or set(label) <= set("-: "):
+            continue
+        if label.lower() in ("concern", "horizontal", "area"):
+            continue
+        disposition = match.group("disposition").strip()
+        rows.append(Concern(number, label, not NOT_APPLICABLE_RE.match(disposition)))
+    return rows, present, bool(rows)
+
+
+def check_reviewed_by(doc: Doc, f: Findings) -> list[str]:
+    """F2: the shape of `reviewed_by:`. Returns the names, whatever their shape.
+
+    NO CLOSED ROSTER, and that is a measured decision rather than laziness. `VALID_PERSONAS` in
+    `validate_card.py` is exactly ("developer", "senior-developer"); real cards in these
+    repositories already declare `test-judge`, `docs-steward` and `chief-of-staff`, so five real
+    cards fail validation today for naming personas that exist. A hardcoded roster here would
+    repeat that, and would additionally make a project unable to name its OWN validator. The shape
+    is checked; the membership is not.
+    """
+    raw = doc.front.get("reviewed_by")
+    if raw is None:
+        return []
+    names = [raw] if isinstance(raw, str) else list(raw)
+    at = doc.at("reviewed_by")
+    if not names:
+        f.add(doc, at, "F2", "`reviewed_by:` is present but empty; a document nobody has reviewed "
+                             "should omit the key rather than claim an empty review")
+    seen: set[str] = set()
+    for name in names:
+        if not PERSONA_NAME_RE.match(name):
+            f.add(doc, at, "F2", f"`reviewed_by:` entry {name!r} is not a persona name; entries "
+                                 "are the slugs of `docs/agents/personas/<name>.md`")
+        elif name in seen:
+            f.add(doc, at, "F2", f"`reviewed_by:` names {name!r} twice")
+        seen.add(name)
+    return names
+
+
+def check_binding(doc: Doc, personas: list[Persona], binding: Binding, f: Findings) -> None:
+    """F3: a validator that owns a concern this document says it MOVES must have read it."""
+    names = set(check_reviewed_by(doc, f))
+    rows, present, readable = horizontals(doc)
+    binding.documents += 1
+    binding.no_front_matter += bool(doc.front_error)
+    binding.with_section += present
+    binding.unreadable += present and not readable
+    binding.rows += len(rows)
+    binding.live_rows += sum(1 for row in rows if row.live)
+    for row in rows:
+        binding.labels[row.label] = binding.labels.get(row.label, 0) + 1
+    if not [p for p in personas if p.covers]:
+        return
+    for persona in personas:
+        if not persona.covers or persona.name in names:
+            continue
+        for row in rows:
+            if not row.live or not any(concern_match(c, row.label) for c in persona.covers):
+                continue
+            binding.demands += 1
+            f.add(doc, row.line, "F3",
+                  f"this document says it moves `{row.label}`, which `{persona.name}` owns, but "
+                  f"`reviewed_by:` does not name it. The validator that holds this invariant is "
+                  f"reading the change at review time; the definition is where it is cheap to fix.")
+            break
+
+
+def check_bindings_reach(binding: Binding, f: Findings) -> None:
+    """F4: a `covers:` token that matches no concern label anywhere in this product corpus.
+
+    This is the trap the last seven checkers fell into, closed at the only place it can be closed:
+    a binding that cannot match is a defect in the binding, and it is invisible from the document
+    side because the document simply never gets a demand. So the check runs from the PERSONA side,
+    over the labels the corpus actually contains, and fires where the fix is.
+    """
+    if not binding.labels:
+        return
+    for persona in binding.personas:
+        for declared in persona.covers:
+            if any(concern_match(declared, label) for label in binding.labels):
+                binding.matched_bindings += 1
+                continue
+            f.append(Finding(f"{binding.pool_dir}/{persona.rel}", persona.line, "F4",
+                             f"`covers: {declared}` matches none of the "
+                             f"{len(binding.labels)} concern label(s) in this repository's "
+                             f"`## Horizontals` sections ("
+                             f"{', '.join(sorted(binding.labels)[:6])}), so this persona is bound "
+                             f"to nothing and rule F is silent for it"))
+
+
+def binding_payload(binding: Binding) -> dict:
+    """What rule F reached, for a machine. The counts are the point: a consumer that sees
+    `"live_rows": 0` knows the rule was silent rather than satisfied."""
+    return {"pool": binding.pool_dir,
+            "personas": len(binding.personas),
+            "bound": len(binding.bound),
+            "product_documents": binding.product_docs,
+            "documents": binding.documents,
+            "no_front_matter": binding.no_front_matter,
+            "with_horizontals": binding.with_section,
+            "unreadable_horizontals": binding.unreadable,
+            "concern_rows": binding.rows,
+            "live_rows": binding.live_rows,
+            "demands": binding.demands,
+            "checked_nothing": not (binding.bound and binding.live_rows),
+            "concerns": dict(sorted(binding.labels.items())),
+            "covers": {p.name: list(p.covers) for p in binding.bound}}
+
+
+def print_personas(binding: Binding) -> None:
+    """`--personas`: the pool, what each persona owns, and what the corpus offers it to own.
+
+    It exists so that "nothing fired" is answerable without reading the source. The three questions
+    a silent rule F raises — is there a pool, does anything declare `covers:`, does the corpus have
+    concerns to match — are the three blocks below, in that order.
+    """
+    if not binding.personas:
+        print("no `docs/agents/personas/` in this repository: rule F does not apply here")
+        return
+    width = max(len(p.name) for p in binding.personas)
+    print(f"pool: {binding.pool_dir} ({len(binding.personas)} persona(s))")
+    for persona in binding.personas:
+        owns = ", ".join(persona.covers) if persona.covers else "-- declares no `covers:`"
+        print(f"  {persona.name.ljust(width)}  {owns}")
+    print(f"\nconcern labels found in `## Horizontals` across {binding.documents} "
+          f"product document(s):")
+    if binding.labels:
+        for label, count in sorted(binding.labels.items(), key=lambda kv: (-kv[1], kv[0])):
+            print(f"  {str(count).rjust(4)}  {label}")
+    else:
+        print("  none. No spec, PRD or milestone here writes a `| concern | disposition |` row or "
+              "a `- **Concern:** ...` bullet under `## Horizontals`.")
+    print()
+    print(binding.note() or "rule F has nothing to report")
+
+
 def run(root: Path) -> Findings:
+    """The findings alone, for callers that only gate. `analyse` also returns what F reached."""
+    return analyse(root)[0]
+
+
+def analyse(root: Path) -> tuple[Findings, Binding]:
     f = Findings()
+    binding = Binding()
     product = root / "docs" / "product"
     paths = sorted(path for path in product.glob("**/*.md") if path.is_file())
     if not paths:
-        return f
+        # No product definition at all. The persona pool is still READ and still reported, because
+        # "this repository has validators and nothing for them to review" is a true thing to say
+        # and exiting 0 in silence says the opposite.
+        binding.personas, binding.pool_dir = persona_pool(root, f)
+        return f, binding
     # Paths with uncommitted edits are exempt from A4: they have no commit date to agree with.
     status = git(root, "status", "--porcelain") or ""
     dirty = {line[3:].strip().split(" -> ", 1)[-1].strip('"') for line in status.splitlines()}
@@ -682,7 +1065,22 @@ def run(root: Path) -> Findings:
     milestones, members = milestone_index(documents)
     for doc in milestones.values():
         check_deferred(doc, milestones, members, f)
-    return f
+    binding.personas, binding.pool_dir = persona_pool(root, f)
+    binding.product_docs = len(documents)
+    # F runs over specs, the PRD and milestones alike: the carrier is the `## Horizontals` section,
+    # not the path, so no document type needs a special case and none can be forgotten into one.
+    #
+    # AND IT RUNS ON DOCUMENTS WHOSE FRONT MATTER DID NOT PARSE. Every other schema rule here skips
+    # those, and copying that habit was caught in validation as the eighth inert checker of this
+    # session: measured, ZERO of the 23 feature specs across the four real repositories carry a
+    # `---` block at all, so a rule gated on `not doc.front_error` would have run on nothing,
+    # anywhere, while passing every fixture written for it. `## Horizontals` is BODY, and body is
+    # readable with or without front matter. The unreadable `reviewed_by:` is counted and printed.
+    for doc in documents:
+        if doc.is_spec or doc.is_prd or doc.is_milestone:
+            check_binding(doc, binding.personas, binding, f)
+    check_bindings_reach(binding, f)
+    return f, binding
 
 
 def milestone_index(documents: list[Doc]) -> tuple[dict, dict]:
@@ -916,6 +1314,9 @@ def main() -> int:
                         help="list every open decision across the product definition and exit 0")
     parser.add_argument("--deferred", action="store_true",
                         help="list every milestone's deferral register with its counts, exit 0")
+    parser.add_argument("--personas", action="store_true",
+                        help="show this repo's persona pool, what each `covers:`, and what rule F "
+                             "could match against; exit 0")
     parser.add_argument("--surfaces", action="store_true", help="check routes added in a range")
     parser.add_argument("--range", dest="revision_range", help="a git range, e.g. main..HEAD")
     parser.add_argument("--since", help="a date git log accepts, e.g. 2026-08-14")
@@ -942,6 +1343,19 @@ def main() -> int:
         else:
             print_deferred(rows)
         return 0
+    if args.personas:
+        try:
+            _, binding = analyse(root.resolve())
+        except SpecError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            json.dump({"root": str(root.resolve()), **binding_payload(binding)},
+                      sys.stdout, indent=2)
+            sys.stdout.write("\n")
+        else:
+            print_personas(binding)
+        return 0
     if args.questions:
         try:
             rows = decision_queue(root.resolve())
@@ -956,9 +1370,13 @@ def main() -> int:
         else:
             print_queue(rows)
         return 0
+    binding = Binding()
     try:
-        found, exempt = (check_surfaces(root.resolve(), args.revision_range, args.since)
-                         if args.surfaces else (run(root.resolve()), 0))
+        if args.surfaces:
+            found, exempt = check_surfaces(root.resolve(), args.revision_range, args.since)
+        else:
+            found, binding = analyse(root.resolve())
+            exempt = 0
         findings = sorted(found)
     except SpecError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -966,7 +1384,8 @@ def main() -> int:
     code = 0 if (args.warn_only or not findings) else 1
     if args.json:
         json.dump({"root": str(root.resolve()), "count": len(findings), "exit": code,
-                   "exempt": exempt, "findings": [item._asdict() for item in findings]},
+                   "exempt": exempt, "findings": [item._asdict() for item in findings],
+                   **({"binding": binding_payload(binding)} if binding.personas else {})},
                   sys.stdout, indent=2)
         sys.stdout.write("\n")
     elif findings:
@@ -977,6 +1396,13 @@ def main() -> int:
             print(f"... and {len(findings) - PRINT_CAP} more finding(s); fix these and run again")
     if exempt and not args.json:
         print(f"{exempt} route(s) exempt")
+    # PRINTED ON EVERY RUN THAT HAS A POOL, findings or none. `trace_check.py` prints its own limit
+    # every run for the same reason: the failure mode of this toolchain is not a wrong finding, it
+    # is a green exit from a rule that matched nothing, and only a run that reports its own reach
+    # can be caught at it. Repositories with no `docs/agents/personas/` print nothing at all.
+    note = binding.note()
+    if note and not args.json:
+        print(note)
     return code
 
 

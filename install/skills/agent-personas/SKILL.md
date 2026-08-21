@@ -213,6 +213,29 @@ Overlays are committed, inside the disclosure route, and readable by both harnes
 `.claude/agents/` and `.codex/agents/` are committed too, with `--check` in the repo's gate — the
 same contract as a generated API client.
 
+### `covers:` — reaching the product definition, not just the review
+
+A project-only specialist IS a domain invariant with a reader attached. Measured across four real
+repositories carrying 15 of them: they are cited **100 times in reviews, 83 in task cards, 7 in
+plans, 5 in feature specs, and 0 in a PRD or a milestone.** The invariant lands after the product
+has already been defined, which is the most expensive moment to discover it.
+
+One optional key in the overlay's front matter fixes that:
+
+```yaml
+covers: [tenancy, personal data]
+```
+
+The values name horizontal concerns — tenancy, authorization, audit, money handling, personal data,
+retention, accessibility, localisation, runtime cost, or any label the project's own specs use in
+their `## Horizontals` section. `spec_check.py` rule F then requires this persona in a spec's,
+PRD's or milestone's `reviewed_by:` whenever that document's own horizontals say it MOVES a concern
+this persona owns, and rule F4 fails a `covers:` that matches nothing in the corpus so the binding
+cannot go quietly inert. `spec_check.py --personas` prints the pool and what it could match.
+
+The key is OPTIONAL and no base persona carries it: a base persona owns a stage, not a domain. The
+cost is one line per project specialist, once.
+
 Every onboarded repository records the decision:
 
 - Persona sources require a maintained `docs/agents/personas.md` linked directly from

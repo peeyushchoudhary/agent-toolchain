@@ -189,7 +189,17 @@ Spec skeletons live in the execution-methodology skill's `references/specs.md`; 
 acceptance-criteria form turns into test names without translation. Edge cases are acceptance
 criteria like any other — a feature whose criteria describe only the happy path is not finished,
 and `edge_cases:` in the front matter names the classes that were considered. Every horizontal is
-addressed or declared not-applicable with a reason.
+addressed or declared not-applicable with a reason, on its OWN LABELLED LINE — the label is what
+binds the section to this repository's domain validators.
+
+**The domain validator reads the definition, not only the diff.** A project's own invariants live
+as validator personas in `docs/agents/personas/`. Measured across four real repositories carrying
+fifteen of them: they are cited 100 times in reviews and 0 times in a PRD or a milestone, so the
+invariant arrives after the product has been defined. A validator declares `covers: [<concern>]`
+once; `reviewed_by:` on the spec, PRD or milestone records who actually read it; and `spec_check.py`
+rule F fails a document whose own horizontals move a concern its owner never read. Rule F prints
+what it matched on every run and fails a `covers:` that matches nothing, because a binding that
+silently matches nothing is worse than no binding.
 
 **The agent answers its own question first.** Before asking the founder anything at a spec gate,
 the asking agent must answer the question itself from the spec text. If it can, the question was
