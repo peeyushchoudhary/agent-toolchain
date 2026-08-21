@@ -30,6 +30,20 @@ check.
 No screens, no schemas, no technology. If you find yourself naming a table or a component, you are
 writing the wrong document.
 
+## Answer it yourself first
+
+Before you ask the founder a question, answer it from the spec you are holding. If the answer is
+there, the question was noise. If it is not, you have found a hole in the spec — write the answer
+you believe is right, mark it as an assumption, and show that instead of asking. What is left after
+that filter is a real product decision: what this refuses to do, who it will not serve, what is
+being traded for what.
+
+Ask about mechanism and consequence, never recall. "Walk me through what happens when two arrive at
+once" surfaces a gap; "what does section three say" does not, because a reader who has just read the
+document can always answer it and is no better understood for having done so.
+
+When an answer contradicts the spec, the spec is wrong by default. Edit it and show the diff.
+
 ## Update in place
 
 Both artifacts state what is true now. Revising one means editing the sentence that is wrong, not

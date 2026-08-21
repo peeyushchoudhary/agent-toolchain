@@ -186,6 +186,15 @@ criteria like any other — a feature whose criteria describe only the happy pat
 and `edge_cases:` in the front matter names the classes that were considered. Every horizontal is
 addressed or declared not-applicable with a reason.
 
+**The agent answers its own question first.** Before asking the founder anything at a spec gate,
+the asking agent must answer the question itself from the spec text. If it can, the question was
+never needed. If it cannot, that is a defect in the spec rather than a gap in the founder, and the
+agent fixes the spec and shows the diff. What survives that filter is a genuine product decision,
+and `spec_check.py --questions` is the queue of them — read it at the gate, one item at a time,
+each answer edited into the spec at the place the question sat. There is no transcript, no approval
+record, and no per-feature ceremony: the answer IS the artifact, and the queue emptying is the
+evidence. A comprehension check that stores its own results has become the thing it was measuring.
+
 **A spec states what is true now.** Both templates are updated in place and never appended to: no
 dated headings, no changelog section, no correction standing beside the thing it corrects. History
 is in git, *why* is in an ADR under `docs/decisions/`, and the append-only residue — a retired

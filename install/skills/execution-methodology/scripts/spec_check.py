@@ -392,17 +392,97 @@ def run(root: Path) -> Findings:
     return f
 
 
+
+# --- the decision queue -------------------------------------------------------------------------
+# The one view a rendered explainer would have added over the markdown, delivered without a renderer.
+# A council reviewing the design killed the HTML because a stdlib markdown parser is ~540 lines to
+# render ~240 lines of prose that is deleted on sight, and because a rendered single spec adds
+# nothing over the file. What it could not do in markdown was AGGREGATE: every open question across
+# a PRD and a dozen specs, counted, in one place. That is thirty lines against the documents the
+# checker already parses, and it writes nothing.
+OPEN_MARKER_RE = re.compile(r"\[NEEDS CLARIFICATION:\s*(?P<question>[^\]]*)\]", re.IGNORECASE)
+
+# A bare TBD is the same decision, written by someone who did not know the convention. It is listed
+# in the queue and NEVER treated as a finding: a repository that has not adopted the marker is not
+# thereby non-compliant, and inventing a violation for it is how a checker gets switched off. Real
+# repositories carry sixty of these today, which is the argument for reading them rather than
+# demanding they be rewritten first.
+LOOSE_MARKER_RE = re.compile(r"(?<![\w-])(TBD|TODO|\?\?\?)(?![\w-])")
+
+
+def decision_queue(root: Path) -> list[tuple[str, int, str, str]]:
+    """Every open decision in the product definition, as (path, line, status, question).
+
+    Ordered so the ones blocking approval come first: a question in an approved document is a
+    contradiction the gate already refuses, and a question in a `building` spec is being coded
+    around right now. Draft questions are ordinary and sort last.
+    """
+    order = {"approved": 0, "shipped": 0, "building": 1, "draft": 2, "dropped": 3, "": 2}
+    rows: list[tuple[str, int, str, str]] = []
+    product = root / "docs" / "product"
+    for path in sorted(product.glob("**/*.md")):
+        if not path.is_file():
+            continue
+        doc = Doc(path, root)
+        status = doc.scalar("status")
+        # Markers wrap. Documents are hard-wrapped at a column width, so a per-line scan misses any
+        # question long enough to be worth asking — which is most of them. Fold the body into one
+        # string, remembering where each line began, and map every hit back to its opening line.
+        body = doc.body()
+        joined, starts = "", []
+        for number, text in body:
+            starts.append((len(joined), number))
+            joined += text + " "
+        for match in OPEN_MARKER_RE.finditer(joined):
+            number = next((n for offset, n in reversed(starts) if offset <= match.start()), 1)
+            question = " ".join(match.group("question").split()) or "(unstated)"
+            rows.append((doc.rel, number, status, question))
+        for match in LOOSE_MARKER_RE.finditer(joined):
+            number = next((n for offset, n in reversed(starts) if offset <= match.start()), 1)
+            context = " ".join(joined[match.start():match.start() + 110].split())
+            rows.append((doc.rel, number, status, f"{context}  (unmarked — {match.group(1)})"))
+    rows.sort(key=lambda row: (order.get(row[2], 2), row[0], row[1]))
+    return rows
+
+
+def print_queue(rows: list[tuple[str, int, str, str]]) -> None:
+    if not rows:
+        print("decision queue: empty — no open questions in the product definition")
+        return
+    print(f"decision queue: {len(rows)} open question(s)\n")
+    for path, line, status, question in rows:
+        flag = "  <- blocks approval" if status in ("approved", "shipped") else ""
+        print(f"  {path}:{line}  [{status or 'no status'}]{flag}")
+        print(f"      {question}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", default=".", help="repository root (default: the current dir)")
     parser.add_argument("--json", action="store_true", help="machine-readable findings on stdout")
     parser.add_argument("--warn-only", action="store_true", help="print findings but exit 0")
+    parser.add_argument("--questions", action="store_true",
+                        help="list every open decision across the product definition and exit 0")
     args = parser.parse_args()
 
     root = Path(args.root).expanduser()
     if not root.is_dir():
         print(f"ERROR: --root is not a directory: {root}", file=sys.stderr)
         return 2
+    if args.questions:
+        try:
+            rows = decision_queue(root.resolve())
+        except SpecError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            json.dump({"root": str(root.resolve()), "count": len(rows),
+                       "questions": [{"path": p, "line": n, "status": s, "question": q}
+                                     for p, n, s, q in rows]}, sys.stdout, indent=2)
+            sys.stdout.write("\n")
+        else:
+            print_queue(rows)
+        return 0
     try:
         findings = sorted(run(root.resolve()))
     except SpecError as exc:

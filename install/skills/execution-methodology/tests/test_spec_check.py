@@ -417,3 +417,50 @@ class OutputTest(SpecCheckFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class DecisionQueueTest(SpecCheckFixture):
+    """The one aggregate view a rendered explainer would have added, without the renderer."""
+
+    def queue(self, *extra: str) -> list[dict]:
+        result = self.run_cli("--questions", "--json", *extra)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return json.loads(result.stdout)["questions"]
+
+    def test_it_folds_a_marker_that_wraps_across_lines(self) -> None:
+        """Documents are hard-wrapped, so a per-line scan misses every question worth asking."""
+        self.corpus(spec_body=CRITERIA + (
+            "\n## Assumptions and open questions\n"
+            "The vendor window is assumed. [NEEDS CLARIFICATION: what does the view show\n"
+            "for a patient who never opted in?]\n"))
+        rows = self.queue()
+        self.assertEqual(len(rows), 1, rows)
+        self.assertIn("what does the view show for a patient who never opted in?",
+                      rows[0]["question"])
+
+    def test_a_question_in_an_approved_document_sorts_first(self) -> None:
+        self.corpus(spec_body=CRITERIA + "\nx [NEEDS CLARIFICATION: draft question]\n")
+        self.write("docs/product/notes.md",
+                   "---\nstatus: approved\nupdated: 2026-01-01\n---\n\n"
+                   "# Notes\n\ny [NEEDS CLARIFICATION: approved question]\n")
+        rows = self.queue()
+        self.assertEqual(rows[0]["status"], "approved")
+        self.assertIn("approved question", rows[0]["question"])
+
+    def test_a_bare_tbd_is_listed_and_is_never_a_finding(self) -> None:
+        """A repository that has not adopted the marker is not thereby non-compliant."""
+        self.corpus(spec_body=CRITERIA + "\nRetention is TBD.\n")
+        rows = self.queue()
+        self.assertTrue(any("unmarked" in row["question"] for row in rows), rows)
+        self.assertDoesNotFind("D4")
+
+    def test_the_queue_never_fails_and_writes_nothing(self) -> None:
+        self.corpus(spec_body=CRITERIA + "\nz [NEEDS CLARIFICATION: unanswered]\n")
+        before = sorted(p.relative_to(self.root).as_posix()
+                        for p in self.root.rglob("*") if p.is_file())
+        result = self.run_cli("--questions")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        after = sorted(p.relative_to(self.root).as_posix()
+                       for p in self.root.rglob("*") if p.is_file())
+        self.assertEqual(before, after)
