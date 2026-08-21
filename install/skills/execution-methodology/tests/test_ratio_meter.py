@@ -148,10 +148,41 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(ratio_meter.classify("docs/product/cards/TC-01.yaml"),
                          ratio_meter.PROCESS)
         self.assertEqual(ratio_meter.classify("specs/PRD-progress.md"), ratio_meter.PROCESS)
-        # And the price: real product source under a generically-named directory is charged to
-        # process. Asserted so that changing the ordering has to change this test on purpose.
-        self.assertEqual(ratio_meter.classify("src/reports/ReportService.java"),
+        # And the price, now bounded: a NON-source file under a generically-named directory is
+        # still charged to process. Asserted so changing the ordering has to change this on purpose.
+        self.assertEqual(ratio_meter.classify("src/reports/report-notes.md"),
                          ratio_meter.PROCESS)
+
+    def test_source_beats_an_ambiguous_process_word(self) -> None:
+        """`receipt`, `cards`, and `reports` are product vocabulary too.
+
+        Each of these is a real path from an adopting repository that the first meter charged to
+        bookkeeping: a consent receipt, a goods-receipt screen, a receipt validator, and a package
+        whose subject is health cards. Bookkeeping is prose and data; it is never compiled or run.
+        """
+        self.assert_bucket(
+            ratio_meter.PRODUCT,
+            "backend/trust-core/src/main/java/com/x/trust/ConsentReceipts.java",
+            "web/src/screens/inventory/GoodsReceiptScreen.tsx",
+            "tools/agent/validation_receipt_v3.py",
+            "backend/src/main/java/com/x/cards/CardService.java",
+            "src/reports/ReportService.java",
+            "src/main/java/com/x/personas/PersonaMapper.java",
+        )
+
+    def test_a_bookkeeping_root_still_owns_everything_inside_it(self) -> None:
+        """The strong sequences are directories that exist only to hold bookkeeping.
+
+        A script that serves the workspace is workspace cost, so source does NOT win there — this
+        is the boundary that keeps the previous test from becoming an escape hatch.
+        """
+        self.assert_bucket(
+            ratio_meter.PROCESS,
+            ".superpowers/sdd/scripts/seal.py",
+            "docs/agents/tools/render.ts",
+            "work/verdicts/TC-01-r1-reviewer.md",
+            "work/workspace/helper.sh",
+        )
 
     def test_exclusion_outranks_every_other_bucket(self) -> None:
         self.assertEqual(ratio_meter.classify("node_modules/pkg/AGENTS.md"), ratio_meter.EXCLUDED)

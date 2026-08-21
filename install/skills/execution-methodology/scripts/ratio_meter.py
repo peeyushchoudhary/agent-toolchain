@@ -98,6 +98,13 @@ PRODUCT_SUFFIXES = (".java", ".kt", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"
                     ".cts", ".py", ".go", ".rs", ".swift", ".rb", ".php", ".cs", ".c", ".h",
                     ".cpp", ".hpp", ".m", ".sql", ".css", ".scss", ".less", ".html", ".vue",
                     ".svelte", ".sh", ".bash", ".zsh", ".tf", ".tfvars", ".yaml", ".yml", ".toml")
+# The subset of PRODUCT_SUFFIXES that compiles or executes. Only these outrank an ambiguous
+# bookkeeping word, because the data and config formats are exactly what bookkeeping is written in:
+# a task card is `.yaml`, a register is `.tsv`, a ledger is `.md`. An API contract is `.yaml` too,
+# and it must stay reachable by the product-thinking rules rather than being claimed here.
+CODE_SUFFIXES = tuple(s for s in PRODUCT_SUFFIXES
+                      if s not in (".yaml", ".yml", ".toml"))
+
 PRODUCT_NAMES = ("package.json", "pom.xml", "cargo.toml", "pyproject.toml")
 PRODUCT_NAME_PREFIXES = ("build.gradle", "dockerfile", "docker-compose", "requirements")
 PRODUCT_SEQUENCES = ("/.github/workflows/",)
@@ -118,11 +125,24 @@ PRODUCT_THINK_NAMES = ("readme.md",)
 PRODUCT_THINK_NAME_PREFIXES = ("openapi",)
 PRODUCT_THINK_SUBSTRINGS = ("prd",)
 
-# Bookkeeping. Two shapes, and the difference is deliberate: a SEQUENCE must appear as whole path
-# segments, so `/cards/` cannot be matched by a file called `flashcards.md`, while a SUBSTRING is
-# matched anywhere in the path because these names are the artifacts themselves wherever they sit.
-PROCESS_SEQUENCES = ("/.superpowers/", "/sdd/", "/docs/agents/", "/docs/superpowers/", "/cards/",
-                     "/verdicts/", "/reports/", "/workspace/", "/escalations/")
+# Bookkeeping, in three strengths, because "process" is also an ordinary product vocabulary.
+#
+# STRONG sequences are directories that exist only to hold bookkeeping. Nothing inside them is
+# product, including a script — tooling that serves the workspace is still workspace cost.
+#
+# WEAK sequences and SUBSTRINGS are words a product legitimately uses. `cards` is a task card and
+# also a loyalty card; `reports` is a review essay and also a reporting feature; `receipt` is a
+# milestone receipt and also a consent receipt, a payment receipt, and a goods-receipt screen.
+# Against a source file these lose, because bookkeeping is prose and data — it is never compiled or
+# executed. Measured across four adopting repositories before this rule existed, the ambiguity
+# charged 16,429 lines of domain code to process: ConsentReceipts.java, GoodsReceiptScreen.tsx,
+# validation_receipt_v3.py, and a whole com/…/cards/ package whose subject is health cards.
+#
+# A SEQUENCE must appear as whole path segments, so `/cards/` cannot be matched by `flashcards.md`;
+# a SUBSTRING matches anywhere, because those names are the artifacts themselves wherever they sit.
+PROCESS_STRONG_SEQUENCES = ("/.superpowers/", "/sdd/", "/docs/agents/", "/docs/superpowers/",
+                            "/verdicts/", "/workspace/", "/escalations/")
+PROCESS_WEAK_SEQUENCES = ("/cards/", "/reports/")
 PROCESS_SUBSTRINGS = ("deferral", "progress.md", "ledger.md", "lessons.md", "receipt",
                       "agents.md", "claude.md", "methodology.md", "personas")
 PROCESS_SUFFIXES = (".diff",)
@@ -234,7 +254,15 @@ def classify(path: str) -> str:
         return EXCLUDED
     if any(sequence in norm for sequence in PRODUCT_THINK_OVERRIDE_SEQUENCES):
         return PRODUCT_THINK
-    if (any(sequence in norm for sequence in PROCESS_SEQUENCES)
+    if any(sequence in norm for sequence in PROCESS_STRONG_SEQUENCES):
+        return PROCESS
+    # Source beats an ambiguous name. Everything below this line is a word a product may own, and a
+    # file that compiles or runs is product whatever it is called. CODE_SUFFIXES rather than
+    # PRODUCT_SUFFIXES is the whole precision here: a task card is `.yaml` and an API contract is
+    # `.yaml`, so the data formats must stay claimable by the rules below.
+    if any(name.endswith(suffix) for suffix in CODE_SUFFIXES):
+        return PRODUCT
+    if (any(sequence in norm for sequence in PROCESS_WEAK_SEQUENCES)
             or any(token in norm for token in PROCESS_SUBSTRINGS)
             or any(name.endswith(suffix) for suffix in PROCESS_SUFFIXES)):
         return PROCESS
