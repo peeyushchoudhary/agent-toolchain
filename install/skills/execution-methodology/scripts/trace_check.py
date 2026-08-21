@@ -23,11 +23,25 @@ is not a pass, it is a test this cannot see. references/junit-evidence.md has th
   T1  a criterion with no coverage row      T4  a test citing an id no spec declares
   T2  a row naming no criterion             T5  the coverage map and the absence claim disagreeing
   T3  a criterion no executed test carries  T6  a test citing an id retired in `withdrawn:`
+  T7  (--commit only) an id that ARRIVED in the range on a test whose BODY the range never touched
 
-Usage:  trace_check.py [--root DIR] [--evidence FILE ...] [--json]
+T7 EXISTS BECAUSE T3 IS SATISFIABLE BY A RENAME. Across four real repositories 0 of 5,866 `@Test`
+methods carry a criterion id today, so every one of them is one `sed` away from making T3 green, and
+that rename is the cheapest green this toolchain offers. `--commit RANGE` adds the second half of
+the claim: the test that carries a newly-arrived id must ALSO have had body lines added or changed
+inside that range. A rename writes one signature line and no body line, so T7 fires on it.
+
+WHAT T7 DOES NOT PROVE, and this line stays here: it does not prove the body ASSERTS anything — a
+body changed to `{ /* TODO */ }` satisfies T7 exactly as a real assertion does, because that is all
+"the body changed" can mean. It does not judge an id that already existed before RANGE: those are
+COUNTED AND PRINTED as "not new in the range", never silently passed. It is deliberately not a Java
+check — it matches the executed test's own name against changed line ranges in a diff and parses no
+language — so a project whose tests are Python or TypeScript gets the same rule and the same limit.
+
+Usage:  trace_check.py [--root DIR] [--evidence FILE ...] [--commit RANGE] [--json]
 Exit codes: 0 clean or an input was absent AND IS NAMED, 1 findings, 2 the arguments or the evidence
 could not be read: evidence that cannot be re-read is not evidence, and "traced clean" must never
-print the same way as "traced nothing".
+print the same way as "traced nothing". A `--commit RANGE` git cannot resolve is 2 for that reason.
 """
 
 from __future__ import annotations
@@ -42,7 +56,8 @@ from pathlib import Path
 from typing import NamedTuple
 
 from plan_waves import fenced_blocks
-from spec_check import PRINT_CAP, Doc, Finding, Findings, SpecError, criteria, parse_front_matter
+from spec_check import (PRINT_CAP, Doc, Finding, Findings, SpecError, criteria, git,
+                        parse_front_matter)
 
 LIVE = ("approved", "building", "shipped")   # "approved or later": a draft spec binds nobody yet
 LEVELS = ("unit", "integration", "e2e", "none")
@@ -57,6 +72,8 @@ XML_SOURCE, NO_LINE = "(executed tests)", 0
 Key = NamedTuple("Key", [("feature", str), ("number", str)])
 Stats = NamedTuple("Stats", [("files", int), ("cases", int), ("by_name", int), ("by_class", int),
                              ("unattributable", int)])
+# T7's own denominator, printed every run so an inert T7 cannot read like a clean one.
+Bodies = NamedTuple("Bodies", [("green", int), ("arrived", int), ("worked", int), ("stale", int)])
 Spec = NamedTuple("Spec", [("doc", Doc), ("live", bool), ("numbers", dict), ("withdrawn", dict)])
 Plan = NamedTuple("Plan", [("doc", Doc), ("feature", str), ("rows", dict), ("covers", list),
                            ("absent", dict)])
@@ -201,6 +218,212 @@ def read_evidence(paths: list[Path]) -> tuple[dict[Key, list[str]], Stats]:
         files, cases = files + len(found), cases + seen
     return executed, Stats(files, cases, by_name, by_class, unattributable)
 
+# --- T7: the id arrived, the body did not ---------------------------------------------------------
+# T3 asks "did a test carrying this id run and pass". Renaming an already-green test answers it in
+# full and writes no product. Measured on the four sibling repositories this methodology runs on:
+# 1,073 Java test files, 5,866 `@Test` methods, and ZERO of them carrying a criterion id — so the
+# migration T3 asks for IS a bulk rename, and the cheapest way to finish it is to make no other
+# change at all. T7 reads the same commit range `plan_waves.py --commit` reads and asks the second
+# question: did the body of that test change here?
+#
+# It matches a NAME against LINE NUMBERS and parses no language. The carrier is the executed test's
+# own `name=` (or `classname=` when the id lives there), which is the same carrier the rest of this
+# file already trusts, so nothing here has to know what a method looks like in Java, Python or
+# TypeScript. The body is bounded by INDENTATION: from the line the id arrived on, forward until a
+# non-blank line indented no further. Java closes on `}` at the signature's own indent and Python on
+# the next `def`, and both land on the same span without either being named.
+HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+PARAMETERISED_RE = re.compile(r"\s*\[[^\]]*\]\s*$")     # `resends__F7_AC2[2]` -> `resends__F7_AC2`
+TOKEN_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+# The empty tree. A range whose left side is a root commit has nothing to its left, and diffing
+# against the WORKING TREE — which is what a bare `git diff <root>` does — would read uncommitted
+# edits as if they were in the range. That is the one git default this must not inherit.
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
+def range_ends(root: Path, rev_range: str) -> tuple[str, str, str]:
+    """`(left, right, tip)` for a range spelled `A..B`, `A...B` or a single commit.
+
+    A single commit means that commit against its parent, and a ROOT commit against the empty tree
+    rather than against the working tree. Anything git cannot resolve raises: a `--commit` that
+    silently degraded to "no diff" would report every claim as pre-existing and find nothing.
+    """
+    def commit(rev: str) -> str:
+        resolved = git(root, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}")
+        if not resolved or not resolved.strip():
+            raise SpecError(f"--commit {rev_range}: git cannot resolve {rev!r} in {root}")
+        return resolved.strip()
+
+    if ".." in rev_range:
+        left, _, right = rev_range.partition("..")
+        right = right.lstrip(".")
+        if not left.strip() or not right.strip():
+            raise SpecError(f"--commit {rev_range}: a range needs both ends, `A..B`")
+        return commit(left), commit(right), right.strip()
+    tip = commit(rev_range)
+    parents = (git(root, "rev-list", "--parents", "-n", "1", tip) or "").split()
+    return (parents[1] if len(parents) > 1 else EMPTY_TREE), tip, rev_range
+
+
+def added_lines(root: Path, left: str, right: str) -> tuple[dict[str, dict[int, str]],
+                                                              dict[str, set[int]]]:
+    """Per file: post-image line number -> text for every line the range ADDS, and the post-image
+    numbers a pure DELETION sits between.
+
+    Deletions are read because the claim T7 makes is "the range never touched this body", and a
+    body someone emptied was touched. Measured on a real repository, the one and only disagreement
+    in 581 judgeable methods was this: a commit renamed a test AND moved eight of its assertion
+    lines into a new test, so the body changed by subtraction and nothing was added to it. Ignoring
+    deletions would have called that honest refactor a free coverage claim. It costs the rename
+    check nothing — renaming deletes the SIGNATURE line, never a body line.
+
+    `--unified=0` because context is not evidence of work, and `--find-renames` because a moved
+    file whose contents did not change adds nothing and must keep adding nothing here.
+    """
+    diff = git(root, "-c", "core.quotePath=false", "diff", "--unified=0", "--find-renames",
+               "--no-color", left, right)
+    if diff is None:
+        raise SpecError(f"`git diff {left[:12]} {right[:12]}` failed in {root}")
+    added: dict[str, dict[int, str]] = {}
+    removed: dict[str, set[int]] = {}
+    path, number = None, 0
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            target = line[4:].strip()
+            path = None if target == "/dev/null" else target[2:] if target[1:2] == "/" else target
+        elif line.startswith("--- ") or line.startswith("diff --git "):
+            continue
+        elif line.startswith("@@"):
+            match = HUNK_RE.match(line)
+            number = int(match.group(1)) if match else 0
+            # `@@ -139,8 +138,0 @@` deletes with nothing to put in its place, so it owns no line of
+            # the post image and sits in the seam between 138 and 139. Both are marked touched.
+            if path and match and match.group(2) == "0":
+                removed.setdefault(path, set()).update((number, number + 1))
+        elif path and number and line.startswith("+"):
+            added.setdefault(path, {})[number] = line[1:]
+            number += 1
+        elif path and number and line.startswith(" "):
+            number += 1
+    return added, removed
+
+
+def owns(path: str, fqcn: str) -> bool:
+    """Whether this file is where the executed test's class lives, by NAME rather than by parsing.
+
+    A method name is not unique across a repository — `classRegistryIsComplete` exists in several
+    suites in one real project — and a global token search let an unrelated file's added body
+    answer for this one. Comparing the file's stem to the last two segments of `classname` is the
+    weakest rule that stops it and stays language-agnostic: `com.x.FooIT` lives in `FooIT.*` and
+    `tests.test_gate.Cases` lives in `test_gate.*`. When no file matches, T7 declines and counts
+    itself as declining rather than passing on a name collision.
+    """
+    return Path(path).stem in [part for part in re.split(r"[.$]", fqcn) if part][-2:]
+
+
+def carrier(key: Key, executed_test: str) -> str | None:
+    """The identifier in the source that carries `key` for one `classname#name` entry.
+
+    The method name first, its class second — the same order `read_evidence` attributed them in. A
+    parameterised case renders `name="[2] 2026-12-31"` and holds no identifier at all, so it falls
+    to the class, and a name that is not a bare identifier is refused rather than searched for as a
+    substring: `AC-2 rejects a blank` is a real JUnit display name and matches nothing in a diff.
+    """
+    fqcn, _, name = executed_test.partition("#")
+    for token in (PARAMETERISED_RE.sub("", name).strip(), fqcn.rsplit(".", 1)[-1].strip()):
+        if TOKEN_RE.match(token or "") and any(
+                found.number == key.number and found.feature in ("", key.feature)
+                for found in cites(token)):
+            return token
+    return None
+
+
+def body_span(lines: list[str], index: int) -> range:
+    """Post-image line numbers of the body opened on `lines[index]`, by indentation alone."""
+    depth = len(lines[index]) - len(lines[index].lstrip())
+    end = index + 1
+    while end < len(lines) and (not lines[end].strip()
+                                or len(lines[end]) - len(lines[end].lstrip()) > depth):
+        end += 1
+    return range(index + 2, end + 1)
+
+
+def body_worked(root: Path, left: str, right: str, added: dict[str, dict[int, str]],
+                removed: dict[str, set[int]], token: str, fqcn: str) -> bool | None:
+    """True when the range touched the body under `token`, False when only its own line moved, and
+    None when the id did not ARRIVE in this range at all — that last case is counted and printed,
+    never passed.
+
+    "Arrived" is decided against the LEFT side of the range, not against the added lines: a token
+    is new here only when the file it lands in did not already contain it. Deciding it on "the name
+    appears on an added line" was wrong against the real corpus and wrong in a specific, repeatable
+    way — one project keeps a pinned-defect registry that names its own test methods in string
+    literals, so editing the registry made every long-standing test look newly named, and 18 of 494
+    judgeable methods (3.6%) fired for a rename that never happened. Reading the left side takes
+    the same class of accident out of the rule instead of tuning a threshold until it hides.
+
+    A line that merely CALLS the test is not a declaration, and it does not have to be told apart
+    from one: a call sits alone at its own indent, so the span below it is empty and it can never
+    satisfy the check by itself. Only files the token appears in are read back, which is why this
+    costs two `git show` calls per hit file and not a pass over the tree.
+    """
+    word = re.compile(rf"(?<![A-Za-z0-9_$]){re.escape(token)}(?![A-Za-z0-9_$])")
+    hits: list[tuple[str, int]] = []
+    for path, lines in sorted(added.items()):
+        if not owns(path, fqcn) or not any(word.search(text) for text in lines.values()):
+            continue
+        before = git(root, "show", f"{left}:{path}")
+        if before is not None and word.search(before):
+            continue     # the id was already here before the range: nothing arrived, so no opinion
+        hits += [(path, number) for number, text in sorted(lines.items()) if word.search(text)]
+    if not hits:
+        return None
+    for path, number in hits:
+        content = git(root, "show", f"{right}:{path}")
+        if content is None:
+            continue     # deleted by the tip, or unreadable: it proves nothing either way
+        lines = content.splitlines()
+        if not 0 < number <= len(lines):
+            continue
+        touched = set(added.get(path, {})) | removed.get(path, set())
+        if touched.intersection(body_span(lines, number - 1)):
+            return True
+    return False
+
+
+def check_bodies(root: Path, rev_range: str, specs: dict[str, Spec], plans: list[Plan],
+                 executed: dict[Key, list[str]], f: Findings) -> Bodies:
+    """T7 over every criterion T3 reports green. Returns the denominator, which main() prints."""
+    left, right, _ = range_ends(root, rev_range)
+    added, removed = added_lines(root, left, right)
+    green, arrived, worked, stale = 0, 0, 0, 0
+    for plan in plans:
+        numbers = specs[plan.feature].numbers if plan.feature in specs else {}
+        for number, (level, line) in sorted(plan.rows.items()):
+            key = Key(plan.feature, number)
+            if level == "none" or number not in numbers or key not in executed:
+                continue     # T1, T2 and T3 own those; a second finding here would print twice
+            green += 1
+            verdicts = {}
+            for test in executed[key]:
+                token = carrier(key, test)
+                if token is not None:
+                    verdicts[test] = body_worked(root, left, right, added, removed, token,
+                                                 test.partition("#")[0])
+            if all(verdict is None for verdict in verdicts.values()):
+                stale += 1
+                continue     # the id predates the range: T7 has no opinion and says so in the count
+            arrived += 1
+            if any(verdict for verdict in verdicts.values()):
+                worked += 1
+                continue
+            renamed = sorted(test for test, verdict in verdicts.items() if verdict is False)
+            f.add(plan.doc, line, "T7", f"F-{plan.feature}/AC-{number} is newly carried by "
+                  f"{renamed[0]}{f' and {len(renamed) - 1} more' if len(renamed) > 1 else ''}, and "
+                  f"{rev_range} changed no line of that test's body — the id arrived without the "
+                  "work, which is what renaming an already-green test looks like")
+    return Bodies(green, arrived, worked, stale)
+
 
 def check(specs: dict[str, Spec], plans: list[Plan], executed: dict[Key, list[str]],
           f: Findings) -> None:
@@ -247,6 +470,9 @@ def main() -> int:
     parser.add_argument("--root", default=".", help="repository root (default: the current dir)")
     parser.add_argument("--evidence", action="append", default=[], metavar="FILE",
                         help="a verify_junit.py evidence receipt; repeat for more than one run")
+    parser.add_argument("--commit", metavar="RANGE",
+                        help="also check that the body of each newly-carried test changed in this "
+                             "commit or `A..B` range; without it T7 does not run and says so")
     parser.add_argument("--json", action="store_true", help="machine-readable findings on stdout")
     args = parser.parse_args()
     root = Path(args.root).expanduser()
@@ -254,7 +480,7 @@ def main() -> int:
         print(f"ERROR: --root is not a directory: {root}", file=sys.stderr)
         return 2
     root, findings, missing, stats = root.resolve(), Findings(), "", Stats(0, 0, 0, 0, 0)
-    specs, plans = {}, []
+    specs, plans, bodies = {}, [], None
     try:
         specs, plans = read_specs(root, findings), read_plans(root, findings)
         if not plans:
@@ -266,6 +492,10 @@ def main() -> int:
         else:
             executed, stats = read_evidence([Path(item).expanduser() for item in args.evidence])
             check(specs, plans, executed, findings)
+            # Called on the ONE path that can call it, and printed either way. A flag accepted and
+            # never acted on is how the last check in this toolchain came to be inert.
+            if args.commit:
+                bodies = check_bodies(root, args.commit, specs, plans, executed, findings)
     except SpecError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -278,9 +508,19 @@ def main() -> int:
               f"file(s): {stats.by_name} carried an id in the test name, {stats.by_class} in the "
               f"class name, {stats.unattributable} in neither. An executed id proves a test with "
               "that id ran and passed, not that it asserts anything.")
+    if bodies is not None:
+        report += (f" Of {bodies.green} criterion/criteria a test carries, {bodies.arrived} had "
+                   f"that id ARRIVE inside {args.commit} and {bodies.worked} of those also had "
+                   f"body lines change there; {bodies.stale} carried the id before the range, so "
+                   "T7 judged none of them. A changed body is work, not an assertion.")
+    elif args.commit:
+        note = (f" T7 did not run: --commit {args.commit} judges tests a verified run executed, "
+                "and this run named none.")
+        report, missing = report + note, (missing + note if missing else missing)
     if args.json:
         json.dump({"root": str(root), "count": len(findings), "exit": code, "missing": missing,
                    "testcases": stats.cases, "unattributable": stats.unattributable,
+                   "commit": args.commit, "t7": bodies._asdict() if bodies else None,
                    "summary": report,
                    "findings": [item._asdict() for item in findings]}, sys.stdout, indent=2)
         sys.stdout.write("\n")
