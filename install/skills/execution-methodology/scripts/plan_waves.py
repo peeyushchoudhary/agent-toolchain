@@ -127,7 +127,12 @@ Milestone = NamedTuple("Milestone", [("name", str), ("rel", str), ("features", l
 # --- reading the plan ---------------------------------------------------------------------------
 
 def task_blocks(doc: Doc) -> list[tuple[int, list[str]]]:
-    """Every ```task block as (the 1-based line of its opening fence, the lines inside it).
+    """Every ```task block, by way of the shared reader below."""
+    return fenced_blocks(doc, "task")
+
+
+def fenced_blocks(doc: Doc, label: str) -> list[tuple[int, list[str]]]:
+    """Every ```<label> block as (the 1-based line of its opening fence, the lines inside it).
 
     A fence closes only on a run of the SAME character at least as long as the one that opened it,
     which is what lets a document show this template inside a ````markdown wrapper without the
@@ -148,7 +153,7 @@ def task_blocks(doc: Doc) -> list[tuple[int, list[str]]]:
             if candidate and set(candidate) == {marker} and len(candidate) >= run:
                 break
             close += 1
-        if text[run:].strip() == "task":
+        if text[run:].strip() == label:
             found.append((index + 1, lines[index + 1:close]))
         index = close + 1
     return found
