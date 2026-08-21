@@ -210,6 +210,22 @@ class Doc:
         return self.path.match("docs/product/specs/F-*.md")
 
     @property
+    def looks_like_a_spec(self) -> bool:
+        """A document that sits where specs sit but does not match the bound name.
+
+        NOT a rule and never a finding: a repository may legitimately name its specs another way,
+        and this checker has no standing to demand `F-<n>-<slug>.md`. It exists so the SILENCE is
+        visible. One real repository writes every spec as `specs/<slug>/spec.md`, which meant 274
+        documents — 130 of them carrying the `## Horizontals` section rule F reads — were scanned,
+        bound by nothing, and reported as a clean exit 0. A checker that inspects none of a
+        repository's specs and prints no findings is indistinguishable from one that inspected
+        them all and approved.
+        """
+        if self.is_spec or self.is_prd or self.is_milestone:
+            return False
+        return "docs/product/specs/" in self.rel
+
+    @property
     def is_prd(self) -> bool:
         return self.rel == "docs/product/prd.md"
 
@@ -729,6 +745,7 @@ class Binding:
     def __init__(self) -> None:
         self.personas: list[Persona] = []
         self.pool_dir = ""
+        self.unbound_specs = 0
         self.product_docs = 0     # every `docs/product/**/*.md` read
         self.documents = 0        # ... of those, the specs, PRD and milestones F binds
         self.no_front_matter = 0  # ... of those, ones with no `---` block to hold `reviewed_by:`
@@ -744,13 +761,23 @@ class Binding:
     def bound(self) -> list[Persona]:
         return [p for p in self.personas if p.covers]
 
+    def unbound_line(self) -> str:
+        """Said only when there is something to say, so a clean repository stays quiet."""
+        if not self.unbound_specs:
+            return ""
+        return (f"note: {self.unbound_specs} document(s) under docs/product/specs/ are not named "
+                "`F-<n>-<slug>.md`, so no schema rule and no persona binding read them. That is a "
+                "naming choice, not a defect — but this run inspected none of them, and an exit 0 "
+                "cannot tell you which of the two happened.")
+
     def note(self) -> str:
         """One line, printed on every run that has a pool. It says what was checked, or that
         nothing was — never nothing at all, which is what exit 0 alone would say."""
         head = (f"persona binding: {len(self.personas)} persona(s) in {self.pool_dir}, "
                 f"{len(self.bound)} with `covers:`")
         if not self.personas:
-            return ""
+            return self.unbound_line()
+        
         reach = (f"{self.documents} spec/PRD/milestone document(s) of {self.product_docs} under "
                  f"docs/product, {self.with_section} with a `## Horizontals` section, "
                  f"{self.rows} labelled concern row(s), {self.live_rows} live")
@@ -763,6 +790,12 @@ class Binding:
                        "`reviewed_by:` can be read from them")
         if self.documents and not self.product_docs:
             why.append("no document under docs/product matches the spec, PRD or milestone paths")
+        if self.unbound_specs:
+            # The loudest silence there is: documents sitting in the specs directory that no rule
+            # reads. Reported here rather than as a finding because the naming is the repository's
+            # choice, not a defect this checker may charge it with.
+            why.append(f"{self.unbound_specs} document(s) under docs/product/specs/ are not named "
+                       "`F-<n>-<slug>.md`, so NOTHING here read them")
         suffix = ("; " + "; ".join(why)) if why else ""
         if not self.bound:
             return (f"{head}, {reach} -- RULE F CHECKED NOTHING. No persona in this repository "
@@ -1034,6 +1067,7 @@ def analyse(root: Path) -> tuple[Findings, Binding]:
     status = git(root, "status", "--porcelain") or ""
     dirty = {line[3:].strip().split(" -> ", 1)[-1].strip('"') for line in status.splitlines()}
     documents = [Doc(path, root) for path in paths]
+    binding.unbound_specs = sum(1 for doc in documents if doc.looks_like_a_spec)
     for doc in documents:
         # The current-state rules apply to every product document — a market study or an
         # architecture note goes stale the same way a spec does, and A1-A3 need no schema.

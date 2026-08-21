@@ -1462,3 +1462,32 @@ class DeferralRegisterTest(SpecCheckFixture):
         result = self.run_cli("--deferred")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("D-2", result.stdout)
+
+
+class UnboundSpecSilenceTest(SpecCheckFixture):
+    """A repository whose specs this checker cannot see must not read as a clean one.
+
+    Measured: one real repository writes every feature spec as `specs/<slug>/spec.md`. It holds 274
+    such documents, 130 of them carrying the `## Horizontals` section rule F reads, and `spec_check`
+    bound NONE of them and printed 0 findings, exit 0. That result was reported as clean three times
+    before anyone noticed it meant unchecked. The naming is the repository's choice and is not a
+    defect, so this is never a finding — but the silence is now said out loud.
+    """
+
+    def nested(self) -> None:
+        self.write("docs/product/prd.md", PRD)
+        self.write("docs/product/specs/moderation/spec.md", "# Moderation\n\n## Horizontals\n\n"
+                   "| Concern | Disposition |\n|---|---|\n| Audit trail | Every action logged. |\n")
+
+    def test_an_unreadable_layout_is_reported_not_charged(self) -> None:
+        self.nested()
+        out = self.run_cli().stdout
+        self.assertNotIn("specs/moderation/spec.md", out,
+                         "a naming choice is not a defect and must not be charged as one")
+        self.assertIn("are not named `F-<n>-<slug>.md`", out,
+                      "said in both the pool and no-pool forms of the report")
+
+    def test_a_bound_layout_says_nothing_about_unbound_documents(self) -> None:
+        """The line must stay quiet when there is nothing unread, or it becomes noise."""
+        self.corpus()
+        self.assertNotIn("are not named `F-<n>-<slug>.md`", self.run_cli().stdout)
