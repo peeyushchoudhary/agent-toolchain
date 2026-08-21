@@ -145,11 +145,23 @@ exists to bound how many times a subject may be *judged*; the fix a judgement pr
 itself a judgement. Counting every round-marked file made a fix round consume the budget its own
 re-review needed, so a subject that fixed twice could never have its second fix reviewed — the cap
 forbidding exactly the review it exists to protect. The round marker therefore decides WHEN, and
-the KIND suffix after it decides WHETHER: a judge verdict (`-reviewer`, `-test-judge`,
+the KIND suffix after it decides WHETHER: a judge verdict (`-reviewer`,
 `-security-validator`, `-*-validator`, `-*-architect`, `-acceptance`, `-review`, `-rereview`)
 spends a round; a fix brief, fix report, implementation report, scout sweep or analysis does not.
 Nor does a NON-PROSE artifact: a JUnit XML, a probe log, a diff or a source file carried into the
 workspace as evidence is not a judgement whatever its name says.
+
+AND NEITHER DOES `-test-judge`, WHICH USED TO. A judge that runs a command and reports its exit
+code is collecting evidence, not adjudicating. Measured across the four real repositories: 124
+`-test-judge` artifacts, 114 PASS / 2 FAIL / 1 with no verdict — a 0.02 block rate against 0.16
+for `reviewer`. It is the same rule the non-prose suffixes already apply to a JUnit XML, applied
+to the prose file that reports that XML. The check that had to pass before this shipped: BOTH
+failing test-judges have a sibling REVIEW verdict at the same (subject, round), so neither round
+loses its charge. Across all 59 workspaces the reclassification drops 124 artifacts from the
+charge, moves 496 charged subjects to 488 and 783 charged (subject, round) pairs to 775, and
+CHANGES NO WORKSPACE EXIT CODE. The 8 vanished pairs are 3 distinct artifacts, each read: a
+baseline, an explicit `UNDECIDED`, and one with no verdict line at all. No BLOCK goes silent.
+See EVIDENCE_KIND_TOKENS.
 
 Warnings (exit 0, reported) — process-regression signals for the milestone receipt:
   * UNCLASSIFIED_ROUND_ARTIFACT — a file carries a round marker but no kind this tool recognises.
@@ -203,6 +215,14 @@ Warnings (exit 0, reported) — process-regression signals for the milestone rec
   * DUPLICATE_TERMINAL_PASS — two `terminal` rows for one subject. The FIRST stands, as for a
                     duplicate round grant: two lines for one decision make the ledger disagree
                     with itself about which one is in force. Reported, not resolved.
+  * FAMILY_SPEND  — two or more subject keys are ONE lineage by token prefix (`<subj>`,
+                    `<subj>-contract`, `<subj>-contract-prerequisite`), and together they spend
+                    more than the budget. RENAMING A SUBJECT RESETS ITS BUDGET and no per-subject
+                    line can state the total, so this one does. Measured: a code-formatter
+                    prerequisite in one real workspace holds 13 subject keys, 51 charged
+                    artifacts and rounds r1..r15 for ONE artifact under review. ADVISORY — it
+                    raises no error, changes no exit code, and the `--next` refusal does not
+                    consult it. Subject derivation is UNCHANGED, so no grant key is re-keyed.
   * WORKSPACE_BUDGET — workspace exceeds ~50 files or ~500 KB.
 
 Scope, stated plainly: the check keys on the --next subject the orchestrator declares and on
@@ -210,8 +230,10 @@ filename lineage (round markers are stripped before grouping, so `S2-01-R18.md`,
 `S2-01-round18.md` and `S2-01-fixround3-rereview.md` are one subject). The methodology therefore
 mandates that persisted verdicts are named `<subject>-r<N>-<kind>.md` — a marker-free verdict
 filename starves this counter and is itself a violation. It is protection against drift, not
-against an adversarial orchestrator: renaming a subject to dodge the counter is not detectable
-from filenames alone. Nor is it protection against a party that means to spend a round it was not
+against an adversarial orchestrator: renaming a subject to dodge the counter is not REFUSED from
+filenames alone — FAMILY_SPEND now makes the commonest shape of it VISIBLE (a qualifier appended
+to a live subject key), which is a report and not a refusal, and a rename to an unrelated stem
+still leaves no trace this tool can read. Nor is it protection against a party that means to spend a round it was not
 given: see KNOWN-OPEN at the top. It is an instrument that reports, and a receipt a human reads.
 
 What the kind discriminator CANNOT see, stated plainly. It reads the filename and nothing else —
@@ -270,6 +292,37 @@ WORK_KIND_TOKENS = frozenset({
     "handoff", "impl", "implementation", "ledger", "measurement", "notes", "plan", "report",
     "scout", "spec", "status", "summary",
 })
+# EVIDENCE COLLECTION WEARING A JUDGE'S NAME. This is the ONE place the "a review token anywhere
+# in the tail wins" rule is inverted, so the inversion is named, bounded to one token, and
+# justified by measurement rather than by argument.
+#
+# `test-judge` runs a command and reports its exit code. MEASURED across the four real repositories
+# (59 review workspaces, 1,093 round-marked artifacts): 124 artifacts carry `test` in the kind
+# position, ALL 124 are `-test-judge`, and their prose verdicts are 114 PASS / 2 FAIL / 1 with no
+# VERDICT line — a 0.02 block rate against 0.16 for `reviewer`. A command's exit code is evidence,
+# and evidence must not spend a round: that is the same rule NON_PROSE_SUFFIXES already applies to
+# a JUnit XML, applied to the artifact that reports the same XML in prose.
+#
+# THE OBJECTION THAT HAD TO BE ANSWERED BEFORE THIS SHIPPED, because reclassifying a judge is
+# exactly how a real blocking verdict goes silent: do the 2 FAILs disappear from the counter? They
+# do NOT. Both were checked by name in the corpus, and each has a sibling REVIEW verdict at the
+# SAME (subject, round) — `D185D-r1-test-judge.md` beside `D185D-r1-reviewer.md` and
+# `-r1-security-validator.md`; `D201-BYPASS-SHAPE-HYGIENE-r1-test-judge.md` beside
+# `-r1-reviewer.md` and `-r1-tenancy-rls-validator.md`. Every round a failing test-judge belongs to
+# is still charged by an adjudicating verdict standing next to it. Nothing is hidden.
+#
+# WHAT THIS DOES NOT CLAIM, and the first draft of this comment claimed it wrongly. The
+# discriminator reads the filename and nothing else, so a test-judge that is the SOLE charge at a
+# (subject, round) stops that round being counted at all. THAT SHAPE DOES OCCUR: measured over the
+# 59 workspaces, 124 artifacts stop charging and 8 (subject, round) pairs disappear entirely —
+# THREE distinct artifacts, each the only verdict its round had. They were read. None is a BLOCK:
+# one is a named baseline, one states `VERDICT ... UNDECIDED` in its own words, and the third
+# carries NO verdict line at all — it prints a command, an exit code and a findings tally, which is
+# the definition being applied here. So no blocking verdict goes silent ON THIS CORPUS. On another
+# corpus it could, and the honest repair then is to name the artifact for the judgement it made
+# (`-reviewer`, `-acceptance`), not to widen this set: the counter cannot read prose and must not
+# start. FAMILY_SPEND and the artifact's own presence in the workspace remain visible either way.
+EVIDENCE_KIND_TOKENS = frozenset({"test"})
 # The subset of REVIEW_KIND_TOKENS that names a JUDGE unambiguously even with no round marker to
 # mark off a suffix. With no marker there is no tail, so the WHOLE stem is searched, and only
 # tokens that cannot appear innocently in a subject name belong here.
@@ -284,9 +337,12 @@ JUDGE_NAME_TOKENS = frozenset({
     "rereview", "reviewer", "security", "tenancy", "validator", "verdict",
 })
 KIND_SPLIT_RE = re.compile(r"[-_.]+")
-# Every token that names a KIND, either side of the union. Used only by `trailing_kind_tokens`,
-# which reads the kind that sits BEFORE a round marker rather than after it.
-KIND_TOKENS = REVIEW_KIND_TOKENS | WORK_KIND_TOKENS
+# Every token that names a KIND, on any side of the union. Used only by `trailing_kind_tokens`,
+# which reads the kind that sits BEFORE a round marker rather than after it. `test` is included
+# here after MEASURING that it re-keys NOTHING: across the 1,093 real round-marked artifacts there
+# are ZERO `<subject>-test-r<N>.md` shapes, so adding it changes no subject key and no grant key,
+# and it is present only so the kind-first form would classify if a project ever writes it.
+KIND_TOKENS = REVIEW_KIND_TOKENS | WORK_KIND_TOKENS | EVIDENCE_KIND_TOKENS
 # Non-prose artifacts are EVIDENCE, not judgements. A JUnit XML named `T4-R3-GREEN-*.xml`, a probe
 # log, a captured diff or a source file dropped in the workspace carries a round marker only
 # because it belongs to a round — reading it as a verdict charged 27 phantom rounds.
@@ -407,6 +463,59 @@ def subject_of(name: str) -> str:
     return stem.strip("-_.").lower()
 
 
+def subject_families(keys) -> dict:
+    """{root: sorted members} for every subject key that is a proper TOKEN-PREFIX of another.
+
+    THE HOLE THIS ANSWERS: RENAMING A SUBJECT RESETS ITS BUDGET, and the per-subject counter cannot
+    see it because it has only ever had one key per name. The real shape, from the corpus rather
+    than from a hypothesis — a CODE FORMATTER prerequisite in one workspace:
+
+        <card>-spotless-r15-dispatch-blocker
+        <card>-spotless-amendment-{architecture,builder,contract,general,methodology}-r11..r14
+        <card>-spotless-amendment-contract-{review-r1..r7, full-r7..r8, prerequisite-r9..r10}
+        <card>-spotless-amendment-{plan,security}-{full,prerequisite,review}-r1..r10
+
+    THIRTEEN subject keys, 51 artifacts, rounds spanning r1 to r15, ONE artifact being judged. Each
+    key showed a small spend and the counter had no line that said 51.
+
+    THE RULE, and why it is a STRUCTURE test and not a word test — the failure this repository has
+    now recorded seven times is a checker that matched a WORD and saw nothing real. There is no
+    vocabulary here at all. A lineage is renamed by APPENDING a qualifier, so:
+
+        a subject key is a MEMBER of the family rooted at any subject key that is a proper prefix
+        of it AT TOKEN BOUNDARIES, and that root must ITSELF be a subject key present in this scan.
+
+    Requiring the root to be a live key is what keeps this conservative: `f009-static-plan` and
+    `f009-static-sites` are NOT merged under an invented `f009`, because no artifact is named
+    `f009` alone. Measured over all 59 real workspaces this produces 16 multi-member families, and
+    the widest is the formatter card itself — it does not collapse the corpus into a few buckets.
+
+    NESTED ROOTS ARE ALL REPORTED, not just the outermost. `<card>` is a family, `<card>-spotless`
+    is a family inside it, `<card>-spotless-amendment-contract` is a family inside that. Eliding
+    the inner ones would hide exactly the number the audit needed: 51 artifacts / 14 rounds sits at
+    `<card>-spotless`, while the outermost root reports 76 / 16. This module's receipt does not
+    summarise or threshold its findings, and this is the same commitment.
+
+    NO KIND VOCABULARY IS WIDENED HERE. `prerequisite` is still not a kind and is still not
+    stripped from a subject key — that pin is right and this works around it rather than through
+    it, because the escape being measured is not confined to kind words: `full`, `builder`,
+    `authority` and `methodology` are not kinds either and they reset the budget just as well.
+    """
+    tokens = {k: tuple(t for t in SEPARATOR_RE.split(k) if t) for k in keys}
+    by_tokens = {}
+    for key, tk in tokens.items():
+        # Two keys cannot share a token tuple: the tuple is derived from the key. `setdefault`
+        # only guards against a caller passing duplicates.
+        by_tokens.setdefault(tk, key)
+    families: dict[str, set] = {}
+    for key, tk in tokens.items():
+        for i in range(1, len(tk)):
+            root = by_tokens.get(tk[:i])
+            if root is not None and root != key:
+                families.setdefault(root, {root}).add(key)
+    return {root: sorted(members) for root, members in families.items()}
+
+
 def kind_of(stem: str, mark: re.Match) -> str | None:
     """Classify the artifact from the kind suffix that follows its LAST round marker.
 
@@ -420,6 +529,14 @@ def kind_of(stem: str, mark: re.Match) -> str | None:
         # artifacts across the real workspaces have this shape. Reading the head here is the same
         # test on the same vocabulary, applied at the position the corpus actually uses.
         tokens = set(trailing_kind_tokens(stem[: mark.start()]))
+    if tokens & EVIDENCE_KIND_TOKENS:
+        # THE ONE PRECEDENCE INVERSION, and it is deliberately FIRST rather than folded into
+        # WORK_KIND_TOKENS: a `test-judge` tail carries BOTH `test` and `judge`, and the
+        # review-token-wins rule below would return "review" for it forever. Placing the test here
+        # is the only way the reclassification actually takes effect, and putting it at the top of
+        # the function is the only way a reader can see that it overrides the fail-closed default.
+        # It is bounded to ONE token whose whole justification is measured; see EVIDENCE_KIND_TOKENS.
+        return "work"
     if tokens & REVIEW_KIND_TOKENS:
         return "review"
     if tokens & WORK_KIND_TOKENS:
@@ -751,6 +868,11 @@ def main() -> int:
     # lookup on a per-subject MAXIMUM let one grant line at the top round absorb every lower
     # ungranted over-cap round on the same key, which is precisely "a pair the line does not name".
     charged: dict[str, dict[int, str]] = {}
+    # HOW MANY JUDGEMENTS, not how many (subject, round) PAIRS. `charged` keeps ONE path per pair,
+    # so summing its lengths counts pairs and would report the 51-artifact formatter family as 50.
+    # A number that is off by one against the corpus it claims to measure is how a receipt stops
+    # being checkable, so the count is kept separately and counts files.
+    charged_files: dict[str, int] = {}
     seen_rounds: dict[str, set[int]] = {}
     seen_subjects: set[str] = set()
     terminals: dict[str, str] = {}
@@ -897,6 +1019,7 @@ def main() -> int:
                        "can tell a judge verdict from the fix it provoked",
             })
         charged.setdefault(subj, {}).setdefault(rnd, rel)
+        charged_files[subj] = charged_files.get(subj, 0) + 1
 
     for raw in args.next:
         subj = subject_of(raw)
@@ -1005,6 +1128,55 @@ def main() -> int:
                    "escalate to the owning gate — do not dispatch",
         })
 
+    # ------------------------------------------------------------------ THE FAMILY VIEW
+    # ADVISORY BY CONSTRUCTION, and that is not an accident of implementation. Founder gate ruling
+    # 2026-08-20 (module docstring, first line): this instrument makes spend VISIBLE and does not
+    # bind its operator. So the family spend is a WARNING and appears in the receipt; it raises no
+    # error, changes no exit code, and is NOT consulted by the `--next` refusal above. Measured
+    # over the 59 real workspaces: NO workspace changes its exit code because of this block.
+    #
+    # Making the true number visible is the whole job. The per-subject `rounds_charged` map is left
+    # exactly as it was — the family is reported ALONGSIDE it, never instead of it, because the
+    # per-subject line is what a grant key is written against and re-keying it would silently
+    # re-key every grant line in the ledger (the same reason COLLIDING_SUBJECT_KEYS reports only).
+    next_subjects = {subject_of(raw) for raw in args.next}
+    families = []
+    for root, members in sorted(subject_families(set(charged)).items()):
+        rounds = sorted({r for m in members for r in charged[m]})
+        n_artifacts = sum(charged_files.get(m, 0) for m in members)
+        families.append({
+            "root": root, "members": members, "rounds": rounds,
+            "distinct_rounds": len(rounds), "max_round": max(rounds),
+            "charged_artifacts": n_artifacts,
+            "next": sorted(next_subjects & set(members)),
+        })
+    for fam in families:
+        # TWO METRICS, because one of them is blind to the escape the other one catches.
+        #   `charged_artifacts` counts JUDGEMENTS and is RESET-PROOF: a rename that restarts the
+        #      numbering at r1 leaves the round span unchanged and this count still climbs.
+        #   `distinct_rounds` counts the ROUND SPAN and is RENAME-PROOF in the other direction: a
+        #      lineage that keeps counting up under new names shows its true reach here.
+        # The formatter family scores 51 and 14 on these two. Either exceeding the budget is the
+        # finding; requiring both would have missed whichever escape was used.
+        if fam["distinct_rounds"] <= args.max_round and fam["charged_artifacts"] <= args.max_round:
+            continue
+        warnings.append({
+            "kind": "FAMILY_SPEND", "path": fam["root"], "subject": fam["root"],
+            "members": fam["members"], "rounds": fam["rounds"],
+            "charged_artifacts": fam["charged_artifacts"],
+            "why": f"`{fam['root']}` and {len(fam['members']) - 1} longer name(s) built on it are "
+                   f"ONE lineage by token prefix, and together they carry "
+                   f"{fam['charged_artifacts']} charged review artifact(s) across "
+                   f"{fam['distinct_rounds']} distinct round(s) "
+                   f"({', '.join(f'r{r}' for r in fam['rounds'])}), against a budget of "
+                   f"{args.max_round}: {', '.join(fam['members'])}. Renaming a subject gives it a "
+                   "fresh budget, so no per-subject line above states this total. ADVISORY — this "
+                   "changes no exit code and does not refuse a dispatch; it is the number the "
+                   "merge gate needs in order to see one long loop instead of several short ones"
+                   + (f". THE --next SUBJECT(S) {', '.join(fam['next'])} ARE IN THIS FAMILY."
+                      if fam["next"] else ""),
+        })
+
     for subj, rnd in sorted(grants):
         # Only for a subject this workspace actually holds. The ledger spans milestones; a grant
         # for a subject sealed elsewhere is out of scope here, and warning about it in every
@@ -1070,6 +1242,10 @@ def main() -> int:
         "next": list(args.next),
         "rounds_charged": {subj: {str(r): p for r, p in sorted(by_round.items())}
                            for subj, by_round in sorted(charged.items())},
+        # EVERY family, not only the ones that warn. A family under budget is the evidence that the
+        # clustering is not merging unrelated lineages, and a receipt that printed only the
+        # families it complained about could not be checked against the workspace it read.
+        "families": families,
         "grants_applied": [
             {"subject": w["subject"], "round": w["round"], "commit": w["commit"],
              "artifact": w.get("artifact", ""), "line": w["path"],

@@ -62,6 +62,20 @@ stores the diff), restatement packets, and files recording failed dispatches (th
 line each) — and warns when the workspace outgrows its budget, which is a process-regression
 signal for the milestone receipt.
 
+**Renaming a subject resets its budget, so the check reports the FAMILY too.** Subject keys that
+extend a live subject key at a token boundary (`<subj>`, `<subj>-contract`,
+`<subj>-contract-prerequisite`) are one lineage, and `FAMILY_SPEND` states their combined spend
+beside the per-subject lines. Measured on four real repositories: one code-formatter prerequisite
+holds 13 subject keys, **51 charged artifacts across 14 distinct rounds, r1 to r15**, for one
+artifact under review — and no per-subject line said so. It is a WARNING: it changes no exit code
+and refuses no dispatch. Subject derivation is unchanged, so no grant key moves.
+
+**`test-judge` does not spend a review round.** It runs a command and reports an exit code; that
+is evidence collection, the same class as the JUnit XML it reports. Measured: 124 `-test-judge`
+artifacts in the real corpus, 114 PASS / 2 FAIL / 1 with no verdict — 0.02 against 0.16 for
+`reviewer`, and both failures have a sibling `reviewer` verdict at the same round, so no round
+loses its charge. Name an artifact `-reviewer` or `-acceptance` when it actually adjudicates.
+
 ## The process-cost budget
 
 Principle 8 says the process is measured and can fail. `ratio_meter.py` is what measures it. It

@@ -251,6 +251,18 @@ and only when the diff touches that specialist's invariant. Never a panel. Revie
 round is capped at the surfaces the diff actually touches, maximum three, and two of the three
 exist only conditionally.
 
+**Two rounds, counted across the LINEAGE and not the filename.** Renaming a subject used to reset
+its budget, and the measurement that forced this into the text is one code-formatter prerequisite
+in a real workspace: 13 subject keys — `-contract-review`, `-contract-full`,
+`-contract-prerequisite`, `-contract`, and nine more — **51 charged review artifacts across 14
+distinct rounds, r1 to r15, ~24h of wall clock, for ONE artifact**. Every key showed a small legal
+spend. `check_review_budget.py` now reports `FAMILY_SPEND`: subject keys that extend a live subject
+key at a token boundary are one lineage, and their combined spend is stated beside the per-subject
+count. It reports; it does not refuse, and it is not a widening of the kind vocabulary. **A judge
+that runs a command does not spend a round either** — `test-judge` collects evidence and reports an
+exit code (measured 0.02 block rate against 0.16 for `reviewer`), so it is classified as work. An
+artifact that adjudicates must be named for the adjudication it made.
+
 **Two rounds.** The author gets one correction and one scoped rereview of that correction and its
 causal area. There is no round three: before dispatching, the orchestrator names the subject to
 the budget check (`--next <subject>`), which refuses when that subject has already spent its two
