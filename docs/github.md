@@ -40,10 +40,28 @@ It blocks:
 
 It warns on a newly added `.env`-style file and on source changing while `README.md` did not.
 
+**In a repository that holds `docs/product/`, and only there, it blocks two more.** The first is a
+product definition that is not in current-state form: `spec_check.py` and `plan_waves.py` run at the
+push. The second is a milestone document moving to `status: shipped` without evidence that its
+declared `Gate:` command ran and passed against the tree being pushed. Elsewhere this half does
+nothing and prints nothing — adoption is staggered, and a gate that blocks a push in a repository
+that never opted in is a gate that gets uninstalled, after which it protects nothing anywhere.
+
+Measured 2026-08-21, private repository, 204 documents under `docs/product/`, median of seven runs:
+`spec_check.py` 107 ms, `plan_waves.py` 41 ms, **154 ms added to a push** end to end. That number is
+why both run over the whole tree rather than the pushed range — range-scoping saves nothing a human
+can feel and would let a spec broken by an edit outside `docs/product/` push clean. Re-measure
+before changing it. (Not in [measurements.md](measurements.md): that document is at 1194 words
+against the 1200-word route budget, so it cannot take a new measurement without evicting an old one.)
+
 For a deliberate direct push to the default branch, `PD_ALLOW_MAIN_PUSH=1 git push` is the
-supported escape — scoped to the one command, it leaves no hole behind. A secret or oversized-file
-finding has no such override: fix it. There is no env var left to raise the 10 MB limit, so
-`git push --no-verify` is the only remaining route past a size or secret finding, not a
+supported escape — scoped to the one command, it leaves no hole behind. `PD_SKIP_SPEC_CHECK=1` and
+`PD_ALLOW_UNSEALED_MILESTONE=1` are the same shape for the two product-definition blocks, and each
+prints a `pre-push SKIPPED` line saying the check did not run: an escape nobody can see is worse
+than none, because the push then looks identical to a checked one. Two variables rather than one
+blanket skip, so pushing past a lint finding does not silently disarm the seal gate. A secret or
+oversized-file finding has no such override: fix it. There is no env var left to raise the 10 MB
+limit, so `git push --no-verify` is the only remaining route past a size or secret finding, not a
 recommended one — using it ships the file or credential unscanned.
 
 Secret patterns are deliberately narrow — AWS key id, GitHub token, Google API key, Slack token,

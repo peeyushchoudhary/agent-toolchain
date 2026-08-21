@@ -206,6 +206,10 @@ What is deliberately NOT in this milestone, and what that costs.
 
 ## Off-repo blockers
 Only the ones this milestone adds. The PRD holds the rest.
+
+## Cross-feature validation
+The journeys no single feature's suite can prove, and the one command that proves them.
+Gate: <command>
 ````
 
 **A feature joins by declaring it, and the milestone holds no list.** A spec adds one optional key:
@@ -224,6 +228,20 @@ enumerates the milestone, the same way the PRD's glob enumerates the corpus. A h
 list in the milestone document is wrong the first time a feature moves, and the wrongness is
 invisible because it still reads like a list. This is the same rule as the feature index, applied
 to the same failure. **An index that can only derive cannot drift.**
+
+**The gate is the one thing the milestone owns that no feature does.** A feature's suite proves the
+feature; nothing proves the journey that crosses three of them, because no single feature owns it —
+and that journey is the reason a milestone exists at all. So the document declares one command, and
+`status: shipped` is the claim that it passed. That claim is checked rather than believed:
+`milestone_seal.py --record M<n>` runs the command from a clean tree and receipts a pass against
+HEAD's tree object, and the pre-push guard refuses a push that moves the document to `shipped`
+without a receipt for the tree being pushed. Any edit to the content gives a new tree and ends the
+receipt, so the evidence cannot outlive what it was measured on. Only the transition is gated — a
+milestone that is already shipped, or still building, costs a push nothing.
+
+**One command, not a list.** `&&` composes as many suites as the milestone needs and still yields
+the single exit status a receipt can bind to. A checklist of commands is a second copy of a script
+that nobody runs in order.
 
 **What a milestone must not become.** It is not a status report, not a progress table, not a
 per-feature checklist — every one of those is a second copy of something git or the specs already

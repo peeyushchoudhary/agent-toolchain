@@ -157,6 +157,39 @@ independent review, and a merge commit that preserves the audit trail. See
 A concise record of one material repository improvement each week, newest first. Current tooling
 remains the authority for behaviour; each entry points to the implementation it describes.
 
+### Week of 21 August 2026 — the product-definition checks reach a boundary that fires
+
+A checker nobody runs is a checker that does not exist. `spec_check.py` and `plan_waves.py` shipped
+as commands, and a command is a thing a founder remembers to type on the days they are not busy. So
+both now run in the `pre-push` hook — the one boundary in this toolchain with a measured record of
+firing — and their findings block the push. Cost: a median 154 ms added to a push in a repository
+holding 204 product documents, which is why they run over the whole tree rather than over the
+pushed range; range-scoping would buy nothing a human can feel and would let a spec broken by an
+edit outside `docs/product/` push clean. The numbers sit beside the guard they govern in
+[github.md](docs/github.md); `measurements.md` is already at its route word budget.
+
+**The adoption guard is the load-bearing half.** A repository with no `docs/product/` gets silence —
+not a warning, not a hint. Adoption is staggered, so most repositories are in that state on any
+given day, and a gate that blocks a push in a repository that never opted in gets uninstalled;
+after that it protects nothing anywhere, including the repositories that did opt in. The asymmetry
+worth naming: `docs/product/` absent is "nothing to check". `docs/product/` present with the
+checker missing is "the check did not run", which exits 2 and says so.
+
+A milestone gained the one thing no feature spec can carry. A feature's suite proves the feature;
+nothing proves the journey that crosses three of them, and that journey is why milestones exist. So
+the milestone document declares one command under `## Cross-feature validation`, and moving it to
+`status: shipped` is the claim that the command passed. `milestone_seal.py --record M<n>` runs it
+from a clean tree and receipts the pass against HEAD's *tree* object — not the commit, so an amend
+or a re-message does not throw away a ten-minute end-to-end run, while any real edit ends the
+evidence. The receipt is written outside the repository: evidence that can travel in a clone lets
+one machine's run seal another machine's push. Only the `-> shipped` transition is gated, so a
+milestone already sealed costs later pushes nothing.
+
+The nonce-receipt protocol in `references/junit-evidence.md` was read first and deliberately not
+reused. It needs a start artifact and a 256-bit nonce because the thing it certifies is written by
+a different process; here the recorder executes the command and reads its exit status directly, so
+the only axis left to spoof is which content ran, and a tree sha closes that in one field.
+
 ### Week of 21 August 2026 — v4.1: the product definition is checkable
 
 The budget landed first and needed two corrections within a day. Its calibration had put the
