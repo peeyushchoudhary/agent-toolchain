@@ -76,7 +76,13 @@ STATUSES = ("draft", "approved", "building", "shipped", "dropped")
 SPEC_KEYS = (("id", "title", "prd", "status", "updated"),
              ("depends", "withdrawn", "decisions", "edge_cases"))
 PRD_KEYS = (("title", "status", "updated"), ("reach",))
-AC_RE = re.compile(r"^\s*\*\*AC-(-?\d+)\*\*\s*(.*)$")
+# Both authored forms, because the real corpus uses both: 221 criteria write `**AC-1** When ...`
+# and 195 write `**AC-1 — a short title:** When ...`. The stricter pattern shipped first and matched
+# 0 of 416 real criteria, so every criterion check was silently inert on every existing spec — a
+# checker that passes because it recognises nothing is worse than no checker, since it reports green.
+# The suffix letter is real too: AC-8A/8B/8C split one criterion into variants after the fact, which
+# is how a spec grows a case without renumbering the ones a test already cites.
+AC_RE = re.compile(r"^\s*[-*]?\s*\*\*AC-(-?\d+[A-Z]?)\s*(?:[—–-][^*]*?)?\*\*:?\s*(.*)$")
 # The precondition is OPTIONAL, deliberately. EARS itself has five patterns and only some carry a
 # state clause, and a mandatory slot manufactures filler to fill it: the first spec written against
 # a required `given` produced "given any outcome", which constrains nothing and trains the reader to
@@ -186,7 +192,7 @@ class Doc:
         return out
 
 
-Criterion = NamedTuple("Criterion", [("number", int), ("line", int), ("trigger", str),
+Criterion = NamedTuple("Criterion", [("number", str), ("line", int), ("trigger", str),
                                      ("precondition", str), ("result", str), ("shaped", bool)])
 
 
@@ -202,7 +208,7 @@ def criteria(doc: Doc) -> list[Criterion]:
     corpus shapeless. A blank line, a heading, a bullet and a table row all close the fold."""
     found: list[Criterion] = []
     parts: list[str] = []
-    identifier = at = 0
+    identifier, at = "", 0
     for number, text in doc.body() + [(0, "")]:
         match = AC_RE.match(text)
         if parts and (match or not text.strip() or text.lstrip()[:1] in "#-*|>"):
@@ -215,7 +221,9 @@ def criteria(doc: Doc) -> list[Criterion]:
             found.append(Criterion(identifier, at, *groups, shape is not None))
             parts = []
         if match:
-            identifier, at, parts = int(match.group(1)), number, [match.group(2).strip()]
+            # The id is a STRING, not an int: `AC-8A` is a real form in the corpus, and int()
+            # raised on it. Numeric ordering is not needed anywhere — uniqueness and citation are.
+            identifier, at, parts = match.group(1), number, [match.group(2).strip()]
         elif parts and text.strip():
             parts.append(text.strip())
     return found
@@ -297,26 +305,29 @@ def check_spec(doc: Doc, root: Path, seen: dict[str, str], f: Findings) -> None:
     if target and not any(p.is_file() for p in (root / target, doc.path.parent / target)):
         f.add(doc, doc.at("prd"), "D3",
               f"`prd: {target}` does not resolve to a file, so this spec has no parent")
-    withdrawn: set[int] = set()
+    # Criterion ids are STRINGS throughout: `AC-8A` is a real form and int() raised on it. The
+    # withdrawn ledger holds the same string form so the two sets compare directly.
+    withdrawn: set[str] = set()
     raw = doc.front.get("withdrawn") or []
     for item in ([raw] if isinstance(raw, str) else raw):
-        if item.isdigit() and int(item) > 0:
-            withdrawn.add(int(item))
+        if re.fullmatch(r"\d+[A-Z]?", item) and item.lstrip("0")[:1] not in ("", "0"):
+            withdrawn.add(item)
         else:
             f.add(doc, doc.at("withdrawn"), "B5",
                   f"withdrawn entry {item!r} is not a positive criterion number")
     check_criteria(doc, withdrawn, f)
 
 
-def check_criteria(doc: Doc, withdrawn: set[int], f: Findings) -> None:
-    numbers: dict[int, int] = {}
+def check_criteria(doc: Doc, withdrawn: set[str], f: Findings) -> None:
+    numbers: dict[str, int] = {}
     pairs: dict[tuple[str, str], int] = {}
     for item in criteria(doc):
         if not item.shaped:
             f.add(doc, item.line, "C1", "criterion is not of the form `**AC-<n>** When <trigger>, "
                                         "given <precondition>, <observable result>`")
-        if item.number <= 0:
-            f.add(doc, item.line, "C3", f"criterion number {item.number} must be greater than 0")
+        if not re.fullmatch(r"[1-9]\d*[A-Z]?", item.number):
+            f.add(doc, item.line, "C3", f"criterion number {item.number} must be a positive number, "
+                                        f"optionally with a single suffix letter")
         elif item.number in numbers:
             f.add(doc, item.line, "C3", f"criterion number {item.number} is already used on line "
                                         f"{numbers[item.number]}")
