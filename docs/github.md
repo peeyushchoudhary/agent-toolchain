@@ -47,12 +47,10 @@ declared `Gate:` command ran and passed against the tree being pushed. Elsewhere
 nothing and prints nothing — adoption is staggered, and a gate that blocks a push in a repository
 that never opted in is a gate that gets uninstalled, after which it protects nothing anywhere.
 
-Measured 2026-08-21, private repository, 204 documents under `docs/product/`, median of seven runs:
-`spec_check.py` 107 ms, `plan_waves.py` 41 ms, **154 ms added to a push** end to end. That number is
-why both run over the whole tree rather than the pushed range — range-scoping saves nothing a human
-can feel and would let a spec broken by an edit outside `docs/product/` push clean. Re-measure
-before changing it. (Not in [measurements.md](measurements.md): that document is at 1194 words
-against the 1200-word route budget, so it cannot take a new measurement without evicting an old one.)
+**154 ms added to a push**, which is why both run over the whole tree rather than the pushed range:
+range-scoping saves nothing a human can feel and would let a spec broken by an edit outside
+`docs/product/` push clean. The per-check numbers and the conditions they were taken under are in
+[measurements.md](measurements.md); re-measure there before changing this.
 
 For a deliberate direct push to the default branch, `PD_ALLOW_MAIN_PUSH=1 git push` is the
 supported escape — scoped to the one command, it leaves no hole behind. `PD_SKIP_SPEC_CHECK=1` and

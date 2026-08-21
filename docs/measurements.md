@@ -127,3 +127,29 @@ escalated to a human gate that did not drain (two briefs unanswered six days); o
 12,220 lines in a week, 94 of 150 commits carrying no product; 588 cold sessions (~133 KB boot
 each) landed 9 commits beside two warm sessions landing 151. Hence v3.1: apply-and-close, default actions,
 five-line distillations, long-lived controller.
+
+## Product-definition and planning checks (methodology v4.2)
+
+Measured 2026-08-21 on this workstation, against a repository holding 204 documents under
+`docs/product/`.
+
+| check | median | range |
+|---|---|---|
+| `spec_check.py` whole tree | 107 ms | 105–139 |
+| `plan_waves.py` whole tree | 41 ms | 38–47 |
+| pre-push guard, product half | +154 ms | — |
+| `trace_check.py`, receipt-scoped | 40 ms | — |
+
+The guard runs both over the whole tree rather than the pushed range: at a tenth of the 1.5 s
+threshold, range-scoping saves nothing a human feels and would let a spec broken by an edit outside
+`docs/product/` push clean.
+
+`trace_check.py` reads only the results directory a receipt names. A full pass over that
+repository's 51,604 XML files and 267,943 testcases through the same parser takes 5.5 s, which is
+the cost the receipt scope avoids on every run.
+
+Wave scheduling, measured on a real 51-task graph: 8 waves from the dependency edges alone, and 37
+task pairs inside those waves declaring overlapping write sets. Across a 5-feature milestone the
+per-plan view reported zero findings while six cross-feature pairs collided. Glob overlap is decided
+without touching the filesystem; a differential check over 14,706 random pattern pairs missed no
+real overlap and reported 26% without a witness at four segments deep.
