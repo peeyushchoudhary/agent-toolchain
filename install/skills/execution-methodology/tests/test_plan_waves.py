@@ -539,3 +539,66 @@ class QualifiedCommitReferenceTest(CommitWritesTest):
         self.repo(task("T1", writes="backend/a/**"))
         self.commit("docs: tidy the README", "backend/a/one.java")
         self.assertEqual(self.run_cli("--commit", "HEAD").returncode, 0)
+
+
+class ReferenceShapeTest(CommitWritesTest):
+    """WHICH UNRESOLVED REFERENCE DESERVES A FINDING — the answer measured, not assumed.
+
+    Over 2,672 real commit subjects in eight repositories the reference pattern matches 198 times
+    and 136 of those (69%) are ordinary English. Every subject below is real, copied from that
+    corpus, and every one of them used to report `the card and the plan disagree` about a commit
+    that never claimed a task. The whole point of `--since` is to run this check over a RANGE, so a
+    69% false rate stops being a nuisance on one commit and becomes the normal exit status.
+    """
+
+    # The T-words are the evidence and are copied verbatim; the surrounding prose is neutral.
+    ENGLISH = ("chore: rotate the TLS certificates",
+               "feat(auth): complete the secure TOTP baseline",
+               "feat(transport): complete the Transport domain",
+               "chore(contracts): regenerate OpenAPI and TypeScript",
+               "feat(billing): a slice with TC-blocked-on-dues (Task F-a)",
+               "feat(authz): make THE_INVARIANT machine-enforced",
+               "docs(decisions): the veto is named — TaskStop is not a write",
+               "feat(auth): refresh TTL 30 days becomes 7",
+               "chore: adopt TDD for the importer")
+
+    REAL = ("feat(privacy): the consent register (T9)",
+            "feat(auth)!: remove the forced enrolment family (T9a)",
+            "feat(users): show which users have two-factor (T-FE1)",
+            "docs(decisions): the ADR for it (T-DOCS)")
+
+    def test_english_words_beginning_with_t_are_not_task_references(self) -> None:
+        self.repo(task("T1", writes="backend/a/**"))
+        for subject in self.ENGLISH:
+            with self.subTest(subject=subject):
+                self.commit(subject, "backend/a/one.java")
+                result = self.run_cli("--commit", "HEAD")
+                self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_a_real_task_shaped_id_that_resolves_to_nothing_is_still_reported(self) -> None:
+        """The other half: narrowing the shape must not silence the drift W7 exists to catch."""
+        self.repo(task("T1", writes="backend/a/**"))
+        for subject in self.REAL:
+            with self.subTest(subject=subject):
+                self.commit(subject, "backend/a/one.java")
+                result = self.run_cli("--commit", "HEAD")
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("W7", result.stdout)
+
+    def test_a_declared_id_resolves_whatever_shape_it_has(self) -> None:
+        """The narrowing gates the FINDING and never the resolution: a plan free to declare
+        `task: TOTP` must still have its commits checked against its own write set."""
+        self.repo(task("TOTP", writes="backend/a/**"), task("T2", writes="backend/b/**"))
+        self.commit("feat(TOTP): the baseline", "backend/a/one.java", "backend/b/two.java")
+        result = self.run_cli("--commit", "HEAD")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("`T2` declares it", result.stdout)
+
+    def test_a_trailing_separator_belongs_to_the_sentence_and_not_to_the_id(self) -> None:
+        """`Implement TRS-C11 moderation backend T1-T5.` is a real subject; the captured `T5.`
+        resolved to nothing and then reported itself as a card that had drifted."""
+        self.repo(task("T5", writes="backend/a/**"), task("T6", writes="backend/b/**"))
+        self.commit("feat: moderation backend T5.", "backend/a/one.java", "backend/b/two.java")
+        result = self.run_cli("--commit", "HEAD")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("`T6` declares it", result.stdout)

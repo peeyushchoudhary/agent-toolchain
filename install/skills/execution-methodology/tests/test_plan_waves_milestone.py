@@ -51,12 +51,14 @@ def spec(ident: str, milestone: str | None = "M2") -> str:
 
 
 def task(ident: str, needs: str = "", writes: str = "", covers: str = "[AC-1]",
-         lane: str = "light") -> str:
+         lane: str = "light", serialises: str = "") -> str:
     lines = [f"task: {ident}", f"title: work for {ident}", f"lane: {lane}"]
     if needs:
         lines.append(f"needs: {needs}")
     lines.append(f"writes: [{writes}]")
     lines.append(f"covers: {covers}")
+    if serialises:
+        lines.append(f"serialises: {serialises}")
     return "\n```task\n" + "\n".join(lines) + "\n```\n"
 
 
@@ -460,6 +462,306 @@ class ScaleTest(MilestoneFixture):
         self.assertEqual(list(per_plan), [])
         merged = self.messages("W4")
         self.assertEqual(len(merged), 10)          # every pair of the five features' T1
+
+
+class DerivedStateFixture(MilestoneFixture):
+    """`--since` — where the milestone actually is, read out of git and never out of a ledger.
+
+    The ledger is written by the agent it would bind, so it is a claim; a commit is a fact. Every
+    test here therefore asserts against commits and never against a recorded state, and the two
+    that matter most are the ones a held-state implementation would also pass and then get wrong
+    after a compaction: status is recomputed from the range on every run, and a task the plan later
+    drops resurfaces as an unresolved commit rather than disappearing.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.milestone()
+
+    def git(self, *args: str) -> str:
+        done = subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True,
+                              check=False)
+        return done.stdout.strip()
+
+    def start(self) -> str:
+        self.git("init", "-q", ".")
+        self.git("config", "user.email", "a@b.c")
+        self.git("config", "user.name", "t")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "the plans")
+        return self.git("rev-parse", "HEAD")
+
+    def commit(self, subject: str, *paths: str) -> str:
+        for relative in paths or ("notes.md",):
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("a", encoding="utf-8") as handle:
+                handle.write(subject + "\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", subject)
+        return self.git("rev-parse", "HEAD")
+
+    def since(self, base: str, *extra: str) -> dict:
+        result = self.run_cli("--milestone", "M2", "--since", base, "--json", *extra)
+        self.assertIn(result.returncode, (0, 1), result.stderr)
+        return json.loads(result.stdout)
+
+    def states(self, base: str, *extra: str) -> dict:
+        return {ident: row["state"] for ident, row in self.since(base, *extra)["status"].items()}
+
+
+class DerivedStatusTest(DerivedStateFixture):
+    def test_a_commit_naming_a_task_is_what_makes_it_done(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", needs="[T1]", writes="b/**"))
+        base = self.start()
+        self.commit("feat(F-11/T1): the first one", "a/x")
+        self.assertEqual(self.states(base), {"F-11/T1": "done", "F-11/T2": "ready"})
+
+    def test_a_task_whose_needs_are_unmet_names_what_blocks_it(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", needs="[T1]", writes="b/**"))
+        base = self.start()
+        report = self.since(base)
+        self.assertEqual(report["status"]["F-11/T2"]["state"], "blocked")
+        self.assertEqual(report["status"]["F-11/T2"]["blocked_on"], ["F-11/T1"])
+
+    def test_a_cross_feature_edge_blocks_across_the_milestone(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"))
+        self.feature("F-12", task("T1", needs="[F-11/T1]", writes="b/**"), slug="other")
+        base = self.start()
+        self.assertEqual(self.states(base)["F-12/T1"], "blocked")
+        self.commit("feat(F-11/T1): done", "a/x")
+        self.assertEqual(self.states(base)["F-12/T1"], "ready")
+
+    def test_status_is_recomputed_and_never_read_back_from_anywhere(self) -> None:
+        """The compaction test. Two identical runs either side of a new commit must disagree only
+        because the TREE changed, and the second run is given nothing the first one produced."""
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", needs="[T1]", writes="b/**"))
+        base = self.start()
+        first = self.states(base)
+        self.commit("feat(F-11/T1): landed", "a/x")
+        second = self.states(base)
+        self.assertEqual(first["F-11/T1"], "ready")
+        self.assertEqual(second["F-11/T1"], "done")
+        self.assertEqual(self.states(base), second)
+
+    def test_the_range_is_what_bounds_it_so_earlier_work_is_not_counted(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", needs="[T1]", writes="b/**"))
+        self.start()
+        self.commit("feat(F-11/T1): before the base", "a/x")
+        later = self.git("rev-parse", "HEAD")
+        self.assertEqual(self.states(later)["F-11/T1"], "ready")
+
+    def test_two_commits_naming_one_task_are_reported_and_not_failed(self) -> None:
+        """A follow-up fix naming the same task is as common as a re-dispatch, and a rule that
+        fires on the ordinary case is a rule somebody removes. It still counts as done."""
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", needs="[T1]", writes="b/**"))
+        base = self.start()
+        self.commit("feat(F-11/T1): the work", "a/x")
+        self.commit("fix(F-11/T1): the follow-up", "a/y")
+        report = self.since(base)
+        self.assertEqual(report["status"]["F-11/T1"]["state"], "duplicate")
+        self.assertEqual(len(report["status"]["F-11/T1"]["commits"]), 2)
+        self.assertEqual(report["status"]["F-11/T2"]["state"], "ready")
+
+    def test_a_task_the_plan_dropped_resurfaces_as_an_unresolved_commit(self) -> None:
+        """A replan edits the plan in place. Held state would lose the committed work silently;
+        derived state cannot, because the commit is still in the range."""
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", writes="b/**"))
+        base = self.start()
+        self.commit("feat(F-11/T2): the work", "b/x")
+        self.feature("F-11", task("T1", writes="a/**"))       # T2 re-cut out of the plan
+        self.commit("docs: replan")
+        report = self.since(base)
+        self.assertEqual([item["names"] for item in report["unclaimed_commits"]], [["F-11/T2"]])
+        self.assertIn("F-11/T2", " ".join(item["message"] for item in report["findings"]))
+
+    def test_the_milestone_is_complete_only_when_every_task_has_a_commit(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", needs="[T1]", writes="b/**"))
+        base = self.start()
+        self.commit("feat(F-11/T1): one", "a/x")
+        self.assertFalse(self.since(base)["complete"])
+        self.commit("feat(F-11/T2): two", "b/x")
+        self.assertTrue(self.since(base)["complete"])
+
+    def test_being_unfinished_is_not_a_finding_and_does_not_exit_one(self) -> None:
+        """Overloading exit 1 with `not done yet` would make the resume primitive red on every run
+        but the last, which is the shape of a check that gets switched off."""
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", needs="[T1]", writes="b/**"))
+        base = self.start()
+        result = self.run_cli("--milestone", "M2", "--since", base)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("1 ready", result.stdout)
+        self.assertIn("1 blocked", result.stdout)
+
+    def test_the_write_check_runs_over_every_commit_in_the_range(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"))
+        self.feature("F-12", task("T1", writes="b/**"), slug="other")
+        base = self.start()
+        self.commit("feat(F-11/T1): strays into F-12", "a/x", "b/x")
+        report = self.since(base)
+        strays = [item for item in report["findings"] if item["rule"] == "W7"]
+        self.assertTrue(strays, report["findings"])
+        self.assertIn("`F-12/T1` declares it", " ".join(item["message"] for item in strays))
+
+    def test_it_writes_nothing(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"))
+        base = self.start()
+        self.commit("feat(F-11/T1): work", "a/x")
+        before = {path: path.stat().st_mtime_ns
+                  for path in sorted(self.root.rglob("*")) if path.is_file()}
+        self.run_cli("--milestone", "M2", "--since", base, "--ready")
+        after = {path: path.stat().st_mtime_ns
+                 for path in sorted(self.root.rglob("*")) if path.is_file()}
+        self.assertEqual(before, after)
+
+
+class DispatchScopeTest(DerivedStateFixture):
+    def test_status_across_plans_is_refused_because_ids_are_plan_local(self) -> None:
+        """`T1` is a different task in every feature. A merged per-plan status view would resolve
+        no bare subject at all and report the whole fleet as ready, which is the most dangerous
+        wrong answer this script could give."""
+        self.feature("F-11", task("T1", writes="a/**"))
+        base = self.start()
+        result = self.run_cli("--since", base)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("plan-local", result.stderr)
+
+    def test_the_ready_set_needs_a_base_to_derive_from(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"))
+        self.start()
+        result = self.run_cli("--milestone", "M2", "--ready")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--since", result.stderr)
+
+    def test_an_unreadable_revision_is_an_error_and_never_an_empty_range(self) -> None:
+        """`no commits` and `I could not read that` are the same output and opposite facts."""
+        self.feature("F-11", task("T1", writes="a/**"))
+        self.start()
+        result = self.run_cli("--milestone", "M2", "--since", "no-such-rev-here")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("no-such-rev-here", result.stderr)
+
+    def test_an_in_flight_id_no_task_declares_is_an_error(self) -> None:
+        """It means the caller and the plan disagree about what exists, and continuing would build
+        a ready set against a mutex that is not there."""
+        self.feature("F-11", task("T1", writes="a/**"))
+        base = self.start()
+        result = self.run_cli("--milestone", "M2", "--since", base, "--in-flight", "F-11/T9")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("F-11/T9", result.stderr)
+
+    def test_a_limit_below_one_is_an_error(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"))
+        base = self.start()
+        result = self.run_cli("--milestone", "M2", "--since", base, "--ready", "--limit", "0")
+        self.assertEqual(result.returncode, 2)
+
+
+class ReadySetTest(DerivedStateFixture):
+    """The dispatchable set — the same certificate the waves carry, with no barrier.
+
+    `schedule()` is Kahn LEVELS, so wave N+1 waits on all of wave N even where a task needs one
+    predecessor. W4/W6 compare EVERY pair rather than same-wave pairs, which is what licenses this:
+    on a graph those two checks pass, disjointness against the in-flight set is the whole condition.
+    """
+
+    def test_a_task_whose_predecessor_landed_is_dispatchable_before_its_wave_peers(self) -> None:
+        """THE LOAD-BEARING TEST. T2 sits in wave 3 behind T1; the barrier makes it wait for the
+        whole of wave 2, and the ready set does not, because nothing in wave 2 blocks it."""
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", needs="[T1]", writes="b/**"),
+                     task("T3", needs="[T2]", writes="c/**"))
+        self.feature("F-12", task("T1", writes="d/**"), task("T2", needs="[T1]", writes="e/**"),
+                     slug="other")
+        base = self.start()
+        _, milestone = self.result()
+        self.assertEqual(len(milestone.waves), 3)
+        self.commit("feat(F-11/T1): one", "a/x")
+        self.assertEqual(self.since(base, "--ready")["ready"], ["F-11/T2", "F-12/T1"])
+
+    def test_a_task_that_writes_where_something_in_flight_writes_is_deferred(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", writes="a/deep/**"))
+        base = self.start()
+        report = self.since(base, "--ready", "--in-flight", "F-11/T1")
+        self.assertEqual(report["ready"], [])
+        self.assertIn("in flight", report["deferred"][0]["reason"])
+        self.assertEqual(report["deferred"][0]["task"], "F-11/T2")
+
+    def test_a_serialises_partner_in_flight_is_the_declared_mutex(self) -> None:
+        """The blocker this fixed: the dispatch interface omitted `serialises`, so a consumer could
+        compute that two write sets overlap but not that the overlap was deliberate."""
+        self.feature("F-11", task("T1", writes="a/**"),
+                     task("T2", needs="[T1]", writes="a/**", serialises="[T1]"))
+        base = self.start()
+        self.commit("feat(F-11/T1): one", "a/x")
+        report = self.since(base, "--ready", "--in-flight", "F-11/T1")
+        self.assertEqual(report["ready"], [])
+        self.assertIn("serialises with `F-11/T1`", report["deferred"][0]["reason"])
+
+    def test_the_emitted_set_is_legal_against_itself_and_not_only_against_what_runs(self) -> None:
+        """A milestone with findings still gets a usable answer: two colliding candidates must not
+        both come back, or the caller dispatches the collision this script exists to refuse."""
+        self.feature("F-11", task("T1", writes="shared/**"))
+        self.feature("F-12", task("T1", writes="shared/**"), slug="other")
+        base = self.start()
+        report = self.since(base, "--ready")
+        self.assertEqual(len(report["ready"]), 1)
+        self.assertEqual(len(report["deferred"]), 1)
+
+    def test_the_set_is_ordered_by_how_much_each_task_unlocks(self) -> None:
+        """Removing the barrier is only half of it: measured on a reconstructed 51-task graph, a
+        ready set dispatched in id order is no faster than the waves and at five writers slower."""
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", needs="[T1]", writes="b/**"),
+                     task("T3", needs="[T2]", writes="c/**"))
+        self.feature("F-12", task("T9", writes="d/**"), slug="other")
+        base = self.start()
+        self.assertEqual(self.since(base, "--ready")["ready"], ["F-11/T1", "F-12/T9"])
+
+    def test_the_limit_is_the_operators_and_the_deferred_tasks_say_so(self) -> None:
+        """No cap is compiled in. Legality is re-derived against the actual in-flight set at every
+        dispatch, so the set is disjoint at any size, and the measured 4-of-83 stray is a per-task
+        rate that running fewer at once does not lower — W7 at commit time is what catches it."""
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", writes="b/**"),
+                     task("T3", writes="c/**"))
+        base = self.start()
+        self.assertEqual(len(self.since(base, "--ready")["ready"]), 3)
+        capped = self.since(base, "--ready", "--limit", "2")
+        self.assertEqual(len(capped["ready"]), 2)
+        self.assertEqual(capped["deferred"], [{"task": "F-11/T3", "reason": "--limit 2 reached"}])
+
+    def test_ready_emits_json_even_without_the_json_flag(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"))
+        base = self.start()
+        result = self.run_cli("--milestone", "M2", "--since", base, "--ready")
+        self.assertEqual(json.loads(result.stdout)["ready"], ["F-11/T1"])
+
+    def test_a_done_task_never_comes_back_in_the_set(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"))
+        base = self.start()
+        self.commit("feat(F-11/T1): done", "a/x")
+        self.assertEqual(self.since(base, "--ready")["ready"], [])
+
+
+class DispatchInterfaceTest(MilestoneFixture):
+    def test_the_task_payload_carries_the_declared_mutex(self) -> None:
+        """`milestone_json` called itself the dispatch interface and omitted the one key a
+        dispatcher cannot build the mutex without."""
+        self.milestone()
+        self.feature("F-11", task("T1", writes="a/**"),
+                     task("T2", needs="[T1]", writes="a/**", serialises="[T1]"))
+        payload = self.report()["tasks"]
+        self.assertEqual(payload["F-11/T2"]["serialises"], ["F-11/T1"])
+        self.assertEqual(payload["F-11/T1"]["serialises"], [])
+
+    def test_serialises_is_left_plan_local_exactly_as_written(self) -> None:
+        """`needs` is qualified because the scheduler resolves it; `serialises` is passed through,
+        so a consumer reading it must qualify against the same feature. Pinned because a silent
+        change of either convention would leave two readers disagreeing about one id."""
+        self.milestone()
+        self.feature("F-11", task("T1", writes="a/**"),
+                     task("T2", needs="[T1]", writes="a/**", serialises="[T1]"))
+        payload = self.report()["tasks"]["F-11/T2"]
+        self.assertEqual(payload["needs"], ["F-11/T1"])
+        self.assertEqual(payload["serialises"], ["F-11/T1"])
 
 
 if __name__ == "__main__":
