@@ -512,6 +512,45 @@ decisions; the methodology prepares them and never takes them.
 
 ## What changed, and what earned it
 
+### v4.2 — the plan is scheduled, not described
+
+A feature spec says what to build; turning it into tasks was prose, and prose can neither schedule
+nor collide. A feature plan at `docs/product/plans/F-<id>-<slug>.md` carries the implementation plan
+and the validation plan together, its tasks declare `needs`, `writes` and `covers`, and the waves
+are derived rather than written. The milestone gains the goal no single feature owns, outcome-level
+success criteria, and the cross-feature journeys no feature suite can prove — which is also what
+scopes concurrency across features.
+
+Earned by measurement on a real 51-task graph: the dependency edges alone give 8 waves, and 37 pairs
+inside those waves declare overlapping write sets. Across a 5-feature milestone the per-plan view
+reported zero findings and exited green while six cross-feature pairs collided. Matching 16 sealed
+cards to their commits, 4 of 83 files landed outside the declaring task's write set, all four inside
+another task's.
+
+Added: the feature plan and validation plan; `plan_waves.py` with wave derivation, collision
+refusal, and a commit-versus-declaration check; `serialises:` for a deliberate shared write set;
+the milestone's goal, success criteria and validation gate.
+
+Retired: `expected_red`, a fact about the tree that goes stale on the next commit — three of three
+such literals in a real plan were already false when checked; and the wave-scoped collision check,
+whose own remedy silenced it.
+
+### v4.1 — the product definition is checkable
+
+`references/specs.md` became the product-definition contract: one PRD per repository, its feature
+specs, and the rule that outranks the rest of the file — a spec states what is true now, is updated
+in place, and never says what it used to say. `spec_check.py` enforces that structurally, because a
+broad word-match for history language fired 1,057 times across 164 real documents, mostly on domain
+vocabulary. `--surfaces` binds a newly exposed route to an approved Surface section, after a PRD
+section headed "out of scope" named eight modules and all eight were built: 229 endpoints, none
+reachable.
+
+Added: the PRD, feature spec, milestone and README templates; `spec_check.py`; the decision queue;
+the agent-first readback clause.
+
+Retired: the per-area product spec, folded into one PRD; the interactive HTML explainer, replaced by
+the decision queue; the per-feature approval interview.
+
 ### v4.0 — the budget binds
 
 Earned by an eight-week external audit of the whole portfolio (2026-08-21, eleven repositories),

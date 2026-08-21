@@ -25,15 +25,19 @@ and installer behaviour: [install/README.md](install/README.md).
 
 The repository currently ships six published skills, thirteen generated personas, local session and
 Git guards, a cross-harness installer, and executable verification for the published toolchain. The
-execution methodology is at v4.1: the process has a spending limit, a script enforces it, and the
-product definition it protects is checkable. Committed churn splits three ways — product, product
+execution methodology is at v4.2: the process has a spending limit, a script enforces it, the
+product definition it protects is checkable, and the plan that turns a feature into tasks is
+scheduled rather than described. Committed churn splits three ways — product, product
 thinking, and process — and `ratio_meter.py` warns at a 15% process share and fails a merge at 30%,
 with a volume floor below which a quiet week cannot fail at all. `weekly_review.py` reports the
 trend across repositories. Product definition is never capped: a repository writing its PRD and
 feature specs has a low product share by design, and only bookkeeping is bounded. `spec_check.py`
-holds the other half — one PRD and its feature specs, each stating what is true now rather than
-accumulating what it used to say — and binds a newly exposed route to the Surface section of an
-approved feature spec, so a module the PRD excluded cannot ship unnoticed. Work is bound to one approved outcome and capped at what
+holds the other half — one PRD, its feature specs, and the milestone that states the goal no single
+feature owns, each stating what is true now rather than accumulating what it used to say — and binds
+a newly exposed route to the Surface section of an approved feature spec, so a module the PRD
+excluded cannot ship unnoticed. `plan_waves.py` derives the dispatch schedule from a feature plan
+instead of asking anyone to write one down, refuses a wave whose tasks would write the same file,
+and compares a commit against the write set its task declared. Work is bound to one approved outcome and capped at what
 the spec requires — a finding demanding more is over-engineering and non-blocking. Tasks default to a
 card-free light lane and earn a validated card only when they cross a durable boundary or safety
 surface. Review runs under a budget — one reviewer plus conditional specialists, two rounds, then
@@ -156,6 +160,39 @@ independent review, and a merge commit that preserves the audit trail. See
 
 A concise record of one material repository improvement each week, newest first. Current tooling
 remains the authority for behaviour; each entry points to the implementation it describes.
+
+### Week of 21 August 2026 — v4.2: the plan is scheduled, not described
+
+A feature spec says what to build. Turning it into tasks was prose, and the two things prose cannot
+do are schedule and collide. `docs/product/plans/F-<id>-<slug>.md` now carries the implementation
+plan and the validation plan in one file — two files would let the tasks and the tests that justify
+them disagree, and each would read complete alone. Tasks are blocks with `needs`, `writes` and
+`covers`; nobody writes the waves down, because `plan_waves.py` derives them.
+
+What it derives is worth less than what it refuses. On a real 51-task graph the dependency edges
+alone yield 8 waves, and 37 pairs inside those waves declare overlapping write sets — two agents
+sent at one file by a schedule that read clean. Across a milestone it is worse and invisible: on a
+5-feature corpus the per-plan view reported zero findings and exited green while six cross-feature
+pairs collided. The milestone is what scopes that, which is its third reason to exist after the
+goal and the cross-feature journeys.
+
+The check also had to survive its own advice. The first version compared same-wave pairs only and
+told the planner to add a dependency edge — which moved the pair apart and silenced the finding
+while both tasks still owned one file. On the real graph, 41 such edges silence all 37 collisions.
+Every colliding pair is now compared, and a pair held apart by a dependency closes only when
+`serialises:` says the shared ownership is deliberate. A check that recommends the thing that
+defeats it is worse than one that says nothing.
+
+The validation plan is smaller than expected, because the acceptance criteria already are the
+classic test-case template. Only the cost decisions were missing: the test level, the paired
+negative, the end-to-end set capped at three, and the absence claim — every criterion deliberately
+left untested, with its reason. An `expected_red` field was designed and dropped; three of three
+such literals in a real plan were already false when they were checked.
+
+Extracting each shipped template and running the checker over it — which nobody had done — found a
+parser bug in both. A trailing `# optional` survived into the value, so a flow list never reached
+the branch that parses it. A test now extracts the templates and checks them, because the templates
+are the one input guaranteed to be copied verbatim.
 
 ### Week of 21 August 2026 — v4.1: the product definition is checkable
 
