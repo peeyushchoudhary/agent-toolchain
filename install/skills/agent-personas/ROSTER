@@ -23,13 +23,14 @@
 #
 # It lives inside the skill so the skill is SELF-CONTAINED: a fresh `install.sh` ships it, and a
 # missing floor stops being the default state of a new machine. The human-readable argument for the
-# roster — why these six, what the guarantee is worth, what it does not cover — stays in
+# roster — why these names, what the guarantee is worth, what it does not cover — stays in
 # ~/.claude/docs/decisions.md, which is pinned to this file by
 # `test_the_roster_is_pinned_to_the_record_a_human_reads`. Defection must still edit the record a
 # human reads, because that property comes from the PIN, not from which file the renderer opens.
 #
 # One name per line. Blank lines and `#` comments ignored.
 acceptance
+migration-validator
 planner
 reviewer
 scout

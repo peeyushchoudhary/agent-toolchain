@@ -61,7 +61,7 @@ until it is 10,940 lines long.
 | 2 | dispatch | `validate_card.py --phase pre` | `developer` / `senior-developer` |
 | 3 | per-turn drift | `validate_card.py --phase mid` | `chief-of-staff` |
 | 4 | validate | card `validation` argv + `verify_junit.py` | `test-judge` |
-| 5 | review | `check_review_budget.py --next` | `reviewer` (+1 specialist max) |
+| 5 | review | `check_review_budget.py --next` | `reviewer` + `test-judge`; see §4 |
 | 6 | commit check | `plan_waves.py --milestone --commit` | `chief-of-staff` |
 | 7 | deferrals | `spec_check.py --deferred` | `chief-of-staff` |
 | 8 | coverage | `trace_check.py --evidence --commit` | `test-judge` |
@@ -236,8 +236,9 @@ step of the methodology said run this one, now. Two of the five are the ones tha
 | Implement a task crossing a durable boundary | `senior-developer` | the lane test, decided in the plan |
 | Run the gate, re-run the card's `validation` | `test-judge` | cannot write, so its verdict is not self-attested |
 | Review a selected diff | `reviewer` | fresh, isolated, read-only; never applies its own fix |
-| Safety surface moved | `security-validator` | joins the round; at most one other specialist |
-| Domain invariant moved | the repository's own validator | domain invariants are project-local, not in the base pool |
+| Safety surface moved | `security-validator` | the one specialist that blocks at BOTH stages |
+| Schema, migration or backfill moved | `migration-validator` | the data plane had no owner; see §4 |
+| Domain invariant moved | the repository's own validator | cast at DESIGN, not here: 66 implementation reviews, 0 blocks |
 | Judge the milestone against criteria | `acceptance` | the only judgement the loop must not make about itself |
 | Route, README, lessons after the milestone | `docs-steward` | prose with no behavioural claim is not the writer's |
 
@@ -248,11 +249,22 @@ missing feature: those personas are cast at their own step, on a diff, and none 
 A repository's own domain validators live in its persona overlay directory and are cited at review
 and execution time; they are named on the diff at step 5, never on the card.
 
-## 4. Review selection
+## 4. Review selection — THIS SECTION IS THE IMPLEMENTATION STAGE ONLY
+
+Read this first, because an earlier version of this section was written against a rule that capped
+review at one specialist and forbade a panel at every stage, and that rule is falsified. **Width is
+scoped by stage.** Design and plan take a panel — up to three reviewers with different lenses, plus
+`security-validator` on safety surfaces — because a design review blocks at 0.74 per artifact and
+panel findings were measured to be disjoint (median anchor Jaccard 0.20 across 21 blocking pairs).
+The rule and its evidence live in the skill's "Design and plan" paragraph; that is the single
+source. Everything below governs the loop, which runs AFTER the plan gate, so its width is **one
+model reviewer plus `test-judge`** — implementation reviews block at 0.09 per artifact, and a
+four-or-more-wide implementation round blocked in 2 of 65 groups. `test-judge` runs a command and
+reports an exit code; it is not a lens and it does not spend a review round.
 
 Everything gets the **free structural review** — `validate_card.py --strict --phase post` and
-`plan_waves.py --milestone M<n> --commit <rev>`, zero model calls. The model reviewer is routed by
-score, highest first, until the budget is spent. Cutting review to save tokens is the worst
+`plan_waves.py --milestone M<n> --commit <rev>`, zero model calls. The one model reviewer is routed
+by score, highest first, until the budget is spent. Cutting review to save tokens is the worst
 available trade: a measured 72% of first-round verdicts block, and the whole fleet's empty rounds
 cost less than one milestone's ledger re-reads.
 

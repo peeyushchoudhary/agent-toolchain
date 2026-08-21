@@ -583,7 +583,7 @@ class BindingDemandTest(PersonaBindingFixture):
         self.assertFinds("F3")
 
     def test_a_persona_without_covers_is_never_demanded(self) -> None:
-        """The 13 base personas own no domain and must stay free of new authoring."""
+        """The 14 base personas own no domain and must stay free of new authoring."""
         self.corpus(CRITERIA + HORIZONTALS)
         self.persona("reviewer")
         self.persona("tenancy-validator", "[tenancy]")

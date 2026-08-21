@@ -402,6 +402,9 @@ SEPARATOR_RE = re.compile(r"[-_.]+")
 DEFAULT_GRANTS = Path(__file__).resolve().parent.parent / "ROUND-GRANTS.tsv"
 FILE_BUDGET = 50
 BYTE_BUDGET = 500 * 1024
+# The width at which a round stops looking like coverage. See the WIDE_ROUND block in `main` for
+# the measurement, and for why the STAGE half of the same rule is deliberately left in prose.
+PANEL_WIDTH_WARN = 4
 
 
 def trailing_kind_tokens(head: str) -> list[str]:
@@ -873,6 +876,10 @@ def main() -> int:
     # A number that is off by one against the corpus it claims to measure is how a receipt stops
     # being checkable, so the count is kept separately and counts files.
     charged_files: dict[str, int] = {}
+    # EVERY charged review artifact filed against one (subject, round), not just the first. The
+    # `charged` map above keeps one path per round because that is all a CAP needs; the WIDTH of a
+    # round is a different question about the same walk and needs the whole list.
+    round_width: dict[tuple[str, int], list[str]] = {}
     seen_rounds: dict[str, set[int]] = {}
     seen_subjects: set[str] = set()
     terminals: dict[str, str] = {}
@@ -1020,6 +1027,7 @@ def main() -> int:
             })
         charged.setdefault(subj, {}).setdefault(rnd, rel)
         charged_files[subj] = charged_files.get(subj, 0) + 1
+        round_width.setdefault((subj, rnd), []).append(rel)
 
     for raw in args.next:
         subj = subject_of(raw)
@@ -1175,6 +1183,53 @@ def main() -> int:
                    "merge gate needs in order to see one long loop instead of several short ones"
                    + (f". THE --next SUBJECT(S) {', '.join(fam['next'])} ARE IN THIS FAMILY."
                       if fam["next"] else ""),
+        })
+
+    # THE WIDTH OF A ROUND, reported because the methodology's review rule changed under it.
+    #
+    # The rule used to be "one reviewer, never a panel" at every stage. It is now scoped by STAGE:
+    # a panel of up to three DIFFERENT LENSES at design and plan, one reviewer plus `test-judge` at
+    # implementation. The half of that rule this tool can honestly see is the CEILING, and it can
+    # see it because width is a fact about a directory — how many charged review artifacts carry
+    # one subject and one round — rather than a claim by the party filing them.
+    #
+    # MEASURED ON THE REAL CORPUS BEFORE THIS WAS WRITTEN, which is the only reason it is here.
+    # 1,203 round-marked prose artifacts across four repositories group into 672 (subject, round)
+    # groups under THIS MODULE'S OWN `subject_of`. 78 of those groups are four or more wide, and
+    # they produced a blocking verdict in 8 of the 78 (0.10). The 594 groups at three or fewer
+    # produced one in 190 (0.32) — a fourth lens is three times less likely to return a block than
+    # the lenses already on the artifact. So this fires 78 times on the real fleet. It is not a
+    # check that only its own fixtures can trip.
+    #
+    # WHAT IT DELIBERATELY DOES NOT DO, and this is the load-bearing part of the comment. It does
+    # NOT infer the STAGE. Stage is the stronger half of the finding — design/plan blocks at 0.74
+    # per artifact against 0.09 at implementation — and it is exactly the half this tool cannot
+    # read. There is no stage on disk. Deriving it means testing filenames for the words `design`,
+    # `plan` or `spec`, and this repository has now shipped NINE checkers that tested a WORD where
+    # a STRUCTURE was needed and were inert or wrong against the real corpus. It was measured
+    # rather than assumed here too: two reasonable spellings of the same stage word-test, run over
+    # the same 1,203 artifacts, disagreed about 31 groups and moved the design bucket by 13%. A
+    # classifier that moves 13% between two honest spellings of one rule is not a foundation for an
+    # exit code, so the stage rule stays PROSE — a human reading this receipt at the merge gate is
+    # what acts on it, with `test_the_two_documents_do_not_contradict_each_other_on_review_width`
+    # doing the one mechanical thing available: stopping the two documents drifting apart again.
+    #
+    # A WARNING, never an error. The threshold is a yield observation and not a boundary: a
+    # four-wide DESIGN round is correct under the new rule and blocked in 3 of the 7 measured, so
+    # promoting this to an exit code would refuse the very panel the rule now asks for.
+    for (subj, rnd), paths in sorted(round_width.items()):
+        if len(paths) < PANEL_WIDTH_WARN:
+            continue
+        warnings.append({
+            "kind": "WIDE_ROUND", "subject": subj, "round": rnd,
+            "path": sorted(paths)[0], "width": len(paths), "artifacts": sorted(paths),
+            "why": f"{len(paths)} charged review artifacts are filed against `{subj}` r{rnd}. "
+                   f"Measured across four repositories, a round {PANEL_WIDTH_WARN} or more wide "
+                   "returned a blocking verdict in 8 of 78 (0.10) against 190 of 594 (0.32) at "
+                   "three or fewer. Review WIDTH is scoped by STAGE: a panel belongs at design "
+                   "and plan, and implementation takes one reviewer plus `test-judge`. This tool "
+                   "cannot read the stage off a filename and does not try, so this is a receipt "
+                   "line for the merge gate and never an exit code",
         })
 
     for subj, rnd in sorted(grants):

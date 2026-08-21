@@ -39,8 +39,11 @@ A light-lane task that turns out to touch a durable boundary stops and returns t
 
 ## The review budget
 
-One reviewer per round — `security-validator` joins only when a safety surface moves, at most one
-other domain specialist only when its invariant moves; never a panel. Two rounds per artifact: one
+**Width is scoped by stage; the round budget is not.** At design and plan, up to three reviewers with
+different lenses, plus `security-validator` on safety surfaces. At implementation, one reviewer plus
+`test-judge`, and `security-validator` when a safety surface moves. The evidence for the stage split
+is under "Design and plan" below and must not be restated here — it was restated here once already,
+and one copy was corrected while this one kept the falsified rule. Two rounds per artifact: one
 correction and one scoped rereview, then apply-and-close — the orchestrator applies the final
 verdict's named smallest correction and closes; only safety-class findings and principle-7 scope
 changes escalate, and every escalation brief names a default action executed after a short founder
@@ -194,11 +197,36 @@ what each owns, and what the corpus offers it to own. Both artifacts are updated
 and never what it used to say.
 
 **Design and plan** — `architect` for the design; `planner` for the plan, with `contract-architect`
-on anything crossing a durable boundary. A domain specialist reviews only when the artifact touches
-its invariant — at most one, plus `security-validator` on safety surfaces; never a panel. After any
-specialist review and before each human gate, cast the existing `reviewer` in design mode before
-Gate 1 and plan mode before Gate 2, under the review budget. Freeze interfaces in the plan
-*including payloads*. A plan that freezes route names but not request and response shapes hands the
+on anything crossing a durable boundary. **Review width is scoped by STAGE, not capped by a count.**
+At design and plan a PANEL is correct: up to three reviewers with DIFFERENT lenses, plus
+`security-validator` on safety surfaces. At implementation the width is ONE reviewer plus
+`test-judge`, and `test-judge` does not spend a review round because it runs a command and reports
+an exit code. After any specialist review and before each human gate, cast the existing `reviewer`
+in design mode before Gate 1 and plan mode before Gate 2, under the review budget.
+
+*This corrects the rule that used to stand here, which capped review at one specialist and
+forbade a panel at every stage. The corpus falsifies it.* Measured
+across 1,051 round-marked review artifacts in four repositories: a design or plan review returns a
+blocking verdict at **0.74** per artifact against **0.09** at implementation — an **8x** gap, and it
+holds at every width. Panel findings are not redundant: of 21 groups where two or more reviewers
+blocked, the median overlap between the anchors they cite is a Jaccard of **0.20**, and the three
+pairs above 0.5 share only the subject id. Three reviewers on one design returned three DISJOINT
+defects. An independent re-measurement of the same repositories on a coarser stage split reproduces
+the direction and not the magnitude — design 0.39-0.42 per artifact against implementation 0.16,
+about 2.5x — so treat 8x as the upper end of the range and the ORDERING as the finding.
+
+**Do not import the published "two reviewers is optimal" number.** It measures the same lens applied
+twice to a diff, where a third reader adds overlap. A design panel applies different lenses to a
+document, and the overlap was measured here and is low. Where the external result and this corpus
+disagree, this corpus wins, and the reason is that the two are not measuring the same thing.
+
+**Cast a domain validator EARLY, at definition and design, not at implementation review.** Across
+the same repositories, project-local domain validators cast at implementation returned **66 reviews
+and ZERO blocking verdicts**; the same validator names cast inside a design workspace returned
+**6 blocks in 14 reviews**. A validator is a lens on a decision, and by implementation the decision
+has already been made.
+
+Freeze interfaces in the plan *including payloads*. A plan that freezes route names but not request and response shapes hands the
 implementer an invention it will make silently. The plan also assigns each task its lane.
 
 **Pre-gate adversarial review** — give a fresh, isolated, read-only `reviewer` only named artifact

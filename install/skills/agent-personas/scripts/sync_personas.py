@@ -41,6 +41,7 @@ BASE_PERSONA_NAMES = frozenset({
     "contract-architect",
     "developer",
     "docs-steward",
+    "migration-validator",
     "planner",
     "product-steward",
     "reviewer",
@@ -64,6 +65,7 @@ BASE_PERSONA_NAMES = frozenset({
 # CHECKS (see `restrict_for_roster` and the pool tests) rather than the definition of who is checked.
 JUDGING_PERSONA_NAMES = frozenset({
     "acceptance",
+    "migration-validator",
     "planner",
     "reviewer",
     "scout",
@@ -524,7 +526,7 @@ def pool_sources() -> list[Path]:
         if unexpected:
             details.append("unexpected: " + ", ".join(unexpected))
         raise PersonaError(
-            "base persona pool must contain exactly the canonical 13 ("
+            "base persona pool must contain exactly the canonical 14 ("
             + "; ".join(details)
             + ")"
         )

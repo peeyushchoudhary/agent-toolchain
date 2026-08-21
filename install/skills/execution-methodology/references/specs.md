@@ -221,7 +221,7 @@ reviewed_by: [tenancy-rls-validator, product-steward]
 ```
 
 `spec_check.py` rule **F3** then fails a document whose own horizontals say it MOVES a concern some
-persona owns while `reviewed_by:` does not name that persona. Nothing is required of the 13 base
+persona owns while `reviewed_by:` does not name that persona. Nothing is required of the 14 base
 personas: a persona with no `covers:` is never demanded, so the whole cost is one line per
 validator, once.
 
