@@ -3,7 +3,7 @@
 The non-obvious calls, and what they were weighed against. A decision recorded without its
 alternative is just an assertion.
 
-Numbers cited here are in [evidence/measurements.md](measurements.md).
+Numbers are in [measurements.md](measurements.md).
 
 ---
 
@@ -14,8 +14,7 @@ Numbers cited here are in [evidence/measurements.md](measurements.md).
 **Over:** folding it into `docs/agents/`, or leaving it ungated.
 
 **Why:** `AGENTS.md` routes an agent; `README.md` helps a human judge whether the project is real.
-The validator proves structure; a PR-template check owns honesty. Component design remains in
-`docs/architecture/<component>.md`, where it can stay current without bloating the front page.
+The validator proves structure; a PR-template check owns honesty.
 
 ---
 
@@ -41,8 +40,7 @@ that is missing it.
 
 **Why:** a credential added in one commit and removed in the next still ships to the server and
 stays recoverable, but the net diff cancels the two out. **The net-diff version was written first
-and verifiably missed exactly that case in testing.** This is the one decision here that was caught
-by a test rather than by reasoning.
+and verifiably missed exactly that case in testing.**
 
 ---
 
@@ -66,9 +64,8 @@ crawl while still validating links *into* them.
 **Over:** crawling everything reachable.
 
 **Why:** a plan written months ago *should* cite files that have since moved — that is what makes it
-history. Crawling it produced 117 stale-path warnings that were all correct-by-the-letter and
-useless, burying the one real breakage. The project's own authority order already says these are
-rationale, never behaviour; the validator now matches.
+history. Crawling it produced 117 correct-by-the-letter stale-path warnings that buried the one
+real breakage.
 
 ---
 
@@ -89,10 +86,10 @@ the letter and wrong by the purpose, which is how a report gets ignored.
 
 **Over:** maintaining both formats by hand, or a neutral format nobody authors in.
 
-**Why:** two formats hand-maintained drift the first time anyone forgets, and the failure is silent
-— Codex quietly runs an older persona. More fundamentally, Claude Code's project-level agents
-**override** a same-named user agent wholesale, so "base persona plus project direction" *cannot* be
-expressed by file placement. Merging has to happen before the harness sees it.
+**Why:** two hand-maintained formats drift the first time anyone forgets, and silently — a harness
+quietly runs an older persona. More fundamentally, project-level agents **override** a same-named
+user agent wholesale, so "base persona plus project direction" *cannot* be expressed by file
+placement. Merging must happen before the harness sees it.
 
 ---
 
@@ -103,13 +100,12 @@ persona.
 
 **Over:** instructing them not to edit.
 
-**Why:** "a builder never approves its own work" is only a guarantee if it is enforced. It also
-removes the failure where a reviewer finds a defect and quietly patches it, so the defect is never
-recorded.
+**Why:** "a builder never approves its own work" is only a guarantee if enforced. It also removes
+the failure where a reviewer quietly patches the defect it found, so the defect is never recorded.
 
 **Accepted exception:** `architect` may write, so it can author ADRs. Tool restriction cannot be
-scoped to a path, so its "design docs only" limit is an instruction. This is the single soft
-boundary in the roster and is documented as such wherever it appears.
+scoped to a path, so its "design docs only" limit is an instruction — the roster's single soft
+boundary, documented as such wherever it appears.
 
 ---
 
@@ -147,8 +143,7 @@ graph and 65 MB cache ignored.
 **Over:** committing all of `graphify-out/` (168 MB), or none of it.
 
 **Why:** every rebuild rewrites a reproducible 22 MB blob; the query lessons do not regenerate and
-accumulate from real use. The ignore pattern is `graphify-out/*` with negations because git cannot
-re-include a path beneath an excluded directory.
+accumulate from real use.
 
 ---
 
@@ -158,9 +153,9 @@ re-include a path beneath an excluded directory.
 
 **Over:** hooks that create the missing files.
 
-**Why:** they fire in every directory a session starts in, including repositories that are not yours
-and scratch clones. Creating files there would put unexplained untracked files in someone's tree.
-The hook tells; the human decides.
+**Why:** they fire in every directory a session starts in, including scratch clones and
+repositories that are not yours; files created there are unexplained untracked files in someone
+else's tree. The hook tells; the human decides.
 
 ---
 
@@ -171,9 +166,9 @@ The hook tells; the human decides.
 **Over:** creating product, architecture, runbook, and `docs/agents/` tiers solely to resemble the
 application repositories this tooling serves.
 
-**Why:** executable installer and verification paths do not create an application product or
-production operation. Empty application tiers would imply false authorities. The default route
-check is authoritative; revisit if an application runtime or operated service appears.
+**Why:** installer and verification paths are not an application product or a production
+operation, and empty application tiers would imply false authorities. The default route check is
+authoritative; revisit if an application runtime or operated service appears.
 
 ---
 
@@ -203,3 +198,16 @@ manifest-equal copy.
 and network denied; the gate never runs unsandboxed. Receipts check post-boundary XML consistency,
 not execution, cache avoidance, or hostile writers. Exact runner rerun settings own those
 guarantees; Gradle requires `--rerun-tasks`.
+
+---
+
+## D16 — project-onboarding and project-conformance stay two skills
+
+**Chose:** `project-onboarding` brings a repository under the standard **once**, and **writes**;
+`project-conformance` asks whether it still conforms, and is **read-only**. Onboarding's verify step
+calls it.
+
+**Over:** one skill with an onboard mode and a check mode.
+
+**Why:** the checker repairs post-onboarding drift — judges outliving a withdrawn capability — by
+hand, where no agent may write. One skill would claim both permissions.
