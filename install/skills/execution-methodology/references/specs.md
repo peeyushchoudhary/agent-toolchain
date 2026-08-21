@@ -124,6 +124,7 @@ prd: docs/product/prd.md
 status: draft | approved | building | shipped | dropped
 updated: <YYYY-MM-DD>
 depends: [F-3]                            # optional
+milestone: M2                             # optional — absent means specified and waiting
 withdrawn: [3, 9]                         # optional — retired AC numbers
 decisions: [docs/decisions/<adr>.md]      # optional
 edge_cases: [empty, concurrent, permission-denied]
@@ -177,6 +178,59 @@ skim the two that are not.
 Also gone: **Behaviour** and **User stories** each restated what the criteria and the Why already
 said, and a restatement is a second copy that goes stale silently. A separate **Edge cases** section
 let edge cases stay prose while the real criteria sat elsewhere, so they were never tested.
+
+---
+
+## The milestone
+
+`docs/product/milestones/M<n>-<slug>.md` — what a set of features is being taken to together, and
+nothing about how. It exists for ONE reason: the parallelism worth having is across features, not
+inside one, and until a scope names which features dispatch at the same time there is nothing to
+check that parallelism against.
+
+````markdown
+---
+milestone: M<n>
+title: <what this milestone delivers>
+status: draft | approved | building | shipped | dropped
+updated: <YYYY-MM-DD>
+---
+
+# M<n> — <milestone>
+
+## Why now
+What becomes possible when these features land together, and what stays impossible until they do.
+
+## Where it stops
+What is deliberately NOT in this milestone, and what that costs.
+
+## Off-repo blockers
+Only the ones this milestone adds. The PRD holds the rest.
+````
+
+**A feature joins by declaring it, and the milestone holds no list.** A spec adds one optional key:
+
+```
+milestone: M2
+```
+
+**The key is optional, and its absence is a state rather than an omission.** A feature with no
+milestone is specified and waiting — the normal condition of most of a backlog. Requiring the key
+would make the backlog a wall of findings and train whoever writes a spec to put down whichever
+milestone is nearest, which is worse than no answer.
+
+**Membership derives; it is never typed twice.** `grep -l 'milestone: M2' docs/product/specs/F-*.md`
+enumerates the milestone, the same way the PRD's glob enumerates the corpus. A hand-written feature
+list in the milestone document is wrong the first time a feature moves, and the wrongness is
+invisible because it still reads like a list. This is the same rule as the feature index, applied
+to the same failure. **An index that can only derive cannot drift.**
+
+**What a milestone must not become.** It is not a status report, not a progress table, not a
+per-feature checklist — every one of those is a second copy of something git or the specs already
+hold, and each is a cost paid on every future edit. The schedule in particular is COMPUTED:
+`plan_waves.py --milestone M2` merges the plans of the member features into one graph with qualified
+task ids (`F-12/T1`) and derives the waves. A wave list written into the milestone would disagree
+with the plans the first time a task moves.
 
 ---
 
