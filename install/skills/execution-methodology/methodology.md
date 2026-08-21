@@ -538,7 +538,10 @@ another task's.
 
 Added: the feature plan and validation plan; `plan_waves.py` with wave derivation, collision
 refusal, and a commit-versus-declaration check; `serialises:` for a deliberate shared write set;
-the milestone's goal, success criteria and validation gate.
+the milestone's goal, success criteria and validation gate; `trace_check.py`, which traces a
+criterion to a test that ran through verified JUnit evidence; and the pre-push boundary that runs
+the definition and plan checks, with a milestone seal that requires its cross-feature gate to have
+passed against the exact tree being pushed.
 
 Retired: `expected_red`, a fact about the tree that goes stale on the next commit — three of three
 such literals in a real plan were already false when checked; and the wave-scoped collision check,

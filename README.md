@@ -37,7 +37,9 @@ feature owns, each stating what is true now rather than accumulating what it use
 a newly exposed route to the Surface section of an approved feature spec, so a module the PRD
 excluded cannot ship unnoticed. `plan_waves.py` derives the dispatch schedule from a feature plan
 instead of asking anyone to write one down, refuses a wave whose tasks would write the same file,
-and compares a commit against the write set its task declared. Work is bound to one approved outcome and capped at what
+and compares a commit against the write set its task declared. `trace_check.py` closes the loop
+from a criterion to a test that actually ran, reading verified JUnit evidence rather than grepping
+for a string, and says in every run what it does not prove. Work is bound to one approved outcome and capped at what
 the spec requires — a finding demanding more is over-engineering and non-blocking. Tasks default to a
 card-free light lane and earn a validated card only when they cross a durable boundary or safety
 surface. Review runs under a budget — one reviewer plus conditional specialists, two rounds, then
