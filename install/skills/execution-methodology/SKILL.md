@@ -309,7 +309,9 @@ For Gradle/JUnit evidence, use the single-use nonce-receipt protocol in
 [references/junit-evidence.md](references/junit-evidence.md): `start_junit_run.py` immediately
 before the test task, `verify_junit.py` after, with the canonical invocation in
 `references/task-card.md`. The reference also states what the evidence does and does not detect,
-and its trust boundary.
+its trust boundary, and how `trace_check.py` reads that same evidence to diff the criteria a spec
+requires against the ids a verified run actually carried — which proves a test with that id ran and
+passed, and never that it asserts anything.
 
 A read-only Codex `test-judge` never runs a write-producing gate against the source referent; the
 standalone-copy nested-sandbox protocol is in
