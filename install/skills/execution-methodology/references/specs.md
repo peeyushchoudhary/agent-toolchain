@@ -210,9 +210,10 @@ implemented.
 id: F-7
 title: Resend a pending invite
 prd: docs/product/prd.md
-status: approved
+status: draft
 updated: 2026-01-14
 withdrawn: [3]
+edge_cases: [expired, rate-limited, permission-denied]
 ---
 
 # F-7 — Resend a pending invite
@@ -252,6 +253,10 @@ Assumes the 5-minute floor satisfies the mail provider's rate guidance.
 ````
 
 `AC-3` is absent from the body and retired in front matter: the text is gone, the number is spent.
+
+It is `draft` because it still carries an open question, and approving it means answering that
+question in the text — not marking it approved with the marker left in. The checker enforces exactly
+that pairing, which is the whole of what `approved` means here.
 
 ---
 

@@ -74,8 +74,14 @@ SPEC_KEYS = (("id", "title", "prd", "status", "updated"),
              ("depends", "withdrawn", "decisions", "edge_cases"))
 PRD_KEYS = (("title", "status", "updated"), ("reach",))
 AC_RE = re.compile(r"^\s*\*\*AC-(-?\d+)\*\*\s*(.*)$")
+# The precondition is OPTIONAL, deliberately. EARS itself has five patterns and only some carry a
+# state clause, and a mandatory slot manufactures filler to fill it: the first spec written against
+# a required `given` produced "given any outcome", which constrains nothing and trains the reader to
+# skip the clause on every criterion after it. A criterion with no meaningful precondition should
+# say so by omission.
 EARS_RE = re.compile(
-    r"^when\s+(?P<trigger>.+?)\s*,\s*given\s+(?P<pre>.+?)\s*,\s*(?P<result>\S.*)$", re.IGNORECASE)
+    r"^when\s+(?P<trigger>.+?)\s*,\s*(?:given\s+(?P<pre>.+?)\s*,\s*)?(?P<result>\S.*)$",
+    re.IGNORECASE)
 FEATURE_MARKER = "<!-- features: docs/product/specs/F-*.md -->"
 FEATURE_REF_RE = re.compile(r"\bF-\d+\b")
 ID_RE = re.compile(r"^F-\d+$")
@@ -147,6 +153,15 @@ class Doc:
         except SpecError as exc:
             self.front_error = str(exc)
 
+    @property
+    def is_spec(self) -> bool:
+        """A feature spec, by path. Schema rules bind only here and on the PRD."""
+        return self.path.match("docs/product/specs/F-*.md")
+
+    @property
+    def is_prd(self) -> bool:
+        return self.rel == "docs/product/prd.md"
+
     def at(self, key: str) -> int:
         return self.where.get(key, 1)
 
@@ -189,8 +204,11 @@ def criteria(doc: Doc) -> list[Criterion]:
         match = AC_RE.match(text)
         if parts and (match or not text.strip() or text.lstrip()[:1] in "#-*|>"):
             shape = EARS_RE.match(" ".join(parts))
-            groups = ((shape.group("trigger"), shape.group("pre"), shape.group("result")) if shape
-                      else ("", "", " ".join(parts)))
+            # `pre` is None when the criterion carries no precondition, which is allowed. It
+            # normalises to "" so the duplicate-pair check below compares like with like: two
+            # criteria that share a trigger and BOTH omit the precondition are still a collision.
+            groups = ((shape.group("trigger"), shape.group("pre") or "", shape.group("result"))
+                      if shape else ("", "", " ".join(parts)))
             found.append(Criterion(identifier, at, *groups, shape is not None))
             parts = []
         if match:
@@ -344,7 +362,16 @@ def run(root: Path) -> Findings:
     dirty = {line[3:].strip().split(" -> ", 1)[-1].strip('"') for line in status.splitlines()}
     documents = [Doc(path, root) for path in paths]
     for doc in documents:
+        # The current-state rules apply to every product document — a market study or an
+        # architecture note goes stale the same way a spec does, and A1-A3 need no schema.
         check_current_state(doc, f)
+        # Everything below is a SCHEMA rule, and a schema only binds the two documents that
+        # declare one: the PRD and a feature spec. Applied to the whole tree it fired on every
+        # README, market study and test plan in three real repositories — twenty-odd findings on
+        # first run, none of them actionable, which is how a checker gets switched off before it
+        # ever reports something true.
+        if not (doc.is_prd or doc.is_spec):
+            continue
         if doc.front_error:
             f.add(doc, 1, "B1", f"front matter does not parse: {doc.front_error}")
             continue
@@ -357,10 +384,10 @@ def run(root: Path) -> Findings:
                                          "[NEEDS CLARIFICATION: ...] marker")
     seen: dict[str, str] = {}
     for doc in documents:
-        if doc.path.match("docs/product/specs/F-*.md") and not doc.front_error:
+        if doc.is_spec and not doc.front_error:
             check_spec(doc, root, seen, f)
     for doc in documents:
-        if doc.path == product / "prd.md" and not doc.front_error:
+        if doc.is_prd and not doc.front_error:
             check_prd(doc, seen, f)
     return f
 
