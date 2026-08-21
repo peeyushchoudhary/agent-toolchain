@@ -233,6 +233,22 @@ Gate: `<the exact command that runs these journeys>`
 The `Gate:` line is read by the push guard when this milestone moves to `status: shipped`. Sealing a
 milestone runs its end-to-end validation; a seal whose journeys never ran is a claim, not evidence.
 
+## Deferred
+The register. One entry per finding this milestone found and did NOT fix, six keyed lines each.
+Open items only — closing an entry DELETES it, because a closed deferral is history and history
+lives in git.
+
+- **D-1** <what was found, in one line a reader can triage>
+  found_by: F-11/T3
+  site: `src/export/writer.py:214`
+  threatens: AC-8A            # or an invariant id, or `none`
+  trigger: `python3 -m unittest tests.test_export` — 1 failure, 3.9 s   # or `none`
+  owner: M4                   # the milestone that will close it, or `none`
+  raised: 2026-01-05
+
+A key sits at one to three spaces of indent; anything indented four or more is continuation text
+and is never read as a key, whatever word it starts with.
+
 ## Where it stops
 What is deliberately NOT in this milestone, and what that costs.
 
@@ -260,6 +276,28 @@ enumerates the milestone, the same way the PRD's glob enumerates the corpus. A h
 list in the milestone document is wrong the first time a feature moves, and the wrongness is
 invisible because it still reads like a list. This is the same rule as the feature index, applied
 to the same failure. **An index that can only derive cannot drift.**
+
+**The register is the second thing the milestone owns.** Principle 6 says deferrals live in a
+register a milestone can fail against; until `spec_check.py` grew rule E, nothing in this toolchain
+could fail against anything and the promise was prose. Rule E checks that entries parse, that
+`found_by` names a feature that actually belongs to this milestone, that `threatens: AC-<n>` names a
+live criterion, that `raised` is a date, and — the two that bite — that an entry owned by a
+milestone which has **already shipped** is a finding, and that a milestone cannot reach
+`status: shipped` while an entry it owns has `owner: none`. `spec_check.py --deferred` lists every
+register with its counts and exits 0.
+
+**Why six keys and not prose.** One real project built this register itself, in TSV: 205 rows, 178
+open, 27 closed, 17 unowned, **2,046 characters per row** and 423 KB of file. The information a
+reader needs is the six keys; the rest is a row explaining itself because it has no shape. Six keys
+is about seven short lines.
+
+**There is deliberately no cap on the count.** A ceiling the seal refuses to grow past would have
+bound that real register at roughly row 40 of 205, and the pressure lands on RECORDING the finding
+rather than on fixing it — which returns the project to the state before the register existed, with
+the findings still happening and nothing counting them. Deferral is already ~2% of throughput on a
+real repository (12 of 571 commits, 11,524 of 596,010 lines) and it happens whether or not anyone
+writes it down. The job here is to make it explicit and countable, not to add a budget. So the count
+is printed and the ownership is enforced, and no number is capped.
 
 **The gate is the one thing the milestone owns that no feature does.** A feature's suite proves the
 feature; nothing proves the journey that crosses three of them, because no single feature owns it —

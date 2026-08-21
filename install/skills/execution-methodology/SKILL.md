@@ -239,8 +239,16 @@ regenerated from the plan under a new id — never patched, never versioned by f
 ```bash
 validate_card.py CARD_PATH --repo REPO_ROOT            # exit 1 on any ERROR
 validate_card.py CARD_PATH --repo REPO_ROOT --strict   # exit 1 on warnings too
+validate_card.py CARD_PATH --repo REPO_ROOT --phase mid            # mid-task, every turn boundary
 validate_card.py CARD_PATH --repo REPO_ROOT --strict --phase post  # after implementation
 ```
+
+`--phase mid` is the one mode meant to be run repeatedly. It compares every uncommitted path in the
+repository against the card's `exclusive_writes` and `forbidden_paths`, with the same glob
+intersection `plan_waves.py` uses on a commit — so drift is caught while the edit still reverts for
+free instead of after it is in history. Measured on 56 real cards matched to their own commits: of
+558 files compared, 116 were written outside what the card allowed, across 25 of the 56 cards. The
+comparison is one `git status`, 19–39 ms on four real repositories.
 
 A card asserts that certain paths and tests exist, and everything downstream trusts it. The first
 card written under this methodology was wrong three times — most seriously, its `validation` block
