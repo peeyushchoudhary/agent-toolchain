@@ -58,3 +58,43 @@ round is never lost. Capping must fail OPEN: an unknown kind is NOT capped. Reas
 wrong charge is one round of budget; the cost of a wrong cap is a judge deleting a finding to fit
 30 lines. Those are not symmetric harms. Unknown kind => count it, never cap it.
 Same for `MISSING_ROUND_MARKER` names: warned about already, not capped here.
+
+## 3. The founder ruling, read in full — I DID make the exit binding at pre-push
+
+Read: `check_review_budget.py` module docstring :2-:21 and the FAMILY VIEW comment at :1140.
+The ruling (2026-08-20) says, exactly: "The tool is run BY the orchestrator, on inputs the
+orchestrator controls ... **No in-process control can bind its own operator**", and "THE BINDING
+CONTROL IS A HUMAN READING THE RECEIPT AT THE MERGE GATE."
+
+My reading, and why a pre-push hook is not the thing forbidden:
+* The ruling binds a party relationship, not an exit code. It forbids the tool pretending to bind
+  the ORCHESTRATOR that invokes it pre-dispatch and writes the very filenames it reads.
+* The ruling itself states the exit code's purpose: "it FAILS LOUDLY on the shapes it can see, so
+  that drift costs a deliberate act rather than an oversight — the exit code is a tripwire against
+  forgetting, not a gate against intent." A pre-push hook is that tripwire at the last cheap moment.
+* The ruling NAMES the merge gate as where spend is adjudicated. A push is what opens the PR. The
+  hook does not replace the human; it puts the receipt in front of them before the content leaves.
+* It claims nothing the KNOWN-OPEN list retracts. Rename, delete, move or out-scope the artifact and
+  the hook goes quiet, exactly as the tool does. The wiring says so in its own words and does not
+  say "closed".
+So: BOUND at pre-push, and the module docstring keeps saying it does not bind its operator. Both are
+true, because they are about two different parties.
+
+## 4. Day-one cost, MEASURED before writing a line of code
+
+Live workspace `analysis/.workspace/toolchain-remediation` (319 files), classified with the tool's
+OWN discriminators:
+| class | files | over 30 lines |
+|---|---|---|
+| prose + round marker + `kind_of=="review"` (charged verdicts) | 24 | **24** (2,555 excess lines, longest 388) |
+| prose + marker-free + `looks_like_a_verdict()` (JUDGE_NAME_TOKENS) | 9 | **9** (longest 290) |
+| prose `work` kinds (fix/impl/analysis) | 3 | not capped |
+| non-prose evidence (.xml/.txt/.diff/.tsx) | 4 | not capped |
+| everything else marker-free (109 `-report`, 31 `-review`, 18 `-diff`, ...) | 277 | not capped |
+
+**So the honest day-one number for the verdict cap is 33 files, not 121.** The 121-over-150 figure
+counts every `reports/*.md`; most carry no round marker and no judge name, so neither the counter
+nor this cap can call them verdicts. They are the `-report` class methodology:454 bans by prose,
+and banning it mechanically is a DIFFERENT rule with a different break-test — not smuggled in here.
+`-review` and `-audit` stay out of the marker-free set because `JUDGE_NAME_TOKENS` (:326) already
+excludes them by name as ordinary nouns; overriding that would be inventing a class.
