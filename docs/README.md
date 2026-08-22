@@ -44,10 +44,11 @@ Installation lives in [../install/README.md](../install/README.md).
 everything that layer contains — each skill is a decision, and the decisions are recorded here
 because a skill that is silently absent is indistinguishable from one that was forgotten.
 
-Six skills are published: `progressive-disclosure`, `agent-personas`, `agent-persona-factory`,
-`execution-methodology`, `graph-navigation`, and `project-onboarding`. The list is enforced by
-`install/skills/.gitignore`, which ignores its own directory and then re-includes those six by
-name, so adding a seventh is a deliberate line in a file rather than a side effect of a copy.
+Seven skills are published: `progressive-disclosure`, `agent-personas`, `agent-persona-factory`,
+`execution-methodology`, `graph-navigation`, `project-onboarding`, and `project-conformance`. The
+list is enforced by `install/skills/.gitignore`, which ignores its own directory and then
+re-includes those seven by name, so adding an eighth is a deliberate line in a file rather than a
+side effect of a copy.
 
 **`execution-methodology` is published.** It is the pipeline this repository describes — the
 artifacts, the three human gates, the task card, the ledger contract — and until now it was the one
@@ -58,15 +59,25 @@ applied to, and it names no project, path, or person. Weighed together, the reco
 uncontested, because the objection it had to beat turned out to be empty rather than merely
 smaller.
 
-**`project-conformance` is installed but not yet published, and that is a gap rather than a
-settled decision.** It is this repository's own work — it reports whether an onboarded repository
-still meets the standard — so the disaster-recovery argument that carried `execution-methodology`
-applies to it unchanged, and no counter-argument has been made. It is unpublished only because
-publishing it is four coordinated edits (the skill tree, the `.gitignore` allowlist line, the
-`install/skills/README.md` row, and the tables in `what-gets-installed.md`) and no task has owned
-all four at once. Until one does, it is deliberately absent everywhere rather than half-described:
-a skill listed in the docs and shipped by nothing is worse than one that is plainly not here. This
-is the whole content of the two top-level entries in the vendored-drift baseline.
+**`project-conformance` is published.** It reports whether an onboarded repository still meets the
+standard, and repairs the part of that answer that is mechanical. The disaster-recovery argument
+that carried `execution-methodology` applied to it unchanged and no counter-argument was ever made:
+it was unpublished only because publishing it is four coordinated edits — the skill tree, the
+`.gitignore` allowlist line, the `install/skills/README.md` row, and the tables in
+`what-gets-installed.md` — and no task had owned all four at once. One now has. Those four edits
+were the whole content of the two top-level entries in the vendored-drift baseline, so that
+baseline is now three findings and not five; the three that remain are the `agent-personas` test
+files, which are a different decision entirely. See
+[agents/what-gets-installed.md](agents/what-gets-installed.md), "Re-vendoring: what is left behind
+on purpose".
+
+Two things about it are worth stating here, because both are consequences of what it is rather than
+defects. It **orchestrates and reimplements nothing** — every judgement comes from the installed
+checker that already owns it — so its vendored suite drives the real tools under `~/.claude` and is
+green only on a machine that has the layer installed. And it is **not in `MIRRORED_SKILLS`**: that
+list is machine state held in a file this repository only mirrors, so it is changed on the machine
+first. Publishing a skill and mirroring it to Codex are separate acts, and this is the first skill
+where they have come apart.
 
 **`graphify` is deliberately not published**, and this is the opposite decision on purpose. It is a
 third-party vendor skill that installs itself into `~/.claude/skills` on its own schedule, not
