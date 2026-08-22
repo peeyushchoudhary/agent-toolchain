@@ -1,6 +1,14 @@
 # NOTES — cap the output (verdict line cap + binding pre-push exit)
 
-**TOP 3 SO FAR:** in progress.
+**TOP 3.** (1) **The cap is 30 lines, quoted from methodology.md:460, and it binds 33 files in the
+live workspace — not 121.** The other 171 `reports/*.md` carry no round marker and no judge name;
+the tool cannot call them verdicts and neither may this rule. (2) **Cap and charge read the SAME
+function** (`kind_of` / `looks_like_a_verdict`), with the polarity DELIBERATELY INVERTED: charging
+fails closed, capping fails open — a judge dropping a finding to fit is worse than a long verdict.
+(3) **The exit binds at pre-push and the ruling permits it**: the ruling forbids the tool binding
+the ORCHESTRATOR THAT RUNS IT; git at the push is a different party, at the moment that opens the
+merge gate the ruling itself names. Day one: 96 errors, 56 banned diffs DELETED (49% of the
+workspace bytes, no finding lost), 40 errors left for a human — nothing auto-granted.
 
 ## 1. The cap: which number, read where
 in progress
