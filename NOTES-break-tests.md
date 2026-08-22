@@ -270,3 +270,10 @@ docstring instead, ready to switch on with the fix.
   check_review_budget  the `rereview` mis-warning (N9) is LIVE, so a case asserting the right
                   answer would fail today. Reproduction written into the docstring instead.
   Each is named in its own selftest docstring, not only here.
+
+## 7. Branch state
+Base: e67b348 (local main at branch time). `main` has since advanced to afacd28 in the source
+repo — this branch is NOT rebased onto it, and `git diff main..HEAD` therefore shows main's newer
+commits as if they were deletions here. Use `git diff $(git merge-base main HEAD)..HEAD`:
+13 files, 2630 insertions, ZERO modifications to any existing file.
+Working tree clean after a full run: no break-test writes inside the repository.
