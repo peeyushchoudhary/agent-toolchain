@@ -104,8 +104,52 @@ SELECTION (what counts as spec-shaped):
 Nothing outside `docs/` is ever proposed for rename. `plan.md` is excluded because its H1 reads
 `Plan - FED-C1 ...` -- the id is not first -- which is checked against all 233 real documents.
 
-## 4. Implementation
-in progress
+## 4. Implementation (COMMITTED b12fe82 on agent/migrate-product-definition)
+`install/skills/progressive-disclosure/scripts/migrate_to_standard.py`, +348 lines, stdlib only.
+NO NEW MIGRATOR. `--product` is a mode inside main(); the structure planner is untouched and the
+two modes never run in one commit (their diffs are reviewed by different people).
+Reused as-is: `backup()`, `run_git()`, `dirty()`, `is_git()`, `rewrite_links()`, `map_path()`,
+and `MD_LINK` / `MD_IMPORT` / `strip_code` / `tracked_files` / `walk_files` from
+`validate_disclosure`. That is the four hard things the brief said not to re-earn.
+New: `SpecMove`, `plan_product`, `spec_shaped`, `derive_prd/status/updated`, `body_words`,
+`link_report`, `print_product_plan`, `run_product`.
+Plus the one-branch M1 fix inside `rewrite_links`.
+`run_product` returns 1 if body words differ or any link is broken after --apply -- the tool
+refuses to call its own write clean.
+
+## 4b. THE TENSION THE BREAK-TEST EXPOSED, and how it is resolved
+Rule 4 of the brief says NEVER EDIT A BODY. The migrator's headline promise is that every markdown
+link is rewritten. Those two cannot both be literally true: a spec that rises out of its directory
+has `../feed.md` re-rendered as `feed.md`, and that IS a byte in the body.
+My first version of break-test case 4 asserted byte-identity and FAILED on its own fixture. I did
+not weaken it to make it pass. The honest invariant, and the one the hand migration used, is:
+    * body WORD COUNT identical, and
+    * every remaining byte difference is inside a `](...)` link target.
+Case 4 now asserts both, by blanking link targets in each and comparing. Prose is untouched;
+link targets are the entire point of the move.
+
+## 6. Break test -- IT HAD NONE. Added.
+`migrate_to_standard.py` had NO `*_selftest.py` and NO `tests/test_*.py` of its own. It is the ONLY
+script in this toolchain licensed to rename files and rewrite their contents, and it was the only
+writing script nothing had watched fail.
+Added `scripts/migrate_to_standard_selftest.py` (9 cases, house shape of `push_guard_selftest.py`,
+exit 0/1/2) plus `tests/test_migrate_to_standard_selftest.py`, a thin bridge, because
+`install/verify.sh` runs `unittest discover` per skill and runs NO `*_selftest.py` -- so the two
+break-tests already in that directory are executed by nothing automated.
+Cases: 1 source-move relink (the live defect), 2 the same at product scale, 3 dry run writes
+nothing byte-for-byte, 4 no prose edited, 5 an underivable id is skipped whole, 6 an unresolvable
+prd becomes TODO and the `.docx` is not claimed, 7 the area id survives in filename and title,
+8 READMEs/plans/anything outside docs/ are never proposed, 9 dirty tree without --force exits 1.
+
+MUTATION PROOF (a break-test that cannot fail is the defect it tests for):
+  reverting the M1 fix -> `FAIL -- 5 case(s): 1b, 1c, 2a, 2d, 4a`, exit 1.
+  restored -> exit 0.
+Case 1c had to be rewritten for exactly this reason: the first version resolved a HARDCODED path
+instead of the link as written, and passed under the very mutation it exists to catch. It now
+parses every `](...)` out of the moved file and resolves each from the new directory.
+
+SUITE: `python3 -m unittest discover -s tests -t tests` in progressive-disclosure --
+396 tests, OK, 60s.
 
 ## 5. Validation numbers -- MEASURED ON /tmp/loomaya-copy (a COPY; original never touched)
 
