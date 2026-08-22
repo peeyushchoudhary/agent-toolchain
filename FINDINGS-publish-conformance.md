@@ -71,3 +71,20 @@ DECISION: vendor the tests anyway (they are green in the vendored position, whic
 RECORD the empty-HOME numbers in what-gets-installed.md rather than papering them.
 Leaving them out would instead ADD a vendored-drift critical (baseline 4, not 3).
 
+## F8 — the four edits are committed (5eb0ea4)
+1. `install/skills/project-conformance/` — SKILL.md (166), scripts/check_conformance.py (1599),
+   tests/test_conformance.py (989). Copied with rsync, `__pycache__`/`*.pyc` excluded. Not rewritten.
+2. `install/skills/.gitignore` — `!/project-conformance` added; the comment's "six skills" -> "seven".
+3. `install/skills/README.md` — one row in "What is here".
+4. `docs/agents/what-gets-installed.md` — skills table row, scripts table row, "six published
+   ones" -> "seven", the Codex `skills/` row, AND the vendored-drift baseline paragraph (5 -> 3).
+PLUS two the brief did not list but the gates require:
+5. `docs/README.md` — the gap paragraph rewritten (the gap is closed) + "Six skills" -> "Seven".
+6. `README.md` (front page) — a Components row. REQUIRED: verify.sh `check_prose_agrees` fails
+   any declared skill not named on the front page.
+
+## F9 — pre-commit warned, did not block
+`docs/agents/what-gets-installed.md: 1579 words > 1200 budget at depth 1` — WARN from the
+disclosure validator. Not blocking, but it is a real prose-budget regression caused by the
+baseline rewrite. Trim before finishing.
+
