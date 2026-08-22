@@ -344,6 +344,145 @@ let edge cases stay prose while the real criteria sat elsewhere, so they were ne
 
 ---
 
+## The divergent panel — three frames on one feature spec
+
+The feature spec is reviewed by one author and one founder. `product-steward` writes it; Gate 1
+attaches the founder to it. Both read it as one question — *is this artifact sound?* A **divergent
+panel** puts two or three readers on the same frozen spec who are not asking that question, and are
+not asking each other's.
+
+Three properties separate a panel from three reviews, and only one of them is new here.
+
+1. **Isolation during divergence.** Reviewers must not see each other's findings while they look.
+   This is already settled and stated once, in the review budget: *"Freshness is a dispatch
+   property... Prompt wording alone does not establish isolation"* — `fork_turns: "none"` in Codex,
+   the equivalent fresh-thread primitive elsewhere. A panel is that dispatch rule applied N times to
+   one artifact. It adds no new isolation rule, and this section deliberately does not restate the
+   one that exists.
+2. **Different FRAMES, not different reviewers of one frame.** This is the genuinely new import.
+   `roster.md` prices the fourteen base personas by reasoning depth and stakes — a scale of how
+   hard each reader thinks, not of what each reader asks. Two `opus`/`xhigh` seats on one spec buy
+   depth twice and coverage once. A frame changes the QUESTION, so the frames are named below and
+   the panel is cast by them.
+3. **Symmetric signal.** A critic that can only say *missing* grows the document. Every panel
+   finding carries either a **strength** — one criterion this spec gets right, named by id — or a
+   **confidence**, and a finding with neither is dropped at convergence. The pairing is the review
+   budget's existing **growth tripwire**: the spec may not grow more than 20% in lines from the
+   version frozen at first dispatch, and exceeding it ends the panel and routes to the human gate.
+   Three frames cannot ratchet a spec upward without the tripwire saying so.
+
+### The frames, and the casting
+
+Cast at the FEATURE SPEC, because that is where the casting is already carried in a key this
+methodology checks. At most three frames, and each is a question rather than a seat:
+
+| Frame | Persona | The question it holds |
+|---|---|---|
+| The marker's frame | `acceptance` | Could someone who did not write these criteria check them? |
+| The adversary's frame | `security-validator` | Who is authorized, and what input gets data out? |
+| The invariant's frame | one domain validator | What does this spec MOVE that I own, and what breaks? |
+
+- **`acceptance`** later judges the milestone against these criteria. Letting the exam-marker read
+  the exam before it is set costs one review and moves the judgement earlier by a milestone.
+- **`security-validator`** owns ground the PRD template already claims — *"Authorization belongs
+  here because it is a product decision before it is a technical one"* — and is cited at the PRD
+  **zero** times in the measured corpus, against 100 at review.
+- **At most ONE domain validator**, selected by its `covers:` intersecting a `## Horizontals` row
+  this spec says it MOVES. Not by seniority, not by availability: the spec's own live rows choose
+  it. If no row is live and owned, the third seat is not filled — a panel with an empty frame is two
+  frames, and two frames is the honest count.
+- **`product-steward` is excluded from the panel on its own artifact.** It authors the spec; it is
+  the anchor divergence exists to escape. It is named once across 1,051 review artifacts, so a spec
+  reviewed only by its author is one seat's unexamined output read twice.
+- **`architect` is not cast** on product definition. It blocks 0.50 per artifact at design because
+  design gives it structure to judge; the PRD bans *"screens, schemas, technology"*, so at
+  definition time it has nothing to grab.
+
+Convergence is not a fourth opinion. A `reviewer` reads the sealed reports and produces ONE
+escalation brief with a **default action**, in the shape the review budget already specifies. The
+founder receives one page, not three.
+
+**A finding with no home in the template is discarded.** It must become an acceptance criterion, a
+`Where it stops` line, an `Off-repo blockers` row, or a `[NEEDS CLARIFICATION: <question>]` marker.
+That forces panel output into *Product thinking* bytes and prevents a fourth document.
+
+### What enforces this, and how it is removed
+
+`reviewed_by:` is the receipt, and rule **F3** is the reason the casting cannot quietly stop
+happening: a spec whose own horizontals say it MOVES a concern some validator owns, while
+`reviewed_by:` does not name that validator, earns a printed and counted F3 demand on every run.
+
+Two honest limits on that claim:
+
+- **F3 demands; it does not fail the run.** It is carried as a debt rather than a defect, because
+  binding two validators in one real repository produced 130 demands at once. The panel therefore
+  rides an instrument that *reports* its absence, not one that *blocks* on it.
+- **F3 reaches only the domain seat.** A base persona has no `covers:`, so `acceptance` and
+  `security-validator` in `reviewed_by:` are recorded and never demanded. Their frames are a
+  dispatch convention, and the receipt is all the enforcement they get.
+
+Removal is one edit either way: delete the persona names from `reviewed_by:` and the panel from the
+dispatch. **The default is expiry** — the panel is authorised for ONE milestone and continues only
+if the number below is met. Nobody has to argue for removal; removal is what happens by default.
+
+### The PRD arm — a bounded experiment, and its precondition
+
+**Rule F is structurally inert at the PRD, and this was verified in code before it was written
+here.** `check_binding` raises a demand only from a `## Horizontals` concern row; the carrier is
+that section and not the path, which is why the PRD is scanned at all. The PRD template has no
+`## Horizontals` section — it has Why this exists, Who it serves, Where it stops, Appetite and
+constraints, Success criteria, Off-repo blockers, Open questions. So the PRD is read, yields zero
+rows, and raises zero demands, forever. That partly explains the measured *PRD 0* citation count,
+and it means a PRD panel has no existing carrier to ride.
+
+So the PRD arm is a **bounded experiment** with its own carrier, and its whole output lands as
+`[NEEDS CLARIFICATION: <question>]` markers — the form the PRD already specifies for gaps, where
+*"greppable beats sectioned"*. That is the closest a persona strategy can get to red-today: a panel
+that adds **zero markers** to a PRD whose specs later churn has failed visibly, countable with
+`grep`, with no new script and nothing to switch off.
+
+**Precondition, stated first because the sequencing depends on it.** The metric below is
+post-approval criterion churn, and **zero specs across the four real repositories carry
+`status: approved`**. The metric cannot be computed today, and the retrospective control arm does
+not exist today. **The experiment cannot start until one repository has approved specs.** Until
+then this section describes a protocol, not a measurement in progress, and reporting it as ready to
+run would be the same confident absence claim this methodology's history is mostly made of.
+
+Once that precondition holds, and not before:
+
+- **Metric:** post-approval criterion churn per feature spec — criterion ids added, edited, or moved
+  to `withdrawn: [...]` after `status: approved`. Readable from `git log -p
+  docs/product/specs/F-*.md`. **No new instrument, and no new checker** — a panel is a dispatch, not
+  a rule.
+- **Control arm:** retrospective, over the approved specs that then exist, computed before the
+  treatment runs.
+- **Treatment:** one milestone. Run the isolated panel before Gate 1 and **seal the findings before
+  approval**. Sealing before the outcome is what makes this falsifiable rather than narrated.
+- **Pre-registered pass bar**, and it is pre-registered rather than chosen afterwards: score HIT
+  RATE, not churn reduction — for each post-approval edit, ask whether a sealed finding named it.
+  **recall >= 0.4, precision >= 0.3** on roughly 5-15 items, with the **dollar figure recorded**.
+  Churn alone is confounded by milestone difficulty.
+
+### What this costs, and where the cost hides
+
+Tokens are the cheap part: about **$0.21 per review**, so three frames plus convergence is roughly
+**$0.84** against the **$22** a milestone's worker runs cost. Under 4%. The two real costs are not
+tokens.
+
+1. **Founder attention.** *"Founder decisions are batched. The three gates are the three gates."* N
+   conflicting frames arriving at Gate 1 is a **de-batching device**, and this methodology's
+   measured failure mode is exactly that endpoint — six approval ceremonies in thirty-six hours for one
+   migration file, one of them for a syntax fix. Convergence to one brief with a default is
+   therefore not a nicety; it is the only thing that keeps a panel inside one gate.
+2. **The budget cannot see the spend.** `ratio_meter.py` buckets the PRD and feature specs as
+   *Product thinking* and verdicts as *Process*, but it measures **committed churn only**, and the
+   review workspace is git-ignored. A panel's process cost therefore reads **zero** against the one
+   instrument that prices process. Best place in the chain to spend the money; worst place to hide
+   it. The dollar figure in the pass bar exists because the meter will not report it.
+
+---
+
+
 ## The milestone
 
 `docs/product/milestones/M<n>-<slug>.md` — what a set of features is being taken to together, and
