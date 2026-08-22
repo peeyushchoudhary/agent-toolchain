@@ -215,5 +215,23 @@ The plan and the apply output both print the NOTE naming the choice and the reme
 ## 6. Break test
 in progress
 
-## 7. NOT automated
-in progress
+## 7. NOT AUTOMATED, on purpose
+1. `id:` where the H1 carries no ordinal. `met-metric-tree/spec.md` is skipped WHOLE, not renamed
+   to an invented `F-65`. A number nothing in the repo cites, dropped into a filename that 2,056
+   citations have to keep matching, is worse than the silence.
+2. `status:` is never defaulted to `draft`. Guessing a status is how an undecided document becomes
+   an approved one.
+3. `prd:` is never guessed. No `docs/product/prd.md` and no resolving markdown parent -> `TODO`
+   and a printed reason. A `.docx` top-level product document is NOT accepted as a markdown parent.
+4. `updated:` is never set to today. Today's date would claim the content changed today; the whole
+   claim of this mode is that the content did not change at all. The A4 consequence is printed
+   instead (see 5b).
+5. The 169 documents left unbound (READMEs, plans, area pages) are NOT swept in to make the note
+   read zero. They are not specs, and making a counter look clean is the failure being fixed.
+6. Nothing outside `docs/` is proposed for rename. The 5 SQL migrations, the Java file and the CI
+   config that cite area ids are untouched, which is precisely why the area id had to survive.
+7. NOTHING IS COMMITTED by the tool. `--apply` ends with "review the diff, then commit yourself".
+8. The BACKUP IS NOT PROVEN RESTORABLE. Every `--apply` case takes one; no case asserts you can
+   restore from it. Stated in the selftest docstring rather than left implied.
+9. No case runs against a real repository. The corpus numbers were measured by hand on a COPY and
+   are NOT asserted in the suite.
