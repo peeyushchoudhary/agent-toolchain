@@ -1,6 +1,6 @@
 # Break-tests for execution-methodology checkers
 
-TOP 3 SO FAR: N4 milestone_seal verify() never re-checks the tree it was asked about (green); N2 a start receipt can be silently OVERWRITTEN (green); N1 three checkers ship mode 0644 against a bare documented invocation. 20 uncovered gates found across 6 scripts so far.
+TOP 3 SO FAR: N8 spec_check's AC_RE bold-relaxation — the fix for a defect that hit twice — is protected by ZERO tests; N4 milestone_seal's verify() never re-checks the tree it was asked about; N2 a start receipt can be silently OVERWRITTEN. 23 uncovered gates across 7 scripts.
 
 ## 0. Method
 in progress
@@ -191,3 +191,18 @@ qualification removed — it asserted a true statement that was not the defect. 
 in-feature pair, where the documented plan-local spelling must silence W6 under --milestone.
 A case that cannot fail against the defect it names is decoration; caught by always watching
 each case fail before keeping it.
+
+### N8 — spec_check.py: the AC_RE fix is protected by NO test at all
+  SC-a  restore the bold requirement in AC_RE (`\*\*AC-...\*\*`)          GREEN — suite passes
+        This is the defect that hit the SAME pattern twice on the record: it first matched 0 of
+        416 criteria, then missed a whole repository's 521 written `AC-1 When the user...`.
+        Re-introducing it leaves all 1014 tests green. Every criterion rule (C1..) goes silent
+        on the real corpus and the run exits 0.
+        Cause: the vendored fixtures write the BOLD house style, so the relaxation is exercised
+        by nothing. Same class as the seed defects themselves — the suite tests the spelling the
+        tool's authors use, not the spelling a real repository uses.
+  SC-b  `binding.unbound_specs = 0`                                       RED — covered
+  SC-c  rule F gated on `not doc.front_error`                             RED — covered
+  Cases for SC-b and SC-c are still written: both were LIVE defects on the record, and the
+  break-test is where a defect that was live is reproduced, whether or not a unittest also
+  covers it now. SC-a is the one that is uncovered TODAY.
