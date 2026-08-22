@@ -171,3 +171,10 @@ Mutation log (run = the script's own mapped test modules):
   milestone_seal_selftest.py    6 cases / 20 assertions — watched fail under 4 of 5 mutations
     (the 5th, the loose gate heading, needed the mutation stated the way the docstring states the
      risk — `"validation" in line` — which IS green under the suite and IS caught here)
+
+### CORRECTION to N7 — SM9 RETRACTED
+The "multi-line marker accepted" mutation was a NO-OP: dropping `[^\r\n]` from MARKER_RE without
+adding `re.DOTALL` changes no behaviour, because `.` does not match a newline by default. Re-run
+with `re.DOTALL` the suite goes RED, so the single-line rule IS covered. No case written for it.
+A green run against a no-op edit is not a finding; recording the retraction because a retraction
+is evidence too. sync_methodology's real uncovered set is SM3, SM5, SM8 — three, not four.
