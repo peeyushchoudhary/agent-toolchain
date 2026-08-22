@@ -95,3 +95,25 @@ NOTE the mirror line: install.sh mirrors 7 to `~/.codex/skills`, but `check_tool
 `MIRRORED_SKILLS` still watches 6. Those two disagree now. Documented in what-gets-installed.md
 rather than silently fixed, because check_toolchain.py here is a vendored mirror (see F3).
 
+## F11 — spec_check.py measured on the four onboarded repositories (RED on all four)
+Anonymised (public repo). `docs/product/specs/` exists in exactly four of the 17 directories
+under the projects dir; those are the four.
+| repo | spec_check exit | findings | no_front_matter | unbound (no rule binds) | docs/product |
+|---|---|---|---|---|---|
+| A | 0 | 0 | 0 | **233** | yes |
+| B | 1 | 21 | 1 | 0 | yes |
+| C | 1 | 22 | **22** | 1 | yes |
+| D | 1 | 3 | 3 | 1 | yes |
+Repo A is the case that proves the check is needed: spec_check EXITS 0 there, and 233 documents
+under `docs/product/specs/` are named in a shape no schema rule and no persona binding reads.
+An exit code alone calls that repository clean.
+
+## F12 — `unbound_specs` is NOT in spec_check's JSON payload
+`binding_payload()` carries `no_front_matter` but not `unbound_specs`. The unbound count is
+only PRINTED, in `Binding.note()` / `unbound_line()`, on a non-`--json` run. And `binding` is
+absent from the JSON entirely when the repo has no `docs/agents/personas/` pool.
+Adding the key to spec_check.py is the obvious fix and is REFUSED for the F3 reason: that file
+is a vendored mirror of the installed one, so editing it here manufactures vendored drift.
+The ninth check therefore invokes spec_check TWICE — `--json` for structure, plain for the
+note line — and says so in its docstring.
+
