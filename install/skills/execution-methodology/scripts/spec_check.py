@@ -1423,7 +1423,25 @@ def main() -> int:
     except SpecError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    code = 0 if (args.warn_only or not findings) else 1
+    # F3 IS A DEBT, NOT A DEFECT, and the difference decides whether this tool survives adoption.
+    # Every other rule reports something that is WRONG: a spec that accumulates history, a criterion
+    # no test can fail, an id that resolves nowhere. F3 reports something that has not been DONE —
+    # a validator that owns an invariant has not yet read the spec that moves it. Both are worth
+    # saying; only one of them means the tree is broken.
+    #
+    # Measured, and this is the whole argument: binding two validators in one real repository
+    # produced 130 F3 demands at once, because 65 specs each move two owned concerns and none had
+    # been reviewed yet. As an error that is a wall on every push from the moment a repository
+    # declares its first `covers:`, which is precisely how a guard gets uninstalled — the same
+    # lesson this toolchain already recorded when 12 findings would have blocked every push in
+    # another repository, and the reason the product half of the push guard is silent where nothing
+    # opted in. A rule that punishes a repository for adopting it will not be adopted.
+    #
+    # So F3 is counted, printed and carried in the JSON exactly like any other finding, and it does
+    # not by itself fail the run. Anything else in the list still does, including F4 — a `covers:`
+    # label matching no row is a defect in the binding rather than a debt in the work.
+    blocking = [item for item in findings if item.rule != "F3"]
+    code = 0 if (args.warn_only or not blocking) else 1
     if args.json:
         json.dump({"root": str(root.resolve()), "count": len(findings), "exit": code,
                    "exempt": exempt, "findings": [item._asdict() for item in findings],
@@ -1440,8 +1458,11 @@ def main() -> int:
             # it. That happened: a 130-finding result was reported as 39 — a 3.3x under-count —
             # because the display cap was mistaken for the finding count. The cap is a display
             # decision; the total is the fact, so the total is what the line leads with.
-            print(f"... {len(findings)} finding(s) in total, {len(findings) - PRINT_CAP} not shown; "
-                  "fix these and run again, or use --json for all of them")
+            demands = len(findings) - len(blocking)
+            tail = (f", of which {demands} are review demand(s) that do not fail the run"
+                    if demands else "")
+            print(f"... {len(findings)} finding(s) in total{tail}, "
+                  f"{len(findings) - PRINT_CAP} not shown; use --json for all of them")
     if exempt and not args.json:
         print(f"{exempt} route(s) exempt")
     # PRINTED ON EVERY RUN THAT HAS A POOL, findings or none. `trace_check.py` prints its own limit
