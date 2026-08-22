@@ -14,6 +14,15 @@ imagined.
         was six pseudo-subjects, each spending its own budget: 51 artifacts, rounds to r14, on ONE
         artifact under review.
   3  FAMILY_SPEND makes a renamed lineage visible, and stays ADVISORY
+  4  the verdict LINE CAP binds a verdict and never evidence
+        methodology.md fixed five caps by ruling — "Card 150 lines, verdict 30 lines ..." — and
+        four of them are read by an instrument. This one was prose, so the author's own live
+        workspace answers 51 cards (mean 85 lines, 50 of 51 inside the card cap) with 204
+        verdict-class files, the longest 1,349 lines. We capped what the agent READS and left what
+        it WRITES free. Every case here is PAIRED ON LENGTH: two files of the same length in one
+        directory, differing only in what the tool has already decided they are. The evidence half
+        is the load-bearing one — a judge that deletes a finding to fit thirty lines is a worse
+        outcome than a long verdict.
 
 CASE 1 IS PAIRED IN THE ONLY WAY THAT PROVES ANYTHING. `T1-security-r3.md` must trip ROUND_CAP and
 `T1-fix-r3.md` must not — same position, same structure, different kind. A reader that classified
@@ -53,6 +62,11 @@ import tempfile
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent / "check_review_budget.py"
+# The documented verdict cap, written here as a LITERAL rather than imported. This file drives the
+# installed sibling as a process and asserts on its receipt, so importing the constant would let
+# both halves move together and agree about a number the methodology fixed at thirty. Case 4o
+# checks that the script still reports this same number, which is the only coupling wanted.
+VERDICT_LINE_CAP = 30
 
 failures: list[str] = []
 
@@ -70,6 +84,20 @@ def workspace(tmp: Path, *names: str) -> Path:
     (root / "reviews").mkdir(parents=True)
     for name in names:
         (root / "reviews" / name).write_text("x\n", encoding="utf-8")
+    return root
+
+
+def sized(tmp: Path, lines: int, *names: str) -> Path:
+    """A workspace whose every artifact is exactly `lines` lines long.
+
+    Same shape as `workspace`, and the length is the ONLY difference between the two halves of
+    every pair below — a case that varied the name and the length together would prove nothing
+    about which one the tool read.
+    """
+    root = tmp / "workspace"
+    (root / "reviews").mkdir(parents=True)
+    for name in names:
+        (root / "reviews" / name).write_text("finding\n" * lines, encoding="utf-8")
     return root
 
 
@@ -158,6 +186,92 @@ def case_family_spend_is_visible_and_advisory() -> None:
               f"exit {code}, errors {kinds(payload, 'errors')}")
 
 
+def case_the_verdict_cap_binds_verdicts_and_never_evidence() -> None:
+    """The rule methodology.md wrote in prose and no instrument read: verdict 30 lines.
+
+    THE WHOLE RISK OF THIS RULE IS OVER-REACH, so every case below is PAIRED on length. Each pair
+    holds two files of the SAME length in the SAME directory, differing only in what the tool has
+    already decided they are. A checker that measured length alone would trip both halves; one
+    that measured nothing would trip neither. Only a checker that caps the VERDICT and leaves the
+    EVIDENCE alone splits a pair — and a judge that deletes a finding to fit thirty lines is a
+    worse outcome than a long verdict, which is why the evidence half is the load-bearing half.
+    """
+    over = VERDICT_LINE_CAP + 10
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+
+        code, payload = run(sized(tmp / "verdict", over, "T1-r1-reviewer.md"))
+        check("4a a judge verdict past the documented cap is an ERROR",
+              "VERDICT_OVER_CAP" in kinds(payload, "errors"), str(payload)[:400])
+        check("4b and it stops the dispatch rather than warning about it", code == 1, f"got {code}")
+
+        # THE PAIRED HALF. Same length, same round, same directory — a fix report is the work a
+        # judgement provoked and is not a judgement, so it is not capped however long it runs.
+        code, payload = run(sized(tmp / "work", over, "T1-r1-fix-report.md"))
+        check("4c an implementer's report of the same length is NOT capped",
+              "VERDICT_OVER_CAP" not in kinds(payload, "errors"), str(payload)[:400])
+        check("4d so the pair distinguishes a verdict reader from a line counter", code == 0,
+              f"got {code}")
+
+        # `-test-judge` runs a command and reports an exit code: measured evidence, block rate
+        # 0.02 against 0.16 for `reviewer`. It does not spend a round and it is not capped either.
+        code, payload = run(sized(tmp / "testjudge", over, "T1-r1-test-judge.md"))
+        check("4e a test-judge is evidence and is not capped",
+              "VERDICT_OVER_CAP" not in kinds(payload, "errors") and code == 0,
+              f"exit {code}, {kinds(payload, 'errors')}")
+
+        # A non-prose suffix is evidence by the rule that already exists. It has its own finding
+        # (NON_PROSE_VERDICT) and must not collect a length finding on top of it.
+        code, payload = run(sized(tmp / "nonprose", over, "T1-r1-reviewer.txt"))
+        check("4f a non-prose artifact is never measured for verdict length",
+              "VERDICT_OVER_CAP" not in kinds(payload, "errors"), str(payload)[:400])
+
+        # THE TWO POLARITIES IN ONE FILE. An unrecognised kind is CHARGED as a review (fail
+        # closed: never lose a round) and NOT capped (fail open: never cap what may be evidence).
+        # A future edit that "tidies" this into one polarity breaks exactly one of these lines.
+        code, payload = run(sized(tmp / "unknown", over, "T1-r1-opinion.md"))
+        check("4g an unrecognised kind is charged as a review",
+              "UNCLASSIFIED_ROUND_ARTIFACT" in kinds(payload, "warnings"), str(payload)[:400])
+        check("4h and is NOT capped — charging fails closed, capping fails open",
+              "VERDICT_OVER_CAP" not in kinds(payload, "errors"), str(payload)[:400])
+
+        # The boundary. The cap is "thirty lines", so thirty lines passes and thirty-one does not.
+        code, payload = run(sized(tmp / "exact", VERDICT_LINE_CAP, "T1-r1-reviewer.md"))
+        check("4i a verdict AT the cap is clean — the cap is not off by one",
+              code == 0 and not kinds(payload, "errors"), str(payload)[:400])
+        code, payload = run(sized(tmp / "one-over", VERDICT_LINE_CAP + 1, "T1-r1-reviewer.md"))
+        check("4j and one line over it is a finding",
+              "VERDICT_OVER_CAP" in kinds(payload, "errors"), str(payload)[:400])
+
+        # A marker-free judge verdict charges NO round — the counter cannot tell which round it
+        # belongs to — but thirty lines is a property of the verdict and not of its round.
+        code, payload = run(sized(tmp / "marker-free", over, "T2-security.md"))
+        check("4k a marker-free judge verdict is capped even though it charges nothing",
+              "VERDICT_OVER_CAP" in kinds(payload, "errors")
+              and "MISSING_ROUND_MARKER" in kinds(payload, "warnings"), str(payload)[:400])
+        # Its paired half: `review` and `audit` are ordinary nouns and JUDGE_NAME_TOKENS excludes
+        # them, so a marker-free name ending in one of those is NOT read as a verdict here.
+        code, payload = run(sized(tmp / "ordinary-noun", over, "T2-review.md"))
+        check("4l and an ordinary noun in a marker-free name is not promoted to a verdict",
+              "VERDICT_OVER_CAP" not in kinds(payload, "errors"), str(payload)[:400])
+
+        # THE SUPPRESSION MUST NOT RUN AHEAD OF THE BOOKKEEPING IT DOES NOT INTEND TO SKIP — the
+        # one mechanism this module has recorded four occurrences of. An over-cap verdict still
+        # spends its round, so a long verdict cannot buy a free one.
+        root = sized(tmp / "still-charged", over, "T1-r1-reviewer.md")
+        (root / "reviews" / "T1-r2-reviewer.md").write_text("finding\n" * over, encoding="utf-8")
+        code, payload = run(root, "--next", "T1")
+        check("4m an over-cap verdict still spends its round",
+              "ROUND_BUDGET_EXHAUSTED" in kinds(payload, "errors"), str(payload)[:400])
+        check("4n and the receipt reports the length of every verdict it measured, not only the "
+              "breaches",
+              len(payload.get("receipt", {}).get("verdict_lines", {})) == 2,
+              str(payload.get("receipt", {}).get("verdict_lines"))[:300])
+        check("4o and the cap it enforced is the documented thirty",
+              payload.get("receipt", {}).get("verdict_cap") == VERDICT_LINE_CAP,
+              str(payload.get("receipt", {}).get("verdict_cap")))
+
+
 def main() -> int:
     if not SCRIPT.exists():
         print(f"check_review_budget.py not found at {SCRIPT}", file=sys.stderr)
@@ -165,14 +279,16 @@ def main() -> int:
 
     print("check_review_budget break-test")
     for case in (case_kind_before_the_marker_is_read, case_the_kind_is_not_part_of_the_subject,
-                 case_family_spend_is_visible_and_advisory):
+                 case_family_spend_is_visible_and_advisory,
+                 case_the_verdict_cap_binds_verdicts_and_never_evidence):
         case()
 
     print()
     if failures:
         print(f"FAIL — {len(failures)} case(s): {', '.join(failures)}")
         return 1
-    print("PASS — the kind is read where it is written, and one artifact keeps one budget")
+    print("PASS — the kind is read where it is written, one artifact keeps one budget, and the "
+          "cap binds the verdict without touching the evidence")
     return 0
 
 

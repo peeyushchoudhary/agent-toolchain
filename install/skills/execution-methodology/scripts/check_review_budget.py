@@ -91,6 +91,29 @@ Errors (exit 1) — the dispatch must not proceed:
                     terminal artifact is ALREADY IN THIS SCANNED DIRECTORY and carries no round
                     marker. It reports the pass it can SEE. It does not bound the pass to one per
                     subject: see F-C and the round-marked terminal artifact under KNOWN-OPEN.
+  * VERDICT_OVER_CAP — a JUDGE VERDICT longer than its documented line cap. The methodology fixes
+                    five caps in one paragraph — "Card 150 lines, verdict 30 lines, distillation 5
+                    lines, workspace 50 files or 500 KB, ledger 500 lines before rotation" — and
+                    says in the same breath that they are a ruling rather than advice. Four of the
+                    five are READ BY AN INSTRUMENT. This one was prose only, which is why the same document's line "No reports. A report is a
+                    verdict that outgrew thirty lines" describes 121 files in the author's own
+                    workspace. Measured there: the 150-line CARD cap holds at 50 of 51, and the
+                    verdicts answering those cards run to 388 lines. We capped what the agent
+                    READS and left what it WRITES free.
+                    WHAT IT BINDS, EXHAUSTIVELY — and the exhaustiveness is the point:
+                      * a prose, round-marked artifact whose kind is a REVIEW (`kind_of` returns
+                        "review" — the same call that decides whether a round is spent); and
+                      * a prose, marker-free name that `looks_like_a_verdict` identifies by a
+                        JUDGE_NAME_TOKEN in its LAST token.
+                    WHAT IT NEVER BINDS: evidence. A fix brief, a fix report, an implementation
+                    report, a scout sweep, an analysis, a `-test-judge`, a JUnit XML, a probe log,
+                    a diff, a source file — and an artifact whose kind this tool does NOT
+                    recognise. CAP THE VERDICT, NEVER THE EVIDENCE: charging fails CLOSED because
+                    losing a round is that defect's cost, and capping fails OPEN because a judge
+                    deleting a finding to fit thirty lines is this one's. They are not the same
+                    harm and they do not get the same polarity.
+                    The message says what to cut — the prose, never a finding — and prints the
+                    exact ledger row a human appends if the length is earned.
   * NON_PROSE_VERDICT — a round-marked artifact that reads as a JUDGE VERDICT but carries a
                     non-prose suffix. It is still NOT CHARGED (evidence must not spend rounds),
                     and it is an ERROR rather than a warning because a warning changes no exit
@@ -107,7 +130,14 @@ and blocked every later dispatch in it forever. The grant is now an INPUT: a tab
 a TRACKED file outside every dated workspace (`.gitignore` excludes `sdd/20??-??-??-*/`, so a
 grants file living in scratch would be untracked and forgeable).
 
-    SUBJECT<TAB>r<N>|terminal<TAB><granting-commit><TAB><date><TAB><reason>
+    SUBJECT<TAB>r<N>|terminal|terminal-spent|verdict:<artifact><TAB><granting-commit><TAB><date><TAB><reason>
+
+THE FOURTH ROW TYPE IS THE VALVE ON THE VERDICT LINE CAP, and it exists because a cap with no
+recorded way to say "this one is granted" is a cap the first person it blocks switches off. It
+names an ARTIFACT rather than a (subject, round) pair — the finding is the length of ONE FILE, and
+a pair key would excuse every verdict filed at that round including the ones nobody read. It may
+only suppress VERDICT_OVER_CAP for the exact filename it names: it may not raise the cap, may not
+cover a second file, and clears no other finding.
 
 THE TERMINAL WHOLE-DIFF PASS IS A LEDGER ROW TOO (founder gate ruling 2026-08-20, option 3,
 `7a15264b`). It used to be an EXEMPTION keyed on the token `full-diff` appearing in a filename —
@@ -175,6 +205,12 @@ Warnings (exit 0, reported) — process-regression signals for the milestone rec
                     named, because until now an unrecognised KIND warned while a missing ROUND
                     MARKER did not, so a live architect verdict counted as zero rounds in silence.
                     That asymmetry was the louder failure being the safe one.
+  * VERDICT_GRANT_APPLIED — a verdict over the line cap excused by a `verdict:<artifact>` row.
+                    Reported with the row's attribution, and counted apart from GRANT_APPLIED so a
+                    receipt can tell a granted LENGTH from a granted ROUND. They are different
+                    decisions: a round grant lets a subject be judged again, this one accepts one
+                    file's length and nothing else.
+  * DUPLICATE_VERDICT_GRANT — two `verdict:` rows for one artifact. The FIRST stands.
   * STALE_GRANT   — a grant whose SUBJECT is present in this workspace but which matches no
                     artifact at the granted ROUND. It suppresses nothing, which is the same class
                     of defect as a forbidden path that forbids nothing: it reads as protection and
@@ -395,6 +431,12 @@ GRANT_TERMINAL_TOKEN = "terminal"
 # A HUMAN — the tool prints the exact line and cannot append it, which is the honest shape of a
 # control that cannot bind its own operator.
 GRANT_TERMINAL_SPENT_TOKEN = "terminal-spent"
+# THE FOURTH ROW TYPE, and the valve for the verdict line cap below. It names an ARTIFACT, not a
+# (subject, round) pair, because the finding it suppresses is about the LENGTH OF ONE FILE and not
+# about a subject's budget: `verdict:<artifact-filename>`. Keying it on the pair would hand a pass
+# to every verdict filed at that round, including ones nobody read. A grant here is the record that
+# a human read THAT file and decided its length was earned.
+GRANT_VERDICT_PREFIX = "verdict:"
 # The audit trail is the grant's whole claim to authority. A line missing any of the three is a
 # bare assertion wearing the ledger's clothes, so it grants nothing.
 GRANT_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
@@ -402,6 +444,15 @@ SEPARATOR_RE = re.compile(r"[-_.]+")
 DEFAULT_GRANTS = Path(__file__).resolve().parent.parent / "ROUND-GRANTS.tsv"
 FILE_BUDGET = 50
 BYTE_BUDGET = 500 * 1024
+# THE VERDICT LINE CAP. Quoted, not chosen: methodology.md, the caps paragraph — "Card 150 lines,
+# verdict 30 lines, distillation 5 lines, workspace 50 files or 500 KB, ledger 500 lines before
+# rotation", stated there as a ruling rather than as advice. The same document states the class
+# distinction two paragraphs earlier — "Verdicts, not reports, from judges. Thirty lines,
+# structured, persisted once — and named `<subject>-r<N>-<kind>.md`" and "No reports. A report is
+# a verdict that outgrew thirty lines" — so this check introduces no rule. It reads the one cap of
+# the five that no instrument read: the 150-line card cap holds at 50 of 51 files in the author's
+# live workspace, while the verdicts beside those cards run to 388 lines.
+VERDICT_LINE_CAP = 30
 # The width at which a round stops looking like coverage. See the WIDE_ROUND block in `main` for
 # the measurement, and for why the STAGE half of the same rule is deliberately left in prose.
 PANEL_WIDTH_WARN = 4
@@ -560,6 +611,30 @@ def looks_like_a_verdict(stem: str) -> bool:
     return bool(tokens) and tokens[-1] in JUDGE_NAME_TOKENS
 
 
+def verdict_lines(path: Path) -> int | None:
+    """Line count for a prose verdict, or None when it cannot be counted.
+
+    FAILS OPEN, and that polarity is the opposite of the one `kind_of` uses for charging — which is
+    deliberate and is the whole safety argument for this cap. Charging fails CLOSED (an unrecognised
+    kind is charged as a review, because losing a round is the defect this module was repaired
+    for). Capping must fail OPEN, because the two errors do not cost the same thing: a wrong charge
+    spends one round of a budget a human can grant back in one ledger line, while a wrong cap
+    pushes a judge to DELETE A FINDING to fit a line budget. Cap the verdict, never the evidence,
+    and when in doubt do not cap at all.
+
+    Read as bytes and counted on `\n`. A verdict is prose, but an undecodable byte in one is not a
+    reason to raise inside a check — and `read_text` on a mis-saved file would do exactly that.
+    A file with no trailing newline still ends a line, so the tail is counted.
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    if not raw:
+        return 0
+    return raw.count(b"\n") + (0 if raw.endswith(b"\n") else 1)
+
+
 def _repo_toplevel(start: Path) -> Path | None:
     """The git toplevel containing `start`, or None if git cannot answer or there is no repo."""
     try:
@@ -655,8 +730,14 @@ def is_a_committed_authority(path: Path) -> tuple[bool, str]:
 
 
 def read_grants(path: Path, is_default: bool, errors: list,
-                warnings: list) -> tuple[dict, dict, dict]:
-    """Parse the ledger into ({(subject, round): rec}, {subject: rec}, {subject: rec}).
+                warnings: list) -> tuple[dict, dict, dict, dict]:
+    """Parse the ledger into ({(subject, round): rec}, {subject: rec}, {subject: rec}, {name: rec}).
+
+    THE FOURTH MAP is the `verdict:<artifact>` rows, the valve for VERDICT_OVER_CAP. It is keyed by
+    ARTIFACT FILENAME rather than by (subject, round) because the finding is about the length of one
+    file: a pair key would excuse every verdict at that round, including ones nobody read. It is a
+    separate map for the same reason the other three are — the receipt must be able to count the
+    kinds of decision apart, and a cap granted is a different decision from a round granted.
 
     The THIRD map is the `terminal-spent` rows, and it is returned rather than kept local for one
     reason: it is the only durable record correction 3 creates, and a row whose subject key matches
@@ -698,6 +779,7 @@ def read_grants(path: Path, is_default: bool, errors: list,
     grants: dict[tuple[str, int], dict] = {}
     terminal_passes: dict[str, dict] = {}
     terminal_spent: dict[str, dict] = {}
+    verdict_grants: dict[str, dict] = {}
     if not path.is_file():
         # Zero grants is already the strict state, so an absent ledger cannot widen anything.
         # An absent DEFAULT is silent: the ledger is operator data — founder decisions made on one
@@ -711,7 +793,7 @@ def read_grants(path: Path, is_default: bool, errors: list,
                 "kind": "GRANTS_FILE_MISSING", "path": str(path),
                 "why": "no grant is in force; the round cap runs at full strength",
             })
-        return grants, terminal_passes, terminal_spent
+        return grants, terminal_passes, terminal_spent, verdict_grants
     if not is_default:
         ok, why = is_a_committed_authority(path)
         if not ok:
@@ -723,7 +805,7 @@ def read_grants(path: Path, is_default: bool, errors: list,
                        "away. NO GRANT OR TERMINAL PASS FROM THIS FILE IS IN FORCE; commit the "
                        "ledger inside this skill's own repository, or use the default one",
             })
-            return grants, terminal_passes, terminal_spent
+            return grants, terminal_passes, terminal_spent, verdict_grants
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
@@ -732,7 +814,7 @@ def read_grants(path: Path, is_default: bool, errors: list,
             "why": f"{type(exc).__name__}: {exc} — no grant is in force; reported as a finding "
                    "rather than a traceback so a --json caller still gets parsable output",
         })
-        return grants, terminal_passes, terminal_spent
+        return grants, terminal_passes, terminal_spent, verdict_grants
 
     for lineno, raw in enumerate(text.splitlines(), 1):
         line = f"{path}:{lineno}"
@@ -743,19 +825,30 @@ def read_grants(path: Path, is_default: bool, errors: list,
         rnd = None
         terminal_row = False
         spent_row = False
+        verdict_artifact = None
         if len(fields) < 5:
-            bad = "expected SUBJECT<TAB>r<N>|terminal<TAB>commit<TAB>date<TAB>reason"
+            bad = ("expected SUBJECT<TAB>r<N>|terminal|terminal-spent|verdict:<artifact>"
+                   "<TAB>commit<TAB>date<TAB>reason")
         elif not fields[0].strip():
             bad = "empty subject key"
         elif fields[1].strip().lower() == GRANT_TERMINAL_SPENT_TOKEN:
             spent_row = True
         elif fields[1].strip().lower() == GRANT_TERMINAL_TOKEN:
             terminal_row = True
+        elif fields[1].strip().lower().startswith(GRANT_VERDICT_PREFIX):
+            # The artifact is named by BASENAME, not by path: the same verdict read at the plan
+            # workspace and at a subdirectory of it must get the same answer, or a narrower
+            # --workspace would silently drop the grant while keeping the finding.
+            verdict_artifact = Path(
+                fields[1].strip()[len(GRANT_VERDICT_PREFIX):].strip()).name.lower()
+            if not verdict_artifact:
+                bad = ("`verdict:` names no artifact; the row must name the exact file whose "
+                       "length a human read and accepted")
         elif GRANT_ROUND_RE.match(fields[1].strip()):
             rnd = int(GRANT_ROUND_RE.match(fields[1].strip()).group(1))
         else:
-            bad = (f"round token {fields[1].strip()!r} is not `r<N>`, `terminal` or "
-                   "`terminal-spent`")
+            bad = (f"round token {fields[1].strip()!r} is not `r<N>`, `terminal`, "
+                   "`terminal-spent` or `verdict:<artifact>`")
         if bad:
             pass
         elif not GRANT_COMMIT_RE.match(fields[2].strip()):
@@ -776,6 +869,25 @@ def read_grants(path: Path, is_default: bool, errors: list,
             "subject": subj_key, "commit": fields[2].strip(),
             "date": fields[3].strip(), "reason": fields[4].strip(), "line": line,
         }
+        if verdict_artifact:
+            # A LENGTH A HUMAN ACCEPTED, for the one artifact it names and for nothing else. It
+            # may not raise the cap, may not cover a second file, and clears no other finding —
+            # the same exhaustive bound the round grant carries, for the same reason: an
+            # instrument whose escape hatch is broader than the finding it excuses stops being an
+            # instrument. Duplicates keep the FIRST, as everywhere else in this parser.
+            if verdict_artifact in verdict_grants:
+                warnings.append({
+                    "kind": "DUPLICATE_VERDICT_GRANT", "path": line, "subject": subj_key,
+                    "artifact": verdict_artifact,
+                    "why": f"a verdict-length grant for `{verdict_artifact}` is already recorded "
+                           f"at {verdict_grants[verdict_artifact]['line']}; the FIRST line stands "
+                           "and this one is ignored",
+                })
+                continue
+            record["round"] = None
+            record["artifact"] = verdict_artifact
+            verdict_grants[verdict_artifact] = record
+            continue
         if spent_row:
             # The RECORD OF A PASS ALREADY TAKEN. It authorises nothing; it withdraws a `terminal`
             # row for the same subject, wherever in the file that row sits (the withdrawal is
@@ -834,7 +946,7 @@ def read_grants(path: Path, is_default: bool, errors: list,
                    "is never git-queried, so the party this reports on can delete the line, name "
                    "another ledger, or run another copy of the script",
         })
-    return grants, terminal_passes, terminal_spent
+    return grants, terminal_passes, terminal_spent, verdict_grants
 
 
 def main() -> int:
@@ -865,7 +977,7 @@ def main() -> int:
             "why": "the round grants were read from a ledger this invocation named, not from the "
                    "one that ships with the skill — the authority was chosen by the caller",
         })
-    grants, terminal_passes, terminal_spent = read_grants(
+    grants, terminal_passes, terminal_spent, verdict_grants = read_grants(
         grants_path, is_default, errors, warnings)
     # charged[subject][round] = path — EVERY charged round, not only the highest. Keying the grant
     # lookup on a per-subject MAXIMUM let one grant line at the top round absorb every lower
@@ -883,7 +995,52 @@ def main() -> int:
     seen_rounds: dict[str, set[int]] = {}
     seen_subjects: set[str] = set()
     terminals: dict[str, str] = {}
+    # Every verdict this scan measured, over cap or not. The receipt has to be checkable against
+    # the directory it read, and a length report that printed only the breaches could not be.
+    verdict_lengths: dict[str, int] = {}
     n_files, n_bytes = 0, 0
+
+    def charge_the_verdict_cap(rel: str, path: Path, subj: str, why_it_is_a_verdict: str) -> None:
+        """Record this verdict's length and raise VERDICT_OVER_CAP when the ledger has not excused it.
+
+        CALLED ONLY FROM THE TWO SITES THAT HAVE ALREADY ESTABLISHED "this file is a judgement",
+        by the same discriminators that decide whether a round is spent — `kind_of() == "review"`
+        on a prose suffix, and `looks_like_a_verdict()` for a marker-free name. Nothing else
+        reaches here: not a fix brief, not an implementation report, not a scout sweep, not a JUnit
+        XML, not a probe log, not a diff, not a source file, and not an artifact whose kind this
+        tool does not recognise. THAT IS THE RULE, and it is one sentence: cap the verdict, never
+        the evidence. A judge that drops a finding to fit a line budget is a worse outcome than a
+        long verdict, so every case this tool cannot classify stays uncapped.
+        """
+        n = verdict_lines(path)
+        if n is None:
+            return
+        verdict_lengths[rel] = n
+        if n <= VERDICT_LINE_CAP:
+            return
+        grant = verdict_grants.get(Path(rel).name.lower())
+        if grant:
+            warnings.append({
+                "kind": "VERDICT_GRANT_APPLIED", "path": grant["line"], "artifact": rel,
+                "subject": subj, "lines": n, "commit": grant["commit"],
+                "why": f"`{rel}` is {n} lines against a cap of {VERDICT_LINE_CAP} and is excused "
+                       f"by the row recorded at {grant['commit']} ({grant['date']}): "
+                       f"{grant['reason']}",
+            })
+            return
+        errors.append({
+            "kind": "VERDICT_OVER_CAP", "path": rel, "subject": subj, "lines": n,
+            "cap": VERDICT_LINE_CAP,
+            "why": f"{why_it_is_a_verdict}, and it is {n} lines against the documented cap of "
+                   f"{VERDICT_LINE_CAP} (methodology, the caps paragraph: \"verdict 30 lines\"). "
+                   f"A report is a verdict that outgrew thirty lines. DO NOT DELETE A FINDING TO FIT: the finding stays and the prose around "
+                   f"it goes — one line per finding naming the criterion, the trigger, the "
+                   f"consequence and the smallest correction; evidence goes to a named path and "
+                   f"reasoning to the ledger line. If the length is genuinely earned, a human "
+                   f"appends one row to {grants_path}:  "
+                   f"{subj}\t{GRANT_VERDICT_PREFIX}{Path(rel).name}\t<commit>\t"
+                   f"{datetime.date.today().isoformat()}\t<reason>",
+        })
 
     for path in sorted(args.workspace.rglob("*")):
         if not path.is_file():
@@ -1005,6 +1162,16 @@ def main() -> int:
             # records nothing, and `terminals` was populated before any of this ran.
             if not banned and not terminal_artifact:
                 if looks_like_a_verdict(stem):
+                    # THE LINE CAP BINDS HERE TOO, and the charge does not. Those are different
+                    # questions: the counter cannot charge a round it cannot identify, but the
+                    # methodology's thirty lines are a property of the VERDICT and not of its
+                    # round. `looks_like_a_verdict` is the strict reader — the LAST token only,
+                    # and `review`/`audit` are excluded from JUDGE_NAME_TOKENS as ordinary nouns —
+                    # so what arrives here is a judge verdict beyond reasonable doubt. Nine of
+                    # them sit in the author's own live workspace, up to 290 lines.
+                    charge_the_verdict_cap(
+                        rel, path, subj,
+                        "names a judge verdict (no round marker, so no round is charged)")
                     warnings.append({
                         "kind": "MISSING_ROUND_MARKER", "path": rel,
                         "why": "names a judge verdict but carries no round marker, so the counter "
@@ -1028,6 +1195,19 @@ def main() -> int:
         charged.setdefault(subj, {}).setdefault(rnd, rel)
         charged_files[subj] = charged_files.get(subj, 0) + 1
         round_width.setdefault((subj, rnd), []).append(rel)
+        # ORDER, and it is the rule this module has broken four times: the CAP runs after every
+        # piece of bookkeeping it does not intend to skip. `charged`, `charged_files` and
+        # `round_width` are all written above, so a verdict over the cap still spends its round,
+        # still widens its panel and still counts in its family. A suppression that ran first
+        # would hand a free round to any verdict long enough to trip this check.
+        #
+        # `kind is None` DOES NOT REACH HERE UNCAPPED BY ACCIDENT — it reaches here charged and
+        # uncapped ON PURPOSE. The unrecognised kind is charged (fail closed, never lose a round)
+        # and NOT capped (fail open, never cap what might be evidence). One branch, two polarities,
+        # because the two mistakes cost different things. See `verdict_lines`.
+        if kind == "review":
+            charge_the_verdict_cap(rel, path, subj,
+                                   f"is a judge verdict at round {rnd}")
 
     for raw in args.next:
         subj = subject_of(raw)
@@ -1277,9 +1457,10 @@ def main() -> int:
     # against a subject with no matching `terminal` row (a mistyped key, most likely) is still
     # visible here rather than silently absent.
     ledger = {"path": str(grants_path), "default": is_default,
-              "entries": len(grants) + len(terminal_passes) + len(terminal_spent),
+              "entries": (len(grants) + len(terminal_passes) + len(terminal_spent)
+                          + len(verdict_grants)),
               "round_grants": len(grants), "terminal_passes": len(terminal_passes),
-              "terminal_spent": len(terminal_spent)}
+              "terminal_spent": len(terminal_spent), "verdict_grants": len(verdict_grants)}
     # THE RECEIPT. This is the point of the tool. The exit code is a tripwire against forgetting;
     # THE BINDING CONTROL IS A HUMAN READING THIS BLOCK AT THE MERGE GATE, which is why nothing
     # here is summarised, thresholded or elided. Every warning appears VERBATIM — a receipt that
@@ -1324,6 +1505,16 @@ def main() -> int:
             for subj, rec in sorted(terminal_spent.items())
         ],
         "terminal_artifacts_seen": dict(sorted(terminals.items())),
+        # EVERY verdict measured, with its length — not only the ones over the cap. This is the
+        # number a human checks the cap against at the merge gate, and a receipt that printed only
+        # breaches would make the check unfalsifiable against its own workspace.
+        "verdict_lines": dict(sorted(verdict_lengths.items())),
+        "verdict_cap": VERDICT_LINE_CAP,
+        "verdict_grants_applied": [
+            {"artifact": w["artifact"], "subject": w["subject"], "lines": w["lines"],
+             "commit": w["commit"], "line": w["path"]}
+            for w in warnings if w["kind"] == "VERDICT_GRANT_APPLIED"
+        ],
         "ledger": ledger,
         "warnings": warnings,
         "errors": errors,
@@ -1343,7 +1534,8 @@ def main() -> int:
               f"({'default' if is_default else 'NON-DEFAULT'}, {ledger['entries']} entr"
               f"{'y' if ledger['entries'] == 1 else 'ies'}: "
               f"{ledger['round_grants']} round, {ledger['terminal_passes']} terminal, "
-              f"{ledger['terminal_spent']} terminal-spent)")
+              f"{ledger['terminal_spent']} terminal-spent, "
+              f"{ledger['verdict_grants']} verdict-length)")
         # Which COPY of this script ran decides which ledgers count as authorities, and the
         # workspace argument decides what was looked at at all. Both are the caller's choice and
         # neither was reportable before. See F-A under KNOWN-OPEN.

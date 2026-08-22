@@ -23,12 +23,25 @@ one holding `docs/product/`. Elsewhere this half does nothing and says nothing; 
          transition is gated, and the evidence is a receipt from milestone_seal.py bound to the
          pushed tree.
 
+ONE MORE, IN ANY REPOSITORY HOLDING A REVIEW WORKSPACE — a different adoption fact from the two
+above, so a repository with review workspaces and no `docs/product/` still gets it.
+
+  BLOCK  the review budget refuses the workspace — check_review_budget.py exit 1: a subject past
+         its round cap with no founder grant, a judge verdict past its documented thirty lines, a
+         banned artifact class. That checker is ADVISORY BY FOUNDER RULING and stays advisory: the
+         ruling is that it cannot bind the ORCHESTRATOR THAT RUNS IT, whose filenames it reads. A
+         pre-push hook is a different party at a different moment — git, on the push that opens
+         the pull request the ruling calls the merge gate — so this carries the receipt to that
+         gate rather than replacing the human at it. Every KNOWN-OPEN bypass in that module is
+         inherited whole and none is claimed closed. `PD_ALLOW_REVIEW_BUDGET=1` skips it, loudly.
+
 Reads the standard pre-push payload on stdin: `<local ref> <local oid> <remote ref> <remote oid>`.
 
 Three escape hatches, each of which PRINTS that it fired — a silent escape leaves a push that looks
 identical to a checked one. `PD_ALLOW_MAIN_PUSH=1` for an intentional main push,
 `PD_SKIP_SPEC_CHECK=1` for the product-definition lint, `PD_ALLOW_UNSEALED_MILESTONE=1` for the
-seal. Secret and size findings have none and must be fixed before pushing.
+seal, `PD_ALLOW_REVIEW_BUDGET=1` for the review budget. Secret and size findings have none and must
+be fixed before pushing.
 """
 
 from __future__ import annotations
@@ -106,6 +119,23 @@ PRODUCT_ROOT = "docs/product"
 # already relies on: neither imports the other.
 METHODOLOGY_SCRIPTS = Path(__file__).resolve().parents[2] / "execution-methodology" / "scripts"
 PRODUCT_CHECKERS = ("spec_check.py", "plan_waves.py")
+BUDGET_CHECKER = "check_review_budget.py"
+
+# THE REVIEW WORKSPACE, and how this guard finds one without growing a second opinion about what a
+# verdict is. The methodology fixes the workspace's CONTENTS (`<subject>-r<N>-<kind>.md`, git-
+# ignored, one per plan) and deliberately fixes no PATH: the fleet writes `.superpowers/sdd/...`,
+# `work/sdd/...` and `analysis/.workspace/...`, three spellings of one thing. So the anchor is a
+# DIRECTORY NAME, the list is short and written down, and everything below it is handed WHOLE to
+# check_review_budget.py — which owns every question about what the files inside it are. This
+# guard never reads an artifact name. Adding a spelling here is a one-line change; teaching this
+# file to classify a verdict would be a second classifier that drifts from the first.
+WORKSPACE_ANCHORS = frozenset({"sdd", ".workspace", "workspaces"})
+# Depth from the repository root, and it is a COST bound, not a semantic one. `.superpowers/sdd`
+# is two, `analysis/.workspace` is two, `work/sdd/plans` is the deepest real spelling at three.
+WORKSPACE_MAX_DEPTH = 4
+# Never descended into. `.git` alone is tens of thousands of entries and holds no workspace.
+WORKSPACE_SKIP = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", "target",
+                            "dist", "build", ".mypy_cache", ".pytest_cache", ".tox"})
 
 # A milestone document, and the seal that this guard gates. `M<n>-<slug>.md` under
 # `docs/product/milestones/`, matched on the full repository-relative path so a file of the same
@@ -454,7 +484,7 @@ def repo_root() -> Path:
     return Path(git("rev-parse", "--show-toplevel").strip())
 
 
-def checker(name: str, *args: str) -> tuple[int, list[str]]:
+def checker(name: str, *args: str, applies: str = "") -> tuple[int, list[str]]:
     """Run one methodology checker and return (exit code, output lines).
 
     A missing checker is a GuardError, not a skip, and that asymmetry against PRODUCT_ROOT is the
@@ -463,15 +493,21 @@ def checker(name: str, *args: str) -> tuple[int, list[str]]:
     DID agree and the check could not run, which is not a clean result and must never read as one.
     It is the same sentence the identifier guard says twice in install_hooks.py.
 
+    `applies` names the ADOPTION FACT that made this checker run, because there are now two of them
+    — `docs/product/` for the product-definition lint, a review workspace for the budget check —
+    and a message naming the wrong one sends the reader to a directory that has nothing to do with
+    the block. It defaults to the product sentence, which is what every existing caller means.
+
     Exit 2 from the checker itself lands here too: both of these reserve 2 for "the tree could not
     be read", so it arrives already meaning what GuardError means.
     """
     script = METHODOLOGY_SCRIPTS / name
     if not script.is_file():
+        why = applies or (f"this repository has {PRODUCT_ROOT}/, so the product-definition checks "
+                          f"apply")
         raise GuardError(
-            f"this repository has {PRODUCT_ROOT}/, so the product-definition checks apply — but "
-            f"{name} is not installed at {script}. The specs were NOT checked, and a check that "
-            f"did not run is not a clean result. Reinstall the execution-methodology skill")
+            f"{why} — but {name} is not installed at {script}. The check did NOT run, and a check "
+            f"that did not run is not a clean result. Reinstall the execution-methodology skill")
     try:
         proc = subprocess.run([sys.executable, str(script), *args],
                               capture_output=True, timeout=120, check=False,
@@ -521,6 +557,88 @@ def product_findings(root: Path) -> list[str]:
             f"the wave plan does not schedule ({len(lines)} finding(s)). Two tasks in one wave "
             f"writing one path corrupt a parallel run:\n"
             + indented(lines, f"Full report: plan_waves.py --root {root}"))
+    return entries
+
+
+def review_workspaces(root: Path) -> list[Path]:
+    """Every review-workspace anchor in the tree, shallowest first.
+
+    A depth-bounded `scandir` walk rather than `rglob`, because this runs on every push in every
+    repository on the machine and `rglob("*")` over a large checkout is the kind of cost that gets
+    a hook uninstalled. Symlinks are not followed: a link out of the tree is not this repository's
+    workspace, and following one is how a bounded walk stops being bounded.
+
+    An anchor is not descended into. `sdd/` holds one directory per plan and the checker walks
+    recursively, so handing it the anchor covers every plan in one run; handing it each plan
+    separately would multiply the runs and split one workspace budget into several.
+    """
+    found: list[Path] = []
+    frontier = [(root, 0)]
+    while frontier:
+        here, depth = frontier.pop(0)
+        if depth >= WORKSPACE_MAX_DEPTH:
+            continue
+        try:
+            entries = sorted(os.scandir(here), key=lambda e: e.name)
+        except OSError:
+            # An unreadable directory is not a finding and must not be a crash: the guard's job
+            # here is to find workspaces, and one it cannot read is one it does not find.
+            continue
+        for entry in entries:
+            if not entry.is_dir(follow_symlinks=False) or entry.name in WORKSPACE_SKIP:
+                continue
+            if entry.name in WORKSPACE_ANCHORS:
+                found.append(Path(entry.path))
+                continue
+            frontier.append((Path(entry.path), depth + 1))
+    return found
+
+
+def review_budget_findings(root: Path) -> list[str]:
+    """Blocking entries from the review-budget check, one per workspace it refuses.
+
+    THIS IS THE PART THAT MAKES THE EXIT CODE BIND, and it is worth saying exactly what it does not
+    claim. check_review_budget.py is ADVISORY BY FOUNDER RULING (2026-08-20, its module docstring):
+    "The tool is run BY the orchestrator, on inputs the orchestrator controls ... No in-process
+    control can bind its own operator." That ruling is about the tool binding the party that RUNS
+    it, and it stands untouched — the same sentence also says what the exit code is FOR: "it FAILS
+    LOUDLY on the shapes it can see, so that drift costs a deliberate act rather than an oversight
+    — the exit code is a tripwire against forgetting, not a gate against intent", and "THE BINDING
+    CONTROL IS A HUMAN READING THE RECEIPT AT THE MERGE GATE."
+
+    A pre-push hook is a DIFFERENT PARTY at a DIFFERENT MOMENT: git runs it on the push, and the
+    push is what opens the pull request the ruling calls the merge gate. So this does not make the
+    instrument bind its own operator. It carries the receipt to the gate the ruling names, before
+    the content leaves the machine, and it makes skipping cost a deliberate, printed act rather
+    than a silence. Every KNOWN-OPEN bypass in that module is inherited WHOLE: rename the artifact,
+    delete it, move it, pass a narrower workspace or append a ledger row and this goes quiet, in
+    exactly the way it goes quiet for the orchestrator. Nothing here closes any of them and nothing
+    here should be read as claiming to.
+
+    THE WORKSPACE IS GIT-IGNORED, so this blocks a push on content the push does not carry. That is
+    deliberate and it is the whole point: the workspace is the record of the review that justifies
+    the commits which ARE being pushed, and it is deleted at promotion. After the push it is gone
+    and the question cannot be asked again.
+    """
+    entries: list[str] = []
+    applies = "this repository holds a review workspace, so the review-budget check applies"
+    for ws in review_workspaces(root):
+        code, lines = checker(BUDGET_CHECKER, str(ws), applies=applies)
+        if code != 1:
+            continue
+        rel = ws.relative_to(root) if ws.is_relative_to(root) else ws
+        entries.append(
+            f"the review budget refuses {rel} ({len(lines)} receipt line(s)). NOTHING HERE IS "
+            f"AUTO-GRANTED — each finding names a decision a human makes:\n"
+            + indented(lines, f"A ROUND_CAP is the one that needs a person: either the subject "
+                              f"CLOSES at its final verdict (apply the smallest named correction "
+                              f"and stop — the methodology's own answer, no third round), or a "
+                              f"founder appends one row per (subject, round) to the grants ledger "
+                              f"naming that exact pair. A VERDICT_OVER_CAP is cut, never dropped: "
+                              f"the findings stay and the prose goes. A BANNED_CLASS is deleted — "
+                              f"git regenerates a diff from the commit range. "
+                              f"Full receipt: {BUDGET_CHECKER} {rel} --json\n"
+                              f"      Deliberate exception: PD_ALLOW_REVIEW_BUDGET=1 git push"))
     return entries
 
 
@@ -722,6 +840,20 @@ def run() -> int:
               f"not a clean result; nothing below is a verdict about {PRODUCT_ROOT}/.")
     elif adopted:
         blocking += product_findings(root)
+
+    # THE REVIEW BUDGET, and it is adopted on a DIFFERENT fact from the product checks above: a
+    # review workspace in the tree, not `docs/product/`. A repository with neither says nothing,
+    # a repository with one gets one check, and the two do not gate each other — the budget is a
+    # rule about process artifacts and it applies wherever those artifacts are written.
+    workspaces = review_workspaces(root)
+    if workspaces and env_allows("PD_ALLOW_REVIEW_BUDGET"):
+        # Loud, every time, on the guard's own channel — see the PD_SKIP_SPEC_CHECK note above.
+        # An escape that prints nothing leaves a push that looks identical to a checked one.
+        print(f"  pre-push SKIPPED: the review-budget check ({BUDGET_CHECKER}) did NOT run over "
+              f"{len(workspaces)} review workspace(s) — PD_ALLOW_REVIEW_BUDGET is set. This is not "
+              f"a clean result; no round cap, verdict cap or banned class was checked.")
+    elif workspaces:
+        blocking += review_budget_findings(root)
 
     for parts in payload:
         if len(parts) != 4:
