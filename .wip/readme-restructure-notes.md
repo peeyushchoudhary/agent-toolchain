@@ -124,3 +124,15 @@ recognised as a RECORD or it warns `over-budget` on arrival.
   `readme-diagram-drift` fires on every node label.
 - `## Current state` (739 words, one wall) becomes short subsections plus tables.
   Every claim survives.
+
+## Done: record class widened + archive created
+
+- `docs/improvements-weekly.md` created: 2551 words, all EIGHT entries verbatim,
+  `###` demoted to `##`, links retargeted (`docs/x` -> `x`, `install/x` -> `../install/x`).
+- `RECORD_NAME` widened to `measurements|benchmarks|decisions|adr|rulings|improvements|changelog|history`
+  with the measured justification written beside it.
+- New test file `install/skills/progressive-disclosure/tests/test_record_budget.py`,
+  8 tests, all pass. It pins BOTH halves: a long record does not warn, and a long
+  non-record still does. Without the control half, "widen the class" and "delete the
+  budget" are indistinguishable from outside.
+  => progressive-disclosure suite goes 387 -> 395.
