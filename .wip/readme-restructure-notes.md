@@ -172,3 +172,54 @@ Renaming the section to `## How it works` â€” which `README_SECTIONS` accepts â€
 the suite red. REFUSED to weaken the test. Kept the heading `## Architecture` and
 moved the whole section to the top instead. The diagram still leads; nothing was
 relaxed to fit the edit.
+
+## Template changes (step 4)
+
+`install/skills/execution-methodology/references/readme.md` (676 -> 1282 words):
+- New `## The first screen` section: bold sentence, four-row at-a-glance table,
+  then the mermaid diagram. Diagram leads; prose follows.
+- Section order in the fenced example now matches our own front page:
+  Architecture (diagram + stage table) -> Running locally -> Components ->
+  Current state (subsectioned, with `### Not shipped`) -> Product requirements ->
+  Working in this repository -> Recent <record>.
+- `Current state` example is now subsectioned with a `What ships today` table,
+  instead of one prose block plus a two-column table.
+- New rule **A record does not live on the front page**, carrying BOTH things that
+  bit here: check the destination word budget first, and check the record's
+  outbound links because they join the disclosure graph.
+- New rule **Break a wall of prose into subsections**, stating that restructuring
+  is not culling.
+- New rule **No badges**, split out of the old "nothing here is generated".
+- Measured evidence written in: 4,900 words, half a changelog, 739 in one paragraph,
+  every section present and correct.
+
+`install/skills/progressive-disclosure/references/standard.md` README contract:
+- Added "the diagram goes in the first screen, above the prose" with the same
+  measured basis.
+- Added "a record does not live on the front page", naming the budget exemption and
+  the graph-contamination trap, and linking the template.
+
+## Final gates
+
+| Gate | Before | After |
+|---|---|---|
+| README.md words | 4910 | 2895 |
+| `## Weekly improvements` share | 2520 words / 51% | 470 words / 16% (`## Recent improvements`) |
+| validate_disclosure (no flags) | 0 findings | 0 findings |
+| validate_disclosure --readme | 0 findings | 0 findings |
+| execution-methodology suite | 1031 OK | 1031 OK |
+| progressive-disclosure suite | 387 OK | 395 OK (+8 new record-class tests) |
+| install.sh --dry-run | rc 0 | rc 0 |
+| verify.sh | rc 0 PASS | rc 0 PASS |
+
+## Refused to cut
+
+- Every claim in the old `## Current state` (20 distinct claims counted by hand)
+  survives, including the ones that make the repository look worse: receipts are not
+  tamper-resistant, `project-conformance` is an unpublished gap, no application
+  release exists, and the round count is advisory because a checker run by the party
+  it binds cannot bind that party.
+- All eight weekly entries are in `docs/improvements-weekly.md` verbatim. Nothing
+  was summarised away; the front-page summaries are IN ADDITION to the full text.
+- Refused to weaken `test_readme_diagram` to allow a renamed architecture heading.
+- Refused to add badges or any marketing line.
