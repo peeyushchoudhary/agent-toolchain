@@ -10,24 +10,6 @@ the ORCHESTRATOR THAT RUNS IT; git at the push is a different party, at the mome
 merge gate the ruling itself names. Day one: 96 errors, 56 banned diffs DELETED (49% of the
 workspace bytes, no finding lost), 40 errors left for a human — nothing auto-granted.
 
-## 1. The cap: which number, read where
-in progress
-
-## 2. Verdict vs evidence: how the classes were told apart
-in progress
-
-## 3. Binding at pre-push: the founder ruling, read in full
-in progress
-
-## 4. The valve: ROUND-GRANTS.tsv
-in progress
-
-## 5. Day-one cost to the live workspace
-in progress
-
-## 6. Break-test (house shape)
-in progress
-
 ## 1. The cap: which number, read where  — SETTLED
 
 `methodology.md:460` (`install/skills/execution-methodology/methodology.md`), the paragraph
