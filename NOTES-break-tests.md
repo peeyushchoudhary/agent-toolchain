@@ -1,6 +1,6 @@
 # Break-tests for execution-methodology checkers
 
-TOP 3 SO FAR: N8 spec_check's AC_RE bold-relaxation — the fix for a defect that hit twice — is protected by ZERO tests; N4 milestone_seal's verify() never re-checks the tree it was asked about; N2 a start receipt can be silently OVERWRITTEN. 23 uncovered gates across 7 scripts.
+TOP 3 SO FAR: N9 check_review_budget mis-warns on `<subject>-rereview-r<N>.md` TODAY — ROUND_RE eats the kind word; N8 spec_check's AC_RE bold-relaxation has ZERO tests; N4 milestone_seal's verify() never re-checks the tree it was asked about
 
 ## 0. Method
 in progress
@@ -206,3 +206,27 @@ each case fail before keeping it.
   Cases for SC-b and SC-c are still written: both were LIVE defects on the record, and the
   break-test is where a defect that was live is reproduced, whether or not a unittest also
   covers it now. SC-a is the one that is uncovered TODAY.
+
+### N9 — NEW LIVE DEFECT, present in the file RIGHT NOW (no mutation needed)
+check_review_budget.py: the documented `<subject>-<kind>-r<N>.md` order emits a SPURIOUS
+"no recognised kind suffix" warning when the kind is `rereview` — the kind that names a second
+round, i.e. the commonest one after `review`.
+Reproduction (measured):
+    ROUND_RE = [-_.](?:r|round|fixround|rereview[-_.]?r|attempt)0*(\d+)(?![0-9])
+    stem `T1-rereview-r2`  ->  the marker match is the WHOLE span `-rereview-r2`
+                           ->  tail after the marker = ''    head before it = 'T1'
+                           ->  kind_of(...) = None
+                           ->  UNCLASSIFIED_ROUND_ARTIFACT
+Compare, same run: `T1-review-r1` -> head 'T1-review' -> kind `review`.
+                   `T1-security-r15` -> `review`.  `T1-fix-r3` -> `work`.  `T1-r2-rereview` -> `review`.
+So `rereview` is the ONE kind word ROUND_RE also claims as a marker spelling, and it is swallowed
+by its own marker before `trailing_kind_tokens` ever sees it. trailing_kind_tokens('T1-rereview')
+returns ['rereview'] correctly — it is simply never called with that head.
+The remedy the warning prints tells the author to rename the file `<subject>-r<N>-<kind>.md`, which
+is to rename a file that already follows the other shape the same module documents.
+The round is still CHARGED (fail-closed), so this is noise plus a misleading remedy rather than a
+missed round — but the module's own text says noise "is how the previous four warnings came to
+change nothing".
+NOT COVERED BY A BREAK-TEST CASE, deliberately: the defect is LIVE, so a case asserting the correct
+behaviour would fail today and break the suite. The reproduction is recorded in the selftest
+docstring instead, ready to switch on with the fix.
