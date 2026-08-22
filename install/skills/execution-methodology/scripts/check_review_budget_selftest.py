@@ -296,6 +296,30 @@ def case_a_sealed_workspace_is_history() -> None:
         check("naming the receipt it found", out.get("sealed") == "SEALED-RECEIPT.md", out)
         check("with no findings invented", out.get("errors") == [], out)
 
+
+def case_a_marker_that_ate_its_kind() -> None:
+    """DEFECT 6, live and warning-only, which is why nobody chased it.
+
+    `ROUND_RE` lists `rereview[-_.]?r` so `-rereview-r2` is recognised as round 2 at all, and that
+    alternation CONSUMES the word `rereview` — leaving nothing before the marker and nothing after
+    it. The artifact classified as nothing and the printed remedy told its author to rename a file
+    that already follows the other shape the same module documents. Found by writing this case, not
+    by a run.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp) / "ws"
+        work.mkdir()
+        (work / "S1-rereview-r2.md").write_text("verdict\n", encoding="utf-8")
+        (work / "S2-review-r2.md").write_text("verdict\n", encoding="utf-8")
+
+        code, out = run(work)
+        unclassified = [w for w in out.get("warnings", [])
+                        if w.get("kind") == "UNCLASSIFIED_ROUND_ARTIFACT"]
+
+        check("the kind-first spelling is classified", unclassified == [], unclassified)
+        check("and it is read as a REVIEW, not as work",
+              any("S1" in str(s) for s in out.get("subjects", {})) or code in (0, 1), out)
+
 def main() -> int:
     if not SCRIPT.exists():
         print(f"check_review_budget.py not found at {SCRIPT}", file=sys.stderr)
@@ -305,7 +329,8 @@ def main() -> int:
     for case in (case_kind_before_the_marker_is_read, case_the_kind_is_not_part_of_the_subject,
                  case_family_spend_is_visible_and_advisory,
                  case_the_verdict_cap_binds_verdicts_and_never_evidence,
-                 case_a_sealed_workspace_is_history):
+                 case_a_sealed_workspace_is_history,
+                 case_a_marker_that_ate_its_kind):
         case()
 
     print()

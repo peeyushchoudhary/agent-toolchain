@@ -583,6 +583,21 @@ def kind_of(stem: str, mark: re.Match) -> str | None:
         # artifacts across the real workspaces have this shape. Reading the head here is the same
         # test on the same vocabulary, applied at the position the corpus actually uses.
         tokens = set(trailing_kind_tokens(stem[: mark.start()]))
+    if not tokens:
+        # THE MARKER ATE ITS OWN KIND. `ROUND_RE` lists `rereview[-_.]?r` as a marker spelling so
+        # that `-rereview-r2` is recognised as round 2 at all — and that alternation consumes the
+        # word `rereview`, leaving nothing on either side. The artifact then classified as nothing,
+        # and the warning told its author to rename a file that already follows the other shape the
+        # same module documents.
+        #
+        # Found by a BREAK-TEST, not by a run: it warns rather than fails, so nobody chased it.
+        # That is the argument for break-tests in one line.
+        #
+        # The marker is asked what it swallowed. Same vocabulary, same test, third position —
+        # after the tail and the head, because those are where a kind is written on purpose and
+        # this one is there only by the accident of the spelling.
+        tokens = {t for t in KIND_SPLIT_RE.split(mark.group(0).strip("-_.").lower())
+                  if t and not t.isdigit() and not re.fullmatch(r"r\d*", t)}
     if tokens & EVIDENCE_KIND_TOKENS:
         # THE ONE PRECEDENCE INVERSION, and it is deliberately FIRST rather than folded into
         # WORK_KIND_TOKENS: a `test-judge` tail carries BOTH `test` and `judge`, and the
