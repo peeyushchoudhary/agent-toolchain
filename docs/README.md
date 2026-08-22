@@ -1,19 +1,40 @@
 # Documentation index
 
+## The six areas
+
+Each directory carries a `README.md` naming its purpose and authority level.
+
+| Directory | Holds | Authority |
+| --- | --- | --- |
+| [agents/](agents/README.md) | the route: task, one guide, one command | Current |
+| [architecture/](architecture/README.md) | how the system is built | Current |
+| [product/](product/README.md) | intent, read through shipped behaviour | Current; measurements are dated |
+| [decisions/](decisions/README.md) | accepted decision records | Current |
+| [runbooks/](runbooks/README.md) | operational procedures | Current |
+| [archive/](archive/README.md) | superseded material | **NOT authoritative** |
+
+## Every document, one hop from here
+
+Listed in full and not only through the six indexes above, deliberately: the validator warns
+`too-deep` past two hops from an entry file, and an area directory spends one of them. Add a
+document by adding its row here in the same commit.
+
 | Area | Document | Status |
 | --- | --- | --- |
-| How work is sequenced, and what "done" means | [operating-model.md](operating-model.md) | Current |
-| The four disclosure layers and the validator | [progressive-disclosure.md](progressive-disclosure.md) | Current |
-| Where files belong; migrating an existing repo | [repository-standard.md](repository-standard.md) | Current, v1.1 |
-| Forge rules, the push guard, zero-cost posture | [github.md](github.md) | Current |
-| The persona roster and its routing | [agent-personas.md](agent-personas.md) | Current |
-| Decisions, each against its rejected alternative | [decisions.md](decisions.md) | Current |
-| Measurements the decisions rest on | [measurements.md](measurements.md) | **Dated** — re-derive when prices move |
-| The weekly improvement record, newest first | [improvements-weekly.md](improvements-weekly.md) | Current — a record: entries accrete, never rewritten |
-| Five steps to onboard a project | [onboarding-a-project.md](onboarding-a-project.md) | Current |
-| The long-form adoption walkthrough | [full-adoption.md](full-adoption.md) | Current |
-| The Codex side, and what it does not get | [codex.md](codex.md) | Current |
-| Every file the installer places, and why | [what-gets-installed.md](what-gets-installed.md) | Current |
+| How work is sequenced, and what "done" means | [architecture/operating-model.md](architecture/operating-model.md) | Current |
+| The four disclosure layers and the validator | [agents/progressive-disclosure.md](agents/progressive-disclosure.md) | Current |
+| How the route works in this repository | [agents/disclosure.md](agents/disclosure.md) | Current, standard v1.2 |
+| What earlier agents learned here, newest last | [agents/lessons.md](agents/lessons.md) | Current — a record: entries accrete |
+| Where files belong; migrating an existing repo | [architecture/repository-standard.md](architecture/repository-standard.md) | Current, v1.1 |
+| Forge rules, the push guard, zero-cost posture | [runbooks/github.md](runbooks/github.md) | Current |
+| The persona roster and its routing | [agents/agent-personas.md](agents/agent-personas.md) | Current |
+| Decisions, each against its rejected alternative | [decisions/decisions.md](decisions/decisions.md) | Current — a record: entries accrete |
+| Measurements the decisions rest on | [product/measurements.md](product/measurements.md) | **Dated** — re-derive when prices move |
+| The weekly improvement record, newest first | [product/improvements-weekly.md](product/improvements-weekly.md) | Current — a record: entries accrete, never rewritten |
+| Five steps to onboard a project | [runbooks/onboarding-a-project.md](runbooks/onboarding-a-project.md) | Current |
+| The long-form adoption walkthrough | [runbooks/full-adoption.md](runbooks/full-adoption.md) | Current |
+| The Codex side, and what it does not get | [runbooks/codex.md](runbooks/codex.md) | Current |
+| Every file the installer places, and why | [agents/what-gets-installed.md](agents/what-gets-installed.md) | Current |
 
 Installation lives in [../install/README.md](../install/README.md).
 

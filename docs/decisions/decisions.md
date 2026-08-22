@@ -3,7 +3,7 @@
 The non-obvious calls, and what they were weighed against. A decision recorded without its
 alternative is just an assertion.
 
-Numbers are in [measurements.md](measurements.md).
+Numbers are in [measurements.md](../product/measurements.md).
 
 ---
 
@@ -170,6 +170,9 @@ application repositories this tooling serves.
 operation, and empty application tiers would imply false authorities. The default route check is
 authoritative; revisit if an application runtime or operated service appears.
 
+**SUPERSEDED by [D17](#d17--this-repository-complies-with-the-standard-it-ships).** Kept, not
+rewritten: the reasoning was sound and one of its two premises turned out to be false.
+
 ---
 
 ## D14 — Bounded repairs and review
@@ -211,3 +214,59 @@ calls it.
 
 **Why:** the checker repairs post-onboarding drift — judges outliving a withdrawn capability — by
 hand, where no agent may write. One skill would claim both permissions.
+
+---
+
+## D17 — This repository complies with the standard it ships
+
+**Chose:** create `docs/{agents,architecture,product,decisions,runbooks,archive}/`, file the twelve
+flat documents under them, and run `validate_disclosure.py --standard` against this repository from
+`install/verify.sh`.
+
+**Over:** [D13](#d13--this-repository-uses-a-documentationtooling-taxonomy), which rejected exactly
+these tiers; and over the alternative of amending the standard so a tool repository needs fewer
+directories than a product repository.
+
+**Why:** D13's premise was "empty application tiers would imply false authorities", and its warrant
+was "the default route check is authoritative". The second premise is FALSE, measured: the default
+route check does not evaluate the standard at all — it prints `NOT RUN cross-project structure
+standard: not requested` and says in its own summary "Nothing is known about it." D13 rested on a
+check that had declined to answer the question. Pointed properly, the same script reported seven
+errors and exit 1.
+
+The first premise was true about EMPTY tiers and is not true of these. Every directory received the
+documents that already existed and a `README.md` naming its purpose and authority level — including
+`archive/`, whose README says in the first line that nothing in it is authoritative. Amending the
+standard was the honest alternative and was rejected on one ground: the standard's own words are
+"One layout for every project", and a tool repository writing itself an exemption from the layout it
+asks every other repository to adopt is the failure mode the exemption would be hiding.
+
+The route cost was measured, not assumed. Each move spends one hop, and the validator warns
+`too-deep` past two, so `docs/README.md` links every document DIRECTLY as well as linking the six
+area indexes: `routed docs: 25, max depth: 2`, unchanged depth against 18 routed docs before.
+
+---
+
+## D18 — The decisions record stays one file inside `docs/decisions/`
+
+**Chose:** `docs/decisions.md` -> `docs/decisions/decisions.md`, with a short `README.md` beside it
+stating purpose and authority.
+
+**Over:** `docs/decisions/README.md` holding the record, and over one file per decision.
+
+**Why:** the word-budget exemption for an accreting RECORD is keyed on the BASENAME.
+`validate_disclosure.py` matches
+`^(measurements|benchmarks|decisions|adr|rulings|improvements|changelog|history)(?:[-_][a-z0-9]+)?\.md$`
+against `doc.name`, so `decisions.md` is exempt and `README.md` is not. Renaming would have handed a
+1,185-word file back to the 1,200-word guide budget — two decisions from the wall `measurements.md`
+hit first, which is the incident that created the exemption. The class travels with the name, so the
+name stays.
+
+One file per decision would escape the budget too, by sharding, which the same source comment names
+as gaming the metric rather than answering it; it would also break every `decisions.md#dNN` anchor
+cited from the operating model, the measurements and `AGENTS.md`.
+
+Note what is NOT the reason: after `docs/agents/README.md` exists, the budget check narrows to
+depth-0 entries and `docs/agents/*`, so nothing under `docs/decisions/` is budgeted whatever it is
+called. That protection is an ACCIDENT of where the route index sits, and one commit from
+disappearing. The rule is chosen over the accident deliberately.

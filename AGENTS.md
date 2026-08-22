@@ -13,40 +13,33 @@ Nothing enforces the commit-message half; it is a rule, not a guard.
 <!-- public-exception: {"reason":"documentation and tooling repo, deliberately public so the setup is checkable by anyone; no project names or personal data belong here by invariant","date":"2026-07-30"} -->
 
 Published behaviour comes from `install/`. Edits to vendored skills and hooks originate in their
-maintained source and are re-vendored as described in
-[what-gets-installed.md](docs/what-gets-installed.md). Executable tooling and tests override prose.
-Claims need executable or documented evidence; measurements route to
-[measurements.md](docs/measurements.md).
+maintained source and are re-vendored; see
+[what-gets-installed.md](docs/agents/what-gets-installed.md). Executable tooling and tests override
+prose. Claims need executable or documented evidence; measurements route to
+[measurements.md](docs/product/measurements.md).
 
 Keep false starts and reversals as labelled rationale, never as current authority. `gh`, `ripgrep`,
-and `graphify` remain optional to the core. This documentation/tooling repository deliberately uses
-its task index instead of a product repository's agent-doc taxonomy; see
-[D13](docs/decisions.md#d13--this-repository-uses-a-documentation-tooling-taxonomy).
+and `graphify` remain optional to the core. This repository complies with the standard it ships;
+see [D17](docs/decisions/decisions.md#d17--this-repository-complies-with-the-standard-it-ships).
 
 ## Goal-bound execution
 
-Before implementation or a review repair, bind the dispatch to the approved outcome or a named
-invariant and state its observable delta. Classify every finding. Recurrence of the same causal
-mechanism after one independently reviewed repair returns to the plan gate; renaming an attempt does
-not reset it. Distinct safety findings may still block. Budgets trigger human review only and never
-change a test, review, safety, or acceptance verdict. A vague request becomes a proposed outcome
-capsule for approval, not immediate implementation or automatic refusal.
+Execution is goal-bound: bind every dispatch to the approved outcome or a named invariant, state its
+observable delta, and classify every finding. Judges are independent and structurally unable to
+edit; a builder never approves their own work. Same-cause recurrence after one independently
+reviewed repair returns to its gate — renaming an attempt does not reset it — while distinct safety
+findings may still block. Budgets trigger human review only; they never change a test, review,
+safety, or acceptance verdict.
 
-Before the design and plan gates, cast the existing read-only `reviewer` in fresh context with named
-artifact paths and no author rationale. `PASS` is valid. A blocker needs a frozen criterion or
-invariant, a reachable trigger, an observable consequence, and artifact evidence; preferences and
-invented requirements do not block. Permit one correction and one scoped rereview, then
-apply-and-close: the orchestrator applies the final verdict's named smallest correction and closes.
-Only safety-class findings and scope changes return to a human gate, and every escalation brief
-names a default action. A finding demanding more than the spec requires is over-engineering and
-non-blocking.
-For Codex, fresh review means `fork_turns: "none"`; another harness uses its equivalent fresh-thread
-primitive, never prompt wording alone. A scoped rereview receives paths to the persisted original
-finding, correction or diff, corrected artifact, and governing frozen artifacts. Post-code review
-defaults to Implementation unless Design or Plan is explicitly named.
+The rest of the review contract — freshness and its harness primitive, what a blocker needs, one
+correction and one scoped rereview, apply-and-close, escalation and its default action, the
+over-engineering ceiling — is stated in [operating-model.md](docs/architecture/operating-model.md),
+[D14](docs/decisions/decisions.md#d14--bounded-repairs-and-review) and the execution methodology. It
+was a fourth copy here. `execution-methodology/SKILL.md` says why that is not a saving: "it was
+restated here once already, and one copy was corrected while this one kept the falsified rule."
 
 ## Verification
 
-Run `cd install && ./install.sh --dry-run && ./verify.sh`, then
-`python3 ~/.claude/skills/progressive-disclosure/scripts/validate_disclosure.py .`. The default route
-check must report zero findings in the families it runs.
+Run `cd install && ./install.sh --dry-run && ./verify.sh`. Its repository verdict line must be
+PASS; it runs `validate_disclosure.py --standard` against this repository, so the route check is
+no longer a separate command.

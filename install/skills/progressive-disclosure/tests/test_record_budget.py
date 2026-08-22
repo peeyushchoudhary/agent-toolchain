@@ -150,8 +150,17 @@ class ThisRepositoryTest(unittest.TestCase):
     """
 
     def test_the_weekly_improvement_record_is_recognised(self):
-        record = SKILL.parents[2] / "docs" / "improvements-weekly.md"
-        if not record.is_file():
+        # TWO LAYOUTS, ONE DOCUMENT. The repository that ships this skill moved its documents under
+        # the shared structure standard, so the record now sits in `docs/product/`; the installed
+        # layer still holds it flat. Both are listed because a single hardcoded path resolves in one
+        # of them and SILENTLY SKIPS in the other — and this class exists precisely to stop a rule
+        # from going unapplied to the document that justified it. A skip here would have been that
+        # failure wearing an honest label.
+        root = SKILL.parents[2]
+        candidates = (root / "docs" / "product" / "improvements-weekly.md",
+                      root / "docs" / "improvements-weekly.md")
+        record = next((c for c in candidates if c.is_file()), None)
+        if record is None:
             self.skipTest("vendored copy: the repository's docs/ is not present beside the skill")
         self.assertTrue(validator.is_record_file(record.name))
 

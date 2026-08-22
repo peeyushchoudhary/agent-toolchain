@@ -55,7 +55,7 @@ firing — and their findings block the push. Cost: a median 154 ms added to a p
 holding 204 product documents, which is why they run over the whole tree rather than over the
 pushed range; range-scoping would buy nothing a human can feel and would let a spec broken by an
 edit outside `docs/product/` push clean. The numbers sit beside the guard they govern in
-[github.md](github.md); `measurements.md` is already at its route word budget.
+[github.md](../runbooks/github.md); `measurements.md` is already at its route word budget.
 
 **The adoption guard is the load-bearing half.** A repository with no `docs/product/` gets silence —
 not a warning, not a hint. Adoption is staggered, so most repositories are in that state on any

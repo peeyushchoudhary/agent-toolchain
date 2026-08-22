@@ -713,7 +713,8 @@ toolchain_report() {
 #                                                 and never absorbed into a pass.
 # Which skills are in (a) is a property of the last re-vendor, not of this repository — the
 # agent-personas suite is deliberately NOT vendored, because three of its tests resolve a human
-# record at <skill>/../../docs/decisions.md that does not exist in the vendored layout. A list
+# record at <skill>/../../docs/decisions.md that does not exist in the vendored layout — that path is
+# the INSTALLED layer's, under $HOME/.claude, and did not move when this repository's docs did. A list
 # written here would be a second copy of that fact and would drift the next time anyone re-vendors.
 # So: discover, and let the summary say what discovery found.
 #
@@ -1609,7 +1610,8 @@ check_persona_count() {
 #
 # A DERIVED FACT RESTATED IN PROSE IS A SECOND COPY, and a second copy drifts silently. MEASURED on
 # this repository at the moment this check was written: `README.md` said "fourteen generated
-# personas" in one line and "Thirteen base personas" in another, `docs/agent-personas.md` said
+# personas" in one line and "Thirteen base personas" in another, `docs/agents/agent-personas.md`
+# said
 # "Thirteen roles", and the truth on disk was fourteen. Two PUBLIC documents stated a wrong number
 # and every gate was green. Separately, of the six skills the declaration names, the top-level
 # README named four and never mentioned two at all.
@@ -5005,10 +5007,10 @@ else
 fi
 
 echo "── this repository against the standard we ship"
-# THE CHECKER WE PUBLISH, AIMED AT US. `docs/repository-standard.md` opens by saying the standard is
-# "Enforced by `validate_disclosure.py --standard`" — and until this line, nothing ran it against
-# THIS repository. The flag appeared in install_hooks.py, in three tests and in four documents, and
-# in no gate pointed here. Seven errors survived that way for the life of the standard.
+# THE CHECKER WE PUBLISH, AIMED AT US. `docs/architecture/repository-standard.md` opens by saying
+# the standard is "Enforced by `validate_disclosure.py --standard`" — and until this line,
+# nothing ran it against THIS repository. The flag appeared in install_hooks.py, in three tests
+# and in four documents, and in no gate pointed here. Seven errors survived that way for the life of the standard.
 #
 # WHY THEY SURVIVED, because it decides whether this line is worth its cost: every one of them is an
 # ABSENT thing — six missing directories and a missing route index. A missing `docs/architecture/`
