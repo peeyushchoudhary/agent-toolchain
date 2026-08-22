@@ -972,6 +972,56 @@ class Findings:
         return sum(1 for s, _, _ in self.rows if s == WARNING)
 
 
+def check_worktree_isolation(repo: Repo, scan: SiblingScan, f: Findings) -> None:
+    """The loop mandates a worktree per writer; until now nothing looked.
+
+    `references/execution-loop.md` says three concurrent writers, EACH IN ITS OWN `git worktree`,
+    and states that "safety comes from isolation plus detection". Detection was instrumented — W7
+    compares a commit to its declared writes, `--phase mid` compares the working tree — and
+    ISOLATION WAS ONLY DESCRIBED. No script in this toolchain created, verified or tore down a
+    worktree, which is the same shape as the nine checkers that were prose with a filename.
+
+    A linked worktree has a `.git` FILE pointing into the main repository, so its common dir and
+    its git dir differ. The shared checkout has them equal. That one comparison is the whole check.
+
+    A WARNING, NOT AN ERROR, and deliberately: a single writer working alone in the shared checkout
+    is doing nothing wrong, and a rule that failed there would be turned off by the first person who
+    works alone — which is most people, most days. It fires as a reminder at the moment a card is
+    picked up, which is the only moment moving is cheap.
+
+    SILENT WHEN THIS CARD HAS NO SIBLINGS, which is the correct scope rather than a convenience.
+    Isolation exists to keep CONCURRENT writers off one index and one HEAD; with one card in the
+    directory there is no concurrency to protect and the warning would be advice about a risk that
+    does not exist. The first version lacked this and fired on every single-card fixture in the
+    suite — a rule firing where its own rationale does not apply is how a warning becomes noise and
+    then gets deleted.
+    """
+    if not scan.cards:
+        return
+    common = git_dir(repo.root, "--git-common-dir")
+    own = git_dir(repo.root, "--git-dir")
+    if common is None or own is None:
+        return
+    if common == own:
+        f.add(WARNING, "worktree",
+              "this is the shared checkout, not a linked worktree. The loop runs writers in "
+              "parallel and expects each to hold its own `git worktree`; two writers here share "
+              "one index and one HEAD, so a stray write is invisible until it is committed. "
+              "`git worktree add` before starting, or accept that you are the only writer")
+
+
+def git_dir(root: Path, flag: str) -> str | None:
+    """`git rev-parse <flag>`, resolved. None when this is not a repository at all."""
+    try:
+        out = subprocess.run(["git", "-C", str(root), "rev-parse", flag],
+                             capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0 or not out.stdout.strip():
+        return None
+    return str((root / out.stdout.strip()).resolve())
+
+
 def check_required_fields(card: dict[str, object], f: Findings, repo: "Repo | None" = None) -> None:
     """D. Enforce the complete v1.5 schema without making sealed history unreadable."""
     resolved = dict(card)
@@ -2173,6 +2223,10 @@ def validate(card_path: Path, repo_root: Path,
     check_write_set_satisfiable(card, repo, writes, f)
     check_ignored_write_paths(repo, writes, f)
     check_required_fields(card, f, repo)
+    if phase == "pre":
+        # Only at pick-up. Warning about isolation mid-task or post-commit is advice arriving
+        # after the moment it could have been taken.
+        check_worktree_isolation(repo, scan, f)
     check_title(card, f)
     check_cross_card_uniqueness(card, scan, f)
     check_obsolete_fields(card, f)

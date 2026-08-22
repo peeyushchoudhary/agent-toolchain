@@ -541,6 +541,29 @@ reading the code? An **absence claim** — what a check does *not* cover — is 
 this methodology's history is mostly wrong absence claims made confidently.
 
 ## Changing this document
+**A checker ships only if it is RED today.** A new rule may be added to an instrument only after it
+has been run against the real corpus and named a violation that exists right now, and that violation
+must be fixed in the same change. The reason is measured rather than theoretical: nine checkers in
+this toolchain shipped green, passed their own fixtures, and were inert against the shape of the
+thing they claimed to check — one of them reported a clean exit on a repository whose specs it had
+never read, and was quoted as evidence of health three times before anyone noticed.
+
+The screen that decides whether a rule needs a script at all is separate and comes first. A rule can
+be held by discipline when its set is **enumerable** from one named file, its instances are
+**single-site**, every instance is **authored** by someone who read the rule, and a violation is
+**present** rather than an absence. Break any one and drift follows the one you broke: machine-
+generated output breaks *authored* and fails catastrophically, a missing section breaks *present*
+and fails slowly, a fuzzy set breaks *enumerable* and fails in proportion to the fuzziness.
+
+Those two rules point in opposite directions on purpose. A rule scoring well on that screen is cheap
+to check by eye, so a machine checking it learns little and buys a false green; red-today is what
+stops the easy checker being written. The screen decides what MAY be tested; red-today decides what
+is WORTH testing. Running only the first is how nine inert checkers were written.
+
+**Every checker carries a break-test.** A guard nobody has watched fail is not evidence of anything,
+and each case must reproduce a failure that was real in this repository rather than an invented one.
+A checker for which no real failing case can be written should be deleted rather than kept.
+
 
 **The methodology is frozen while a milestone is in flight.** Rendered versions change at
 milestone boundaries only, per repository, and adoption stays staggered and deliberate. The
