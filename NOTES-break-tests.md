@@ -126,3 +126,17 @@ Mutation log (run = the script's own mapped test modules):
   WR5 name-not-path, WR6 --weeks<1, WR7 --ceiling range, WR8 insufficient history,
   WR10 "there is no exit 1".
   (WR4 was a no-op edit and is discarded, not a result.)
+
+### N6 — trace_check.py: two uncovered, six covered
+  TC4  CITE_RE loses its RIGHT boundary `(?![A-Za-z0-9])`                GREEN — suite passes
+       Consequence: a test method named `testAC1Foo` matches as criterion `AC-1F`, because
+       `AC-?(\d+[A-Z]?)` then eats the `F`. A phantom criterion id is invented out of an
+       ordinary method name and traced as if it were real. The LEFT boundary is tested (TC3
+       RED); the right one is tested by nothing.
+  TC8  `PARAMETERISED_RE` made inert                                     GREEN — suite passes
+       Its own comment gives the case: `resends__F7_AC2[2]` -> `resends__F7_AC2`. A JUnit
+       parameterised test name keeps its `[2]` suffix, so the executed-test identity no longer
+       matches, and coverage that RAN reads as coverage that did not.
+  Covered (RED): TC1 normalise leading zeros, TC2 nearest-qualifier inheritance, TC3 left
+  boundary, TC5 coverage-map heading anchoring, TC6 not-tested heading anchoring, TC7 draft
+  specs excluded from LIVE.
