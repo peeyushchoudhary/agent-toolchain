@@ -233,7 +233,14 @@ MIRRORED_SKILLS = ("progressive-disclosure", "agent-personas", "agent-persona-fa
                    # watched six, so the newest one was installed on the Codex side and guarded by
                    # nothing there — the precise edge the comment above `check_skills` had already
                    # written down while it was still unpublished.
-                   "project-conformance")
+                   "project-conformance",
+                   # Added WITH the `project-migration` publication, not after it. The lesson above
+                   # cost a release: publishing is FIVE coordinated edits, not four, and this list
+                   # is the fifth. A skill named in the allowlist is mirrored to ~/.codex/skills by
+                   # install.sh whether or not this tuple knows about it, so an omission here does
+                   # not fail loudly — it installs the skill on the Codex side and guards it with
+                   # nothing.
+                   "project-migration")
 
 # The third state. A `not-run` is not a severity of finding in the ordinary sense — it is the
 # absence of a finding *and* the absence of a clean result, which is precisely the thing two-state

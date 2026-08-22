@@ -35,9 +35,10 @@ a finding not named here, is drift. **The baseline was 5**, at `a008768`; the ot
 | `skills/project-onboarding/` | The end-to-end procedure for bringing a project under the standard. Named by the session hook when a project is uninitialised |
 | `skills/graph-navigation/` | The symbol-first ladder for querying a graphify graph |
 | `skills/project-conformance/` | Whether an onboarded repository still meets the standard. Reports; repairs only what it named, under `--fix`. Run by hand, never by a hook |
+| `skills/project-migration/` | Moving an onboarded repository's product documents onto the bound schema. Two read-only steps, then `--apply`. Run by hand, never by a hook |
 | `skills/graphify/` | Vendor skill, not published by this repository. Hidden from model-initiated listing (see below) |
 
-`install.sh` installs the seven published ones, deriving that set from `install/skills/.gitignore`
+`install.sh` installs the eight published ones, deriving that set from `install/skills/.gitignore`
 rather than carrying its own list. `graphify` is listed because the installed layer has it.
 
 ### Scripts
@@ -85,7 +86,7 @@ posture. The GitHub and persona sections are byte-identical to their Codex count
 |---|---|
 | `AGENTS.md` | Mirror of `~/.claude/CLAUDE.md`'s shared sections |
 | `agents/` | 15 `.toml` files — 14 generated personas plus the hand-written `grok_worker.toml` |
-| `skills/` | The six skills `MIRRORED_SKILLS` names — the seventh, `project-conformance`, is published but not watched here ([D22](../decisions/decisions.md)). Refreshed by `install_hooks.py` or `install.sh`. `graphify` is there too, put by the vendor |
+| `skills/` | The seven skills `MIRRORED_SKILLS` names — the eighth, `project-conformance`, is published but not watched here ([D22](../decisions/decisions.md)). `project-migration` IS watched: it was added to that list in its own publication commit, because publishing is five coordinated edits and this is the fifth. Refreshed by `install_hooks.py` or `install.sh`. `graphify` is there too, put by the vendor |
 | `config.toml` | `[agents]` block: `enabled = true`, default subagent `gpt-5.6-terra` at `medium`, max 6 concurrent threads |
 
 The `[agents]` block leaves parent session settings untouched; it sets only what spawned agents
