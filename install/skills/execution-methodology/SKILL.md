@@ -79,6 +79,30 @@ stores the diff), restatement packets, and files recording failed dispatches (th
 line each) — and warns when the workspace outgrows its budget, which is a process-regression
 signal for the milestone receipt.
 
+**It reads the verdict line cap** — thirty lines, the one cap of the five the methodology fixes
+that no instrument used to read. `VERDICT_OVER_CAP` binds a JUDGE VERDICT only: a round-marked
+prose artifact whose kind is a review, or a marker-free name that reads as a judge beyond
+reasonable doubt. It never binds evidence — a fix brief, an implementation report, a scout sweep,
+an analysis, a `-test-judge`, a JUnit XML, a probe log, a diff, a source file, or an artifact whose
+kind the tool does not recognise. CAP THE VERDICT, NEVER THE EVIDENCE: a judge that drops a finding
+to fit a line budget is a worse outcome than a long verdict, so charging an unknown kind fails
+CLOSED and capping it fails OPEN. Measured on one live workspace: 51 cards averaging 85 lines with
+50 of 51 inside their 150-line cap, answered by 204 verdict-class files running to 1,349 lines —
+the read side was capped and the write side was not.
+
+**The exit code binds at the push.** A pre-push hook runs this check over every review workspace it
+finds and refuses the push on exit 1. That does not overturn the founder ruling in the module
+docstring: the ruling is that the tool cannot bind the ORCHESTRATOR THAT RUNS IT, and git at the
+push is a different party at the moment that opens the pull request the ruling itself calls the
+merge gate. Every known-open bypass is inherited whole. `PD_ALLOW_REVIEW_BUDGET=1` skips it and
+says so.
+
+**Nothing is auto-granted.** A round past the cap is a decision: the subject CLOSES at its final
+verdict, or a founder appends one row per exact (subject, round) to `ROUND-GRANTS.tsv`. A verdict
+past thirty lines is cut, never dropped — the findings stay and the prose goes — or a
+`SUBJECT<TAB>verdict:<artifact><TAB>commit<TAB>date<TAB>reason` row records that a human read that
+one file and accepted its length.
+
 **Renaming a subject resets its budget, so the check reports the FAMILY too.** Subject keys that
 extend a live subject key at a token boundary (`<subj>`, `<subj>-contract`,
 `<subj>-contract-prerequisite`) are one lineage, and `FAMILY_SPEND` states their combined spend

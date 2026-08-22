@@ -1,24 +1,14 @@
 # NOTES — cap the output (verdict line cap + binding pre-push exit)
 
-**TOP 3 SO FAR:** in progress.
-
-## 1. The cap: which number, read where
-in progress
-
-## 2. Verdict vs evidence: how the classes were told apart
-in progress
-
-## 3. Binding at pre-push: the founder ruling, read in full
-in progress
-
-## 4. The valve: ROUND-GRANTS.tsv
-in progress
-
-## 5. Day-one cost to the live workspace
-in progress
-
-## 6. Break-test (house shape)
-in progress
+**TOP 3.** (1) **The cap is 30 lines, quoted from methodology.md:460, and it binds 33 files in the
+live workspace — not 121.** The other 171 `reports/*.md` carry no round marker and no judge name;
+the tool cannot call them verdicts and neither may this rule. (2) **Cap and charge read the SAME
+function** (`kind_of` / `looks_like_a_verdict`), with the polarity DELIBERATELY INVERTED: charging
+fails closed, capping fails open — a judge dropping a finding to fit is worse than a long verdict.
+(3) **The exit binds at pre-push and the ruling permits it**: the ruling forbids the tool binding
+the ORCHESTRATOR THAT RUNS IT; git at the push is a different party, at the moment that opens the
+merge gate the ruling itself names. Day one: 96 errors, 56 banned diffs DELETED (49% of the
+workspace bytes, no finding lost), 40 errors left for a human — nothing auto-granted.
 
 ## 1. The cap: which number, read where  — SETTLED
 
@@ -200,3 +190,19 @@ WHAT A HUMAN MUST DECIDE, and nothing is auto-granted:
   2. The 33 over-cap verdicts: cut the prose, keep every finding. Or one `verdict:<artifact>` row
      each. 3,419 excess lines against a 30-line cap.
 This is a real velocity hit on day one, and it is the point.
+
+## 12. SKILL.md updated (commit 7) + FULL SUITE GREEN
+
+`install/skills/execution-methodology/SKILL.md`: the cap, the class split, the pre-push reading of
+the ruling, and both grant rows. Full suite `python3 -m unittest discover` in
+`execution-methodology/tests`: **1058 tests, OK (2 skipped)** — including the harness byte-identity
+test, see below.
+
+## 13. LIVE-SYSTEM OBSERVATION — the installed skills now carry this branch
+
+At 12:25 today `~/.claude/skills/` and `~/.codex/skills/` became BYTE-IDENTICAL to this worktree
+for `check_review_budget.py`, `push_guard.py` and `SKILL.md` — they had been identical to LOCAL
+main. **I did not run install.sh and I wrote nothing outside the repo.** Either another seat or the
+operator ran the installer against this worktree. Consequence to know about: the founder's machine
+is running the new verdict cap and the pre-push block NOW, before merge. It also means the
+harness-mirror test is green for a reason that is not this branch being merged.
