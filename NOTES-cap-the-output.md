@@ -172,3 +172,31 @@ six negative env spellings all fail CLOSED / block clears when the workspace is 
 `test_push_guard_product`: 25 tests OK.
 PRE-EXISTING RED, verified identical on LOCAL main: `11 the hook template points at the guard under
 test` — that case only passes when run from the installed skill path, not from a checkout.
+
+## 11. DAY-ONE COST TO THE FOUNDER'S LIVE WORKSPACE — exact, run with the new tool
+
+BEFORE (`analysis/.workspace`, 319 files / 6.55 MB), exit 1, 96 errors:
+  * 56 BANNED_CLASS — 33 `.diff` + 23 `.patch`, 3.20 MB, i.e. **49% of the whole workspace by bytes**
+  * 33 VERDICT_OVER_CAP — NEW, 3,419 excess lines, longest 388 (`TC-41-review-round2.md`)
+  * 7 ROUND_CAP over 18 ungranted rounds: `tc-51` r3,r4,r5,r7 / `tc-44` r3,r4,r5,r6 /
+    `tc-47` r3,r4,r6 / `tc-39` r3,r4 / `tc-41` r3,r4 / `tc-48` r3,r4 /
+    `orchestrator-verification` r4
+  * WARNINGS: 9 MISSING_ROUND_MARKER, 7 UNRECORDED_TERMINAL_PASS, 4 NON_PROSE_UNCLASSIFIED,
+    2 UNCLASSIFIED_ROUND_ARTIFACT, 1 WORKSPACE_BUDGET (319 files / 6,703 KB vs 50 / 500)
+
+ACTION TAKEN — the 56 banned diff snapshots are DELETED (list kept at
+`/tmp/deleted-banned-artifacts.txt`, outside the repo; the workspace is gitignored so nothing about
+this is in a commit). Empty `diffs/` pruned.
+
+AFTER: 263 files / 3.34 MB. **40 errors left: 33 VERDICT_OVER_CAP + 7 ROUND_CAP.** The workspace
+lost 49% of its bytes to one `rm`, and NOT ONE FINDING WAS LOST — git regenerates every one of
+those diffs from the commit range.
+
+WHAT A HUMAN MUST DECIDE, and nothing is auto-granted:
+  1. The 18 ungranted rounds on 7 subjects. Per the methodology the default is NOT a grant: the
+     subject CLOSES at its final verdict — apply the smallest named correction and stop. A grant is
+     one ledger row per exact (subject, round), so honouring all 18 costs 18 attributed rows, and
+     that number IS the argument. `tc-51` at r7 and `tc-44` at r6 are the two to read first.
+  2. The 33 over-cap verdicts: cut the prose, keep every finding. Or one `verdict:<artifact>` row
+     each. 3,419 excess lines against a 30-line cap.
+This is a real velocity hit on day one, and it is the point.
