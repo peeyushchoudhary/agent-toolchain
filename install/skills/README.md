@@ -24,6 +24,7 @@ declares its own state**, and every check is evaluated against the one repositor
 | `graph-navigation` | Navigating an existing knowledge graph without falling back to prose queries. |
 | `project-onboarding` | Bringing a new repository under all of the above, in order, proposing before writing. |
 | `project-conformance` | Whether a repository that was onboarded still meets the standard, and repairing the part of that answer that is mechanical. Reports first, writes only under `--fix`, and is run by hand — never by a hook. |
+| `project-migration` | Moving an already-onboarded repository's product documents onto the bound schema — triage, plan, apply, adopt, confirm. Two read-only steps before the one that writes; `status:` and `reviewed_by:` are left for a person. |
 
 ## The two ideas it is built on
 
