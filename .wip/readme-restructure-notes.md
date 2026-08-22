@@ -61,3 +61,27 @@ in progress
    up to the next heading of the SAME OR SHALLOWER level.
    => If the diagram leads the page under a different heading, that heading must still
       match the architecture regex, and the stage table must stay in the same section.
+
+## Baseline gates (all green before any edit)
+
+| Gate | Result |
+|---|---|
+| `validate_disclosure.py .` | rc 0, 0 findings |
+| `validate_disclosure.py . --readme` | rc 0, 0 findings |
+| execution-methodology suite | Ran 1031, OK (skipped=2) |
+| progressive-disclosure suite | Ran 387, OK |
+| `install.sh --dry-run` | rc 0 |
+| `verify.sh` | rc 0, PASS |
+
+Note: the suites are NOT discoverable from the repo root
+(`Start directory is not importable`). Run them from the skill directory:
+`cd install/skills/<skill> && python3 -m unittest discover -s tests`.
+
+5. `verify.sh check_prose_agrees` reads `install/skills/.gitignore` allowlist ->
+   six skills: progressive-disclosure, agent-personas, agent-persona-factory,
+   execution-methodology, graph-navigation, project-onboarding. Each must appear
+   verbatim somewhere in the ROOT `README.md`. It also checks the spelled persona
+   count word ("fourteen") against the file count in
+   `install/skills/agent-personas/personas/`.
+   => Any rewrite must keep all six literal skill names and the word "fourteen"
+      next to "persona" on the front page.
