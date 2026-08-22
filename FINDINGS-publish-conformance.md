@@ -1,6 +1,18 @@
 # Publish project-conformance + ninth check — findings
 
-TOP 3 SO FAR: (in progress)
+TOP 3 SO FAR:
+1. The ninth check `product definition` is RED on all four onboarded repositories (exit 1). One of
+   them has 236 docs under docs/product, ZERO bound by any schema rule, 233 named outside the
+   shape any rule reads — and `spec_check.py` EXITS 0 there. F11, F13.
+2. The brief was wrong that project-conformance ships no tests: it ships 989 lines. They pass from
+   the vendored position (56/56) and fail under an empty HOME, because the tool orchestrates real
+   installed checkers. Vendored, with the numbers published, not papered. F1, F6, F7, D21.
+3. Publishing a skill and MIRRORING it to Codex came apart for the first time. install.sh now
+   mirrors 7; `MIRRORED_SKILLS` in check_toolchain.py watches 6. Not silently fixed — that file is
+   a vendored mirror, and editing it alone manufactures a sixth drift critical. F3, F10, D22.
+RUNNER-UP: docs/agents/what-gets-installed.md was at 1199 of 1200 words, so a seventh skill could
+not be added without breaking the budget. Paid by ADDRESSING (moving decisions to the record file
+that has no budget), not by evicting evidence. F15.
 
 ## Part 1 — four coordinated edits
 in progress
