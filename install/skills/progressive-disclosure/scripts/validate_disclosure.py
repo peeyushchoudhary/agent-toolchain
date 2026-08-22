@@ -172,7 +172,19 @@ def is_lessons_file(name: str) -> bool:
 # was about. A decision record accretes by definition — a decision that stops being listed stops
 # being findable — and it sat at 1185 of 1200 words, so it was two decisions from the same wall
 # measurements had just hit. A rule aimed at one filename would have had to be written a third time.
-RECORD_NAME = re.compile(r"^(measurements|benchmarks|decisions|adr|rulings)(?:[-_][a-z0-9]+)?\.md$")
+#
+# It was written a third time anyway, and this is that third time — so the CLASS is now stated once
+# and completed, rather than one more filename being appended. A weekly improvement record accretes
+# for exactly the reason the two above do: an entry that stops being listed stops being findable,
+# and the honest fix for a full one is archiving old entries, not shortening true ones. MEASURED on
+# this repository: 2,520 words of weekly entries occupied 51% of the front page, and every routed
+# guide that could have received them sat at 1,178-1,200 of 1,200 words. The move had no legal
+# destination until the destination could be recognised. `changelog` and `history` join it because
+# they are the other two names the same document is given, and a class named by one of its three
+# spellings is the same mistake in a smaller font.
+RECORD_NAME = re.compile(
+    r"^(measurements|benchmarks|decisions|adr|rulings|improvements|changelog|history)"
+    r"(?:[-_][a-z0-9]+)?\.md$")
 
 
 def is_record_file(name: str) -> bool:

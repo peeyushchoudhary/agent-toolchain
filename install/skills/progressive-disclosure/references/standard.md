@@ -114,6 +114,19 @@ check accepts the common synonyms — but each question must be answered somewhe
 | Run locally | How do I start it? |
 | Working in this repository | The agent route, and how work lands |
 
+**The diagram goes in the first screen, above the prose.** Presence is all the validator can check,
+and presence is not readability: this repository's own front page passed every section check at
+4,900 words, half of it a changelog and 739 more words in one unbroken paragraph. A reader judges
+shape faster than sentences, so the architecture section leads. Break current state into
+subsections, one claim each, with a table wherever the facts are parallel.
+
+**A record does not live on the front page.** A changelog, an improvement log, a decision log and a
+measurement log accrete; a front page states what is true now. Keep the newest two or three entries
+as short summaries with links, move the rest to its own document, and delete nothing. That document
+is exempt from the guide budget only if its name is one the validator recognises as a record. Its
+outbound links join the disclosure graph, so write deep paths into the code tree as code spans.
+The full shape is in the [README template](../../execution-methodology/references/readme.md).
+
 **The README indexes; it does not duplicate.** Low-level design lives in
 `docs/architecture/<component>.md`, one file per component, linked from the component table. A
 README that inlines every component's design grows past the point where anyone updates it, and then
