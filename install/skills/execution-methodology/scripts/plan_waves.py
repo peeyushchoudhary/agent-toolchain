@@ -151,7 +151,13 @@ MAX_FULL_LANE = 12    # (P5) above this it is two features, and no wave plan rep
 FEATURE_ID_RE = re.compile(r"^F-\d+[A-Z]?$")
 QUALIFY = "/"                                 # `F-12/T1`: the feature, then its plan-local task id
 MILESTONE_RE = re.compile(r"^M\d+$")
-FEATURE_RE = re.compile(r"^F-\d+$")
+# ONE PATTERN, NOT TWO. This was `^F-\d+$` while `FEATURE_ID_RE` beside it accepted a suffix
+# letter, so a spec with `id: F-9A` and `milestone: M2` was dropped from its own milestone in
+# SILENCE — exit 0, one feature reported where two declared membership, no finding anywhere. The
+# split arrived when the suffix letter was added to the spec checker and this half was not, and it
+# survived because the sort key below would raise on `F-9A` and nobody wanted the traceback.
+# Reproduced on a two-spec fixture before this line changed.
+FEATURE_RE = FEATURE_ID_RE
 
 # Each task carries the document it was read from, so one set of checks serves both scopes: the
 # per-plan run passes tasks from one file and the milestone run passes tasks from several, and a
@@ -548,6 +554,19 @@ def milestone_docs(root: Path, name: str, f: Findings) -> Doc | None:
     return found[0] if found else None
 
 
+def feature_order(ident: str) -> tuple:
+    """Sort key for a feature id. ONE implementation, because there were two and only one was fixed.
+
+    The suffix letter sorts WITH its number — F-9, F-9A, F-9B, F-10 — where the raw string would put
+    F-10 before F-9. `int(ident[2:])` raises outright on a suffix, and when the membership filter was
+    widened to accept `F-9A` this second copy inside the printer was missed: the milestone then
+    resolved both features and died with a ValueError while printing them. A derived rule written
+    twice is a rule that drifts on the first edit.
+    """
+    digits = "".join(ch for ch in ident[2:] if ch.isdigit())
+    return (int(digits) if digits else 0, ident)
+
+
 def milestone_features(root: Path, name: str) -> list[str]:
     """The feature ids whose spec declares this milestone, in id order.
 
@@ -568,7 +587,7 @@ def milestone_features(root: Path, name: str) -> list[str]:
         identifier = doc.scalar("id")
         if FEATURE_RE.match(identifier):
             members.append(identifier)
-    return sorted(set(members), key=lambda ident: (int(ident[2:]), ident))
+    return sorted(set(members), key=feature_order)
 
 
 def qualify(feature: str, tasks: Sequence[Task]) -> list[Task]:
@@ -646,8 +665,7 @@ def print_milestone(m: Milestone) -> None:
     print(f"{m.rel}  milestone {m.name}  {len(m.features)} feature(s), {len(m.tasks)} task(s), "
           f"{len(m.waves)} wave(s), critical path {len(m.waves)}")
     for number, wave in enumerate(m.waves, start=1):
-        features = sorted({ident.split(QUALIFY)[0] for ident in wave},
-                          key=lambda ident: (int(ident[2:]), ident))
+        features = sorted({ident.split(QUALIFY)[0] for ident in wave}, key=feature_order)
         print(f"  wave {number}  width {len(wave)}  {', '.join(wave)}"
               f"   [{', '.join(features)}]")
     if m.stuck:

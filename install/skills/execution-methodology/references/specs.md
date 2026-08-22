@@ -29,6 +29,41 @@ Three places absorb what the body will not hold:
   carrying an ADR it never wrote.
 - **The append-only parts live in front matter**, as keys — never in prose.
 
+### A bug is a spec whose `Why` is a defect
+
+A defect that needs its own criteria and its own tasks is written as a **feature spec**, in the same
+directory, with the same id space and the same rules. It is not a second document type, and the
+reason is structural rather than aesthetic: every schema rule binds the path
+`docs/product/specs/F-*.md`, so a `B-<n>` file would be walked, matched by nothing, and reported
+clean having been read by no rule at all.
+
+Its repro is already the criterion. `When <the repro>, given <the precondition>, <what should
+happen>` is an ordinary EARS criterion, so `C1`–`C4`, the withdrawn ledger, the coverage map and
+`trace_check.py` all bind unchanged. Two optional keys carry what a defect has and a feature does
+not:
+
+```yaml
+severity: high              # low | medium | high, and no more values than that
+regresses: AC-4             # the criterion this defect broke
+```
+
+`regresses:` must name a live criterion in the same document. A bug spec that restores nothing
+nobody required is a feature wearing a defect's clothes.
+
+**Most defects never become a spec.** The register in the milestone is the intake, and its row
+already carries the reproduction as a *command with its observed failure count* rather than as
+prose. A defect earns a spec only when one task in one existing plan cannot close it: when it needs
+more than one observable result, its own tasks, or its own gate. Below that line the fix/record rule
+in the task card decides, and most defects are fixed where they are found without any document.
+
+**A milestone holds features and defects together.** Membership derives from `milestone:` in each
+spec, and nothing downstream reads the difference: the wave scheduler compares write sets, not
+identities, and the seal reads one gate and a tree. A defect raises collision pressure because it
+writes into files that already exist — which is the collision checker working, and `serialises:`
+naming the qualified partner is the declared answer.
+
+---
+
 ### Withdrawn criteria
 
 Criterion ids are append-only, the body is current-state, and those two pull against each other:
