@@ -1,6 +1,6 @@
 # Break-tests for execution-methodology checkers
 
-TOP 3 SO FAR: N1 three checkers ship mode 0644 while docs use the bare form; N2 start_junit_run receipt can be silently OVERWRITTEN with the suite green; N3 verify_junit's ctime-staleness, receipt-timestamp and output-location gates have zero tests
+TOP 3 SO FAR: N4 milestone_seal's verify() tree re-check, gate-heading exact match and mode exclusivity are all untested; N2 start_junit_run receipt can be silently OVERWRITTEN green; N1 three checkers ship mode 0644 against a bare documented invocation
 
 ## 0. Method
 in progress
@@ -85,3 +85,32 @@ Mutation log (run = the script's own mapped test modules):
         the next run.
   M1 replay-by-hash, M4 skipped, M5 expect-count, M6 aggregate, M8 zero-tests,
   M9 duplicate-suite-identity                                RED — all covered
+
+### N4 — milestone_seal.py: SEVEN documented properties, none of them tested
+  MS1  `verify()`: delete the `receipt.get("tree") != tree` re-check     GREEN — suite passes
+       The docstring above that block says: "Every field is re-checked against the question that
+       was asked, rather than trusted because the FILENAME matched." The command and exit
+       re-checks ARE tested (MS2, MS3 both RED). The TREE re-check — the one the whole
+       tree-vs-commit argument rests on — is tested by nothing.
+  MS6  `inside = line.strip().lower() == GATE_SECTION` -> substring match GREEN — suite passes
+       The docstring argues this case explicitly: "A looser match ('any heading containing
+       validation') would pick up a `## Validation strategy` section written for a human and
+       treat the first `Gate:`-shaped line under it as an executable command." Untested.
+  MS7  `Gate:` LAST-line-wins -> first-line-wins                          GREEN — suite passes
+       Also a deliberately argued property ("The LAST such line in the section wins,
+       deliberately"), also untested.
+  MS9  command digest in the receipt NAME `[:12]` -> `[:2]`              GREEN — suite passes
+       The docstring's reason for hashing the command into the name is that "two milestones
+       sealed from one tree ... do not overwrite each other's evidence". Nothing tests two
+       receipts from one tree.
+  MS11 `if not isinstance(receipt, dict)` -> dead                        GREEN — suite passes
+       A receipt whose JSON is `[]` then raises AttributeError out of `verify()`; Python exits 1,
+       which is the code RESERVED for "no valid receipt". The script's own SealError docstring
+       forbids exactly this collapse ("exit 2, not 1").
+  MS12 `if sum(modes) != 1` -> `< 1`                                     GREEN — suite passes
+       `--record M1 --verify --tree T --command C` is then accepted, takes the verify branch,
+       and NEVER RECORDS. Same class as the already-on-record plan_waves defect
+       "`--milestone --commit` accepted the flag and never called the check".
+  MS10 atomic write-then-rename removed                                  GREEN — but see s.4
+  Covered (RED, no case needed): MS2 command re-check, MS3 exit re-check, MS4 dirty-tree refusal,
+  MS5 two-documents-claim-the-id, MS8 tree-not-commit binding.
