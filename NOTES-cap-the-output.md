@@ -35,3 +35,26 @@ Two supporting lines, same file:
   spec, a design, or a decision record". So the exemptions are already named in prose: spec, design,
   decision record. Those live in the TRACKED tree, not in a dated workspace, so a workspace-scoped
   check does not touch them.
+
+## 2. Verdict vs evidence — SETTLED, and the discriminator already existed
+
+I did not invent a classifier. `check_review_budget.py` already answers "is this a judgement?"
+because it must, to charge a round. The verdict cap reuses that exact answer, so cap and charge can
+never disagree:
+
+* `REVIEW_KIND_TOKENS` (:166) — a judgement. `kind_of()` (:522) returns `"review"`.
+* `WORK_KIND_TOKENS` (:170) — fix brief, impl report, analysis, scout, notes: NOT a judgement.
+* `EVIDENCE_KIND_TOKENS = {"test"}` (:325) — the measured inversion: `-test-judge` runs a command
+  and reports an exit code, 114 PASS / 2 FAIL / 1 none over 124 artifacts, block rate 0.02 vs 0.16
+  for `reviewer`. Evidence.
+* `NON_PROSE_SUFFIXES = {.xml,.txt,.diff,.tsx}` (:349) — JUnit XML, probe log, source file. Evidence.
+
+So the rule binds: **prose suffix + round marker + `kind_of() == "review"`** — precisely the set the
+tool already charges a round for, minus one deliberate exclusion below. Everything else is untouched.
+
+**THE POLARITY IS INVERTED ON PURPOSE, and this is the whole safety argument.**
+Charging fails CLOSED: `kind is None` (UNCLASSIFIED_ROUND_ARTIFACT) is charged as a review so a
+round is never lost. Capping must fail OPEN: an unknown kind is NOT capped. Reason: the cost of a
+wrong charge is one round of budget; the cost of a wrong cap is a judge deleting a finding to fit
+30 lines. Those are not symmetric harms. Unknown kind => count it, never cap it.
+Same for `MISSING_ROUND_MARKER` names: warned about already, not capped here.
