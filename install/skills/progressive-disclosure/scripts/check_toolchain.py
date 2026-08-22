@@ -226,7 +226,14 @@ MIRRORED = [
 # raw fact that a directory exists on one side and not the other, and the operator decides what to
 # do about it; it must not be read as an instruction to publish anything. See the TC-03 review, F5.
 MIRRORED_SKILLS = ("progressive-disclosure", "agent-personas", "agent-persona-factory",
-                   "graph-navigation", "project-onboarding", "execution-methodology")
+                   "graph-navigation", "project-onboarding", "execution-methodology",
+                   # Added when `project-conformance` was published. This list is the FIFTH place a
+                   # roster lives, and the docs that described publishing as "four coordinated
+                   # edits" named only four. `install.sh` began mirroring seven skills while this
+                   # watched six, so the newest one was installed on the Codex side and guarded by
+                   # nothing there — the precise edge the comment above `check_skills` had already
+                   # written down while it was still unpublished.
+                   "project-conformance")
 
 # The third state. A `not-run` is not a severity of finding in the ordinary sense — it is the
 # absence of a finding *and* the absence of a clean result, which is precisely the thing two-state
@@ -1442,10 +1449,13 @@ DECLARED_VENDOR_SKILLS: dict[str, str] = {
 #
 # The compensating control is real but NARROWER THAN IT FIRST APPEARS, and the earlier version of
 # this comment overclaimed it. `check_skills` fires `critical` when a mirrored skill is missing from
-# ~/.codex/skills — but it iterates MIRRORED_SKILLS, which is SIX names, so it covers exactly those
-# six. `project-conformance` is not among them, which means the skill from measured incident 3 is
-# gated by this sweep on the Claude side and by NOTHING on the Codex side. That is a real edge and
-# it is stated rather than smoothed over.
+# ~/.codex/skills — and it iterates MIRRORED_SKILLS, which is now SEVEN names.
+#
+# IT WAS SIX, AND THE MISSING ONE WAS THE SKILL FROM MEASURED INCIDENT 3. While
+# `project-conformance` was unpublished it was gated by this sweep on the Claude side and by
+# NOTHING on the Codex side, and that edge was stated here rather than smoothed over. Publishing it
+# closed the edge, and the closing was a separate edit from the publishing — which is the whole
+# lesson: a roster that lives in five places is repaired in five commits or not at all.
 #
 # What the exclusion does rest on is that nothing AUTHORED lives in ~/.codex/skills: the tree is
 # generated, so the recovery path is regeneration rather than restoration from a commit. Same shape
@@ -2214,9 +2224,16 @@ def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]
 
     An escalation rule was considered and rejected on the evidence: promote to `critical` when the
     ignored directory is named in MIRRORED_SKILLS, i.e. known to be ours. It would have been WRONG
-    on the measured case. The skill that actually went invisible was `project-conformance`, which is
-    not in MIRRORED_SKILLS — the rule would have quietly demoted the one instance it was invented
-    for. A discriminator that fails on the recorded evidence is worse than none.
+    on the measured case. The skill that actually went invisible was `project-conformance`, which
+    was not in MIRRORED_SKILLS at the time — the rule would have quietly demoted the one instance it
+    was invented for. A discriminator that fails on the recorded evidence is worse than none.
+
+    THE CONDITION HAS SINCE CHANGED AND THE RULING HAS NOT. `project-conformance` is published and
+    is now in that list, so the discriminator would no longer fail on that case. That is hindsight,
+    not vindication: the rule was rejected because it was wrong about the evidence available when it
+    was proposed, and a list that grows is exactly what would make it wrong again on the NEXT
+    unpublished skill. Recorded here so the next reader re-argues it from the evidence rather than
+    from the fact that one counter-example expired.
 
     `--reviews` rules the opposite way for the opposite reason; see `check_reviews`.
     """

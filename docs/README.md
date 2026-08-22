@@ -62,9 +62,14 @@ smaller.
 **`project-conformance` is published.** It reports whether an onboarded repository still meets the
 standard, and repairs the part of that answer that is mechanical. The disaster-recovery argument
 that carried `execution-methodology` applied to it unchanged and no counter-argument was ever made:
-it was unpublished only because publishing it is four coordinated edits — the skill tree, the
-`.gitignore` allowlist line, the `install/skills/README.md` row, and the tables in
-`what-gets-installed.md` — and no task had owned all four at once. One now has. Those four edits
+it was unpublished only because publishing it is a set of coordinated edits and no task had owned
+them all at once. One now has: the skill tree, the `.gitignore` allowlist line, the
+`install/skills/README.md` row, the tables in `what-gets-installed.md` — and a FIFTH this paragraph
+did not name, `MIRRORED_SKILLS` in `check_toolchain.py`, which governs the Codex mirror. The
+installer began mirroring the seventh skill while that list still watched six, so it was installed
+on the Codex side and guarded by nothing there for exactly as long as it took to notice. A roster
+that lives in five places is repaired in five commits or not at all, and a document that counts
+four is how the fifth gets missed. Those four edits
 were the whole content of the two top-level entries in the vendored-drift baseline, so that
 baseline is now three findings and not five; the three that remain are the `agent-personas` test
 files, which are a different decision entirely. See

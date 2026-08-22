@@ -316,7 +316,10 @@ in `install/skills/.gitignore`, and name it in `install/skills/README.md`, `READ
 `docs/agents/what-gets-installed.md`.
 
 **Over:** leaving it installed-only, which is what it had been. The objection was never
-disagreement; it was that publishing is four coordinated edits and no task had owned all four.
+disagreement; it was that publishing takes several coordinated edits and no task had owned them all.
+The record said four. There were five: `MIRRORED_SKILLS` in `check_toolchain.py` governs the Codex
+mirror, and the installer began mirroring seven skills while that list watched six. The fifth was
+found only because the file had already written down the gap it would leave.
 
 **Why:** the disaster-recovery argument that carried `execution-methodology` applies to it
 unchanged, and the public-repo invariant costs nothing — the skill names no project, path or
