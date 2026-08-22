@@ -126,7 +126,7 @@ Seven artifacts, three human gates. Nothing downstream begins until its input ex
 1. **Specs, reviewed with the founder.** `product-steward` writes the PRD and feature specs; the
    founder reviews them with a disposable interactive HTML explainer — one file, rendered from the
    specs, deleted at approval. Decisions land in the spec text, never in the explainer.
-2. **Task breakdown, reviewed with the founder.** `planner` (plus `contract-architect` on durable
+2. **Task breakdown, reviewed with the founder.** `chief-of-staff` (plus `migration-validator` on durable
    boundaries) decomposes features into lane-tagged tasks; the founder reviews the task list —
    titles, outcomes, dependencies — never the cards.
 3. **Plans, machine-reviewed.** Implementation and validation plans at two granularities — feature
@@ -155,7 +155,7 @@ DESIGN              structure, boundaries, invariants at risk
     ▼
 PLAN                Goal Capsule · lanes · file structure · task decomposition
     │               FROZEN interfaces including payloads
-    │               → planner, contract-architect on durable boundaries
+    │               → chief-of-staff, migration-validator on schema and migration
     │               one adversarial review under the review budget
     ╞══════════════ GATE 2 — human approves the plan
     ▼
@@ -221,7 +221,7 @@ The design (`docs/superpowers/specs/<date>-<topic>-design.md`, owned by `archite
 structure, module boundaries, dependency direction, and the section that earns the gate: **which
 existing invariants this change puts at risk, and what fails closed if it is wrong.**
 
-The plan (`docs/superpowers/plans/<date>-<feature>.md`, owned by `planner`) freezes file structure,
+The plan (`docs/superpowers/plans/<date>-<feature>.md`, owned by `chief-of-staff`) freezes file structure,
 task decomposition, **interfaces including payloads**, each task's lane, and one Goal Capsule: the
 actor outcome, one primary byte-real observable, the named safety and compatibility invariants,
 non-goals, the allowed write boundary, known facts, `UNKNOWN`s, and the stop condition. Plan the
@@ -525,18 +525,18 @@ landed four commits, the warm ones a hundred and fifty-one.
 | Product and feature specs | `product-steward` |
 | Design | `architect` |
 | Pre-gate review (design / plan mode) | fresh read-only `reviewer` |
-| Plan | `planner`, `contract-architect` on durable boundaries |
+| Plan | `chief-of-staff`, `migration-validator` on schema and migration |
 | Locating code | `scout` |
 | Implementation | `developer` or `senior-developer`, chosen by the plan |
 | Task review | `reviewer`; `security-validator` on safety surfaces; +1 specialist max |
 | Gate execution | `test-judge` |
 | Milestone judgement | `acceptance` |
-| Route, README, lessons | `docs-steward` |
+| Route, README, lessons | `product-steward` |
 | Holding the loop | `chief-of-staff` |
 
 **Prose routing** is by who still holds the judgement: a behavioural claim written by whoever
 changed the behaviour stays with the implementer; drift with no behavioural claim, and corrections
-a review has already worded, go to `docs-steward`. The test: can the fix be applied without
+a review has already worded, go to `product-steward`. The test: can the fix be applied without
 reading the code? An **absence claim** — what a check does *not* cover — is never transcription;
 this methodology's history is mostly wrong absence claims made confidently.
 

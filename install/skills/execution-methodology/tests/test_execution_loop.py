@@ -64,8 +64,13 @@ REQUIRED = (
 )
 # Named in the document because the loop has to cast them somewhere. Five of these were previously
 # reachable only through one row of one table in methodology.py — including both implementers.
+# `docs-steward` and `planner` were folded into `product-steward` and `chief-of-staff`, and
+# `contract-architect` was retired as a review seat. Their persona files remain so that 425 existing
+# citations across the fleet still resolve, but the loop must cast the SUCCESSOR — a procedure that
+# still names a superseded seat is how a merge becomes cosmetic.
 CAST = ("chief-of-staff", "developer", "senior-developer", "scout", "test-judge", "reviewer",
-        "security-validator", "acceptance", "docs-steward")
+        "security-validator", "acceptance", "product-steward")
+SUPERSEDED = ("docs-steward", "planner", "contract-architect")
 
 BASH_FENCE = re.compile(r"^```bash\s*$")
 FENCE_END = re.compile(r"^```\s*$")
@@ -216,6 +221,14 @@ class DocumentedInterfaceTest(unittest.TestCase):
             with self.subTest(persona=persona):
                 self.assertIn(f"`{persona}`", self.text,
                               f"{persona} is cast nowhere in the loop")
+
+    def test_the_loop_does_not_cast_a_superseded_seat(self) -> None:
+        """Measured before merging: these three drew 0, 0 and 6 blocking verdicts as review seats.
+        Their files stay so existing references resolve; dispatching to them is what stops."""
+        for persona in SUPERSEDED:
+            with self.subTest(persona=persona):
+                self.assertNotIn(f"`{persona}`", self.text,
+                                 f"{persona} was merged away but the loop still casts it")
 
     @unittest.skipUnless(POOL.is_dir(), "the persona pool is not installed beside this skill")
     def test_every_base_persona_the_loop_names_exists_in_the_pool(self) -> None:

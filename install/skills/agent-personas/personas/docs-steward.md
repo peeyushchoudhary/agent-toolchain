@@ -1,6 +1,6 @@
 ---
 name: docs-steward
-description: Use when documentation needs to change alongside code — the agent route, a README, an architecture page, or a lessons entry. Also when a doc has drifted from what the code does.
+description: SUPERSEDED by product-steward — do not select this persona. Keeping documentation true is current-state custody, which is the job product-steward already holds. This file remains only so existing references resolve.
 writes: yes
 claude.model: sonnet
 claude.effort: medium

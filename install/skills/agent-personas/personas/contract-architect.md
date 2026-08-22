@@ -1,6 +1,6 @@
 ---
 name: contract-architect
-description: Use when a change crosses a durable boundary — a REST contract, a database schema or migration, a generated client, a queue message shape, or a module's public interface.
+description: RETIRED as a review seat — do not select this persona to review. Its concern splits: durable interface shape (REST contract, generated client, queue message shape, public interface) is judged by reviewer in design mode, and database schema and migration are judged by migration-validator. This file remains only so existing references resolve.
 writes: yes
 claude.model: opus
 claude.effort: high

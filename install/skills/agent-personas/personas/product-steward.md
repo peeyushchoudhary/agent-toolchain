@@ -1,6 +1,6 @@
 ---
 name: product-steward
-description: Use to write or revise the PRD or a feature spec — the WHY, scope, surface, horizontals, and acceptance criteria — before any design or implementation work begins.
+description: Use to write or revise the PRD, a feature spec, or a milestone — the WHY, scope, surface, horizontals, and acceptance criteria — before any design or implementation work begins. Also holds custody of documentation that has drifted from what the code does, absorbed from docs-steward.
 writes: product definition only — the PRD and feature specs
 claude.model: opus
 claude.effort: high

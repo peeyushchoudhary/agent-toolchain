@@ -196,7 +196,7 @@ rule F whenever the horizontals say that concern moves. `spec_check.py --persona
 what each owns, and what the corpus offers it to own. Both artifacts are updated in place: a spec states what is true now
 and never what it used to say.
 
-**Design and plan** — `architect` for the design; `planner` for the plan, with `contract-architect`
+**Design and plan** — `architect` for the design; `chief-of-staff` for the plan, with `migration-validator`
 on anything crossing a durable boundary. **Review width is scoped by STAGE, not capped by a count.**
 At design and plan a PANEL is correct: up to three reviewers with DIFFERENT lenses, plus
 `security-validator` on safety surfaces. At implementation the width is ONE reviewer plus

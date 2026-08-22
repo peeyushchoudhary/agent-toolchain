@@ -225,7 +225,7 @@ criteria, and committing, pushing and merging stay founder decisions.
 ## 3. Who is cast, and when
 
 The persona pool is not decoration. Five of its members — `developer`, `senior-developer`, `scout`,
-`acceptance` and `docs-steward` — were cast only by a stage/role table and never by a procedure: no
+`acceptance` and `product-steward` — were cast only by a stage/role table and never by a procedure: no
 step of the methodology said run this one, now. Two of the five are the ones that implement.
 
 | Step | Persona | Why this one |
@@ -240,7 +240,7 @@ step of the methodology said run this one, now. Two of the five are the ones tha
 | Schema, migration or backfill moved | `migration-validator` | the data plane had no owner; see §4 |
 | Domain invariant moved | the repository's own validator | cast at DESIGN, not here: 66 implementation reviews, 0 blocks |
 | Judge the milestone against criteria | `acceptance` | the only judgement the loop must not make about itself |
-| Route, README, lessons after the milestone | `docs-steward` | prose with no behavioural claim is not the writer's |
+| Route, README, lessons after the milestone | `product-steward` | prose with no behavioural claim is not the writer's |
 
 A card's `persona` is the **implementer**, which is why the validator accepts exactly `developer`
 and `senior-developer` there. Measured on 272 real cards in four repositories, 271 name one of those

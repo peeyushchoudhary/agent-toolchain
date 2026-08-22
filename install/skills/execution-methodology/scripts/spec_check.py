@@ -100,7 +100,15 @@ PRD_KEYS = (("title", "status", "updated"), ("reach", "reviewed_by"))
 # checker that passes because it recognises nothing is worse than no checker, since it reports green.
 # The suffix letter is real too: AC-8A/8B/8C split one criterion into variants after the fact, which
 # is how a spec grows a case without renumbering the ones a test already cites.
-AC_RE = re.compile(r"^\s*[-*]?\s*\*\*AC-(-?\d+[A-Z]?)\s*(?:[—–-][^*]*?)?\*\*:?\s*(.*)$")
+# THE BOLD IS OPTIONAL, and this is the FOURTH time this one pattern has been too strict against the
+# real corpus. It first matched 0 of 416 criteria; it now missed a whole repository's 521, which
+# write `AC-1 When the user...` with no `**` at all. Those 521 are already EARS-shaped: relaxing the
+# markers surfaces every one of them and yields exactly ONE finding, so the strictness was never
+# protecting anything — it was hiding a repository from every criterion rule at once.
+# Bold is a HOUSE STYLE. A criterion is identified by its id and its sentence, not by its emphasis,
+# and a checker that requires the emphasis reports a clean exit on a spec it never read.
+AC_RE = re.compile(
+    r"^\s*[-*]?\s*(?:\*\*)?AC-(-?\d+[A-Z]?)\s*(?:[—–-][^*\n]*?)?(?:\*\*)?:?\s+(.*)$")
 # The precondition is OPTIONAL, deliberately. EARS itself has five patterns and only some carry a
 # state clause, and a mandatory slot manufactures filler to fill it: the first spec written against
 # a required `given` produced "given any outcome", which constrains nothing and trains the reader to
