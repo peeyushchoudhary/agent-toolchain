@@ -187,3 +187,15 @@ Also: `verify.sh` runs the vendored suite of a skill that ships one, and SKIPS w
 a missing suite as a pass or a failure; it names it as untested. That is the answer to the
 brief's question — asked of the wrong skill, since this one does ship tests.
 
+## F18 — a sibling branch already landed the migrator this check points at
+Local `main` advanced while I worked: `ebcbce0 merge: a docs/product mode, and the relink defect
+it found on the way in`. It adds `migrate_to_standard.py --product`, which binds
+`docs/product/specs/<slug>/spec.md` into the `F-*.md` schema — the SAME 233-document corpus my
+Repo A number comes from. The two pieces fit: my check reports the debt, that one repays it.
+FILE OVERLAP BETWEEN THE TWO BRANCHES: **ZERO**. `git diff --name-only` on each shows no shared
+path, so the merge is clean.
+I did NOT change my remedy string to name `migrate_to_standard.py --product`, deliberately: that
+flag does not exist on my branch, I have not run it, and this repository's own rule is that an
+untrue remedy is worse than none — the reader runs it, sees the finding survive, and learns to
+ignore both. Naming it is the integrator's one-line call after the merge.
+
