@@ -983,6 +983,16 @@ def main() -> int:
     # It is reported, never silent. A workspace that answers nothing because it is sealed must say
     # so, or this is indistinguishable from a checker that found nothing — which is precisely the
     # failure this repository has recorded nine times.
+    # SEALED SUBTREES ARE SKIPPED, not just a sealed root. The guard is pointed at the workspace
+    # PARENT — `analysis/.workspace` — under which each milestone keeps its own directory, so a
+    # root-only probe answered for a directory that never carries a receipt while every sealed
+    # milestone beneath it kept failing. Found by pushing: the first fix cleared the child and the
+    # push stayed blocked.
+    sealed_roots = {p.parent for p in args.workspace.rglob("SEALED-RECEIPT*") if p.is_file()}
+
+    def is_sealed(path: Path) -> bool:
+        return any(path == root or root in path.parents for root in sealed_roots)
+
     sealed = next((p for p in sorted(args.workspace.glob("SEALED-RECEIPT*")) if p.is_file()), None)
     if sealed is not None and not args.json:
         print(f"{args.workspace.name}: sealed by {sealed.name} — the rounds are spent and the "
@@ -1070,6 +1080,8 @@ def main() -> int:
         })
 
     for path in sorted(args.workspace.rglob("*")):
+        if is_sealed(path):
+            continue
         if not path.is_file():
             continue
         rel = str(path.relative_to(args.workspace))
