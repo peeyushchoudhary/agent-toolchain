@@ -107,8 +107,53 @@ Nothing outside `docs/` is ever proposed for rename. `plan.md` is excluded becau
 ## 4. Implementation
 in progress
 
-## 5. Validation numbers (word count, link check, spec_check before/after)
-in progress
+## 5. Validation numbers -- MEASURED ON /tmp/loomaya-copy (a COPY; original never touched)
+
+PLAN (`migrate_to_standard.py . --product`, exit 0, writes nothing), 270 lines:
+    bound today: 0 document(s) match docs/product/specs/F-*.md
+    spec-shaped and bound by nothing: 65
+    move   docs/product/specs/fed-c1-health-only/spec.md
+           ->  docs/product/specs/F-1-fed-c1-health-only.md
+           + id: F-1   title: "FED-C1 - Health-only ingestion boundary"
+             prd: docs/product/specs/feed.md   status: draft   updated: 2026-08-13
+    ... 64 of these ...
+    NOT MIGRATED -- 1 document(s) a human has to decide:
+    skip   docs/product/specs/met-metric-tree/spec.md
+           no feature id in the H1 'MET - Metric tree and guardrails'
+    verification:
+      body words   before 102901   after 102901   IDENTICAL
+      links        checked 1254   broken 0
+    DRY RUN -- 64 rename(s) plus header. Nothing written.
+
+APPLY (`--product --apply`, exit 0): 64 `git mv` + 64 prepends + **140 relink edits**.
+    after --apply:
+      body words   before 102901   after 102901   IDENTICAL
+      links        checked 1254   broken 0
+The 140 relinks are the M1 fix earning its keep: 64 spec files rose out of their directory and
+76 sibling README/plan files pointed INTO them. Without the fix most of those 140 would be silent
+breakage.
+
+spec_check BEFORE:
+    exit 0, ZERO findings
+    "0 spec/PRD/milestone document(s) of 236 under docs/product, 0 with a `## Horizontals`
+     section, 0 labelled concern row(s), 0 live -- RULE F CHECKED NOTHING
+     ... 233 document(s) under docs/product/specs/ are not named `F-<n>-<slug>.md`,
+     so NOTHING here read them."
+
+spec_check AFTER:
+    exit 1, ONE finding:
+      docs/product/specs/F-46-pth-c2-protocol-authoring.md:145  C2  this trigger and precondition
+      already appear on line 135; one situation, two answers
+    "64 spec/PRD/milestone document(s) of 236 under docs/product, 64 with a `## Horizontals`
+     section, 576 labelled concern row(s), 538 live ... 169 document(s) ... not named ..."
+
+    0 -> 64 documents READ.  0 -> 576 concern rows visible to rule F, 538 of them live.
+    233 -> 169 unbound, and the 169 left are READMEs, plans and area pages that are correctly
+    NOT specs. ZERO B1/B2/B3/B4/D3 findings: the header the mode writes satisfies the schema on
+    the first run, so the one finding that survives is about the PROSE, not the plumbing.
+    The brief predicted "a single parent-link finding". I got a single CONTENT finding instead,
+    because `prd:` was derived from the parent link each document already carried rather than
+    left unresolved.
 
 ## 6. Break test
 in progress
