@@ -12,10 +12,11 @@ the human record of the judging roster as a sibling of the skill tree, which und
 not exist and should not. Measured, and weighed against the alternative, in
 [D24](../decisions/decisions.md).
 
-`check_toolchain.py --vendored <repo>` therefore reports **3 criticals, all expected**: those three
-test files, which cannot be silenced in that `.gitignore` — D24 says why. A count other than 3, or
-a finding not named here, is drift. **The baseline was 5**, at `a008768`; the other two were the
-`project-conformance` publication gap, now closed ([D20](../decisions/decisions.md)).
+`check_toolchain.py --vendored <repo>` reports **3 criticals, all expected**. They are named
+individually in [D25](../decisions/decisions.md), not counted here: the number stayed at 3 while
+the identity of all three changed underneath it, so a count is a weak hash. **The baseline was 5**,
+at `a008768`; two were the `project-conformance` publication gap, now closed
+([D20](../decisions/decisions.md)).
 
 **`project-conformance` ships tests and they ARE vendored**, and it is **not** in
 `MIRRORED_SKILLS`. Its suite is `Ran 56 tests ... OK` from the vendored position and red under

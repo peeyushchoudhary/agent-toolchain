@@ -426,3 +426,33 @@ collection failure on every run.
 silenced in `install/skills/.gitignore`: exclusion matches anchored rules on their first path
 component only, an interior-slash rule is skipped, and an unanchored pattern would exclude every
 test directory in both trees — including the `progressive-disclosure` suite `verify.sh` does run.
+
+
+## D25 — The vendored-drift baseline names its findings, because the count did not hold
+
+**Chose:** list the three expected criticals individually, in this record, with a reason each.
+
+**Over:** the previous form in `what-gets-installed.md`, which stated a count and one collective
+description.
+
+**Why:** the count stayed at 3 while the identity of all three findings changed underneath it. The
+entry read "those three test files" and named the `agent-personas` suite; the three actually printed
+are a top-level `.gitignore` difference, a top-level `README.md` difference, and
+`execution-methodology`'s `ROUND-GRANTS.tsv`. That document's own rule said *a finding not named
+here is drift* — so this was drift, and it went unnoticed for as long as only the number was
+compared. **A count is a weak hash.**
+
+**The three, and why each is expected:**
+
+| critical | why |
+|---|---|
+| top-level `.gitignore` differs | `~/.claude/skills/.gitignore` is a SIXTH allowlist, machine-global and separate from `install/skills/.gitignore`. It governs what the installed tree commits, not what this repository publishes. |
+| top-level `README.md` differs | the installed index is generated for the machine; the vendored one is the published page. |
+| `execution-methodology` `ROUND-GRANTS.tsv` installed, absent vendored | operator data. The vendored copy ships without the ledger by invariant, because a grants row names a real subject on a real machine. |
+
+**Why it lives here and not in the inventory:** that page is a routed guide under a word budget and
+sat at 1,199 of 1,200 before the eighth skill was published. This record accretes and carries no
+budget by the same validator's ruling, which is where a list that will grow belongs.
+
+**Known-wrong-in-a-month if:** a fourth critical appears and this table is not extended in the same
+change, which would reproduce the exact failure it documents.
