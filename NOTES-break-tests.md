@@ -1,6 +1,6 @@
 # Break-tests for execution-methodology checkers
 
-TOP 3 SO FAR: N4 milestone_seal's verify() tree re-check, gate-heading exact match and mode exclusivity are all untested; N2 start_junit_run receipt can be silently OVERWRITTEN green; N1 three checkers ship mode 0644 against a bare documented invocation
+TOP 3 SO FAR: N4 milestone_seal verify() never re-checks the tree it was asked about (green); N2 a start receipt can be silently OVERWRITTEN (green); N1 three checkers ship mode 0644 against a bare documented invocation. 20 uncovered gates found across 6 scripts so far.
 
 ## 0. Method
 in progress
@@ -140,3 +140,21 @@ Mutation log (run = the script's own mapped test modules):
   Covered (RED): TC1 normalise leading zeros, TC2 nearest-qualifier inheritance, TC3 left
   boundary, TC5 coverage-map heading anchoring, TC6 not-tested heading anchoring, TC7 draft
   specs excluded from LIVE.
+
+### N7 — sync_methodology.py: four uncovered
+  SM3  `strip_code` stops stripping INLINE code                          GREEN — suite passes
+       The function's docstring is the specification: "A repository that documents the marker —
+       in its own route index, under a fence — must not thereby be reported as having deferred."
+       The FENCE half is tested (SM2 RED). The INLINE-backtick half is tested by nothing, so a
+       README that merely MENTIONS the marker in backticks is read as a deferral DECISION.
+  SM5  `if total > 1:` -> dead (two markers, first wins)                 GREEN — suite passes
+       The error text says "keep exactly one"; nothing tests that two are refused.
+  SM8  `FENCE_RE` `^\s{0,3}(?:```|~~~)` -> `^(?:```)`                   GREEN — suite passes
+       An indented fence (a fenced block inside a list item) and a `~~~` fence both stop
+       toggling the fenced state, so everything inside them is read as prose.
+  SM9  marker regex `\{[^\r\n]*\}` -> `\{.*?\}` with DOTALL semantics GREEN — suite passes
+       A multi-line marker is accepted although the error text says it "must be one single-line
+       JSON object".
+  Covered (RED): SM1 is_ours, SM2 fenced-code stripping, SM4 deferral reason, SM7 overlay
+  appended, SM10 deferral date format.
+  (SM6 was a comment-only edit and is discarded, not a result.)
