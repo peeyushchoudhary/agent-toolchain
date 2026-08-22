@@ -85,3 +85,42 @@ Note: the suites are NOT discoverable from the repo root
    `install/skills/agent-personas/personas/`.
    => Any rewrite must keep all six literal skill names and the word "fourteen"
       next to "persona" on the front page.
+
+## Finding: the destination budget forbids the obvious move
+
+Routed guide word counts today (budget 1200 at depth >= 1):
+
+| Doc | Words |
+|---|---|
+| docs/onboarding-a-project.md | 1200 |
+| docs/progressive-disclosure.md | 1200 |
+| docs/what-gets-installed.md | 1199 |
+| docs/decisions.md | 1185 (record, exempt) |
+| docs/agent-personas.md | 1178 |
+| docs/measurements.md | 2274 (record, exempt) |
+
+=> The 2520-word weekly record cannot move into ANY existing routed doc. Three of
+them are within 1 word of the wall. It needs a new file, and that file must be
+recognised as a RECORD or it warns `over-budget` on arrival.
+
+## Decision (step 3)
+
+- New file `docs/improvements-weekly.md` holds ALL EIGHT entries verbatim, newest
+  first. Nothing is deleted.
+- `RECORD_NAME` in `validate_disclosure.py` gains the accreting-record class it is
+  missing: `improvements`, `changelog`, `history`. The code comment beside it already
+  warns that the last fix named the FILE rather than the CLASS; naming only
+  `improvements` would repeat that mistake.
+- The front page keeps the three most recent entries CONDENSED, each linking to its
+  full text in the record. A verbatim copy on both pages would be two sources that
+  drift, which this repository already treats as a defect.
+- Entry-count note fires above 24 entries. Eight entries: no note.
+
+## Decision (step 1/2)
+
+- Lead the page with the mermaid diagram. The architecture heading regex accepts
+  `## How it works`, so the diagram section can sit first and still satisfy the
+  contract. The stage table must stay in the SAME section as the fence or
+  `readme-diagram-drift` fires on every node label.
+- `## Current state` (739 words, one wall) becomes short subsections plus tables.
+  Every claim survives.
