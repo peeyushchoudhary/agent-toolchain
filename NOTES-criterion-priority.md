@@ -1,6 +1,6 @@
 # Criterion priority — working notes (agent/criterion-priority)
 
-**TOP 3 SO FAR:** (1) `[P1]` trailing tag verified invisible to spec_check on 995 real criteria (0 new, 0 lost findings); spec-kit's `(P1)` after the id would have raised a false C1 on every marked criterion; (2) priority is not hidden in prose (1/406, 20/589); (3) any rule on a new optional field is green on day one by construction.
+**TOP 3 SO FAR:** (1) `[P1]` trailing tag measured invisible to spec_check on 995 real criteria (0 new, 0 lost); spec-kit's `(P1)` after the id raises a false C1 on every marked line; (2) priority CAN reach `--ready` for free (`milestone_features` already opens every spec) but only as a WITHIN-FEATURE tiebreak, never in the primary key; (3) no spec_check rule: zero of 1005 criteria carry priority, so every candidate rule is green on day one.
 
 ## 0. Design basis (p_sdd finding, per-story priority)
 in progress
@@ -54,3 +54,34 @@ inert on the marked lines. Adopting spec-kit's exact placement would have requir
 regex whose over-strictness has already been recorded as wrong four times.
 The trailing bracket is also the slot `references/specs.md` ALREADY documents for `[authz]` `[audit]`
 `[money]` `[pii]` `[a11y]`, so this is a second value in an existing convention, not a new site.
+
+### M4 — Does priority reach the dispatcher? YES, and the plumbing already exists
+- `--ready` REFUSES to run without `--milestone` (ids are plan-local otherwise), and
+  `milestone_features()` already opens **every** `docs/product/specs/F-*.md` with its own `Doc` to
+  read `milestone:`. Reading the criterion lines of those same already-open documents costs one
+  extra pass over files the run has loaded anyway. No new file walk, no new argument.
+- `covers: [AC-4, AC-7]` is already on every task and `W5` already fails a task whose `covers` is
+  empty, so **every dispatchable task already names its criteria**. The join is `covers` -> `AC-n`
+  -> `[Pn]` in that feature's spec. Nothing new has to be authored on the task side.
+- Current order: `sorted(key=lambda t: (-rank[t], t.ident))` where `rank` = transitive downstream
+  count. `unlocks()` records the measurement: id-order was no faster than the wave barrier and at
+  five writers SLOWER; rank-order is 11-22% faster. **Priority must not touch the primary key.**
+  A P1 leaf ahead of a P3 task that unlocks twenty lengthens the makespan and gives back the
+  measured 11-22%.
+
+### M5 — WHERE priority may sit in the key, and what breaks
+The safe insertion is `(-rank, FEATURE(ident), priority, ident)`.
+Ids are qualified `F-<id>/T<n>`, and `/` (0x2F) sorts below `0` (0x30) and below `A`, so sorting by
+feature-prefix then ident is IDENTICAL to sorting by ident. **Inserting priority between them
+reorders tasks only WITHIN one feature and cannot move one feature ahead of another.**
+That is the answer to "two tasks cover criteria of different priority":
+- Same task, several criteria: the task takes the BEST (lowest) priority it covers. The task has to
+  run for that criterion to close, so the criterion's rank is the task's floor.
+- Two tasks, same feature: the spec author ranked those against each other. Honour it.
+- Two tasks, different features: NOT COMPARED, deliberately. Nobody ranked feature against feature
+  in a spec; the milestone is the document that does that, and it is the one place ordering already
+  lives. A cross-feature priority key would let one spec adopting the notation silently demote every
+  feature that has not — the "unprioritised looks like all-P1" inversion, arriving through the
+  dispatcher instead of through a checker.
+- Unmarked criteria inside a feature that DOES mark some: sort after the marked ones, and only
+  inside that feature. A feature that marks nothing is bit-for-bit unchanged.
