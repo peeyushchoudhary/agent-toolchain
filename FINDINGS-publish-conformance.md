@@ -56,3 +56,18 @@ skipped=3)`. The suite drives the REAL installed checkers (`sync_personas.py`,
 verify.sh already declares this exposure in its own `HOME: ... INHERITED, not declared` context
 line. Needs comparison against the existing suites before claiming it is new.
 
+## F7 — measured comparison: this suite is HOME-coupled, the other two are not
+Same clean `HOME=$(mktemp -d)`, run from the vendored position:
+| suite | inherited HOME | empty HOME |
+|---|---|---|
+| progressive-disclosure | (green) | Ran 395 ... FAILED (failures=1, skipped=9) |
+| execution-methodology  | (green) | Ran 1070 ... OK (skipped=12) |
+| project-conformance    | Ran 56 ... OK | Ran 56 ... FAILED (failures=15, errors=7, skipped=3) |
+Cause: `check_conformance.py` ORCHESTRATES — it reimplements nothing and shells out to the real
+installed `sync_personas.py`, `validate_disclosure.py`, `install_hooks.py`,
+`check_toolchain.py` under `$HOME/.claude`. Its suite therefore drives real installed tools.
+DECISION: vendor the tests anyway (they are green in the vendored position, which is what
+`verify.sh` actually runs, and they are the only disaster recovery for 989 lines of test), and
+RECORD the empty-HOME numbers in what-gets-installed.md rather than papering them.
+Leaving them out would instead ADD a vendored-drift critical (baseline 4, not 3).
+
