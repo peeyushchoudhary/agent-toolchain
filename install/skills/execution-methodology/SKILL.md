@@ -10,15 +10,28 @@ Codex. The rules live in [methodology.md](methodology.md) — read that; this fi
 
 ## The shape, in one screen
 
+```mermaid
+flowchart TD
+    PRD["PRD"] -- "spec_check.py" --> SPEC["feature spec"]
+    SPEC --> DESIGN["design"]
+    DESIGN -- "check_review_budget.py" --> G1{{"gate — design"}}
+    G1 --> PLAN["plan"]
+    PLAN -- "check_review_budget.py" --> G2{{"gate — plan"}}
+    G2 -- "plan_waves.py" --> TASKS["tasks"]
+    TASKS -- "validate_card.py" --> LOOP["the loop"]
+    LOOP -- "verify_junit.py" --> COMMIT["commit"]
+    COMMIT -- "trace_check.py" --> MILESTONE["milestone"]
+    MILESTONE -- "milestone_seal.py" --> ACCEPT["acceptance"]
+    ACCEPT --> G3{{"gate — merge"}}
+    G3 --> PR["PR"]
 ```
-PRD → feature spec → design → budgeted review →│GATE│
-                                      plan → budgeted review →│GATE│→ tasks
-                                                              ↓
-              per task, unattended: context → implement → review (2 rounds max)
-                   → full-diff review (full lane) → validate → commit + distillation
-                                                              ↓
-                     milestone: gate → sealed receipt + process metrics → acceptance →│GATE│→ PR
-```
+
+Each edge is labelled with the instrument that binds it, and every one of those names is checked
+against `scripts/` by `tests/test_shape_diagram.py`. The per-task detail inside **the loop** is
+drawn once, in [references/execution-loop.md](references/execution-loop.md), and not repeated here:
+the ASCII pipeline this replaced carried four terms — budgeted review, full-diff review, sealed
+receipt, process metrics — that appeared nowhere else in this file, which is what a second,
+unchecked vocabulary looks like before anyone notices.
 
 Three human gates: the design, the plan, and the merge. Between the plan gate and the merge gate the
 loop runs unattended.

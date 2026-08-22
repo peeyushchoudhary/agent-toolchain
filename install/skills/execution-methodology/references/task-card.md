@@ -185,6 +185,24 @@ script with a shebang, then name that script directly. The rejected shell basena
 `cmd`, and `cmd.exe`. Shell-looking argument values are data; unlisted wrappers are direct
 processes but never lend nested executable evidence.
 
+**A path is not a behaviour.** `writes` and `exclusive_writes` model which FILES a task may touch,
+and the loop's own limits section says so plainly: two tasks with disjoint write sets can still
+break each other through shared state, a changed default, or an ordering nobody declared. Nothing in
+this toolchain can see that, and no glob ever will.
+
+So when a task changes something a user can observe — a route's response, a screen, a migration's
+effect on existing rows, a job's timing — `validation` must name a command that EXERCISES it, not
+only one that compiles or unit-tests it. A browser driver, an HTTP call against a started service, a
+migration applied to a seeded copy and read back: whatever the repository already owns. This is a
+requirement on WHAT the command does, not a new field, because `validation` is already arbitrary
+`argv` and adding a field would be a second place to state the same thing.
+
+The check that cannot be written here is the one that matters: nothing verifies that a command is
+behavioural rather than nominal. `trace_check.py` proves a test with a criterion's id ran and
+passed, and T7 proves its body changed in the range — neither proves it drove the product. That gap
+is stated rather than closed, because a checker that guessed at behaviour from a command line would
+be the tenth in this repository to report a clean exit over something it never read.
+
 This value shape is **task-card validation contract v2**. v1 cards are invalid under v2 because
 they contain scalar command strings; v2 cards are invalid under v1 because the old validator
 flattens mappings rather than decoding processes. To migrate, move a leading directory change into

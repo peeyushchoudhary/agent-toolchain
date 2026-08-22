@@ -88,7 +88,19 @@ VAGUE_RE = re.compile(r"\b(" + "|".join(VAGUE_WORDS) + r")\b", re.IGNORECASE)
 
 STATUSES = ("draft", "approved", "building", "shipped", "dropped")
 SPEC_KEYS = (("id", "title", "prd", "status", "updated"),
-             ("depends", "withdrawn", "decisions", "edge_cases", "milestone", "reviewed_by"))
+             ("depends", "withdrawn", "decisions", "edge_cases", "milestone", "reviewed_by",
+              # A BUG IS A SPEC WHOSE `Why` IS A DEFECT, and these two keys are the whole cost of
+              # saying so. The alternative — a `B-<n>` document type — was evaluated and rejected:
+              # `is_spec` binds by the path glob `docs/product/specs/F-*.md`, so a `B-4-*.md` file
+              # would be walked, matched by no schema rule, and reported clean having been read by
+              # nothing. That is the exact shape of the nine inert checkers, built on purpose.
+              #
+              # Everything else a bug needs already exists. Its repro IS an EARS trigger and
+              # precondition; its expected behaviour IS the observable result; so C1-C4, the
+              # withdrawn ledger, the coverage map and `trace_check.py` bind unchanged. The intake
+              # is the deferral register, whose `trigger:` is the reproduction as a COMMAND with its
+              # observed failure count rather than as prose.
+              "severity", "regresses"))
 # `reviewed_by:` is OPTIONAL on both, and the optionality is the design. Required, it would produce
 # a finding on all 89 real specs on the day it shipped, and a checker that opens with ninety
 # findings is switched off before it reports a true one. It is demanded a name at a time, by rule
@@ -433,6 +445,29 @@ def check_spec(doc: Doc, root: Path, seen: dict[str, str], f: Findings) -> None:
             f.add(doc, doc.at("withdrawn"), "B5",
                   f"AC-{retired} is superseded by AC-{successor}, which is itself withdrawn; the "
                   "chain has to end at a criterion that exists")
+    # `regresses:` names the criterion this defect broke. It is checked the same way rule E4 checks
+    # a register row's `threatens:` — a dead id here would let a bug spec claim it restores something
+    # nobody requires, which is the one claim a bug spec exists to make.
+    regresses = doc.front.get("regresses")
+    if isinstance(regresses, str) and regresses.strip():
+        wanted = regresses.strip()
+        live = {f"AC-{item.number}" for item in criteria(doc)}
+        if not re.fullmatch(r"AC-\d+[A-Z]?", wanted):
+            f.add(doc, doc.at("regresses"), "B6",
+                  f"`regresses: {wanted}` is not a criterion id; write `AC-<n>`")
+        elif wanted[3:] in withdrawn:
+            f.add(doc, doc.at("regresses"), "B6",
+                  f"`regresses: {wanted}` is withdrawn; a defect cannot break a retired requirement")
+        elif live and wanted not in live:
+            f.add(doc, doc.at("regresses"), "B6",
+                  f"`regresses: {wanted}` names no criterion in this document; the criterion the "
+                  "defect broke has to be one this spec states, or the fix has nothing to restore")
+    severity = doc.front.get("severity")
+    if isinstance(severity, str) and severity.strip() and severity.strip().lower() not in (
+            "low", "medium", "high"):
+        f.add(doc, doc.at("severity"), "B6",
+              f"`severity: {severity.strip()}` is not one of low | medium | high. Three values, "
+              "because a taxonomy with more is argued about instead of used")
     check_criteria(doc, withdrawn, f)
 
 

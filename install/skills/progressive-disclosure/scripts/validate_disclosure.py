@@ -105,6 +105,19 @@ CODE_SUFFIXES = {
 }
 
 MD_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+
+# The architecture diagram, and what may serve as one. A raster is refused on two measured grounds,
+# not on taste: it cannot be diffed, so it goes stale in silence -- this repository's own README
+# carried an architecture PNG through 93 commits and a major version while its work-loop box stayed
+# wrong -- and `identifier_guard.py` scans `git diff --cached --text`, where image bytes arrive as
+# mojibake, so a private project name drawn as PIXELS is the one artifact class that walks past the
+# commit guard. A ```mermaid fence is text: the forge renders it, git diffs it, the guard reads it,
+# and `readme-diagram-drift` below can compare it with the prose it claims to summarise.
+MERMAID_FENCE = re.compile(r"^```mermaid\s*$(.*?)^```\s*$", re.DOTALL | re.MULTILINE)
+# A node label, quoted, in any of Mermaid's shape brackets. Quoted edge labels are deliberately not
+# matched: an edge says how two boxes relate, and that sentence has no reason to appear in a table.
+MERMAID_NODE_LABEL = re.compile(r"[\[({>]{1,2}\s*\"([^\"]+)\"\s*[\])}]{1,2}")
+RASTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".avif"}
 # An @import must look like a path. Without the dot-or-slash requirement this matches a bare Java
 # annotation sitting on its own line — `@Entity`, `@RestController` — and every design document that
 # quotes Spring code reports dozens of broken "imports". Matching is also done against code-stripped
@@ -159,7 +172,19 @@ def is_lessons_file(name: str) -> bool:
 # was about. A decision record accretes by definition — a decision that stops being listed stops
 # being findable — and it sat at 1185 of 1200 words, so it was two decisions from the same wall
 # measurements had just hit. A rule aimed at one filename would have had to be written a third time.
-RECORD_NAME = re.compile(r"^(measurements|benchmarks|decisions|adr|rulings)(?:[-_][a-z0-9]+)?\.md$")
+#
+# It was written a third time anyway, and this is that third time — so the CLASS is now stated once
+# and completed, rather than one more filename being appended. A weekly improvement record accretes
+# for exactly the reason the two above do: an entry that stops being listed stops being findable,
+# and the honest fix for a full one is archiving old entries, not shortening true ones. MEASURED on
+# this repository: 2,520 words of weekly entries occupied 51% of the front page, and every routed
+# guide that could have received them sat at 1,178-1,200 of 1,200 words. The move had no legal
+# destination until the destination could be recognised. `changelog` and `history` join it because
+# they are the other two names the same document is given, and a class named by one of its three
+# spellings is the same mistake in a smaller font.
+RECORD_NAME = re.compile(
+    r"^(measurements|benchmarks|decisions|adr|rulings|improvements|changelog|history)"
+    r"(?:[-_][a-z0-9]+)?\.md$")
 
 
 def is_record_file(name: str) -> bool:
@@ -789,14 +814,36 @@ def check_readme(root: Path, files: list[Path], report: Report) -> None:
             continue
         linked.add(dest.resolve())
 
-    # A diagram, in any form the forge renders, inside the architecture section specifically.
-    # Mermaid is preferred — it diffs, and an agent can edit it — but an exported image is a
-    # legitimate choice and not worth failing over.
+    # A diagram inside the architecture section specifically, and one this toolchain can read.
+    # "Prefer Mermaid to an exported image" was advice in references/standard.md and advice is what
+    # a rule becomes when the check accepts both: any `![...](...)` satisfied this for 17 days here
+    # while the picture said the work loop had four steps and it had ten. See MERMAID_FENCE.
     arch_pattern = next(p for k, p, _ in README_SECTIONS if k == "architecture")
     arch_body = section_body(text, arch_pattern)
-    if arch_body and "```mermaid" not in arch_body and not re.search(r"!\[[^\]]*\]\(|<img\s", arch_body):
-        report.error("readme-no-diagram", rel_readme,
-                     "the architecture section has no diagram (```mermaid fence or an image)")
+    if arch_body:
+        fence = MERMAID_FENCE.search(arch_body)
+        if fence is None:
+            report.error("readme-no-diagram", rel_readme,
+                         "the architecture section has no ```mermaid diagram — an image does not "
+                         "count: it cannot be diffed and the identifier guard cannot read it")
+        embedded = (re.findall(r"!\[[^\]]*\]\(([^)\s]+)", arch_body)
+                    + re.findall(r"<img[^>]+src=\"([^\"]+)\"", arch_body))
+        for target in embedded:
+            clean = target.split("#")[0].split("?")[0]
+            if Path(clean).suffix.lower() in RASTER_SUFFIXES:
+                report.error("readme-raster-diagram", rel_readme,
+                             f"{target} draws the architecture as pixels — no diff shows it going "
+                             "stale, and a private name inside it is invisible to the guard")
+        # The half that actually stops drift: a fence whose boxes no longer match the prose beside
+        # them is a second, contradicting source of truth. Every quoted node label must appear
+        # verbatim in the rest of the section, so renaming a stage in the table renames it here too.
+        if fence is not None:
+            rest = arch_body[:fence.start()] + arch_body[fence.end():]
+            for label in MERMAID_NODE_LABEL.findall(fence.group(1)):
+                if label.casefold() not in rest.casefold():
+                    report.error("readme-diagram-drift", rel_readme,
+                                 f"the diagram has a box named \"{label}\" that the architecture "
+                                 "section never mentions — one of the two has moved on")
 
     # Every component a reader can see in the tree should be findable from the front page.
     for d in sorted(source_dirs(root, files)):

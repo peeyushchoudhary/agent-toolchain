@@ -18,6 +18,7 @@ a dynamic program is exactly the kind of code that ends up not being.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -627,3 +628,34 @@ class SameWaveRemedyTest(PlanFixture):
         self.plan(task("T1", writes="backend/shared/**"),
                   task("T2", needs="[T1]", serialises="[T1]", writes="backend/shared/auth.java"))
         self.assertEqual(self.rules(), [])
+
+
+class SuffixFeatureInMilestoneTest(PlanFixture):
+    """`F-9A` declared membership and was dropped from its own milestone in silence.
+
+    The membership filter was `^F-\\d+$` while the id pattern beside it accepted a suffix letter,
+    so a spec with `id: F-9A` and `milestone: M2` produced exit 0, one feature reported where two
+    declared, and no finding anywhere. The split arrived when the suffix letter was added to the
+    spec checker and this half was not; it survived because the sort key raised on `F-9A` and a
+    narrower filter hid the traceback. Then fixing the filter revealed a SECOND copy of that sort
+    key inside the printer, which is why there is now one `feature_order` and no lambda.
+    """
+
+    def test_a_suffixed_feature_joins_its_milestone(self) -> None:
+        self.assertTrue(plan_waves.FEATURE_RE.match("F-9A"))
+        self.assertTrue(plan_waves.FEATURE_RE.match("F-9"))
+        self.assertFalse(plan_waves.FEATURE_RE.match("F-9AB"))
+
+    def test_the_suffix_sorts_with_its_number_not_after_every_number(self) -> None:
+        order = sorted(["F-10", "F-9B", "F-9", "F-9A"], key=plan_waves.feature_order)
+        self.assertEqual(order, ["F-9", "F-9A", "F-9B", "F-10"])
+
+    def test_the_printer_uses_the_same_order_as_the_membership_list(self) -> None:
+        """Two copies of one rule is how the first fix produced a ValueError while printing."""
+        source = SCRIPT.read_text(encoding="utf-8")
+        # The CODE form, not the substring: the docstring above `feature_order` quotes the old key
+        # to explain the defect, and a test that cannot tell an explanation from an instance is the
+        # word-versus-structure mistake this repository has now recorded ten times.
+        self.assertEqual(re.findall(r"key=lambda ident: \(int\(", source), [],
+                         "an inline sort key is back; there must be one feature_order")
+        self.assertEqual(source.count("def feature_order("), 1)
