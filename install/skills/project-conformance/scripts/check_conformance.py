@@ -1371,10 +1371,15 @@ def check_preflight(repo: Path) -> Check:
 UNBOUND_SPECS = re.compile(r"(?P<n>\d+) document\(s\) under docs/product/specs/ are not named")
 
 PRODUCT_REMEDY = (
-    "read `spec_check.py --root <repo>`'s own output, then migrate the documents by hand or with "
-    "the execution-methodology migration procedure. NOTHING HERE REWRITES A PRODUCT DOCUMENT: a "
-    "spec is a human artifact whose front matter records who reviewed it and when, and a tool that "
-    "invents those keys would be forging the review record this whole layer exists to hold."
+    "read `spec_check.py --root <repo>`'s own output, then plan the move with "
+    "`migrate_to_standard.py <repo> --product`, which is dry-run by default and prints every "
+    "rename and every front-matter key it would add before it is given `--apply`. It refuses the "
+    "documents it cannot derive an id for rather than inventing one, and it never edits a body. "
+    "NOTHING HERE REWRITES A PRODUCT DOCUMENT: this check reports and stops. A spec is a human "
+    "artifact whose front matter records who reviewed it and when, and a tool that invented those "
+    "keys would be forging the review record the whole layer exists to hold — which is why the "
+    "migrator adds `id`, `title` and `updated` from what the document already says, and leaves "
+    "`status` and `reviewed_by` for a person."
 )
 
 
