@@ -178,3 +178,16 @@ adding `re.DOTALL` changes no behaviour, because `.` does not match a newline by
 with `re.DOTALL` the suite goes RED, so the single-line rule IS covered. No case written for it.
 A green run against a no-op edit is not a finding; recording the retraction because a retraction
 is evidence too. sync_methodology's real uncovered set is SM3, SM5, SM8 — three, not four.
+
+## 3. Per-script cases WRITTEN (running)
+  start_junit_run_selftest.py   5 cases / 21 assertions — fails under 5 of 5 mutations
+  verify_junit_selftest.py      4 cases / 22 assertions — fails under 3 of 3
+  milestone_seal_selftest.py    6 cases / 20 assertions — fails under 5 of 5
+  sync_methodology_selftest.py  4 cases / 11 assertions — fails under 3 of 3
+  plan_waves_selftest.py        4 cases / 17 assertions — fails under 4 of 4 (all four are
+                                defects that were LIVE in the repo, from the seed set)
+NOTE on plan_waves case 4: the FIRST version of it stayed green with `qualify()`'s serialises
+qualification removed — it asserted a true statement that was not the defect. Rewritten to the
+in-feature pair, where the documented plan-local spelling must silence W6 under --milestone.
+A case that cannot fail against the defect it names is decoration; caught by always watching
+each case fail before keeping it.
