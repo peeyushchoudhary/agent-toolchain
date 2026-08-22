@@ -27,7 +27,7 @@ paraphrasing a failure.
 
 **There is no second reviewer.** Independent verification has to be manufactured rather than
 assumed. That is the entire reason the persona pool exists, and why its judging roles are
-structurally unable to edit — see [agent-personas.md](agent-personas.md).
+structurally unable to edit — see [agent-personas.md](../agents/agent-personas.md).
 
 **Design and plan are independently falsified before approval.** A fresh, read-only `reviewer`
 receives named artifact paths without the author's conversation or rationale and tries to construct
@@ -48,7 +48,7 @@ every repo carries its own route (`docs/agents/README.md`) and its own `docs/age
 rather than relying on an agent's private memory — one agent's memory is invisible to every other
 harness.
 
-**GitHub is storage.** Nothing deploys from it, nothing runs on it. See [github.md](github.md).
+**GitHub is storage.** Nothing deploys from it, nothing runs on it. See [github.md](../runbooks/github.md).
 
 **Execution is goal-bound.** The approved plan owns one Goal Capsule: the actor outcome, one primary
 externally observable outcome, the named safety and regression invariants that make it trustworthy,
@@ -61,7 +61,7 @@ invariant advanced plus the expected observable delta. A vague request produces 
 for approval. Ambiguity that changes acceptance, safety, authority, or an irreversible boundary
 returns to the appropriate human gate; bounded non-material ambiguity is recorded as an assumption.
 The detailed admission and repair rules live in the execution methodology. See
-[D14](decisions.md#d14--bounded-repairs-and-review).
+[D14](../decisions/decisions.md#d14--bounded-repairs-and-review).
 
 ## Deliberately not done
 
@@ -73,7 +73,7 @@ These look like gaps and are not. Do not "fix" them.
 | Committed `.claude/settings.json` | Sole-founder mode; machine-local config stays machine-local |
 | Committed graph (`graphify-out/`) | 22 MB rewritten wholesale each rebuild; regenerate instead |
 | Bulk migration of the other 12 projects | Done per project, when that project is next opened |
-| Cross-harness agent dispatch | Measured at 1.7× in-harness cost — [decisions.md](decisions.md) |
+| Cross-harness agent dispatch | Measured at 1.7× in-harness cost — [decisions.md](../decisions/decisions.md) |
 
 ## Delegation posture
 

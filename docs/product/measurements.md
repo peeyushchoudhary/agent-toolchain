@@ -1,7 +1,7 @@
 # Measurements
 
 Measured 2026-07-26 on this workstation. Re-derive when prices or benchmarks move — several
-decisions in [../decisions.md](decisions.md) depend on these numbers, not on intuition.
+decisions in [../decisions.md](../decisions/decisions.md) depend on these numbers, not on intuition.
 
 ## Prices and benchmarks
 
@@ -54,7 +54,7 @@ unchecked, and a `get()` with no authorization.
 ## Per-milestone cost model
 
 Derived from the two measured anchors ($0.212 in-harness review) and the run counts in
-[../agent-personas.md](agent-personas.md). Implementation assumed at ~40K in / 8K out per run.
+[../agent-personas.md](../agents/agent-personas.md). Implementation assumed at ~40K in / 8K out per run.
 
 | Line | Before the tier split | After |
 |---|---|---|

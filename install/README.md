@@ -45,8 +45,8 @@ because a malformed `settings.json` silently disables every setting in it. `conf
 to, after a backup, and only if it has no `[agents]` block.
 
 It does **not** touch `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`. Those carry your own operating
-rules; see [../docs/operating-model.md](../docs/operating-model.md) for what belongs there and
-[../docs/codex.md](../docs/codex.md) for the sections the two harnesses must keep identical.
+rules; see [../docs/architecture/operating-model.md](../docs/architecture/operating-model.md) for what belongs there and
+[../docs/runbooks/codex.md](../docs/runbooks/codex.md) for the sections the two harnesses must keep identical.
 
 ## After installing
 
@@ -54,7 +54,7 @@ rules; see [../docs/operating-model.md](../docs/operating-model.md) for what bel
    Skills and personas load without a restart.
 2. **Review the model names.** `~/.claude/skills/agent-personas/personas/*.md` name specific models
    and effort levels. Those are worked examples from a particular week, not recommendations — see
-   [../docs/measurements.md](../docs/measurements.md) for how they were derived, and retune them.
+   [../docs/product/measurements.md](../docs/product/measurements.md) for how they were derived, and retune them.
    `sync_personas.py --list` shows the current mapping; edit a persona and re-run
    `sync_personas.py` to apply.
 3. **Run `project-onboarding` in a project.** Nothing here changes a repository until you do.
@@ -91,4 +91,4 @@ Per-repository git hooks are separate. In each repo:
 | `REFUSED: settings.json is not valid JSON` | Fix the JSON by hand first — the installer will not write over a broken file |
 | Hooks installed but nothing appears at session start | Open `/hooks` once, or restart. The watcher only tracks directories that existed at startup |
 | `verify.sh` says a script "fails to run" | Almost always the Python version |
-| Codex does not spawn personas | No `[agents]` block, or `enabled = false`. See [../docs/codex.md](../docs/codex.md) |
+| Codex does not spawn personas | No `[agents]` block, or `enabled = false`. See [../docs/runbooks/codex.md](../docs/runbooks/codex.md) |

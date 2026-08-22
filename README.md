@@ -31,12 +31,12 @@ session signals are Claude-specific. Neither replaces repository knowledge.
 
 | Stage | What happens | What it buys |
 |---|---|---|
-| 1. Repository route | A repository declares its contract and task routes in `AGENTS.md` and `docs/agents/`; the repository standard supplies the common taxonomy and a migrator. Entry points: `AGENTS.md`, `docs/agents/`, [`validate_disclosure.py`](install/skills/progressive-disclosure/scripts/validate_disclosure.py), [repository standard](docs/repository-standard.md). | Durable, shared context reduces rediscovery and makes stale links visible. |
-| 2. Shared capabilities | The published vendored layer provides reusable skills; the persona pool defines role, model, effort, and write boundaries. Session signals remain Claude-only. Entry points: [published skill declaration](docs/README.md), [persona sources and generator](docs/agent-personas.md), [`verify.sh`](install/verify.sh). | Repeatable work patterns and consistent role routing; the verifier can compare this repository's published layer with installed state. |
-| 3. Harness layer | Claude Code and Codex consume the same repository knowledge; skills are mirrored and personas are rendered for each harness. A persona stays in the harness being driven. Entry points: [installation inventory](docs/what-gets-installed.md), [`install_hooks.py`](install/skills/progressive-disclosure/scripts/install_hooks.py), [no cross-harness dispatch](docs/agent-personas.md#no-cross-harness-dispatch). | One repository route works across both harnesses without cross-harness dispatch. |
-| 4. Controlled work loop | Fresh, read-only review tries to falsify design and plan before their human gates; approved work then moves through scope → build → review → test using task cards. Judges are independent; a builder does not approve their own work. Entry points: [operating model](docs/operating-model.md), [full adoption walkthrough](docs/full-adoption.md). | Expensive mistakes surface before implementation, while evidence thresholds and one bounded rereview prevent review-driven scope drift. |
+| 1. Repository route | A repository declares its contract and task routes in `AGENTS.md` and `docs/agents/`; the repository standard supplies the common taxonomy and a migrator. Entry points: `AGENTS.md`, `docs/agents/`, [`validate_disclosure.py`](install/skills/progressive-disclosure/scripts/validate_disclosure.py), [repository standard](docs/architecture/repository-standard.md). | Durable, shared context reduces rediscovery and makes stale links visible. |
+| 2. Shared capabilities | The published vendored layer provides reusable skills; the persona pool defines role, model, effort, and write boundaries. Session signals remain Claude-only. Entry points: [published skill declaration](docs/README.md), [persona sources and generator](docs/agents/agent-personas.md), [`verify.sh`](install/verify.sh). | Repeatable work patterns and consistent role routing; the verifier can compare this repository's published layer with installed state. |
+| 3. Harness layer | Claude Code and Codex consume the same repository knowledge; skills are mirrored and personas are rendered for each harness. A persona stays in the harness being driven. Entry points: [installation inventory](docs/agents/what-gets-installed.md), [`install_hooks.py`](install/skills/progressive-disclosure/scripts/install_hooks.py), [no cross-harness dispatch](docs/agents/agent-personas.md#no-cross-harness-dispatch). | One repository route works across both harnesses without cross-harness dispatch. |
+| 4. Controlled work loop | Fresh, read-only review tries to falsify design and plan before their human gates; approved work then moves through scope → build → review → test using task cards. Judges are independent; a builder does not approve their own work. Entry points: [operating model](docs/architecture/operating-model.md), [full adoption walkthrough](docs/runbooks/full-adoption.md). | Expensive mistakes surface before implementation, while evidence thresholds and one bounded rereview prevent review-driven scope drift. |
 | 5. Local proof | Focused and adjacent tests lead to a project's area gate, then full local E2E with real services. Environment preflight and Git hooks protect commit and push; this repository's `verify.sh` proves only its published tooling and installation. Entry points: [`preflight.sh`](install/hooks/preflight.sh), [`identifier_guard.py`](install/skills/progressive-disclosure/scripts/identifier_guard.py), [`push_guard.py`](install/skills/progressive-disclosure/scripts/push_guard.py). | Local gates decide readiness; failures and unknowns are reported honestly without mistaking toolchain verification for a project's production-path proof. |
-| 6. PR and audit trail | GitHub stores code and configuration; milestone PRs and merge commits preserve the audit trail after local proof. It does not run hosted CI or deploy work. Entry point: [GitHub policy](docs/github.md). | Durable backup and history without mistaking a push for validation. |
+| 6. PR and audit trail | GitHub stores code and configuration; milestone PRs and merge commits preserve the audit trail after local proof. It does not run hosted CI or deploy work. Entry point: [GitHub policy](docs/runbooks/github.md). | Durable backup and history without mistaking a push for validation. |
 
 Lessons and session signals feed corrections back into repository context. They are distinct from
 machine-global Claude/Codex mirror drift and from `verify.sh`'s installed-versus-published vendored
@@ -57,13 +57,13 @@ If this setup helps, use GitHub's **Star** button to help other builders discove
 
 | Component | What it gives you | Deep dive |
 |---|---|---|
-| Route, repository taxonomy, and migration | A short, validated task route plus a common repository layout; the migrator plans or applies a link-preserving move into that layout. | [Progressive disclosure](docs/progressive-disclosure.md) · [Repository standard](docs/repository-standard.md) |
+| Route, repository taxonomy, and migration | A short, validated task route plus a common repository layout; the migrator plans or applies a link-preserving move into that layout. | [Progressive disclosure](docs/agents/progressive-disclosure.md) · [Repository standard](docs/architecture/repository-standard.md) |
 | Codebase navigation | A queryable graph of the repository, so a task finds the file that matters instead of grepping for it. | [`graph-navigation`](install/skills/graph-navigation/SKILL.md) |
-| Onboarding and shared skills | A repeatable way to add the route, per-clone hooks, and published workflows to a project; the installer mirrors shared skills to both harnesses. | [Install](install/README.md) · [Onboarding](docs/onboarding-a-project.md) · [`project-onboarding`](install/skills/project-onboarding/SKILL.md) |
-| Personas and specialists | Fourteen base personas with deliberate role, model, effort, and write boundaries, generated by `agent-personas`; `agent-persona-factory` derives project specialists from the repository's guardrails, architecture, and product requirements. | [Agent personas](docs/agent-personas.md) |
-| Controlled execution and independent judges | Fresh review falsifies design and plan before approval; a bounded scope → build → review → test loop then uses task cards and a builder who never approves their own work. | [Operating model](docs/operating-model.md) |
+| Onboarding and shared skills | A repeatable way to add the route, per-clone hooks, and published workflows to a project; the installer mirrors shared skills to both harnesses. | [Install](install/README.md) · [Onboarding](docs/runbooks/onboarding-a-project.md) · [`project-onboarding`](install/skills/project-onboarding/SKILL.md) |
+| Personas and specialists | Fourteen base personas with deliberate role, model, effort, and write boundaries, generated by `agent-personas`; `agent-persona-factory` derives project specialists from the repository's guardrails, architecture, and product requirements. | [Agent personas](docs/agents/agent-personas.md) |
+| Controlled execution and independent judges | Fresh review falsifies design and plan before approval; a bounded scope → build → review → test loop then uses task cards and a builder who never approves their own work. | [Operating model](docs/architecture/operating-model.md) |
 | Environment, drift, and learning signals | Preflight catches machine gaps; checks distinguish machine-global Claude/Codex mirror drift from installed-versus-published vendored-layer drift; repository lessons preserve corrections. | [`preflight.sh`](install/hooks/preflight.sh) · [`check_toolchain.py`](install/skills/progressive-disclosure/scripts/check_toolchain.py) · [`verify.sh`](install/verify.sh) |
-| Local project proof and Git safety | Focused tests, project gates, and local E2E establish project readiness; identifier and push guards protect commit and push. | [Operating model](docs/operating-model.md) · [`identifier_guard.py`](install/skills/progressive-disclosure/scripts/identifier_guard.py) · [`push_guard.py`](install/skills/progressive-disclosure/scripts/push_guard.py) |
+| Local project proof and Git safety | Focused tests, project gates, and local E2E establish project readiness; identifier and push guards protect commit and push. | [Operating model](docs/architecture/operating-model.md) · [`identifier_guard.py`](install/skills/progressive-disclosure/scripts/identifier_guard.py) · [`push_guard.py`](install/skills/progressive-disclosure/scripts/push_guard.py) |
 
 Optional code-graph navigation is available when `graphify` is installed; it is not required for the
 route, installer, or local checks.
@@ -157,8 +157,8 @@ stated in the skill's JUnit-evidence reference.
 - There is no application release, production deployment, or application roadmap behind this
   repository.
 
-Completed material changes are in the [weekly improvement record](docs/improvements-weekly.md), with
-settled choices and rejected alternatives preserved in [decisions.md](docs/decisions.md).
+Completed material changes are in the [weekly improvement record](docs/product/improvements-weekly.md), with
+settled choices and rejected alternatives preserved in [decisions.md](docs/decisions/decisions.md).
 
 ## The problem
 
@@ -182,33 +182,33 @@ behaviour stays in those linked documents instead of being copied into the front
 | Requirement authority | What it defines |
 |---|---|
 | [Repository contract](AGENTS.md) | Public-repository boundaries, source authority, goal-bound execution, and required verification. |
-| [Operating model](docs/operating-model.md) | Local-first priorities, execution stages, independent judgment, and what “done” means. |
+| [Operating model](docs/architecture/operating-model.md) | Local-first priorities, execution stages, independent judgment, and what “done” means. |
 | [Published surface](docs/README.md#what-is-published-and-what-is-not) | Which skills are deliberately vendored and which absences are known or intentional. |
-| [GitHub policy](docs/github.md) | Storage-only GitHub posture, local push protection, milestone PRs, and merge history. |
+| [GitHub policy](docs/runbooks/github.md) | Storage-only GitHub posture, local push protection, milestone PRs, and merge history. |
 
 ## Documentation
 
 | Read | For |
 |---|---|
-| [operating-model.md](docs/operating-model.md) | How work is sequenced, and what counts as done |
-| [progressive-disclosure.md](docs/progressive-disclosure.md) | The four layers, the README contract, the validator |
-| [repository-standard.md](docs/repository-standard.md) | Where files belong; migrating an existing repo |
-| [github.md](docs/github.md) | Storage-only rules, the push guard, zero-cost posture |
-| [agent-personas.md](docs/agent-personas.md) | The roster, and why each is routed as it is |
-| [decisions.md](docs/decisions.md) | Decisions and rationale, each against what was chosen over |
-| [measurements.md](docs/measurements.md) | The numbers those decisions rest on |
-| [improvements-weekly.md](docs/improvements-weekly.md) | The full weekly improvement record, newest first |
-| [onboarding-a-project.md](docs/onboarding-a-project.md) | Five steps to bring a project under the standard |
-| [full-adoption.md](docs/full-adoption.md) | The long version, with guard-testing |
-| [codex.md](docs/codex.md) | The Codex side, and what it does not get |
-| [what-gets-installed.md](docs/what-gets-installed.md) | Every file the installer places, and why |
+| [operating-model.md](docs/architecture/operating-model.md) | How work is sequenced, and what counts as done |
+| [progressive-disclosure.md](docs/agents/progressive-disclosure.md) | The four layers, the README contract, the validator |
+| [repository-standard.md](docs/architecture/repository-standard.md) | Where files belong; migrating an existing repo |
+| [github.md](docs/runbooks/github.md) | Storage-only rules, the push guard, zero-cost posture |
+| [agent-personas.md](docs/agents/agent-personas.md) | The roster, and why each is routed as it is |
+| [decisions.md](docs/decisions/decisions.md) | Decisions and rationale, each against what was chosen over |
+| [measurements.md](docs/product/measurements.md) | The numbers those decisions rest on |
+| [improvements-weekly.md](docs/product/improvements-weekly.md) | The full weekly improvement record, newest first |
+| [onboarding-a-project.md](docs/runbooks/onboarding-a-project.md) | Five steps to bring a project under the standard |
+| [full-adoption.md](docs/runbooks/full-adoption.md) | The long version, with guard-testing |
+| [codex.md](docs/runbooks/codex.md) | The Codex side, and what it does not get |
+| [what-gets-installed.md](docs/agents/what-gets-installed.md) | Every file the installer places, and why |
 
 ## Working in this repository
 
 Start with [AGENTS.md](AGENTS.md), then use [docs/README.md](docs/README.md) to open only the guide
 needed for the task. The executable tooling in `install/` is authoritative. Changes to a vendored
 skill or hook originate in its maintained user-level source and are then re-vendored; the exact
-inventory and exceptions are documented in [what-gets-installed.md](docs/what-gets-installed.md).
+inventory and exceptions are documented in [what-gets-installed.md](docs/agents/what-gets-installed.md).
 
 Before review, run the complete local gate:
 
@@ -219,19 +219,19 @@ cd install && ./install.sh --dry-run && ./verify.sh
 GitHub stores the resulting code and configuration; it does not validate or deploy them. Changes
 land through milestone-sized pull requests, with an honest README, real local-gate output, an
 independent review, and a merge commit that preserves the audit trail. See
-[github.md](docs/github.md) for the push guard and zero-cost forge rules.
+[github.md](docs/runbooks/github.md) for the push guard and zero-cost forge rules.
 
 ## Recent improvements
 
 The three most recent entries are below. The full record, and every earlier entry, is in
-[docs/improvements-weekly.md](docs/improvements-weekly.md). Current tooling remains the authority
+[docs/product/improvements-weekly.md](docs/product/improvements-weekly.md). Current tooling remains the authority
 for behaviour; each entry points to the implementation it describes.
 
 | Week | Entry |
 |---|---|
-| 21 August 2026 | [v5.0: the milestone runs itself, and a review rule was falsified](docs/improvements-weekly.md#week-of-21-august-2026--v50-the-milestone-runs-itself-and-a-review-rule-was-falsified) |
-| 21 August 2026 | [The product-definition checks reach a boundary that fires](docs/improvements-weekly.md#week-of-21-august-2026--the-product-definition-checks-reach-a-boundary-that-fires) |
-| 21 August 2026 | [v4.2: the plan is scheduled, not described](docs/improvements-weekly.md#week-of-21-august-2026--v42-the-plan-is-scheduled-not-described) |
+| 21 August 2026 | [v5.0: the milestone runs itself, and a review rule was falsified](docs/product/improvements-weekly.md#week-of-21-august-2026--v50-the-milestone-runs-itself-and-a-review-rule-was-falsified) |
+| 21 August 2026 | [The product-definition checks reach a boundary that fires](docs/product/improvements-weekly.md#week-of-21-august-2026--the-product-definition-checks-reach-a-boundary-that-fires) |
+| 21 August 2026 | [v4.2: the plan is scheduled, not described](docs/product/improvements-weekly.md#week-of-21-august-2026--v42-the-plan-is-scheduled-not-described) |
 
 **v5.0 — the milestone runs itself, and a review rule was falsified.** Execution became a written
 procedure of ten steps checked against the real commands, and state is derived from git rather than
@@ -256,7 +256,7 @@ and a 5-feature corpus reported zero findings per plan while six cross-feature p
 **Not a framework.** There is no runtime, no package, no API. It is a set of markdown conventions,
 a handful of skills and session hooks, and Python scripts with no dependencies outside the standard
 library. Every file the installer places is enumerated in
-[what-gets-installed.md](docs/what-gets-installed.md) rather than counted here — a count restated in
+[what-gets-installed.md](docs/agents/what-gets-installed.md) rather than counted here — a count restated in
 prose is the first thing to go stale, and the published skills are named and enforced in one place:
 [docs/README.md](docs/README.md), "What is published, and what is not".
 
@@ -279,9 +279,9 @@ reader deciding whether this is real should see the shape before the prose. *Cur
 describes the shipped toolchain and its known publication gap in short sections rather than one
 block. *Product requirements* routes to this repository's normative contracts instead of inventing
 application PRDs for a project with no application runtime. The weekly improvement record is a
-record: it accretes, so it lives in [its own document](docs/improvements-weekly.md) and the front
+record: it accretes, so it lives in [its own document](docs/product/improvements-weekly.md) and the front
 page carries only the newest entries. The full contract and validator live in
-[progressive-disclosure.md](docs/progressive-disclosure.md).
+[progressive-disclosure.md](docs/agents/progressive-disclosure.md).
 
 If this local-first setup helps your agent work hold together, use GitHub's **Star** button to help
 other builders discover it.

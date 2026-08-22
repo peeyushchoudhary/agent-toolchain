@@ -3,7 +3,7 @@
 For a repository that already has code and history. Roughly 30–60 minutes, most of it reading the
 generated diff rather than typing.
 
-**Read [../repository-standard.md](repository-standard.md) before running the migrator.** It
+**Read [../repository-standard.md](../architecture/repository-standard.md) before running the migrator.** It
 moves directories.
 
 ## Before you start
@@ -73,7 +73,7 @@ Write, in this order:
 3. **Area guides** for each real split in the repo.
 4. **`<dir>/AGENTS.md` + `CLAUDE.md`** (≤40 words) for every directory the validator named.
    `CLAUDE.md` is exactly `@AGENTS.md`, nothing else.
-5. **`README.md`** — the seven sections in [../progressive-disclosure.md](progressive-disclosure.md).
+5. **`README.md`** — the seven sections in [../progressive-disclosure.md](../agents/progressive-disclosure.md).
 
 ## 5. Wire the gate
 
