@@ -233,3 +233,5 @@ docstring instead, ready to switch on with the fix.
 
   ratio_meter_selftest.py           3 cases / 9 assertions  — fails under 2 of 2 mutations
   check_review_budget_selftest.py   3 cases / 13 assertions — fails under 1 of 1 mutation
+
+  validate_card_selftest.py         5 cases / 9 assertions  — fails under 4 of 4 mutations
