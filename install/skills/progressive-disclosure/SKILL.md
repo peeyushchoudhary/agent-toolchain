@@ -172,10 +172,23 @@ its authority level. Full rules, naming decisions, and the table of retired spel
 validate_disclosure.py <repo> --standard   # enforce it
 migrate_to_standard.py <repo>              # plan a migration; writes nothing
 migrate_to_standard.py <repo> --apply      # back up, move with git mv, rewrite links
+migrate_to_standard.py <repo> --product    # plan the docs/product/specs/ migration; writes nothing
 ```
 
 The migrator refuses to apply to a repository with uncommitted changes, never commits, and rewrites
 every markdown link a move invalidated. Read `references/standard.md` before running it.
+
+`--product` is a separate mode for one specific silence. `spec_check.py` binds feature specs by the
+single path glob `docs/product/specs/F-*.md`, so a repository that writes
+`docs/product/specs/<slug>/spec.md` has every spec walked, matched by no rule, and reported as a
+clean exit 0. The mode proposes a RENAME PLUS A FRONT MATTER HEADER and nothing else: it derives
+`id`, `title`, `prd`, `status` and `updated` from what each document already says, refuses in
+writing where it cannot derive one, and prints the body word count before and after together with a
+repository-wide broken-link count so "no prose moved" is checkable rather than asserted. The area
+identifier a repository actually cites — `FED-C1` — is kept in the title and in the filename; the
+`F-<n>` value exists only because `spec_check.ID_RE` accepts nothing else.
+
+Break-test: `python3 scripts/migrate_to_standard_selftest.py` (exit 0 = every case passes).
 
 ## Setting this up in a project
 

@@ -207,8 +207,8 @@ guarantees; Gradle requires `--rerun-tasks`.
 ## D16 — project-onboarding and project-conformance stay two skills
 
 **Chose:** `project-onboarding` brings a repository under the standard **once**, and **writes**;
-`project-conformance` asks whether it still conforms, and is **read-only**. Onboarding's verify step
-calls it.
+`project-conformance` asks whether it still conforms. It **reports by default and writes nothing**;
+`--fix` applies only what the report already named, file by file. Onboarding's verify step calls it.
 
 **Over:** one skill with an onboard mode and a check mode.
 
@@ -306,3 +306,120 @@ estimated.
 
 **Known-wrong-in-a-month if:** a milestone stalls on a removed tool, or the verdict cap is found to
 have made a judge drop a finding rather than cut prose.
+
+---
+
+## D20 — `project-conformance` is published
+
+**Chose:** vendor the whole skill — `SKILL.md`, `scripts/`, and its 989-line `tests/` — declare it
+in `install/skills/.gitignore`, and name it in `install/skills/README.md`, `README.md` and
+`docs/agents/what-gets-installed.md`.
+
+**Over:** leaving it installed-only, which is what it had been. The objection was never
+disagreement; it was that publishing is four coordinated edits and no task had owned all four.
+
+**Why:** the disaster-recovery argument that carried `execution-methodology` applies to it
+unchanged, and the public-repo invariant costs nothing — the skill names no project, path or
+person, and a grep for all four classes before the commit found only `~/.claude`, `~/.codex` and an
+`example.invalid` fixture address.
+
+**Consequence, measured:** the vendored-drift baseline drops from **5 criticals to 3**. Two of the
+five were `install/skills/.gitignore` and `install/skills/README.md`, each differing by the one
+line this decision adds. The three that remain are the `agent-personas` test files, which are a
+different matter — see [what-gets-installed.md](../agents/what-gets-installed.md), "Re-vendoring:
+what is left behind on purpose". `install.sh` moves from `6 of 6` to `7 of 7`, derived, with no
+edit to `install.sh`.
+
+---
+
+## D21 — the vendored `project-conformance` suite is green only with the layer installed
+
+**Chose:** vendor `tests/` anyway, and publish the empty-`$HOME` numbers beside the green ones.
+
+**Over:** leaving the directory behind the way `agent-personas`' suite is left behind — which would
+have swapped two baseline criticals for one, publishing 989 lines of test and then not publishing
+them.
+
+**Why:** the `agent-personas` reason does not apply. That suite needs a sibling `docs/` the vendored
+layout has no place for; this one needs nothing outside the skill tree, and from the vendored
+position, run the way `verify.sh`'s `run_one_suite` runs it, it is `Ran 56 tests ... OK`.
+
+**Consequence:** under `HOME=$(mktemp -d)` it is `Ran 56 ... FAILED (failures=15, errors=7,
+skipped=3)`, where `execution-methodology` is `Ran 1070 ... OK` and `progressive-disclosure` is
+`Ran 395 ... FAILED (failures=1)`. That is not a defect being tolerated. `check_conformance.py`
+orchestrates and reimplements nothing — every judgement comes from the installed checker that owns
+it — so its suite drives the real tools under `~/.claude` by construction. `HOME=$(mktemp -d)
+./verify.sh` is therefore red on this one suite, and `verify.sh` already attributes it to the
+machine rather than to the tree.
+
+---
+
+## D22 — publishing a skill and mirroring it to Codex came apart
+
+**Chose:** publish `project-conformance` without adding it to `MIRRORED_SKILLS`.
+
+**Over:** adding the name to `check_toolchain.py` in this repository as part of the same commit.
+
+**Why:** the copy of `check_toolchain.py` here is a **vendored mirror** of the installed one. A name
+added on one side alone is drift — it would have manufactured a sixth vendored-drift critical
+against the very file that reports the count. `MIRRORED_SKILLS` is machine state and is changed on
+the machine first.
+
+**Consequence:** `install.sh` mirrors seven skills to `~/.codex/skills` while `check_toolchain.py`
+watches six, and `verify.sh` reports `project-conformance` absent from `~/.codex/skills` until an
+install run. Both are true and both are machine-scope. Until now every published skill was also a
+mirrored one, so the two lists had never had to be distinguished.
+
+---
+
+## D23 — the ninth conformance check reports and owns no repair
+
+**Chose:** `product definition` reports three facts — whether `docs/product/` exists, how many
+schema-bound documents carry no front matter, how many sit under `docs/product/specs/` in a shape
+no rule binds — and creates no `Repair`.
+
+**Over:** repairing what it finds, which is what the other eight checks do and what makes the
+asymmetry worth recording.
+
+**Why:** front matter carries `reviewed_by:` and a status enum — claims about a human. Generating
+them would forge the review record the product-definition layer exists to hold. Renaming a spec
+silently re-points every reference to it. Both are the migrator's work, done once and watched.
+
+**Why it was needed:** the eight checks before it predate the product-definition layer entirely. On
+a repository that has not migrated, all eight can be satisfied at once, and the single thing `--fix`
+then repairs is the methodology render — the document *describing* the layer — while the layer
+itself is absent or unread. Measured on the four repositories that have a `docs/product/specs/`:
+red on all four. One of them has 236 documents under `docs/product`, **none** bound by any schema
+rule and **233** of them named outside `F-<n>-<slug>.md`; `spec_check.py` exits 0 there.
+
+
+---
+
+## D24 — the `agent-personas` test directory is not vendored
+
+**Chose:** leave it out of `install/skills/`, and record the three resulting drift criticals as
+expected.
+
+**Over:** vendoring it like every other suite, or planting a copy of the human record of the judging
+roster under `install/docs/` so its preflight resolves.
+
+**Why:** that preflight resolves the record as a **sibling of the skill tree**. In the vendored
+layout that lands under `install/`, where no `docs/` exists and none should — this repository's
+`docs/` is one level further up. Planting a copy to satisfy a fixture would let a test dictate the
+layout. Measured at `a008768`, with the rest of `install/` present, so the record is the only
+missing input:
+
+```
+IncompleteTree: THE FIXTURE IS WRONG, NOT THE CODE.
+  - the human record of the judging roster ... is ABSENT
+Ran 26 tests ... FAILED (failures=2, errors=11)
+```
+
+Positive control, the same suite installed: `Ran 68 tests ... OK`. Collection itself fails — 26
+reached, not 68. `verify.sh` runs vendored suites, so restoring the directory would surface that
+collection failure on every run.
+
+**Consequence:** three expected `--vendored` criticals, one per test file, and they cannot be
+silenced in `install/skills/.gitignore`: exclusion matches anchored rules on their first path
+component only, an interior-slash rule is skipped, and an unanchored pattern would exclude every
+test directory in both trees — including the `progressive-disclosure` suite `verify.sh` does run.
