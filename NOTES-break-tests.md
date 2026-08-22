@@ -1,6 +1,6 @@
 # Break-tests for execution-methodology checkers
 
-TOP 3 SO FAR: (in progress)
+TOP 3 SO FAR: N1 three checkers are mode 0644 while every documented invocation is the bare `script.py ...` form (rc=126); 2 & 3 pending mutation runs
 
 ## 0. Method
 in progress
@@ -41,3 +41,19 @@ doctrine names one layer up ("a guard nobody has watched fail is not evidence of
 DECISION: keep the script shape (hand-runnable, matches precedent) AND add a thin
 `tests/test_<name>_selftest.py` that subprocess-runs the script and asserts rc==0, so
 `unittest discover` — and therefore verify.sh — executes every case.
+
+## 5. NEW live defects discovered  (N1)
+### N1 — three of the eleven checkers are NOT EXECUTABLE, and every documented invocation is the bare form
+`ratio_meter.py`, `trace_check.py`, `weekly_review.py` are mode `0644`. The other eight are `0755`.
+All eleven carry `#!/usr/bin/env python3`.
+SKILL.md documents them as bare commands, e.g.:
+    ratio_meter.py --range main..HEAD
+    weekly_review.py --repo PATH --weeks 8
+and references/execution-loop.md step 8 / the milestone block documents:
+    trace_check.py --root . --evidence <receipt> --commit <range>
+    ratio_meter.py --repo . --range <range>
+Measured: `./ratio_meter.py --help` -> rc=126, "Permission denied".
+NOT ONE of the 1014 tests asserts the mode bit, and verify.sh does not check it either — the whole
+suite invokes the scripts as `python3 <path>`, which is exactly the invocation the docs do NOT use.
+Class: the same class as push_guard's case 6 ("the break-test invoked the guard the way nothing
+ever invokes it"), inverted — here the SUITE invokes it a way the DOCS never tell a reader to.
