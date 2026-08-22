@@ -155,6 +155,19 @@ spec_check AFTER:
     because `prd:` was derived from the parent link each document already carried rather than
     left unresolved.
 
+## 5b. M3 CONFIRMED BY MEASUREMENT -- the A4 trap after the migration is COMMITTED
+Right after `--apply` the tree is dirty, `check_updated` exempts every path, and spec_check reports
+1 finding. I then committed the migration in the copy and re-ran:
+    `spec_check --root . --json` -> 65 finding(s): Counter({'A4': 64, 'C2': 1})
+    docs/product/specs/F-1-fed-c1-health-only.md:6  A4  `updated: 2026-08-13` disagrees with the
+    last commit touching this file (2026-08-22)
+So the honest pair of numbers is: **1 finding uncommitted, 65 committed (64 A4 + 1 C2).**
+The terminal only shows 40 ("... 65 finding(s) in total, 25 not shown"), which is why the count
+must be read from `--json`.
+I did NOT paper over this by writing today's date into `updated:`. Today's date would claim the
+CONTENT changed today, and the whole point of this mode is that the content did not change at all.
+The plan and the apply output both print the NOTE naming the choice and the remedy.
+
 ## 6. Break test
 in progress
 
