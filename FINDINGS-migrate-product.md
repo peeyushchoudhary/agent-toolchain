@@ -1,6 +1,6 @@
 # migrate_to_standard.py --- docs/product/ mode
 
-TOP 3 SO FAR: (in progress)
+TOP 3 SO FAR: M1 `rewrite_links()` in the SHIPPED migrator only repairs links whose TARGET moved, never links whose SOURCE moved -- reproduced live on the existing runbook move, it writes a broken link today; M2 Loomaya baseline is exit 0 / 0 findings / 233 unbound, and 64 of 65 spec.md files yield an area id while `met-metric-tree` yields none and must be refused; M3 `check_updated` (A4) will fire on every migrated spec once the migration is COMMITTED, because git log then returns the migration date -- the dirty-tree exemption hides it only until commit.
 
 ## 1. Reading the existing migrator
 `install/skills/progressive-disclosure/scripts/migrate_to_standard.py`, 492 lines, stdlib only.
@@ -53,8 +53,56 @@ The one that does NOT: `docs/product/specs/met-metric-tree/spec.md`, H1 = `MET -
 guardrails` -- an area with no ordinal. That is exactly the "64 of them" in the brief.
 The mode must REFUSE to invent an id for it and hand it to a human.
 
+## M1 -- LIVE DEFECT IN THE SHIPPED MIGRATOR (found before writing any new code)
+`rewrite_links()` computes `mapped = map_path(old_abs, moves)` and does `if mapped is None:
+continue`. `map_path` only answers "did this TARGET move". So a link from a file that ITSELF
+moved to a directory-neighbour that did NOT move is never repaired.
+This is not hypothetical for the product mode (65 files each rise one directory); it is live in
+the migrator's EXISTING runbook move. Reproduced end-to-end at `/tmp/repro-relink`:
+
+    docs/RUNBOOK-deploy.md      -> "See [the design](architecture/design.md)."
+    docs/architecture/design.md -> exists
+
+    $ migrate_to_standard.py . --apply --no-create
+        moved  docs/RUNBOOK-deploy.md -> docs/runbooks/runbook-deploy.md
+    $ cat docs/runbooks/runbook-deploy.md
+        See [the design](architecture/design.md).      <- UNCHANGED
+    $ ls docs/runbooks/architecture/design.md
+        No such file or directory                      <- BROKEN BY THE MIGRATION
+
+The tool whose headline promise is "every markdown link rewritten" breaks one, today, in its
+default move set. FIX (one branch, no new function): keep `origin = map_path(f, inverse)`, which is
+non-None exactly when THIS FILE moved; when the target did not move but `origin` is not None, use
+`old_abs` unchanged as `mapped` and let the existing `if new_rel == bare: continue` guard drop the
+no-ops. This is the case the break test must cover.
+
 ## 3. Design of the docs/product mode
-in progress
+`--product` selects the mode; the existing structure planner is untouched and the two do not mix.
+
+DERIVATION, all from what the document already says:
+  id       H1 `^<AREA-ID> - <Title>$`. Area id kept in the title and the filename; the `id:` value
+           is `F-<n>` ONLY because `ID_RE = ^F-\d+[A-Z]?$` refuses anything else.
+           `n` continues from the highest existing `F-<n>` in the corpus, assigned in sorted-path
+           order so a re-run is stable. NO area id in the H1 => THE WHOLE DOCUMENT IS SKIPPED and
+           reported; without an id there is no legal filename either, so half-migrating it would
+           be worse than leaving it.
+  title    the H1 verbatim, quoted. `FED-C1` survives here.
+  prd      1) `docs/product/prd.md` if it exists; else 2) the first resolving `.md` link on the
+           document's own `Product spec:` / `PRD:` / `Parent:` line; else 3) REFUSED.
+           Emitted root-relative (D3 accepts root-relative first).
+  status   first word of the document's own `Status:` line if it is one of
+           draft|approved|building|shipped|dropped; else REFUSED.
+  updated  `git log -1 --format=%cs -- <original path>`; else REFUSED.
+A refused optional field is written as the literal `TODO`, never guessed. `TODO` is chosen on
+purpose: an EMPTY value passes `check_keys` and `if target and ...` silently, whereas `TODO` fires
+B3/B4/D3 and puts the gap in front of a human. The plan lists every refusal by name.
+
+SELECTION (what counts as spec-shaped):
+  under `docs/product/specs/`, suffix `.md`, NOT already matching `F-*.md`,
+  basename not in {README,AGENTS,CLAUDE,index}.md,
+  AND (basename == `spec.md` OR the H1 starts with an area id).
+Nothing outside `docs/` is ever proposed for rename. `plan.md` is excluded because its H1 reads
+`Plan - FED-C1 ...` -- the id is not first -- which is checked against all 233 real documents.
 
 ## 4. Implementation
 in progress
