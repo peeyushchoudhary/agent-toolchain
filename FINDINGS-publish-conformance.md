@@ -45,3 +45,14 @@ name, the 15 project directory names under Projects/, emails, and http URLs. Onl
 First attempt to commit this findings file was BLOCKED because the file quoted an absolute
 home-path pattern literally. Guard works; write findings without literal home paths.
 
+## F6 — the vendored suite RUNS and PASSES from the vendored position (56 tests OK)
+`cd install/skills/project-conformance && python3 -m unittest discover -s tests` -> `Ran 56
+tests ... OK`. That is exactly what `verify.sh`'s `run_one_suite` does (it runs `<skill>/tests`
+from inside `<skill>`). So unlike `agent-personas`, this suite does NOT need a sibling `docs/`
+and there is no reason to leave it behind. VENDOR THE TESTS DIRECTORY.
+Caveat, measured: with `HOME=$(mktemp -d)` the same suite is `FAILED (failures=15, errors=7,
+skipped=3)`. The suite drives the REAL installed checkers (`sync_personas.py`,
+`validate_disclosure.py`, `install_hooks.py`, `check_toolchain.py`) out of `$HOME/.claude`.
+verify.sh already declares this exposure in its own `HOME: ... INHERITED, not declared` context
+line. Needs comparison against the existing suites before claiming it is new.
+
