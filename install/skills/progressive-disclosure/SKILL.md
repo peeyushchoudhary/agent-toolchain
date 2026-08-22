@@ -88,7 +88,8 @@ inconsistent here on purpose, not by accident.)
 
 `AGENTS.md` routes an agent; `README.md` answers a human deciding whether the project is real.
 `--readme` enforces seven sections — overview, current state, product requirements, architecture
-(with a diagram), components, run locally, working in this repository — plus resolvable links, a
+(with a ```mermaid diagram, never an exported raster), components, run locally, working in this
+repository — plus resolvable links, a
 link to every PRD, and a mention of every source directory.
 
 The README **indexes**; it does not duplicate. Low-level design belongs in

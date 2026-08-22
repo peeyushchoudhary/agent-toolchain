@@ -109,7 +109,7 @@ check accepts the common synonyms — but each question must be answered somewhe
 | Overview | What is this, and what problem does it solve? |
 | Current state | What ships today, what is left, and where is the plan of record? |
 | Product requirements | Where are the PRDs? (a table with links, never the PRD text itself) |
-| Architecture | How is it built? **Must contain a diagram** in this section |
+| Architecture | How is it built? **Must contain a ```mermaid diagram** in this section |
 | Components | One row per component: responsibility, entry point, deep-dive link |
 | Run locally | How do I start it? |
 | Working in this repository | The agent route, and how work lands |
@@ -119,8 +119,14 @@ check accepts the common synonyms — but each question must be answered somewhe
 README that inlines every component's design grows past the point where anyone updates it, and then
 it is worse than absent — it is confidently wrong.
 
-**Prefer Mermaid to an exported image.** GitHub renders ```mermaid natively, it diffs line by line,
-and an agent can edit it. A PNG satisfies the check but nobody will ever update it.
+**The diagram is a ```mermaid fence, not an exported image.** This was advice — "a PNG satisfies
+the check but nobody will ever update it" — until the repository that ships this checker embedded
+an architecture PNG in its own README and left it there for 93 commits and a major version while
+the picture stayed wrong. Advice that the check contradicts is not a rule. An exported raster is
+now `readme-raster-diagram`: it does not diff, so nothing shows it going stale, and the identifier
+guard reads a text diff, so a private name drawn as pixels walks past it. A fence renders on the
+forge, diffs line by line, and an agent can edit it. Every box in it must be named in the section
+beside it, or `readme-diagram-drift` says so.
 
 **Update it with the change, not after.** The validator proves the sections exist; only a person can
 say whether they are still true. That question is asked in the PR template, at merge time.
