@@ -19,3 +19,19 @@ in progress
 
 ## 6. Break-test (house shape)
 in progress
+
+## 1. The cap: which number, read where  — SETTLED
+
+`methodology.md:460` (`install/skills/execution-methodology/methodology.md`), the paragraph
+"**The caps are gate-enforced, not advisory.**": "Card 150 lines, verdict 30 lines, distillation 5
+lines, workspace 50 files or 500 KB, ledger 500 lines before rotation."
+=> **verdict cap = 30 lines. Not invented; quoted.**
+
+Two supporting lines, same file:
+* :450 "**Verdicts, not reports, from judges.** Thirty lines, structured, persisted once — and named
+  `<subject>-r<N>-<kind>.md`." — gives BOTH the number and the filename grammar the check keys on.
+* :454 "**No reports.** A report is a verdict that outgrew thirty lines. The class is banned wherever
+  a verdict, a ledger line, or a commit message can carry the finding — which is everywhere except a
+  spec, a design, or a decision record". So the exemptions are already named in prose: spec, design,
+  decision record. Those live in the TRACKED tree, not in a dated workspace, so a workspace-scoped
+  check does not touch them.
