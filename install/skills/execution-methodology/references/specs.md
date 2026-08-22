@@ -251,11 +251,11 @@ records which criteria were the point.
 **Why it goes at the END of the line, and not where spec-kit puts it.** Their template writes
 `### User Story N (Priority: PN)`, the marker beside the id. Written that way here —
 `**AC-1 (P1)** When …` — `AC_RE` hands `(P1)** When …` to `EARS_RE`, the shape match fails, and
-**every marked criterion raises a false C1** while C2 and C4 go inert on exactly the lines someone
-cared enough to rank. The trailing bracket is the slot this page already gives `[authz]` and
+**every marked criterion raises a false C1** while C2 and C4 go inert on exactly the lines
+someone cared enough to rank. The trailing bracket is the slot this page already gives `[authz]` and
 `[money]`, and it was measured rather than assumed: the tag was appended to every criterion line of
-two real repositories — **995 real criteria** — and `spec_check.py` returned the same exit code and
-the identical finding set, 0 new and 0 lost. The notation is invisible to all eleven instruments.
+two real repositories — **995 real criteria** — and `spec_check.py` returned the same exit code
+and the identical finding set, 0 new and 0 lost. The notation is invisible to all eleven instruments.
 
 **Why it is optional, and why no checker demands it.** A required priority produces a finding on
 every criterion in the corpus on the day it ships, and a checker that opens with ninety findings is
@@ -274,8 +274,8 @@ ordered `(-unlocks, ident)` — alphabetical at the bottom, which is the tiebrea
 been supplying from memory. It is now `(-unlocks, feature, priority, ident)`, and each of those
 three placements is deliberate:
 
-- **Never ahead of `unlocks`.** That ordering is measured — 11%-22% faster than id order across two
-  to eight writers, and id order was itself slower than the wave barrier it replaced at five. A P1
+- **Never ahead of `unlocks`.** That ordering is measured — 11%-22% faster than id order across
+  two to eight writers, and id order was itself slower than the barrier it replaced at five. A P1
   leaf dispatched ahead of a P3 task that unlocks twenty hands that measurement back.
 - **Never across features.** A spec author ranked their own criteria and nobody else's. Compared
   globally, the first feature in a milestone to write a tag would jump every feature that had not,

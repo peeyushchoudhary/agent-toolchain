@@ -136,6 +136,12 @@ every one of them inside another task's. Safety comes from isolation plus detect
 worktrees mean a stray write becomes a merge conflict or a `W7` finding instead of a silent
 clobber.
 
+The ORDER of `ready` is most-unlocked-first, then the feature, then the criterion priority the
+spec declared, then the id. Priority is the last key on purpose: `[P1]` on a criterion reorders
+that feature's own tasks and nothing else, so it can neither cost the measured 11%-22% that
+most-unlocked-first buys nor move one feature ahead of another. The `priority` object in the
+payload says what was read; empty means the milestone's specs marked nothing.
+
 `0`/`1` — dispatch `ready`, in the order given; `deferred` carries the reason each candidate was
 held, which is a dispatch fact and not a defect. `2` — as step 0.
 
