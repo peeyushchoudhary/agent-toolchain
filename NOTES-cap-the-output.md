@@ -140,3 +140,13 @@ receipt inline; no workspace -> rc=0 SILENT; escape hatch -> rc=0 and prints tha
 clean workspace -> rc=0 silent.
 The guard never reads an artifact name — it hands the anchor dir whole to check_review_budget.py.
 That is deliberate: a second classifier in the hook would drift from the first.
+
+## 8. Break-tests (commit 4)
+
+`scripts/check_review_budget_selftest.py` case 4, 15 checks, all pass. PAIRED ON LENGTH — two files
+of the same length in one directory, differing only in what the tool already decided they are:
+4a-4d verdict blocks / fix-report of identical length does not; 4e `-test-judge` free; 4f `.txt`
+never measured; 4g-4h the two polarities in one file (charged AND uncapped); 4i-4j 30 passes, 31
+fails; 4k-4l marker-free `-security.md` capped, marker-free `-review.md` not; 4m over-cap verdict
+STILL spends its round; 4n-4o receipt reports every length and the cap itself, so test literal and
+script constant cannot drift.
