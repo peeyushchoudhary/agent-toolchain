@@ -61,6 +61,8 @@ validation:
 stop_conditions:
   - "a migration is required"
 
+record_to: docs/product/milestones/M1-launch.md
+
 handoff: chief-of-staff
 
 commit_subject: "feat(core): close the duplicate window"
@@ -147,6 +149,12 @@ class ValidateCardTest(unittest.TestCase):
             "backend/app/src/main/java/com/acme/app/App.java":
                 "package com.acme.app;\nclass App {}\n",
             "backend/app/src/main/resources/db/migration/V187__emergency_stop.sql": "-- x\n",
+            # `record_to` names the register a found-but-not-fixed issue goes to, and the validator
+            # requires the destination to EXIST — a card pointing at a milestone document nobody
+            # wrote reads exactly like a register with nothing in it.
+            "docs/product/milestones/M1-launch.md":
+                "---\nmilestone: M1\ntitle: Launch\nstatus: building\nupdated: 2026-01-01\n"
+                "---\n\n# M1 — Launch\n\n## Deferred\n",
         }
         for rel, body in files.items():
             path = repo / rel
@@ -1597,7 +1605,8 @@ class ValidateCardTest(unittest.TestCase):
                                                            "persona: junior"), repo)
 
             self.assertEqual(result.returncode, 1)
-            self.assertIn("[persona] must be one of developer | senior-developer", result.stdout)
+            self.assertIn("is not an implementer this repository offers", result.stdout)
+            self.assertIn("castable: developer | senior-developer", result.stdout)
 
     def test_missing_persona_is_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1950,7 +1959,8 @@ class ValidateCardTest(unittest.TestCase):
             result = self.run_validator(card, repo)
 
             self.assertEqual(result.returncode, 1)
-            self.assertIn("[persona] must be one of developer | senior-developer", result.stdout)
+            self.assertIn("is not an implementer this repository offers", result.stdout)
+            self.assertIn("castable: developer | senior-developer", result.stdout)
 
     # --- fields the card no longer carries ---------------------------------------------------- #
 
@@ -2437,3 +2447,329 @@ class ValidateCardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MidPhaseTest(unittest.TestCase):
+    """`--phase mid` — the drift check, and `record_to`, the destination for what it does not fix.
+
+    W7 in `plan_waves.py` already asks whether a task wrote outside its declared set, and answers
+    after the commit. Mid asks it while the edit is still uncommitted, where undoing it is free.
+    Measured on 56 real cards matched to the commit their own `commit_subject` names: 116 of 558
+    files landed outside the declaring card's `exclusive_writes` across 25 of the 56 cards, and 17
+    landed inside a `forbidden_paths` glob on 9 of them.
+    """
+
+    def make_repo(self, root: Path) -> Path:
+        repo = ValidateCardTest.make_repo(self, root)
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@example.invalid",
+                        "-c", "user.name=t", "commit", "-qm", "base"],
+                       check=True, capture_output=True)
+        return repo
+
+    def run_validator(self, card_text: str, repo: Path, *extra: str,
+                      name: str = "card.yaml") -> subprocess.CompletedProcess:
+        card = repo.parent / name
+        card.write_text(card_text, encoding="utf-8")
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), str(card), "--repo", str(repo), *extra],
+            capture_output=True, text=True, env={**os.environ},
+        )
+
+    def findings(self, result: subprocess.CompletedProcess, severity: str) -> list[str]:
+        return [line.strip() for line in result.stdout.splitlines()
+                if line.strip().startswith(severity)]
+
+    def touch(self, repo: Path, relative: str, body: str = "changed\n") -> Path:
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    # --- the comparison ---------------------------------------------------------------------- #
+
+    def test_an_uncommitted_path_outside_the_write_set_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.touch(repo, "backend/core/build.gradle.kts",
+                       "plugins { java }\n// a build file the card never declared\n")
+            result = self.run_validator(CLEAN_CARD, repo, "--phase", "mid")
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertTrue(any("backend/core/build.gradle.kts" in line
+                                and "exclusive_writes" in line
+                                for line in self.findings(result, "ERROR")), result.stdout)
+
+    def test_every_uncommitted_path_inside_the_write_set_is_silent(self) -> None:
+        """The false-positive half. A check that fires on a task doing exactly what its card says
+        is a check somebody removes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.touch(repo, "backend/core/src/main/java/com/acme/core/Widget.java",
+                       "package com.acme.core;\nclass Widget { int n; }\n")
+            self.touch(repo, "backend/core/src/main/java/com/acme/core/NewThing.java",
+                       "package com.acme.core;\nclass NewThing {}\n")
+            result = self.run_validator(CLEAN_CARD, repo, "--phase", "mid")
+            self.assertEqual(
+                [line for line in self.findings(result, "ERROR")
+                 if "exclusive_writes" in line or "forbidden_paths" in line], [], result.stdout)
+
+    def test_an_uncommitted_change_to_a_forbidden_path_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.touch(repo, "backend/app/build.gradle.kts", "plugins { java }\n// touched\n")
+            result = self.run_validator(CLEAN_CARD, repo, "--phase", "mid")
+            self.assertTrue(any("forbidden" in line and "build.gradle.kts" in line
+                                for line in self.findings(result, "ERROR")), result.stdout)
+
+    def test_a_forbidden_path_is_reported_once_not_twice(self) -> None:
+        """A forbidden path is usually outside the write set too. Reporting it under both fields
+        doubles a finding count that a controller reads as two problems."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.touch(repo, "backend/app/build.gradle.kts", "plugins { java }\n// touched\n")
+            result = self.run_validator(CLEAN_CARD, repo, "--phase", "mid")
+            hits = [line for line in self.findings(result, "ERROR")
+                    if "backend/app/build.gradle.kts" in line]
+            self.assertEqual(len(hits), 1, result.stdout)
+
+    def test_an_untracked_directory_is_expanded_into_its_files(self) -> None:
+        """git's default collapses a new directory to `dir/`. Eleven new files would have been one
+        path, so the finding would have been right and the count wrong."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            for name in ("one", "two", "three"):
+                self.touch(repo, f"scratch/{name}.txt")
+            result = self.run_validator(CLEAN_CARD, repo, "--phase", "mid")
+            hits = [line for line in self.findings(result, "ERROR") if "scratch/" in line]
+            self.assertEqual(len(hits), 3, result.stdout)
+
+    def test_both_sides_of_a_rename_are_compared(self) -> None:
+        """A file moved INTO the write set was still written at the old path, which the card did
+        not own. Reading the destination alone calls that move clean, so the one rename this test
+        performs is the one only the old side can catch."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            source = repo / "backend/core/build.gradle.kts"
+            target = repo / "backend/core/src/main/java/com/acme/core/Build.java"
+            subprocess.run(["git", "-C", str(repo), "mv", str(source), str(target)],
+                           check=True, capture_output=True)
+            reported = " ".join(self.findings(
+                self.run_validator(CLEAN_CARD, repo, "--phase", "mid"), "ERROR"))
+            self.assertIn("backend/core/build.gradle.kts", reported)
+            self.assertNotIn("Build.java", reported)
+
+    def test_a_path_with_a_space_and_a_quote_is_read_verbatim(self) -> None:
+        """`--porcelain` without `-z` wraps such a path in quotes with C escapes, and un-escaping
+        that by hand is a second parser with its own bugs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.touch(repo, 'scratch/a file "with" quotes.txt')
+            result = self.run_validator(CLEAN_CARD, repo, "--phase", "mid")
+            reported = " ".join(self.findings(result, "ERROR"))
+            self.assertIn('a file "with" quotes.txt', reported)
+            self.assertNotIn("\\", reported)
+
+    def test_the_card_file_itself_is_exempt(self) -> None:
+        """A card cannot be required to declare itself, and requiring it would put every card in
+        its own write set."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = repo / "cards" / "card.yaml"
+            card.parent.mkdir(parents=True, exist_ok=True)
+            card.write_text(CLEAN_CARD, encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), str(card), "--repo", str(repo), "--phase", "mid"],
+                capture_output=True, text=True)
+            self.assertFalse(any("cards/card.yaml" in line
+                                 for line in self.findings(result, "ERROR")), result.stdout)
+
+    def test_a_repository_git_cannot_answer_for_says_it_checked_nothing(self) -> None:
+        """A gap, never a pass. The whole failure class this repository keeps meeting is a check
+        that reported clean because it read nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = ValidateCardTest.make_repo(self, Path(tmp))
+            import shutil as _shutil
+            _shutil.rmtree(repo / ".git")
+            result = self.run_validator(CLEAN_CARD, repo, "--phase", "mid")
+            warnings = " ".join(self.findings(result, "WARNING"))
+            self.assertIn("checked nothing", warnings)
+            self.assertIn("gap, not a pass", warnings)
+
+    def test_mid_grades_a_declared_create_test_as_pre_does(self) -> None:
+        """Mid-task is before the task is finished. Grading a declared `Create` as `post` would
+        report a card red for being unfinished, which is the state mid exists to be run in."""
+        card = card_with(tests=(
+            'tests:\n'
+            '  - "Create: backend/core/src/test/java/com/acme/core/NewTest.java '
+            ':: com.acme.core.NewTest"\n'
+            '  - "Retain: backend/core/src/test/java/com/acme/core/tenancy/TenantIsolationTest'
+            '.java :: com.acme.core.tenancy.TenantIsolationTest"\n'),
+            validation=(
+                'validation:\n'
+                '  - cwd: backend\n'
+                '    argv:\n'
+                '      - ./gradlew\n'
+                '      - :core:test\n'
+                '      - --tests\n'
+                '      - com.acme.core.NewTest\n'
+                '      - --tests\n'
+                '      - com.acme.core.tenancy.TenantIsolationTest\n'
+                '      - --rerun-tasks\n'))
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            mid = self.run_validator(card, repo, "--phase", "mid")
+            post = self.run_validator(card, repo, "--phase", "post")
+            self.assertEqual([line for line in self.findings(mid, "ERROR")
+                              if "NewTest" in line], [], mid.stdout)
+            self.assertTrue(any("NewTest" in line for line in self.findings(post, "ERROR")),
+                            post.stdout)
+
+    def test_the_header_reports_how_many_paths_were_compared(self) -> None:
+        """The denominator of the check is part of its result: "0 compared" and "31 compared" are
+        very different clean runs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.touch(repo, "backend/core/src/main/java/com/acme/core/Widget.java",
+                       "package com.acme.core;\nclass Widget { int n; }\n")
+            result = self.run_validator(CLEAN_CARD, repo, "--phase", "mid")
+            self.assertIn("1 uncommitted path(s) compared", result.stdout)
+            plain = self.run_validator(CLEAN_CARD, repo)
+            self.assertNotIn("uncommitted path(s) compared", plain.stdout)
+
+    def test_pre_and_post_do_not_read_the_working_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.touch(repo, "scratch/drift.txt")
+            for phase in ("pre", "post"):
+                result = self.run_validator(CLEAN_CARD, repo, "--phase", phase)
+                self.assertFalse(any("scratch/drift.txt" in line
+                                     for line in result.stdout.splitlines()),
+                                 f"{phase}: {result.stdout}")
+
+    def test_the_glob_intersection_is_imported_rather_than_reimplemented(self) -> None:
+        """`--phase mid` and W7 ask the same question about the same file. Two implementations of
+        the answer can disagree, and the disagreement is invisible because each has its own tests.
+        """
+        scripts = str(SCRIPT.parent)
+        sys.path.insert(0, scripts)
+        try:
+            import plan_waves  # type: ignore
+            import validate_card  # type: ignore
+            self.assertIs(validate_card.overlap, plan_waves.overlap)
+        finally:
+            sys.path.remove(scripts)
+
+    # --- record_to --------------------------------------------------------------------------- #
+
+    def test_record_to_is_a_warning_when_absent_and_strict_refuses_it(self) -> None:
+        """The `title` migration policy, applied again: all 187 cards measured across four real
+        repositories predate the field, and failing them closed is failing on history."""
+        card = "\n".join(line for line in CLEAN_CARD.splitlines()
+                         if not line.startswith("record_to:")) + "\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            plain = self.run_validator(card, repo)
+            self.assertEqual(plain.returncode, 0, plain.stdout)
+            self.assertTrue(any("record_to" in line for line in self.findings(plain, "WARNING")))
+            strict = self.run_validator(card, repo, "--strict")
+            self.assertEqual(strict.returncode, 1, strict.stdout)
+
+    def test_record_to_that_is_not_a_milestone_document_is_an_error(self) -> None:
+        card = card_with(record_to="record_to: docs/notes/backlog.md\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            result = self.run_validator(card, repo)
+            self.assertTrue(any("record_to" in line for line in self.findings(result, "ERROR")),
+                            result.stdout)
+
+    def test_record_to_naming_a_file_that_does_not_exist_is_an_error(self) -> None:
+        """A register that is not there is indistinguishable from an empty one, which is exactly
+        how a deferral gets lost."""
+        card = card_with(record_to="record_to: docs/product/milestones/M9-absent.md\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            result = self.run_validator(card, repo)
+            self.assertTrue(any("does not exist" in line and "record_to" in line
+                                for line in self.findings(result, "ERROR")), result.stdout)
+
+    def test_record_to_that_resolves_is_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            result = self.run_validator(CLEAN_CARD, repo, "--strict")
+            self.assertEqual([line for line in result.stdout.splitlines()
+                              if "record_to" in line], [], result.stdout)
+
+    def test_an_empty_record_to_is_an_error(self) -> None:
+        card = card_with(record_to='record_to: ""\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            result = self.run_validator(card, repo)
+            self.assertTrue(any("record_to" in line for line in self.findings(result, "ERROR")),
+                            result.stdout)
+
+
+class RepoPersonaPoolTest(ValidateCardTest):
+    """A card must be able to name the pool the repository installed — and no further.
+
+    Measured across four real repositories: 289 `persona:` casts, 287 the base pair and 2 naming a
+    JUDGE. Widening the allow-list to the whole pool would be taste; refusing those 2 is the point.
+    A judge's whole value is that it cannot change what it judges, so casting one to implement hands
+    back the edit rights the restriction withholds — the hazard this methodology already records
+    about a third-party template dispatching general-purpose subagents.
+
+    The persona files carry the distinction themselves in `writes:`, so there is no second list here
+    to drift from the first, and the pool is read from the REPOSITORY, never from `$HOME`.
+    """
+
+    def with_pool(self, repo: Path, **who: str) -> None:
+        directory = repo / "docs" / "agents" / "personas"
+        directory.mkdir(parents=True, exist_ok=True)
+        for raw, writes in who.items():
+            name = raw.replace("_", "-")
+            body = f"---\nname: {name}\n" + (f"writes: {writes}\n" if writes else "") + "---\n\n# x\n"
+            (directory / f"{name}.md").write_text(body, encoding="utf-8")
+
+    def cast(self, repo: Path, persona: str):
+        return self.run_validator(
+            CLEAN_CARD.replace("persona: senior-developer", f"persona: {persona}"), repo)
+
+    def test_a_judge_may_not_be_cast_as_the_implementer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.with_pool(repo, tenancy_validator="no")
+
+            result = self.cast(repo, "tenancy-validator")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("is a judge in this repository's pool", result.stdout)
+
+    def test_a_project_implementer_is_castable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.with_pool(repo, platform_developer="yes")
+
+            self.assertNotIn("[persona]", self.cast(repo, "platform-developer").stdout)
+
+    def test_an_unknown_name_names_what_the_repository_offers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.with_pool(repo, platform_developer="yes")
+
+            result = self.cast(repo, "nobody")
+
+            self.assertIn("castable:", result.stdout)
+            self.assertIn("platform-developer", result.stdout)
+
+    def test_a_persona_declaring_nothing_is_read_as_a_judge(self) -> None:
+        """Fail closed: being wrong this way costs a rename, the other way costs the guarantee."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.with_pool(repo, vague="")
+
+            self.assertIn("is a judge", self.cast(repo, "vague").stdout)
+
+    def test_no_pool_falls_back_to_the_base_pair_and_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+
+            self.assertIn("no docs/agents/personas/ here", self.cast(repo, "nobody").stdout)

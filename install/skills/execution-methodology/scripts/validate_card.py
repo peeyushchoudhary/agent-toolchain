@@ -20,7 +20,15 @@ Usage:
   validate_card.py CARD --repo PATH                     # pre-implementation; exit 1 on ERROR
   validate_card.py CARD --repo PATH --strict            # exit 1 on WARNING too, except [siblings]
   validate_card.py CARD --repo PATH --strict --phase post # require declared Create tests now exist
+  validate_card.py CARD --repo PATH --phase mid         # mid-task: uncommitted paths vs the card
   validate_card.py CARD --repo PATH --quiet             # findings only, no summary header
+
+`--phase mid` is the drift check, and it is the one mode meant to be run REPEATEDLY: at every
+implementer turn boundary, comparing `git status` against `exclusive_writes` and `forbidden_paths`
+with the same glob intersection `plan_waves.py` W7 uses after the commit. Measured on 56 real cards
+matched to their own commits: of 558 files compared, 116 were written outside what the card allowed
+— 99 covered by no write glob and 17 inside a declared fence. Every one was catchable while the
+edit was still uncommitted.
 
 Exit codes: 0 clean, 1 findings, 2 the card or repository could not be read.
 
@@ -68,6 +76,13 @@ import sys
 from collections import Counter
 from pathlib import Path
 from typing import NamedTuple, Optional
+
+# One glob intersection, never a second copy of it. `--phase mid` asks the SAME question W7 asks
+# after the commit -- did this task write outside its declared set -- and answering it with a
+# second glob implementation would let the two disagree about the same file: mid says clean, W7
+# says stray, and the disagreement is invisible because each has its own tests. `spec_check.py`
+# already imports `ratio_meter` on the same rule.
+from plan_waves import overlap
 
 # Directories that hold generated or vendored output. Walking them is slow and, worse, wrong: the
 # defect-1 class was findable under backend/app/build/classes as a stale .class file, and an index
@@ -123,13 +138,15 @@ STRICT_EXEMPT_FIELDS = ("siblings",)
 CURRENT_FIELDS = (
     "id", "title", "goal", "persona", "prerequisites", "exclusive_writes",
     "forbidden_paths", "context_acquisition", "frozen_values", "invariants", "instructions",
-    "tests", "gate_risk", "validation", "stop_conditions", "handoff", "commit_subject",
+    "tests", "gate_risk", "validation", "stop_conditions", "record_to", "handoff",
+    "commit_subject",
 )
 REQUIRED_NONEMPTY_FIELDS = frozenset({
     "id", "title", "goal", "persona", "exclusive_writes", "context_acquisition",
     "invariants", "instructions", "tests", "gate_risk", "validation", "stop_conditions",
-    "handoff", "commit_subject",
+    "record_to", "handoff", "commit_subject",
 })
+MILESTONE_DOC_RE = re.compile(r"^docs/product/milestones/M\d+-[^/]+\.md$")
 # A required field whose ABSENCE carries a compatibility note.
 # `title` was added after ~50 cards had already been sealed, and none of them carry one. Failing
 # those is failing closed on history that cannot be edited. `--strict` does exit 1 on this warning,
@@ -141,7 +158,17 @@ REQUIRED_NONEMPTY_FIELDS = frozenset({
 MISSING_FIELD_NOTE = {
     "title": " — every card needs a one-line name; warned rather than failed only because cards "
              "sealed before this rule have none, and --strict still fails it",
+    "record_to": " — the fix/record rule sends every finding this card does not own to a register, "
+                 "and a card that names no register has nowhere to put one, so the finding is "
+                 "either done now (scope drift) or lost; warned rather than failed because all "
+                 "187 cards measured across four real repositories predate the field, and "
+                 "--strict still fails it",
 }
+# `record_to` is the ONLY datum the fix/record rule adds to a card, and it is deliberately the only
+# one: OWNED reads `exclusive_writes` and `forbidden_paths`, LINKED reads `invariants` and
+# `frozen_values`, TRIGGERED reads `validation` — all four fields the card already carries and the
+# implementer has already read. The rule therefore costs zero model calls and zero extra context.
+# What was missing was never a test; it was a DESTINATION for the answer "record".
 # 72 characters: the git subject-line convention, which is where a title most often ends up quoted,
 # and what still fits on an 80-column line after an id prefix and two spaces. The bound exists so a
 # title stays a name; a sentence belongs in `goal`.
@@ -149,6 +176,49 @@ TITLE_MAX_CHARS = 72
 # What counts as a sibling card when scanning the directory. Deliberately not "every file".
 CARD_SUFFIXES = (".yaml", ".yml")
 VALID_PERSONAS = ("developer", "senior-developer")
+# The base pair is a FLOOR, not the pool. A repository installs its own domain personas as overlays
+# in `docs/agents/personas/`, and until now a card could name none of them: the allow-list was a
+# hardcoded pair, so the pool a repository actually adopted was unreachable from the artifact that
+# dispatches work.
+#
+# Widening it to "any persona" would be wrong in the other direction, and MEASURED rather than
+# assumed: across four repositories there are 289 real `persona:` casts, 287 of them the base pair
+# and 2 naming a JUDGE. Those 2 are the case this rule exists to catch. A judge's whole value is
+# that it cannot change what it judges — casting one as the implementer destroys the guarantee the
+# pool enforces by restriction, which is the same hazard this methodology already records about a
+# third-party template dispatching general-purpose subagents.
+#
+# The persona files carry the distinction themselves: a judge declares `writes: no`. So the split is
+# read from the pool rather than restated here, and no second list can drift from the first.
+PERSONA_WRITES_RE = re.compile(r"^writes:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def repo_personas(repo: "Repo") -> tuple[list[str], list[str], bool]:
+    """(implementers, judges, pool_found) from the repository's own overlays.
+
+    Reads the REPO, never `$HOME`: a check that consults the machine gives one answer locally and
+    another in CI, and this toolchain has already been caught pruning a machine-global directory
+    from a repository-scoped command.
+    """
+    directory = repo.root / "docs" / "agents" / "personas"
+    if not directory.is_dir():
+        return list(VALID_PERSONAS), [], False
+    implementers, judges = list(VALID_PERSONAS), []
+    for path in sorted(directory.glob("*.md")):
+        try:
+            head = path.read_text(encoding="utf-8")[:2000]
+        except (OSError, UnicodeError):
+            continue
+        name = path.stem
+        match = PERSONA_WRITES_RE.search(head)
+        declared = (match.group(1).strip().lower() if match else "")
+        # Anything that is not plainly a claim to write is treated as a judge. Fail-closed in the
+        # direction that costs a rename rather than a lost guarantee.
+        if declared.startswith("no") or not declared:
+            judges.append(name)
+        elif name not in implementers:
+            implementers.append(name)
+    return implementers, sorted(judges), True
 # `tier` was the old name for `persona`. It collided with the unrelated rollout-tier concept, so it
 # was renamed; a card still using it validates and is warned rather than failed.
 DEPRECATED_ALIASES = {"tier": "persona"}
@@ -902,7 +972,7 @@ class Findings:
         return sum(1 for s, _, _ in self.rows if s == WARNING)
 
 
-def check_required_fields(card: dict[str, object], f: Findings) -> None:
+def check_required_fields(card: dict[str, object], f: Findings, repo: "Repo | None" = None) -> None:
     """D. Enforce the complete v1.5 schema without making sealed history unreadable."""
     resolved = dict(card)
     for old, new in DEPRECATED_ALIASES.items():
@@ -926,7 +996,7 @@ def check_required_fields(card: dict[str, object], f: Findings) -> None:
             # it here creates duplicate roots and lets literal argv trigger generic prose checks.
             continue
         if field not in resolved:
-            if field == "title":
+            if field in MISSING_FIELD_NOTE:
                 f.add(WARNING, field,
                       "required field is missing" + MISSING_FIELD_NOTE.get(field, ""))
             elif current_card:
@@ -938,8 +1008,21 @@ def check_required_fields(card: dict[str, object], f: Findings) -> None:
                 str(v).strip() for v in as_list(resolved[field])):
             f.add(ERROR, field, "required field is present but empty")
     persona = str(resolved.get("persona", "")).strip()
-    if persona and persona not in VALID_PERSONAS:
-        f.add(ERROR, "persona", f"must be one of {' | '.join(VALID_PERSONAS)}, got {persona!r}")
+    if persona:
+        # `repo` is optional so the schema check still runs for callers that have no repository in
+        # hand; without one the base pair is the only honest answer and the message says so.
+        implementers, judges, pool_found = (repo_personas(repo) if repo is not None
+                                            else (list(VALID_PERSONAS), [], False))
+        if persona in judges:
+            f.add(ERROR, "persona", f"{persona!r} is a judge in this repository's pool — it "
+                  "declares `writes: no`, and that refusal is the whole reason its verdict is "
+                  "worth anything. Casting it to implement gives it back the edit rights the "
+                  f"restriction withholds. Implementers here: {' | '.join(implementers)}")
+        elif persona not in implementers:
+            where = ("docs/agents/personas/" if pool_found else
+                     "no docs/agents/personas/ here, so only the base pair is castable")
+            f.add(ERROR, "persona", f"{persona!r} is not an implementer this repository offers "
+                  f"({where}); castable: {' | '.join(implementers)}")
 
     for field, value in card.items():
         if field in ("exclusive_writes", "forbidden_paths", "validation"):
@@ -1865,6 +1948,125 @@ def check_frozen_migration(card: dict[str, object], repo: Repo,
               f"the next free version is V{top + 1} — the plan's version is probably stale")
 
 
+def working_tree_paths(root: Path) -> tuple[list[str], str | None]:
+    """Every repository-relative path with an uncommitted change, or a reason it could not be read.
+
+    `-z` rather than the quoted default: a path with a space, a quote or a non-ASCII byte comes
+    back from plain `--porcelain` wrapped in quotes with C escapes, and un-escaping that by hand is
+    a second parser with its own bugs. Under `-z` a rename emits the new path and then the old one
+    as separate NUL-terminated records, and BOTH are returned — a file moved OUT of the write set
+    was written at the old path too, and reporting only the destination would call the move clean.
+
+    `--untracked-files=all` because the default collapses an untracked directory to `dir/`, and a
+    task that created eleven files in one new directory would be reported as one path that matches
+    no glob — the count would be wrong even when the finding was right.
+    """
+    try:
+        proc = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "-z",
+                               "--untracked-files=all"],
+                              capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [], f"git status could not be run ({exc})"
+    if proc.returncode != 0:
+        reason = " ".join(proc.stderr.split())[:160] or f"exit {proc.returncode}"
+        return [], f"git status exited non-zero ({reason})"
+    records = proc.stdout.split("\0")
+    paths: list[str] = []
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if len(record) < 4:
+            continue
+        codes, path = record[:2], record[3:]
+        if ("R" in codes or "C" in codes) and index < len(records) and records[index]:
+            paths.append(records[index])
+            index += 1
+        paths.append(path)
+    return sorted(dict.fromkeys(p for p in paths if p)), None
+
+
+def check_working_tree_drift(card: dict[str, object], card_path: Path, repo: Repo,
+                             f: Findings) -> int:
+    """`--phase mid`: what this task has ALREADY written, against what its card allows.
+
+    W7 in `plan_waves.py` asks the same question and answers it after the commit, which is after
+    the drift is in history and after the review budget has been spent on it. This asks it while
+    the edits are still in the working tree, where undoing one costs nothing.
+
+    MEASURED, and the reason this is an ERROR rather than a note. 187 real cards were read across
+    four repositories; 56 of them named, in their own `commit_subject`, a commit that exists, and
+    those 56 commits' files were compared to the declaring card's paths with the same `overlap`
+    used below. **558 files compared, 116 of them written outside what the card allowed** — 99 that
+    no `exclusive_writes` glob covers and 17 inside a `forbidden_paths` glob — **across 25 of the
+    56 cards**, 9 of which broke a fence they had declared themselves. 74 of the 116 are product
+    source. Dropping the single largest pair still leaves 63 findings on 493 files and 24 cards.
+
+    THE NOISE CLASS IS NAMED RATHER THAN FILTERED. 31 of the 116 are the execution workspace's own
+    bookkeeping — the report, the ledger, the deferral register — written by a task whose card did
+    not declare them. They are reported, because the remedy is one line in `exclusive_writes` and
+    because a filter here would have to match project-specific file NAMES (`progress.md`,
+    `deferral-register.tsv`), which is the word-not-structure error this repository has already
+    made three times. The card itself is the one exemption: a card cannot be asked to declare
+    itself, and requiring it would put every card in its own write set.
+    """
+    writes = as_list(card.get("exclusive_writes"))
+    forbidden = as_list(card.get("forbidden_paths"))
+    if not writes:
+        return 0                    # `check_required_fields` already reports the empty write set.
+    paths, unreadable = working_tree_paths(repo.root)
+    if unreadable is not None:
+        f.add(WARNING, "exclusive_writes",
+              f"{unreadable}, so NO uncommitted path was compared to this card's write set; "
+              "--phase mid checked nothing here and this is a gap, not a pass")
+        return 0
+    try:
+        own = card_path.resolve().relative_to(repo.root).as_posix()
+    except ValueError:
+        own = None
+    stray = [p for p in paths if p != own and not any(overlap(p, glob) for glob in writes)]
+    banned = [p for p in paths if any(overlap(p, glob) for glob in forbidden)]
+    for path in banned:
+        f.add(ERROR, "forbidden_paths",
+              f"`{path}` has an uncommitted change and this card forbids writing it — revert it "
+              "before the commit; a forbidden path is forbidden because something outside this "
+              "task depends on it as it is")
+    for path in stray:
+        if path in banned:
+            continue
+        f.add(ERROR, "exclusive_writes",
+              f"`{path}` has an uncommitted change that no `exclusive_writes` glob covers — "
+              "either it is drift and reverts, or the card was wrong and the write set widens "
+              "before the commit, which the plan has to agree to")
+    # A clean run reports its DENOMINATOR through the header rather than as a finding: "0
+    # uncommitted paths" and "31 uncommitted paths, all inside the write set" are very different
+    # clean runs, and a WARNING here would make `--strict` fail every well-behaved task.
+    return len(paths)
+
+
+def check_record_to(card: dict[str, object], repo: Repo, f: Findings) -> None:
+    """`record_to` has to name a milestone document that EXISTS, or "record" has no destination.
+
+    This is the whole machine half of the fix/record rule. The three tests — owned, linked,
+    triggered — read fields the card already carries, so the only way the rule fails silently is by
+    sending a recorded finding to a file nobody wrote. A path that resolves nowhere reads exactly
+    like a register with no entries in it, which is the state this replaces.
+    """
+    target = str(card.get("record_to", "")).strip().strip("`")
+    if not target:
+        return                        # `check_required_fields` owns absence and emptiness.
+    if not MILESTONE_DOC_RE.match(target):
+        f.add(ERROR, "record_to",
+              f"`{target}` is not a milestone document; the register lives at "
+              "docs/product/milestones/M<n>-<slug>.md, where spec_check rule E lints it and "
+              "plan_waves --milestone already resolves the same file")
+        return
+    if target not in repo.file_set:
+        f.add(ERROR, "record_to",
+              f"`{target}` does not exist in the repository, so a finding this card records has "
+              "nowhere to go — a register that is not there is indistinguishable from an empty one")
+
+
 def check_context_acquisition(card: dict[str, object], f: Findings) -> None:
     """Style, WARNING only. The closing instruction is what stops an agent reading the plan."""
     steps = as_list(card.get("context_acquisition"))
@@ -1942,12 +2144,18 @@ def check_size_budget(text: str, f: Findings) -> None:
 # --------------------------------------------------------------------------------------------- #
 
 def validate(card_path: Path, repo_root: Path,
-             phase: str = "pre") -> tuple[dict[str, object], Repo, SiblingScan, Findings]:
+             phase: str = "pre") -> tuple[dict[str, object], Repo, SiblingScan, Findings, int]:
     text = card_path.read_text(encoding="utf-8")
     card = parse_card(text, card_path.name)
     repo = Repo(repo_root)
     scan = index_siblings(card_path)
     f = Findings()
+    # `mid` runs the card checks in their PRE form and adds the working-tree comparison. Mid-task
+    # is before the task is finished, so a test the card declares `Create` legitimately does not
+    # exist yet — grading that against `post` would report a card red for being unfinished, which
+    # is the state `mid` exists to be run in.
+    card_phase = "pre" if phase == "mid" else phase
+    compared = 0
     check_size_budget(text, f)
 
     writes = specs_for(card, "exclusive_writes", repo)
@@ -1956,23 +2164,26 @@ def validate(card_path: Path, repo_root: Path,
 
     if commands is not None:
         parsed_gradle = gradle_commands(commands)
-        check_validation_tests(card, repo, phase, parsed_gradle, f)
-        check_java_tests(card, repo, writes, phase, parsed_gradle, f)
+        check_validation_tests(card, repo, card_phase, parsed_gradle, f)
+        check_java_tests(card, repo, writes, card_phase, parsed_gradle, f)
         check_pytest_selectors(card, repo, writes, commands, f)
         check_validation_module_placement(card, repo, parsed_gradle, f)
         check_validation_cacheable(card, repo, writes, parsed_gradle, f)
-    check_path_coherence(card, repo, writes, forbidden, phase, f)
+    check_path_coherence(card, repo, writes, forbidden, card_phase, f)
     check_write_set_satisfiable(card, repo, writes, f)
     check_ignored_write_paths(repo, writes, f)
-    check_required_fields(card, f)
+    check_required_fields(card, f, repo)
     check_title(card, f)
     check_cross_card_uniqueness(card, scan, f)
     check_obsolete_fields(card, f)
-    check_frozen_migration(card, repo, writes, phase, commands or (), f)
+    check_frozen_migration(card, repo, writes, card_phase, commands or (), f)
     if commands is not None:
         check_gate_risk_covered(card, commands, f)
     check_context_acquisition(card, f)
-    return card, repo, scan, f
+    check_record_to(card, repo, f)
+    if phase == "mid":
+        compared = check_working_tree_drift(card, card_path, repo, f)
+    return card, repo, scan, f, compared
 
 
 def main() -> int:
@@ -1981,8 +2192,10 @@ def main() -> int:
     ap.add_argument("card", help="path to the task card YAML")
     ap.add_argument("--repo", required=True, help="repository the card will be executed in")
     ap.add_argument("--strict", action="store_true", help="exit 1 on warnings as well as errors")
-    ap.add_argument("--phase", choices=("pre", "post"), default="pre",
-                    help="pre permits declared Create tests to be absent; post requires them")
+    ap.add_argument("--phase", choices=("pre", "mid", "post"), default="pre",
+                    help="pre permits declared Create tests to be absent; post requires them; "
+                         "mid runs the pre checks and also compares every uncommitted path in "
+                         "--repo against this card's exclusive_writes and forbidden_paths")
     ap.add_argument("--quiet", action="store_true", help="print findings only")
     args = ap.parse_args()
 
@@ -1996,7 +2209,7 @@ def main() -> int:
         return 2
 
     try:
-        card, repo, scan, findings = validate(card_path, repo_root, args.phase)
+        card, repo, scan, findings, compared = validate(card_path, repo_root, args.phase)
     except CardError as e:
         print(f"  ERROR   {e}", file=sys.stderr)
         return 2
@@ -2012,7 +2225,8 @@ def main() -> int:
         # different clean runs. `not read` is never folded into `compared`.
         print(f"card {card_id}" + (f' "{title}"' if title else "") + f": {len(card)} field(s) "
               f"parsed, {len(repo.files)} file(s) indexed in {repo_root.name}, "
-              f"{len(scan.cards)} sibling card(s) compared, {len(scan.skipped)} not read")
+              f"{len(scan.cards)} sibling card(s) compared, {len(scan.skipped)} not read"
+              + (f", {compared} uncommitted path(s) compared" if args.phase == "mid" else ""))
     for severity, field, message in findings.rows:
         print(f"  {severity:<7} [{field}] {message}")
 

@@ -1,6 +1,6 @@
 ---
 name: planner
-description: Use at the start of substantial work to decide what to build and in what order — explore approaches, choose one, and decompose it into bounded tasks. Not for judging whether a design is structurally sound; that is architect.
+description: SUPERSEDED by chief-of-staff — do not select this persona. plan_waves.py now derives the waves a planner used to argue, and the rest of the role is dispatch, which chief-of-staff owns. This file remains so existing references resolve and so the judging roster keeps its floor. Former description: Use at the start of substantial work to decide what to build and in what order — explore approaches, choose one, and decompose it into bounded tasks. Not for judging whether a design is structurally sound; that is architect.
 writes: no
 claude.model: fable
 claude.effort: high

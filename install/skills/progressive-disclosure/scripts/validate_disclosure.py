@@ -144,6 +144,29 @@ def is_lessons_file(name: str) -> bool:
     return bool(LESSONS_NAME.match(name.lower()))
 
 
+# The same reasoning, one document further. A measurements file is a RECORD: each entry is a dated
+# fact that stays true, so the file grows by accretion exactly as a lessons file does, and a total
+# word budget on it has the same two exits — evict evidence, or shard the file and game the metric.
+# It reached 1194 of 1200 words with every routed guide in the fleet at 1178-1199, so the next
+# measurement could not land at all while AGENTS.md still routed measurements there. The budget and
+# the address were in direct conflict, and the budget was the wrong half.
+#
+# A record is not exempt from being readable. It gets the same entry-count observation, set from
+# the same measured basis: this file holds 8 sections today, so the threshold speaks only when the
+# document has grown into something that wants archiving.
+# `decisions.md` belongs here for the same reason and was missed on the first pass, which is worth
+# recording: the first fix named the file that happened to be full rather than the CLASS the rule
+# was about. A decision record accretes by definition — a decision that stops being listed stops
+# being findable — and it sat at 1185 of 1200 words, so it was two decisions from the same wall
+# measurements had just hit. A rule aimed at one filename would have had to be written a third time.
+RECORD_NAME = re.compile(r"^(measurements|benchmarks|decisions|adr|rulings)(?:[-_][a-z0-9]+)?\.md$")
+
+
+def is_record_file(name: str) -> bool:
+    """A document whose entries accrete rather than being revised. No total word budget."""
+    return bool(RECORD_NAME.match(name.lower()))
+
+
 # The one constraint that survives. Not a word budget in any form — the total budget was gamed by
 # sharding, and a per-entry word rule fires on compliant content today (real entries across the
 # fleet run ~120-200 words, well past the ~150 that was proposed as a limit).
@@ -1204,14 +1227,15 @@ def collect(args: argparse.Namespace, root: Path) -> tuple[Report, list[Path]]:
             continue
         text = read_doc(doc, root)
         words = word_count(text)
-        if is_lessons_file(doc.name):
+        if is_lessons_file(doc.name) or is_record_file(doc.name):
             # No word budget in any form — see LESSONS_ENTRY_NOTE_AT. Entry count instead, and
             # only as an observation.
+            kind = "lessons" if is_lessons_file(doc.name) else "record"
             entries = lessons_entry_count(text)
             if entries > LESSONS_ENTRY_NOTE_AT:
-                report.note("lessons-entries", str(rel),
+                report.note(f"{kind}-entries", str(rel),
                             f"{entries} entries ({words} words) — past {LESSONS_ENTRY_NOTE_AT} a "
-                            "lessons file stops being readable in one sitting; consider archiving "
+                            f"{kind} file stops being readable in one sitting; consider archiving "
                             "the entries that no longer change what anyone does")
         else:
             budget = args.entry_budget if d == 0 else args.guide_budget

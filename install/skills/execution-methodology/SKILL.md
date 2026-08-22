@@ -11,7 +11,7 @@ Codex. The rules live in [methodology.md](methodology.md) — read that; this fi
 ## The shape, in one screen
 
 ```
-product spec → feature spec → design → budgeted review →│GATE│
+PRD → feature spec → design → budgeted review →│GATE│
                                       plan → budgeted review →│GATE│→ tasks
                                                               ↓
               per task, unattended: context → implement → review (2 rounds max)
@@ -39,8 +39,11 @@ A light-lane task that turns out to touch a durable boundary stops and returns t
 
 ## The review budget
 
-One reviewer per round — `security-validator` joins only when a safety surface moves, at most one
-other domain specialist only when its invariant moves; never a panel. Two rounds per artifact: one
+**Width is scoped by stage; the round budget is not.** At design and plan, up to three reviewers with
+different lenses, plus `security-validator` on safety surfaces. At implementation, one reviewer plus
+`test-judge`, and `security-validator` when a safety surface moves. The evidence for the stage split
+is under "Design and plan" below and must not be restated here — it was restated here once already,
+and one copy was corrected while this one kept the falsified rule. Two rounds per artifact: one
 correction and one scoped rereview, then apply-and-close — the orchestrator applies the final
 verdict's named smallest correction and closes; only safety-class findings and principle-7 scope
 changes escalate, and every escalation brief names a default action executed after a short founder
@@ -61,6 +64,20 @@ It also rejects banned workspace artifact classes — `.diff` snapshots (name th
 stores the diff), restatement packets, and files recording failed dispatches (those are one ledger
 line each) — and warns when the workspace outgrows its budget, which is a process-regression
 signal for the milestone receipt.
+
+**Renaming a subject resets its budget, so the check reports the FAMILY too.** Subject keys that
+extend a live subject key at a token boundary (`<subj>`, `<subj>-contract`,
+`<subj>-contract-prerequisite`) are one lineage, and `FAMILY_SPEND` states their combined spend
+beside the per-subject lines. Measured on four real repositories: one code-formatter prerequisite
+holds 13 subject keys, **51 charged artifacts across 14 distinct rounds, r1 to r15**, for one
+artifact under review — and no per-subject line said so. It is a WARNING: it changes no exit code
+and refuses no dispatch. Subject derivation is unchanged, so no grant key moves.
+
+**`test-judge` does not spend a review round.** It runs a command and reports an exit code; that
+is evidence collection, the same class as the JUnit XML it reports. Measured: 124 `-test-judge`
+artifacts in the real corpus, 114 PASS / 2 FAIL / 1 with no verdict — 0.02 against 0.16 for
+`reviewer`, and both failures have a sibling `reviewer` verdict at the same round, so no round
+loses its charge. Name an artifact `-reviewer` or `-acceptance` when it actually adjudicates.
 
 ## The process-cost budget
 
@@ -170,17 +187,46 @@ correctness one (a central list is a second source of truth that drifts).
 
 ## Running it
 
-**Starting something new** — invoke `product-steward` for the product spec, then the feature spec.
-Do not skip to design because the feature seems small; skip to a *short* spec instead. The edge-case
-and horizontals sections are where specs are actually incomplete, and they are cheap to write and
-expensive to discover.
+**Starting something new** — invoke `product-steward` for the PRD, then the feature spec. Do not skip
+to design because the feature seems small; skip to a *short* spec instead. The scope boundary, the
+surface, and the horizontals pass are where specs are actually incomplete, and they are cheap to
+write and expensive to discover. Cast the repository's own domain validators HERE, not at review:
+a validator that declares `covers:` is required in the document's `reviewed_by:` by `spec_check.py`
+rule F whenever the horizontals say that concern moves. `spec_check.py --personas` shows the pool,
+what each owns, and what the corpus offers it to own. Both artifacts are updated in place: a spec states what is true now
+and never what it used to say.
 
-**Design and plan** — `architect` for the design; `planner` for the plan, with `contract-architect`
-on anything crossing a durable boundary. A domain specialist reviews only when the artifact touches
-its invariant — at most one, plus `security-validator` on safety surfaces; never a panel. After any
-specialist review and before each human gate, cast the existing `reviewer` in design mode before
-Gate 1 and plan mode before Gate 2, under the review budget. Freeze interfaces in the plan
-*including payloads*. A plan that freezes route names but not request and response shapes hands the
+**Design and plan** — `architect` for the design; `chief-of-staff` for the plan, with `migration-validator`
+on anything crossing a durable boundary. **Review width is scoped by STAGE, not capped by a count.**
+At design and plan a PANEL is correct: up to three reviewers with DIFFERENT lenses, plus
+`security-validator` on safety surfaces. At implementation the width is ONE reviewer plus
+`test-judge`, and `test-judge` does not spend a review round because it runs a command and reports
+an exit code. After any specialist review and before each human gate, cast the existing `reviewer`
+in design mode before Gate 1 and plan mode before Gate 2, under the review budget.
+
+*This corrects the rule that used to stand here, which capped review at one specialist and
+forbade a panel at every stage. The corpus falsifies it.* Measured
+across 1,051 round-marked review artifacts in four repositories: a design or plan review returns a
+blocking verdict at **0.74** per artifact against **0.09** at implementation — an **8x** gap, and it
+holds at every width. Panel findings are not redundant: of 21 groups where two or more reviewers
+blocked, the median overlap between the anchors they cite is a Jaccard of **0.20**, and the three
+pairs above 0.5 share only the subject id. Three reviewers on one design returned three DISJOINT
+defects. An independent re-measurement of the same repositories on a coarser stage split reproduces
+the direction and not the magnitude — design 0.39-0.42 per artifact against implementation 0.16,
+about 2.5x — so treat 8x as the upper end of the range and the ORDERING as the finding.
+
+**Do not import the published "two reviewers is optimal" number.** It measures the same lens applied
+twice to a diff, where a third reader adds overlap. A design panel applies different lenses to a
+document, and the overlap was measured here and is low. Where the external result and this corpus
+disagree, this corpus wins, and the reason is that the two are not measuring the same thing.
+
+**Cast a domain validator EARLY, at definition and design, not at implementation review.** Across
+the same repositories, project-local domain validators cast at implementation returned **66 reviews
+and ZERO blocking verdicts**; the same validator names cast inside a design workspace returned
+**6 blocks in 14 reviews**. A validator is a lens on a decision, and by implementation the decision
+has already been made.
+
+Freeze interfaces in the plan *including payloads*. A plan that freezes route names but not request and response shapes hands the
 implementer an invention it will make silently. The plan also assigns each task its lane.
 
 **Pre-gate adversarial review** — give a fresh, isolated, read-only `reviewer` only named artifact
@@ -204,11 +250,12 @@ other refusal is closed by applying the final verdict's named smallest correctio
 never authors or applies its own correction, and the bounded rereview never becomes a consensus
 loop. Existing implementation review is unchanged.
 
-**Executing** — hand the approved plan to `chief-of-staff`. It assigns lanes from the plan,
-generates cards for full-lane tasks, dispatches, routes reviews under the budget, keeps the ledger,
-and stops only on a blocker, a genuine ambiguity, an exhausted review budget, or a writer-failure
-escalation (a writer that returns nothing twice is not replaced a third time). A milestone branch
-with no commit in 48 hours is a blocker escalation, not silence.
+**Executing** — hand the approved plan to `chief-of-staff`. The loop it runs — resume, select,
+dispatch, drift, validate, review, commit check, deferrals, coverage, seal, with the command and
+the exit-code handling for each step, who is cast where, and what stops it — is
+[references/execution-loop.md](references/execution-loop.md). Two properties bind everything in it:
+status is derived from `git` by `plan_waves.py --since`, never read back from the ledger, and the
+orchestrator writes nothing but the ledger, the cards and the reports.
 
 **A report is not a request.** Milestone reports inform; they do not pause the loop. Before
 stopping, name the decision — if it is not one of the three gates, a spend, an irreversible or
@@ -238,8 +285,16 @@ regenerated from the plan under a new id — never patched, never versioned by f
 ```bash
 validate_card.py CARD_PATH --repo REPO_ROOT            # exit 1 on any ERROR
 validate_card.py CARD_PATH --repo REPO_ROOT --strict   # exit 1 on warnings too
+validate_card.py CARD_PATH --repo REPO_ROOT --phase mid            # mid-task, every turn boundary
 validate_card.py CARD_PATH --repo REPO_ROOT --strict --phase post  # after implementation
 ```
+
+`--phase mid` is the one mode meant to be run repeatedly. It compares every uncommitted path in the
+repository against the card's `exclusive_writes` and `forbidden_paths`, with the same glob
+intersection `plan_waves.py` uses on a commit — so drift is caught while the edit still reverts for
+free instead of after it is in history. Measured on 56 real cards matched to their own commits: of
+558 files compared, 116 were written outside what the card allowed, across 25 of the 56 cards. The
+comparison is one `git status`, 19–39 ms on four real repositories.
 
 A card asserts that certain paths and tests exist, and everything downstream trusts it. The first
 card written under this methodology was wrong three times — most seriously, its `validation` block
@@ -308,7 +363,15 @@ For Gradle/JUnit evidence, use the single-use nonce-receipt protocol in
 [references/junit-evidence.md](references/junit-evidence.md): `start_junit_run.py` immediately
 before the test task, `verify_junit.py` after, with the canonical invocation in
 `references/task-card.md`. The reference also states what the evidence does and does not detect,
-and its trust boundary.
+its trust boundary, and how `trace_check.py` reads that same evidence to diff the criteria a spec
+requires against the ids a verified run actually carried — which proves a test with that id ran and
+passed, and never that it asserts anything.
+
+Because renaming an already-green test satisfies that check for free — 0 of 5,866 real `@Test`
+methods carry a criterion id today, so the migration IS a bulk rename — pass `--commit RANGE` when
+sealing a milestone. T7 then requires that an id which arrived in that range sits on a test whose
+body the range also changed. It proves the body changed, not that it asserts anything, and it
+prints how many ids were older than the range and therefore not judged.
 
 A read-only Codex `test-judge` never runs a write-producing gate against the source referent; the
 standalone-copy nested-sandbox protocol is in
@@ -316,8 +379,10 @@ standalone-copy nested-sandbox protocol is in
 
 ## Spec templates
 
-[references/specs.md](references/specs.md) holds the product-spec and feature-spec skeletons,
-including the acceptance-criteria form that turns into test names without translation.
+[references/specs.md](references/specs.md) holds the PRD and feature-spec skeletons, the
+current-state rule that governs both, and the acceptance-criteria form that turns into test names
+without translation. [references/readme.md](references/readme.md) holds the repository README
+template, whose first job is to state what is true today, including what is not shipped.
 
 ## What this does not decide
 

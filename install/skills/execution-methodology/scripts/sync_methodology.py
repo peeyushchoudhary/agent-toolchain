@@ -20,8 +20,15 @@ someone running the render on purpose; nothing here ever adopts a repository on 
 repository has adopted it, `--adoption-check` says so at every session start — see the adoption
 section below.
 
+Adoption also CONFIGURES THE REPOSITORY'S PERSONAS, because a methodology nobody is bound to is
+prose. Every mode that reports on a repository also reports its persona configuration: which
+validators the repository ships in `docs/agents/personas/`, which of them declare `covers:`, and
+which horizontal concerns in its own product definition are owned by NOBODY. It proposes the line
+and names the file; it never writes into a persona. Deciding which validator holds which invariant
+is a judgement, and a binding a script guessed is a binding nobody holds.
+
 Usage:
-  sync_methodology.py --repo PATH                    # render into that repository
+  sync_methodology.py --repo PATH                    # render into that repository, report personas
   sync_methodology.py --repo PATH --check            # exit 1 if the rendered copy is stale (gates)
   sync_methodology.py --repo PATH --adoption-check   # report adoption state; ALWAYS exits 0
   sync_methodology.py --list                         # show the source, version, and rendered date
@@ -36,6 +43,15 @@ import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import NamedTuple
+
+# The persona pool, the `## Horizontals` carrier and the concern matcher are spec_check's, and are
+# imported rather than restated. Rule F reads them to decide whether a validator has READ a
+# document; this reads them to decide whether a validator has been GIVEN anything to read. Two
+# parsers for one carrier drift apart, and a drifted copy is how the defective Verify block in the
+# onboarding guide survived a repair to the skill.
+from spec_check import (Doc, Findings, SpecError, concern_match, horizontals,  # noqa: E402
+                        persona_pool)
 
 SKILL = Path(__file__).resolve().parent.parent
 SOURCE = SKILL / "methodology.md"
@@ -44,7 +60,7 @@ SOURCE = SKILL / "methodology.md"
 # works — a stage removed, a gate moved, an artifact renamed. MINOR for additive clarification.
 # Rendered copies carry this stamp so a repo running an older methodology can be detected instead of
 # silently drifting. validate_disclosure.py reads this constant to decide WARN versus ERROR.
-METHODOLOGY_VERSION = "4.0"
+METHODOLOGY_VERSION = "5.0"
 
 TARGET_REL = Path("docs") / "agents" / "execution" / "methodology.md"
 OVERLAY_REL = Path("docs") / "agents" / "execution" / "overlay.md"
@@ -214,7 +230,259 @@ def print_route_advice(detail: str) -> None:
     print(f"    {ROUTE_ROW}")
 
 
+# --- persona configuration -----------------------------------------------------------------------
+# ADOPTING THE METHODOLOGY IN A REPOSITORY MUST ALSO CONFIGURE THAT REPOSITORY'S VALIDATORS.
+#
+# Rendering the methodology and generating persona files were two unconnected acts:
+# `sync_methodology.py --repo .` produced the rules, `agent-personas/scripts/sync_personas.py
+# --repo .` produced the personas, and nothing ever asked whether the second knew about the first.
+# The result is measurable in the fleet. A project's own domain validators — a tenancy isolation
+# validator, a clinical safety validator, a financial integrity validator, a plane boundary
+# validator — are cited 100 times at review time and 5 times on a spec, 0 on a PRD or milestone.
+# They arrive after the product is defined, which is the expensive end. And spec_check's rule F,
+# which exists to pull them forward, reports `RULE F CHECKED NOTHING` in all four repositories
+# measured, because no persona anywhere declares a `covers:`.
+#
+# So adoption now REPORTS the persona configuration alongside the render. Three questions, in the
+# order a reader needs them: which validators does this repository have, which of them own a
+# concern, and WHICH CONCERNS DOES NOBODY OWN. The third is the useful one — it names the
+# invariants this product writes down and binds to no reader.
+#
+# IT WRITES NOTHING. Not into a persona file, not anywhere. Every script in this skill writes
+# nothing, and a `covers:` line is a judgement about which validator holds which invariant; a
+# script that guesses it produces a binding nobody decided and everybody trusts. The output names
+# the file and the line, and stops there.
+#
+# THE POOL IS THIS REPOSITORY'S `docs/agents/personas/`, never `~/.claude/agents` and never the
+# machine-global pool. A repository with no such directory has not adopted overlays; that is a
+# state, not a fault, and it is reported in one plain sentence.
+#
+# WHY THE CONCERN SCAN READS EVERY MARKDOWN FILE UNDER docs/product AND RULE F DOES NOT:
+# measured on the four real repositories, `## Horizontals` sections carrying live concern rows are
+# found in 22 of 24 documents in one, 65 of 236 in another, 1 of 8 in a third, 0 of 204 in the
+# fourth. Rule F binds documents by PATH — `docs/product/specs/F-*.md`, `docs/product/prd.md`,
+# `docs/product/milestones/M*.md` — and the repository with 65 writes its specs as
+# `docs/product/specs/<slug>/spec.md`, so rule F binds NONE of them. A configuration report that
+# copied that path filter would tell that repository it has no concerns while 545 live concern rows
+# sit in its specs: the eighth inert checker of this session, in the same shape as the other seven.
+# So the scan reads the CARRIER wherever it is authored, and then says out loud how many of those
+# rows rule F can actually reach. Both numbers are printed. Neither is quietly assumed.
+PERSONA_REL = Path("docs") / "agents" / "personas"
+PRODUCT_REL = Path("docs") / "product"
+
+# How many unowned concerns are listed before the count stands in for the rest. spec_check's
+# PRINT_CAP exists for the same reason: a list nobody finishes reading is a list nobody acts on.
+UNOWNED_CAP = 8
+
+PersonaConfig = NamedTuple("PersonaConfig", [
+    ("pool", str),          # the pool's repo-relative path, or "" when the directory is absent
+    ("personas", tuple),    # spec_check.Persona, in filename order
+    ("anchors", dict),      # persona name -> the line a `covers:` would be inserted on
+    ("documents", int),     # markdown files read under docs/product
+    ("with_section", int),  # ... of those, ones carrying a `## Horizontals` heading
+    ("bindable", int),      # ... of those with live rows, ones rule F binds by path
+    ("concerns", dict),     # live concern label -> rows carrying it
+    ("reachable", dict),    # live concern label -> rows of those rule F binds
+    ("owned", dict),        # live concern label -> the personas whose `covers:` reaches it
+])
+
+
+def covers_anchor(path: Path) -> int:
+    """The line a `covers:` key would be added on: the persona's closing `---`.
+
+    Insertion goes BEFORE that line, so the key lands inside the front matter block where
+    `read_persona_overlay` looks for it. A file with no closing fence gets line 1 and the reader
+    gets a persona that already reports itself unreadable.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return 1
+    if not lines or lines[0].strip() != "---":
+        return 1
+    for index in range(1, len(lines)):
+        if lines[index].strip() == "---":
+            return index + 1
+    return 1
+
+
+def persona_config(repo: Path) -> PersonaConfig:
+    """This repository's validators, what they own, and what nothing owns.
+
+    Reads only the repository. Reuses spec_check's pool reader, `## Horizontals` reader and
+    concern matcher rather than restating them: two parsers for one carrier drift, and this
+    session has already repaired one copy of a duplicated rule and left the other defective.
+    """
+    directory = repo / PERSONA_REL
+    pool = PERSONA_REL.as_posix() if directory.is_dir() else ""
+    personas: tuple = ()
+    anchors: dict = {}
+    if pool:
+        found, _ = persona_pool(repo, Findings())
+        personas = tuple(found)
+        anchors = {p.name: (p.line if p.covers else covers_anchor(directory / p.rel))
+                   for p in personas}
+
+    concerns: dict = {}
+    reachable: dict = {}
+    documents = with_section = bindable = 0
+    product = repo / PRODUCT_REL
+    for path in sorted(product.glob("**/*.md")) if product.is_dir() else []:
+        if not path.is_file():
+            continue
+        try:
+            doc = Doc(path, repo)
+        except SpecError:
+            continue
+        documents += 1
+        rows, present, _ = horizontals(doc)
+        with_section += present
+        live = [row for row in rows if row.live]
+        binds = doc.is_spec or doc.is_prd or doc.is_milestone
+        bindable += bool(live) and binds
+        for row in live:
+            concerns[row.label] = concerns.get(row.label, 0) + 1
+            if binds:
+                reachable[row.label] = reachable.get(row.label, 0) + 1
+
+    owned = {label: sorted(p.name for p in personas
+                           if any(concern_match(c, label) for c in p.covers))
+             for label in concerns}
+    return PersonaConfig(pool, personas, anchors, documents, with_section, bindable,
+                         concerns, reachable, owned)
+
+
+def unowned_concerns(config: PersonaConfig) -> list[tuple[str, int, int]]:
+    """(label, rows, rows rule F can reach) for every live concern no persona covers.
+
+    Ordered by how often the product writes the concern down, because that is the order in which
+    leaving it unowned costs something.
+    """
+    rows = [(label, count, config.reachable.get(label, 0))
+            for label, count in config.concerns.items() if not config.owned[label]]
+    return sorted(rows, key=lambda item: (-item[1], item[0]))
+
+
+def bound_personas(config: PersonaConfig) -> list:
+    return [p for p in config.personas if p.covers]
+
+
+def persona_summary(config: PersonaConfig) -> str:
+    """One line naming the three numbers that are the whole point of this step."""
+    if not config.pool:
+        return (f"persona configuration: no {PERSONA_REL.as_posix()}/ — this repository has not "
+                "adopted persona overlays, so the base pool applies to it unchanged")
+    if not config.personas:
+        return (f"persona configuration: {config.pool}/ exists but holds no persona overlay")
+    head = (f"persona configuration: {len(config.personas)} persona(s) in {config.pool}/, "
+            f"{len(bound_personas(config))} with `covers:`")
+    if not config.concerns:
+        # Nothing to own is not the same state as nothing owned, and collapsing the two into
+        # "0 of 0" reads as configured when it means the product has written no concern down yet.
+        return head + (f", and no live `## Horizontals` concern row in {config.documents} "
+                       f"document(s) under {PRODUCT_REL.as_posix()}/ to own")
+    return (f"{head}, {len(unowned_concerns(config))} of {len(config.concerns)} "
+            "live concern(s) owned by nobody")
+
+
+def persona_notes(config: PersonaConfig) -> list[str]:
+    """The things worth saying at session start, or none at all.
+
+    Empty when there is nothing configurable — no pool means no overlays to bind, and a check that
+    shouts at every repository it does not apply to is a check somebody mutes.
+    """
+    if not config.pool or not config.personas:
+        return []
+    notes: list[str] = []
+    broken = [p for p in config.personas if p.error]
+    for persona in broken:
+        notes.append(f"{config.pool}/{persona.rel} cannot be read for its binding: {persona.error}")
+    if not config.concerns:
+        notes.append(f"{len(config.personas)} validator(s) here, and no live `## Horizontals` "
+                     f"concern row in {config.documents} document(s) under "
+                     f"{PRODUCT_REL.as_posix()}/ — there is nothing yet for one to be bound to")
+        return notes
+    missing = unowned_concerns(config)
+    if not missing:
+        return notes
+    shown = ", ".join(f"{label} ({count})" for label, count, _ in missing[:UNOWNED_CAP])
+    more = len(missing) - UNOWNED_CAP
+    notes.append(f"{len(missing)} of {len(config.concerns)} live concern(s) in this repository's "
+                 f"product definition are owned by no persona: {shown}"
+                 + (f", and {more} more" if more > 0 else ""))
+    if not bound_personas(config):
+        notes.append("no persona here declares `covers:`, so spec_check rule F checks nothing and "
+                     "these invariants are read at review time only")
+    return notes
+
+
+def print_persona_config(config: PersonaConfig) -> None:
+    """The full report: the pool, what each persona owns, what nobody owns, and where to fix it."""
+    print(f"  {persona_summary(config)}")
+    if not config.pool or not config.personas:
+        return
+    width = max(len(p.name) for p in config.personas)
+    for persona in config.personas:
+        if persona.error:
+            owns = f"-- unreadable: {persona.error}"
+        elif persona.covers:
+            owns = "covers: " + ", ".join(persona.covers)
+        else:
+            owns = "-- declares no `covers:`"
+        print(f"    {persona.name.ljust(width)}  {owns}")
+    print(f"    {sum(config.concerns.values())} live concern row(s) over "
+          f"{len(config.concerns)} label(s), in {config.with_section} of {config.documents} "
+          f"document(s) under {PRODUCT_REL.as_posix()}/ carrying `## Horizontals`")
+    missing = unowned_concerns(config)
+    if not config.concerns:
+        return
+    if not missing:
+        print("    every live concern in this product definition is owned by a persona")
+    for label, count, reach in missing[:UNOWNED_CAP]:
+        note = "" if reach else "  (in no document rule F binds)"
+        print(f"    UNOWNED  {label}  -- {count} row(s){note}")
+    if len(missing) > UNOWNED_CAP:
+        print(f"    ... and {len(missing) - UNOWNED_CAP} more unowned concern(s)")
+    if missing:
+        unreachable = sum(1 for _, _, reach in missing if not reach)
+        if unreachable:
+            print(f"    {unreachable} of them appear only in documents rule F does not bind "
+                  "(a spec is `docs/product/specs/F-*.md`, the PRD `docs/product/prd.md`, a "
+                  "milestone `docs/product/milestones/M*.md`); binding a persona to those "
+                  "configures the review, but spec_check will not demand it")
+        print("    decide which validator holds each, then add ONE line inside its front matter:")
+        for persona in config.personas:
+            if persona.covers or persona.error:
+                continue
+            line = config.anchors.get(persona.name, 1)
+            print(f"      {config.pool}/{persona.rel}:{line}  insert before this line: "
+                  "covers: [<concern>, ...]")
+        print("    nothing here writes that line; a binding nobody decided is a binding "
+              "nobody holds")
+
 def sync(repo: Path, check: bool, explicit_date: str | None) -> int:
+    """Render the methodology into a repository, then report that repository's persona configuration.
+
+    Adoption is ONE act with two halves. The rendered methodology tells a repository how work
+    moves; the persona configuration says which of its own validators hold which invariant, and
+    when. Doing only the first is what the fleet already did, and the measurement is that a
+    project's own validators are cast 100 times at review time and 5 times on a spec.
+
+    The persona half never changes the exit code. It reports a state, and states this script does
+    not write are not failures it may declare: `--check` gates the RENDER, which this script owns
+    end to end, and a repository whose validators are unbound has a decision to make rather than a
+    drift to repair. spec_check's rule F is the checker that already owns the binding, and two
+    checkers with two opinions on one file is a thing this toolchain refuses on purpose.
+    """
+    code = render_methodology(repo, check, explicit_date)
+    if code != 2:
+        # Exit 2 means the source or the target could not be read at all. A configuration report
+        # under that is noise stacked on a fault the reader must fix first.
+        print_persona_config(persona_config(repo))
+    return code
+
+
+def render_methodology(repo: Path, check: bool, explicit_date: str | None) -> int:
     try:
         body = source_text()
         date = rendered_date(explicit_date)
@@ -330,10 +598,19 @@ def adoption_check(repo: Path) -> int:
     This informs; it never blocks and it never writes. `--check` is the mode that fails a gate, and
     its behaviour is deliberately untouched. Four states, and only three of them say anything:
 
-      adopted and current   silence
+      adopted and current   silence, UNLESS the persona configuration has something to say
       adopted but stale     a warning naming the file and the re-render command
       deliberately deferred one quiet line, with the reason and how long it has been deferred
       unadopted             a warning naming both ways out — adopt, or record a deferral
+
+    THE PERSONA CONFIGURATION IS PART OF THE STATE, because adoption is not finished when the file
+    is rendered. A repository can be perfectly current on the methodology and still have every
+    horizontal invariant in its product definition owned by nobody, which is the state all four
+    measured repositories are in. So the persona notes are appended to whichever of the four states
+    applies, and they can break the silence of the first — but only where there is something to
+    configure. A repository with no `docs/agents/personas/` says nothing here: it has not adopted
+    overlays, that is a legitimate state, and a line repeated at every session start in every
+    repository it does not apply to is a line somebody mutes.
 
     Output follows the `AGENT CONTEXT:` head-plus-bullets convention that check_github.py and
     check_toolchain.py already emit into this same session hook, so the lines read as one voice.
@@ -354,9 +631,24 @@ def adoption_check(repo: Path) -> int:
     target = repo / TARGET_REL
     rel = TARGET_REL.as_posix()
     current = target.read_text(encoding="utf-8", errors="replace") if target.is_file() else None
+    notes = persona_notes(persona_config(repo))
+    configure = (f"python3 {Path(__file__).resolve().parent / 'spec_check.py'} --root {repo} "
+                 "--personas")
 
-    # 1. adopted and current — say nothing at all.
+    def persona_block() -> None:
+        """The persona half of the state, under whichever methodology state was printed."""
+        for note in notes:
+            print(f"  - [warn] {note}")
+        if notes:
+            print(f"  Decide the owners, then add one `covers:` line per validator — "
+                  f"`{configure}` lists the pool and the concerns. Nothing writes it for you.")
+
+    # 1. adopted and current — say nothing at all, unless the validators are unconfigured.
     if current is not None and is_ours(current) and current == render(body, stamp, overlay):
+        if not notes:
+            return 0
+        print(f"{head} is adopted here, but its persona configuration is incomplete.")
+        persona_block()
         return 0
 
     # 2. adopted but stale. An unmanaged hand-written file is also "exists but does not match", and
@@ -369,6 +661,7 @@ def adoption_check(repo: Path) -> int:
         else:
             print(f"  - [warn] {rel} no longer matches the methodology source")
             print(f"  Re-render: `{adopt_cmd}`")
+        persona_block()
         return 0
 
     decision, problem = read_deferral(repo)
@@ -378,6 +671,9 @@ def adoption_check(repo: Path) -> int:
         age = (datetime.now(timezone.utc).date() - date.fromisoformat(decision["date"])).days
         print(f"{head} is deliberately deferred here since {decision['date']} "
               f"({age} day{'' if age == 1 else 's'}) — {decision['reason']}")
+        # A deferral defers the METHODOLOGY. It does not decide who owns this repository's
+        # invariants, and the validators it already ships are reading its changes either way.
+        persona_block()
         return 0
 
     # 4. unadopted, including a marker that does not qualify as a decision.
@@ -388,6 +684,7 @@ def adoption_check(repo: Path) -> int:
     print(f"  Or record a deferral in {README_REL.as_posix()}:")
     print(f"    {DEFERRAL_EXAMPLE}")
     print("  Adoption is never automatic: nothing here will render into this repository for you.")
+    persona_block()
     return 0
 
 
@@ -423,6 +720,9 @@ def show_info(repo: Path | None) -> int:
             state = "no marker"
     print(f"{'target':<10}  {target}  [{state}]")
     print(f"{'overlay':<10}  {overlay}  [{'present' if overlay.is_file() else 'absent'}]")
+    # `--repo --list` is the "what is this repository's state" view, and the persona configuration
+    # is part of that state. One line here; `--repo` prints the whole report.
+    print(f"{'personas':<10}  {persona_summary(persona_config(repo))}")
     return 0
 
 

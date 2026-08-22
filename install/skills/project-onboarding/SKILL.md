@@ -5,20 +5,13 @@ description: Use when a project is not yet set up for agent work — no docs/age
 
 # Bringing a project under the standard
 
-Everything machine-global is already installed and applies the moment any directory is opened. This
-skill covers only what has to be done **per project**, and in what order.
+Everything machine-global — personas, session-start reporting, both harnesses' directives — is
+already installed and applies the moment any directory is opened; ask `check_toolchain.py` what is
+there rather than trusting a list here. This skill covers only what is **per project**, and in what
+order.
 
 **Propose before writing.** Show the plan and get agreement first. Never create a GitHub repository,
 change visibility, or push without being asked — those are the human's call every time.
-
-## What the project already gets for free
-
-No action needed. If someone asks for these, they already have them:
-
-- All personas, in both Claude Code and Codex (see `agent-personas`)
-- Session-start reporting: GitHub state, global toolchain drift, route problems, stale graph
-- The graphify query advisor and lessons injection
-- The operating model, GitHub rules, and persona directive in both harnesses
 
 ## What is genuinely per project
 
@@ -30,7 +23,7 @@ No action needed. If someone asks for these, they already have them:
 | A private GitHub remote | One repo per project |
 | Persona overlays and specialists | Derived from *this* project's guardrails |
 
-## The five steps
+## The six steps
 
 ### 1 — Look before touching
 
@@ -123,16 +116,77 @@ python3 "$HOME/.claude/skills/agent-personas/scripts/sync_personas.py" --repo .
 Never infer or generate a `base-only` reason. Missing both outcomes is an onboarding warning, not a
 healthy default.
 
-## Verify
+### 6 — Record the execution-methodology decision
+
+Mandatory like step 5, and the easiest to skip: **adoption is deliberate and per repository —
+nothing adopts a repository on its own.** Skip it and the project runs no shared methodology, and
+only a conformance run will ever say so.
 
 ```bash
-validate_disclosure.py . --readme --standard
-install_hooks.py . --check
-check_github.py . --refresh
-check_toolchain.py
-python3 "$HOME/.claude/skills/agent-personas/scripts/sync_personas.py" --repo . --check
+sync_methodology.py --list                       # source version and rendered date
+sync_methodology.py --repo . --adoption-check    # this repo's state; ALWAYS exits 0 — read the text
+```
+
+Read that state, never its exit code, then propose one of two outcomes:
+
+1. **Adopt.** `sync_methodology.py --repo .` renders the in-repo copy both harnesses read; route to
+   it. Bindings to *this* repo's real commands go in the hand-authored overlay beside it, never in
+   the rendered copy. Gate staleness with `--repo . --check`, which does exit non-zero.
+2. **Defer.** Record the `execution-methodology` marker with a real reason and date, exactly as
+   `execution-methodology` specifies.
+
+Never invent the reason; never leave both unrecorded.
+
+**Adoption is not finished when the file renders — it also configures this repository's
+validators.** The same state report carries the persona half: which personas this repository has in
+`docs/agents/personas/`, which of them declare `covers:`, and **which horizontal concerns in its own
+specs are owned by nobody**. That last list is the one to act on; it names the invariants this
+product writes down and binds to no reader.
+
+Measured across four repositories: a project's own domain validators are cited 100 times at review
+time, 5 times on a spec, and zero times on a PRD or a milestone. They arrive after the product is
+defined, which is the expensive end. For each unowned concern, decide which validator holds it, then
+add ONE line inside that persona's front matter — in the source under `docs/agents/personas/`, never
+in the generated `.claude/agents/` copy:
+
+```yaml
+covers: [tenancy, money handling]
+```
+
+`covers:` is read from the source by `spec_check.py`; the persona renderers do not emit it, so it
+changes no harness file and needs no re-render. Once a persona covers a concern, rule F demands that
+persona in `reviewed_by:` on every spec, PRD and milestone that says it moves that concern. Until
+then rule F reports `RULE F CHECKED NOTHING` — the state all four repositories are in today.
+
+```bash
+spec_check.py --root . --personas   # the pool, what each covers, and the concerns it could
+```
+
+**Nothing writes that line for you.** Deciding which validator holds which invariant is a judgement;
+a binding a script guessed is a binding nobody holds. A repository with no `docs/agents/personas/`
+has not adopted overlays (step 5) — a state, not a fault: the base pool applies unchanged and there
+is nothing here to bind.
+
+## Verify
+
+Onboarding is done when the repository conforms, and one tool already owns that answer:
+
+```bash
+python3 "$HOME/.claude/skills/project-conformance/scripts/check_conformance.py" .
 make check
 ```
+
+Exit 0 is the only pass; exit 2 means a check did not run, so read which one — re-running changes
+nothing. **If that script is absent, say so and stop: conformance was NOT CHECKED.** It is optional
+and this installer does not ship it. Never skip the line silently, and never call it green.
+
+It replaced six hand-rolled commands that ran five of those checks with weaker flags — no
+`--vs HEAD`, no `--json` — and judged them by exit code, which three of the checkers set to 0 while
+carrying the finding on stdout or stderr; that is how it reported green over unprotected judges.
+
+**Know what `--fix` reaches before you type it.** It is not confined to the repository you name: the
+persona sync writes into *and prunes* both harnesses' machine-global agent directories, every run.
+Read the repair plan first — it names every path.
 
 Then start a fresh session in the project. **A healthy project produces a silent session hook** —
 anything it reports is real.
@@ -165,3 +219,6 @@ making that guidance invisible to every non-Claude agent.
 
 `progressive-disclosure` — the route standard, the taxonomy, and the validator.
 `agent-personas` — the roster and its routing. `agent-persona-factory` — deriving specialists.
+`execution-methodology` — the methodology step 6 adopts, its overlay, and its marker.
+`project-conformance` — the read-only verifier this skill's Verify step calls. This skill runs
+**once**, and writes; that one answers **is it still conforming** any time after, and does not.

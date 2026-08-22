@@ -5,7 +5,7 @@ description: Use when delegating work to a subagent and you need to pick the rig
 
 # The persona pool
 
-Thirteen roles, authored once, rendered into whichever harness you are driving. The point is that a
+Fourteen roles, authored once, rendered into whichever harness you are driving. The point is that a
 session should not re-derive "what is a reviewer and which model should it use" every time.
 
 The pool decides *who*. The order they run in, and what must be true to leave a stage, belongs to
@@ -27,7 +27,21 @@ the `execution-methodology` skill.
 | `contract-architect` API, schema, migrations | yes | ~3 | `opus` | `gpt-5.6-sol` | high |
 | `reviewer` independently falsifies design, plan, or implementation; cannot edit | no | ~20 | `opus` | `gpt-5.6-sol` | high |
 | `security-validator` consent, authz, PHI | no | ~5 | `opus` | `gpt-5.6-sol` | high |
+| `migration-validator` schema, migration, backfill — cast at DESIGN | no | ~3 | `opus` | `gpt-5.6-sol` | high |
 | `acceptance` milestone judge, cannot edit | no | 1 | `opus` | `gpt-5.6-sol` | xhigh |
+
+**`migration-validator` is the newest seat and it is cast EARLY.** It was added because the pool had
+no owner for the data plane, and the gap was measured rather than felt: across four repositories,
+three reviews named `syntax`, `nullcheck` and `blocker` were improvised by three personas that own
+no schema, all landed on ONE 386-line migration, all at implementation time, and all three blocked.
+Two of the three were work a TOOL does for free — two missing closing parentheses, and a `CHECK`
+that evaluates to UNKNOWN — so the persona's first rule is that it **refuses to review** until a
+parse, a dry run and the migration's contract test are attached to the dispatch. It holds no shell,
+which is what makes that rule enforceable instead of advisory. It judges the half a parser cannot
+reach: which arms of a predicate are *meant* to admit a `NULL`, a trigger attached to more tables
+than it was written for, a constraint that is true only of rows written after it. A seat that
+absorbs work a parser does for free is over-engineering wearing a new hat, and this one says so in
+its own body.
 
 **Pick the implementation tier by the task, not by feel.** `developer` takes work inside one module
 where the spec is complete and a pattern exists; it **stops and escalates** rather than inferring
@@ -69,14 +83,15 @@ input price, which is why it appears only in `planner`. Full rationale in
 
 ## Judges cannot edit
 
-`acceptance`, `planner`, `reviewer`, `scout`, `security-validator` and `test-judge` — the roster
+`acceptance`, `migration-validator`, `planner`, `reviewer`, `scout`, `security-validator` and
+`test-judge` — the roster
 pinned in `skills/agent-personas/ROSTER` — are denied a **derived core** of tools on Claude
 (`JUDGE_DENIED_TOOLS` in `sync_personas.py` — write and dispatch, and more besides: it also carries
 `Monitor`, `EnterWorktree`, `ExitWorktree` and `TaskStop`, so read the name rather than this
 paraphrase) and run `sandbox_mode = "read-only"` on Codex. The derived core itself is never
 hand-written and can never be shrunk per source — but a source MAY add to it locally, and that is a
 supported mechanism, not a hole: `sync_personas.py` merges whatever a source declares in
-`claude.disallowedTools` with the derived core rather than rejecting it, and five of the six judging
+`claude.disallowedTools` with the derived core rather than rejecting it, and six of the seven judging
 sources use exactly this to deny `Bash` locally (the worked example below is one of them — its
 `claude.disallowedTools: Bash` line is a local addition, not part of the derived core). For the
 current core names and the argument behind each one, read `~/.claude/docs/decisions.md`'s "What it withholds",
@@ -97,7 +112,7 @@ machine, where it runs — instead of at a relative path that resolves to nothin
 different document that happens to share a name.
 
 What each judge additionally **holds** is a separate, mandatory allow-list: `claude.tools`. Absence
-of one on a roster member is rejected, not defaulted to "everything the deny-list didn't name". Five
+of one on a roster member is rejected, not defaulted to "everything the deny-list didn't name". Six
 judges declare `Read, Grep, Glob, TodoWrite`; `test-judge` adds `Bash` to its own allow-list instead —
 the one sanctioned exception, so it is **not** among the judges denied a shell below — see
 `~/.claude/docs/decisions.md`'s "Exception denied: `test-judge` keeps `Bash`, loses `Agent`" for the argument.
@@ -109,7 +124,7 @@ failure where a reviewer finds a defect and quietly patches it, so the defect ne
 **`test-judge`'s `Bash` is the one sanctioned exception, and it is narrow.** Running a gate requires
 a shell; without one the persona was assigned a job it could not do, and in practice it chained to a
 sub-subagent rather than say so. `test-judge` is the only judge holding a shell — every other judge
-denies `Bash` (five of them locally, as above), and every dispatch tool stays denied on all six, so
+denies `Bash` (six of them locally, as above), and every dispatch tool stays denied on all seven, so
 `test-judge` still cannot author a fix or hand the work to something that can. The residual — edits
 through shell redirection — is covered by instruction rather than restriction, which is weaker, and
 its body says so plainly. Codex remains `read-only`. A gate that writes therefore runs only against
@@ -131,10 +146,10 @@ named rather than inferred.
 
 ## Authoring and generation
 
-**The base pool is a fixed set of thirteen**, pinned by `BASE_PERSONA_NAMES` in `sync_personas.py`:
+**The base pool is a fixed set of fourteen**, pinned by `BASE_PERSONA_NAMES` in `sync_personas.py`:
 a file dropped into `personas/<name>.md` under any other name is rejected at exit 2 (`base persona
-pool must contain exactly the canonical 13 (unexpected: <name>)`) however correct its frontmatter is.
-This location is for editing one of the thirteen — never for adding a new specialist. A new
+pool must contain exactly the canonical 14 (unexpected: <name>)`) however correct its frontmatter is.
+This location is for editing one of the fourteen — never for adding a new specialist. A new
 specialist goes through `agent-persona-factory` into a project overlay
 (`docs/agents/personas/<name>.md`; see "Project specialisation" below).
 
@@ -212,6 +227,29 @@ A repository can refine a persona or add its own, via `docs/agents/personas/<nam
 Overlays are committed, inside the disclosure route, and readable by both harnesses. The generated
 `.claude/agents/` and `.codex/agents/` are committed too, with `--check` in the repo's gate — the
 same contract as a generated API client.
+
+### `covers:` — reaching the product definition, not just the review
+
+A project-only specialist IS a domain invariant with a reader attached. Measured across four real
+repositories carrying 15 of them: they are cited **100 times in reviews, 83 in task cards, 7 in
+plans, 5 in feature specs, and 0 in a PRD or a milestone.** The invariant lands after the product
+has already been defined, which is the most expensive moment to discover it.
+
+One optional key in the overlay's front matter fixes that:
+
+```yaml
+covers: [tenancy, personal data]
+```
+
+The values name horizontal concerns — tenancy, authorization, audit, money handling, personal data,
+retention, accessibility, localisation, runtime cost, or any label the project's own specs use in
+their `## Horizontals` section. `spec_check.py` rule F then requires this persona in a spec's,
+PRD's or milestone's `reviewed_by:` whenever that document's own horizontals say it MOVES a concern
+this persona owns, and rule F4 fails a `covers:` that matches nothing in the corpus so the binding
+cannot go quietly inert. `spec_check.py --personas` prints the pool and what it could match.
+
+The key is OPTIONAL and no base persona carries it: a base persona owns a stage, not a domain. The
+cost is one line per project specialist, once.
 
 Every onboarded repository records the decision:
 

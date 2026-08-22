@@ -53,7 +53,7 @@ Usage:
   ratio_meter.py --since 2026-08-14                     # any date git log accepts
   ratio_meter.py --range main..HEAD --repo PATH         # default: the current directory
   ratio_meter.py --since 2026-08-14 --json              # machine-readable
-  ratio_meter.py --range main..HEAD --ceiling 0.15      # default 0.10
+  ratio_meter.py --range main..HEAD --ceiling 0.20      # default 0.30, warns above 0.15
 
 Exit codes: 0 within budget, 1 BREACH — the process share is over the ceiling, 2 the arguments or
 the repository could not be used. The product floor is advisory and never reaches the exit code:
@@ -83,7 +83,24 @@ EXCLUDED = "excluded"
 RATIO_BUCKETS = (PRODUCT, PRODUCT_THINK, PROCESS)
 BUCKETS = (PRODUCT, PRODUCT_THINK, PROCESS, OTHER)
 
-DEFAULT_CEILING = 0.10
+# Two thresholds, because one number cannot both catch drift early and be worth failing a merge
+# over. Calibrated against 36 project-weeks of real history: the median week runs 0.081, and the
+# bands sit at p61 and p76 of that distribution. Back-tested against the collapse this budget
+# exists to prevent, WARN fires in the first week of the inversion and FAIL in the week product
+# output fell 97% — while no healthy week (0.00-0.03) trips either.
+WARN_CEILING = 0.15
+DEFAULT_CEILING = 0.30
+
+# Below this many classified lines the ratio is noise and only reports. A brand-new repository
+# whose first commit is a PRD reads 0.17, and a week holding one bug fix and its distillation reads
+# 0.26 — both would fail a 0.10 gate on a handful of bookkeeping lines. A budget that fires on a
+# quiet week teaches its operator to ignore it, which is the failure mode this whole instrument
+# exists to avoid.
+MIN_CLASSIFIED_LINES = 500
+
+# Advisory only, and deliberately not a gate. Product definition is wanted, not tolerated: a
+# repository writing its PRD and feature specs has a low product share BY DESIGN, and that is a
+# healthy week for a project in definition. Nothing here may block it.
 PRODUCT_FLOOR = 0.70
 
 # Generated and vendored output. Excluded entirely rather than bucketed, and reported separately so
@@ -140,9 +157,13 @@ PRODUCT_THINK_SUBSTRINGS = ("prd",)
 #
 # A SEQUENCE must appear as whole path segments, so `/cards/` cannot be matched by `flashcards.md`;
 # a SUBSTRING matches anywhere, because those names are the artifacts themselves wherever they sit.
-PROCESS_STRONG_SEQUENCES = ("/.superpowers/", "/sdd/", "/docs/agents/", "/docs/superpowers/",
+# STRONG roots outrank even the product-thinking overrides: a workspace directory is bookkeeping
+# whatever is filed inside it. `/docs/superpowers/` is deliberately NOT here — it is a docs tree
+# that legitimately holds implementation plans and designs, so it must stay beatable by `/plans/`.
+# The dot-prefixed `/.superpowers/` workspace is the opposite and stays strong.
+PROCESS_STRONG_SEQUENCES = ("/.superpowers/", "/sdd/", "/docs/agents/",
                             "/verdicts/", "/workspace/", "/escalations/")
-PROCESS_WEAK_SEQUENCES = ("/cards/", "/reports/")
+PROCESS_WEAK_SEQUENCES = ("/cards/", "/reports/", "/docs/superpowers/")
 PROCESS_SUBSTRINGS = ("deferral", "progress.md", "ledger.md", "lessons.md", "receipt",
                       "agents.md", "claude.md", "methodology.md", "personas")
 PROCESS_SUFFIXES = (".diff",)
@@ -252,10 +273,15 @@ def classify(path: str) -> str:
     name = norm.rstrip("/").rsplit("/", 1)[-1]
     if is_excluded(path):
         return EXCLUDED
-    if any(sequence in norm for sequence in PRODUCT_THINK_OVERRIDE_SEQUENCES):
-        return PRODUCT_THINK
+    # Bookkeeping ROOTS win first, and they win over everything. A directory that exists only to
+    # hold workspace, ledger, and verdicts is bookkeeping whatever is filed inside it — including a
+    # subdirectory called `plans/` or `design/`. The opposite ordering shipped for one day and put
+    # `.superpowers/sdd/plans/verdicts/TC-01-r1-reviewer.md` in product thinking, which is the
+    # exact artifact class the budget exists to bound.
     if any(sequence in norm for sequence in PROCESS_STRONG_SEQUENCES):
         return PROCESS
+    if any(sequence in norm for sequence in PRODUCT_THINK_OVERRIDE_SEQUENCES):
+        return PRODUCT_THINK
     # Source beats an ambiguous name. Everything below this line is a word a product may own, and a
     # file that compiles or runs is product whatever it is called. CODE_SUFFIXES rather than
     # PRODUCT_SUFFIXES is the whole precision here: a task card is `.yaml` and an API contract is
@@ -395,10 +421,26 @@ def shares(counted: Tally) -> tuple[int, Optional[float], Optional[float]]:
             counted.lines[PRODUCT] / denominator)
 
 
-def report(counted: Tally, ceiling: float) -> dict[str, object]:
+def report(counted: Tally, ceiling: float, warn_ceiling: float = WARN_CEILING) -> dict[str, object]:
     denominator, process_share, product_share = shares(counted)
-    breach = process_share is not None and process_share > ceiling
+    # Under the volume floor the ratio still reports, but it cannot fail a merge. See
+    # MIN_CLASSIFIED_LINES for why: at low volume the share is dominated by whichever handful of
+    # lines happened to land in the range.
+    thin = denominator < MIN_CLASSIFIED_LINES
+    over_fail = process_share is not None and process_share > ceiling
+    over_warn = process_share is not None and process_share > warn_ceiling
+    breach = over_fail and not thin
+    if breach:
+        verdict = "BREACH"
+    elif over_fail or over_warn:
+        verdict = "WARN"
+    else:
+        verdict = "WITHIN BUDGET"
     return {
+        "warn_ceiling": warn_ceiling,
+        "min_classified_lines": MIN_CLASSIFIED_LINES,
+        "below_volume_floor": thin,
+        "warn": over_warn and not breach,
         "commits": counted.commits,
         "cleanup_commits": counted.cleanup_commits,
         "ratio_lines": denominator,
@@ -419,7 +461,7 @@ def report(counted: Tally, ceiling: float) -> dict[str, object]:
             {"path": path, "lines": count}
             for path, count in counted.process_churn.most_common(5)
         ],
-        "verdict": "BREACH" if breach else "WITHIN BUDGET",
+        "verdict": verdict,
     }
 
 

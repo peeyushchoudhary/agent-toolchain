@@ -285,15 +285,39 @@ class ReviewVsFixArtifactTest(unittest.TestCase):
         self.assertEqual(findings(proc)["errors"], [], proc.stdout)
 
     def test_a_verdict_named_r1fix_is_counted_as_a_review(self):
-        """`D185D-r1fix-test-judge.md` is a judge verdict at round 1, not an unparsable name."""
-        self.touch("verdicts/T10-r1fix-test-judge.md")
-        self.touch("verdicts/T10-r2fix-test-judge.md")
+        """`-r1fix-` is a round marker, not an unparsable name.
+
+        REWRITTEN, and the reason matters more than the change. This test used to prove the point
+        with `T10-r1fix-test-judge.md`, and `-test-judge` no longer spends a round (see
+        EVIDENCE_KIND_TOKENS). The thing this test was FOR is the ROUND_RE lookahead — the real
+        `D185D-r1fix-test-judge.md` once matched nothing and vanished from the counter because one
+        hyphen was not typed. That is preserved here with a kind that still charges, and the
+        `-test-judge` half of the original name is asserted separately below so neither property
+        is dropped.
+        """
+        self.touch("verdicts/T10-r1fix-reviewer.md")
+        self.touch("verdicts/T10-r2fix-reviewer.md")
         proc = run(self.ws, "--next", "T10")
         self.assertEqual(proc.returncode, 1, proc.stdout)
         refused = [e for e in findings(proc)["errors"]
                    if e["kind"] == "ROUND_BUDGET_EXHAUSTED"]
         self.assertEqual(len(refused), 1, proc.stdout)
         self.assertEqual(refused[0]["subject"], "t10")
+
+    def test_the_r1fix_marker_still_parses_on_the_real_test_judge_name(self):
+        """The half of the old test that was about PARSING, kept on the original real filename.
+
+        `D185D-r1fix-test-judge.md` must still resolve to subject `d185d` at round 1. It is now
+        classified WORK rather than charged, but a name that parses to nothing is the defect the
+        lookahead was repaired for and it must not come back through this door.
+        """
+        sys.path.insert(0, str(SCRIPT.parent))
+        import check_review_budget as module
+        stem = Path("D185D-r1fix-test-judge.md").stem
+        marks = list(module.ROUND_RE.finditer(stem))
+        self.assertTrue(marks, "the r1fix marker must still parse")
+        self.assertEqual(max(int(m.group(1)) for m in marks), 1)
+        self.assertEqual(module.subject_of("D185D-r1fix-test-judge.md"), "d185d")
 
     # --- nothing round-marked may be dropped in silence --------------------------------
 
@@ -544,6 +568,111 @@ class KindVocabularyTest(unittest.TestCase):
                                  {w["kind"] for w in data["warnings"]})
 
 
+class KindBeforeTheMarkerTest(unittest.TestCase):
+    """The kind written BEFORE the round marker: `<subject>-<kind>-r<N>.md`.
+
+    MEASURED, on the four real repositories, before this test existed. Run over 59 real review
+    workspaces the tool emitted 264 UNCLASSIFIED_ROUND_ARTIFACT warnings. 129 of those carry a
+    round marker that ENDS the name, and 70 of the 129 end in a token `REVIEW_KIND_TOKENS` or
+    `WORK_KIND_TOKENS` ALREADY CONTAINS. The vocabulary was right; the position was wrong.
+
+    These fixtures are transcriptions of REAL FILENAMES, not shapes invented here. That is the
+    point: a checker validated only against its author's fixtures passes and is still inert.
+    """
+
+    def setUp(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import check_review_budget as module
+        self.module = module
+        self._tmp = tempfile.TemporaryDirectory()
+        self._led = tempfile.TemporaryDirectory()
+        self.ws = Path(self._tmp.name)
+        self.grants = Path(self._led.name) / "ROUND-GRANTS.tsv"
+        self.grants.write_text("# none\n")
+        track(self.grants)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+        self._led.cleanup()
+
+    def touch(self, rel: str):
+        path = self.ws / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n")
+
+    def test_a_kind_before_a_terminal_marker_is_classified(self):
+        """Real names. `-review-rN` alone accounts for 50 of the 70."""
+        for name in ("M1-01-erasure-boundary-contract-review-r5.md",
+                     "M1-01-spotless-amendment-security-r14.md",
+                     "app-module-view-authz-r1-reviewer.md"):
+            with self.subTest(name=name):
+                stem = Path(name).stem
+                marks = list(self.module.ROUND_RE.finditer(stem))
+                self.assertTrue(marks, name)
+                self.assertEqual(self.module.kind_of(stem, marks[-1]), "review", name)
+
+    def test_a_work_kind_before_a_terminal_marker_does_not_spend_a_round(self):
+        """`-fix-r2`, `-design-r1`, `-plan-r3` are WORK either side of the marker or the fix a
+        verdict provoked starts charging itself as the verdict."""
+        for name, kind in (("T4-fix-r2.md", "work"), ("f009e-design-r1.md", "work"),
+                           ("f009-static-plan-r3.md", "work")):
+            with self.subTest(name=name):
+                stem = Path(name).stem
+                marks = list(self.module.ROUND_RE.finditer(stem))
+                self.assertEqual(self.module.kind_of(stem, marks[-1]), kind, name)
+
+    def test_an_unrecognised_pre_marker_token_stays_unclassified(self):
+        """`builder` (12 real files), `authority` (11), `prerequisite` (6), `methodology` (4) are
+        NOT in the vocabulary and MUST stay unclassified. Widening the word list to silence them
+        would be the eighth checker that passes its own tests and sees nothing."""
+        for name in ("M1-01-spotless-amendment-builder-r14.md",
+                     "f009j-authority-r2.md",
+                     "M1-01-spotless-amendment-contract-prerequisite-r10.md"):
+            with self.subTest(name=name):
+                stem = Path(name).stem
+                marks = list(self.module.ROUND_RE.finditer(stem))
+                self.assertIsNone(self.module.kind_of(stem, marks[-1]), name)
+
+    def test_the_kind_is_taken_out_of_the_subject_key(self):
+        """The load-bearing half. One artifact reviewed by six kinds became six subjects, each
+        spending its own budget: the real `<subj>-spotless-amendment-{architecture,builder,
+        contract,general,methodology,security}-rN` family, 51 artifacts, rounds to r14."""
+        self.assertEqual(self.module.subject_of("M1-01-erasure-boundary-contract-review-r5.md"),
+                         "m1-01-erasure-boundary-contract")
+        self.assertEqual(self.module.subject_of("M1-01-spotless-amendment-security-r14.md"),
+                         "m1-01-spotless-amendment")
+
+    def test_a_subject_that_is_only_a_kind_word_keeps_its_name(self):
+        """NEVER consume the whole head. An empty subject key would collapse unrelated lineages
+        into one bucket, which is the opposite of failing closed."""
+        self.assertEqual(self.module.subject_of("review-r1.md"), "review")
+        self.assertEqual(self.module.subject_of("security-r2.md"), "security")
+
+    def test_a_kind_after_the_marker_is_untouched(self):
+        """The mandated shape still wins: nothing is stripped when a tail exists."""
+        self.assertEqual(self.module.subject_of("TC-101-r1-security-validator.md"), "tc-101")
+        self.assertEqual(self.module.subject_of("D185D-r1-reviewer.md"), "d185d")
+        for name, expected in TERMINAL_SHAPES:
+            with self.subTest(name=name):
+                self.assertEqual(self.module.subject_of(name), expected)
+
+    def test_the_two_lineages_merge_and_the_cap_bites_once(self):
+        """End to end. Stripping can only MERGE subjects, so it can only RAISE a spent count."""
+        # Two naming forms, one lineage: the kind-first form the projects write, and the
+        # kind-last form the methodology mandates. Before this change they were two subjects.
+        self.touch("reports/S-spotless-contract-review-r1.md")
+        self.touch("reports/S-spotless-contract-review-r2.md")
+        self.touch("reports/S-spotless-contract-r3-reviewer.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        data = findings(proc)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        caps = [e for e in data["errors"] if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(len(caps), 1, proc.stdout)
+        self.assertEqual(caps[0]["subject"], "s-spotless-contract", proc.stdout)
+        self.assertNotIn("UNCLASSIFIED_ROUND_ARTIFACT",
+                         {w["kind"] for w in data["warnings"]}, proc.stdout)
+
+
 class SilentUndercountTest(unittest.TestCase):
     """The two measured silent-undercount classes: a missing round marker, and non-prose files."""
 
@@ -620,6 +749,114 @@ class SilentUndercountTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 1, proc.stdout)
         cap = [e for e in findings(proc)["errors"] if e["kind"] == "ROUND_CAP"]
         self.assertEqual(cap[0]["round"], 3, proc.stdout)
+
+
+class RoundWidthTest(unittest.TestCase):
+    """WIDE_ROUND: how many lenses were filed against ONE round of ONE subject.
+
+    THE REASON THIS CLASS EXISTS AND THE REASON IT IS SMALL ARE THE SAME. The methodology's review
+    rule was "one reviewer, never a panel" at every stage, and the real corpus falsifies it: a
+    design or plan review returns a blocking verdict at 0.74 per artifact against 0.09 at
+    implementation. The rule is now scoped by STAGE. Only the CEILING half of that is a fact this
+    tool can see -- width is a count of files in a directory -- and the STAGE half is not on disk
+    at all. It is deliberately not inferred; see the WIDE_ROUND comment in the module.
+
+    VALIDATED AGAINST THE REAL CORPUS, not against these fixtures, because this repository has
+    shipped nine checkers that passed their own fixtures and saw nothing: run over four real
+    repositories, the module's own `subject_of` yields 672 (subject, round) groups from 1,203
+    round-marked prose artifacts, and 78 of those groups are four or more wide. This warning fires
+    78 times out of the box. The fixtures below only pin the shape.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._led = tempfile.TemporaryDirectory()
+        self.ws = Path(self._tmp.name)
+        self.grants = Path(self._led.name) / "ROUND-GRANTS.tsv"
+        self.grants.write_text("# none\n")
+        track(self.grants)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+        self._led.cleanup()
+
+    def touch(self, rel: str):
+        path = self.ws / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n")
+
+    def wide(self, proc):
+        return [w for w in findings(proc)["warnings"] if w["kind"] == "WIDE_ROUND"]
+
+    def test_four_lenses_on_one_round_are_reported(self):
+        for kind in ("reviewer", "security", "architect", "tenancy"):
+            self.touch(f"verdicts/T40-r1-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        found = self.wide(proc)
+        self.assertEqual(len(found), 1, proc.stdout)
+        self.assertEqual(found[0]["width"], 4, proc.stdout)
+        self.assertEqual(found[0]["subject"], "t40", proc.stdout)
+        self.assertEqual(found[0]["round"], 1, proc.stdout)
+
+    def test_three_lenses_are_the_design_panel_and_are_not_reported(self):
+        """The new rule ASKS for up to three at design. A warning at three would refuse it."""
+        for kind in ("reviewer", "security", "architect"):
+            self.touch(f"verdicts/T41-r1-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        self.assertEqual(self.wide(proc), [], proc.stdout)
+
+    def test_it_never_changes_the_exit_code(self):
+        """A four-wide DESIGN round is CORRECT under the new rule, and blocked in 3 of the 7
+        measured. An exit code here would refuse the panel the rule now asks for."""
+        for kind in ("reviewer", "security", "architect", "tenancy", "provider"):
+            self.touch(f"verdicts/T42-r1-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertEqual(self.wide(proc)[0]["width"], 5, proc.stdout)
+
+    def test_width_is_counted_per_round_and_not_across_a_lineage(self):
+        """Two rounds of two lenses each is the budget working, not a panel."""
+        for rnd in (1, 2):
+            for kind in ("reviewer", "security"):
+                self.touch(f"verdicts/T43-r{rnd}-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        self.assertEqual(self.wide(proc), [], proc.stdout)
+
+    def test_work_and_evidence_are_not_lenses(self):
+        """Only CHARGED review artifacts count. A fix brief and a JUnit XML are not reviewers, and
+        counting them would manufacture panels out of one reviewer's paperwork."""
+        self.touch("verdicts/T44-r1-reviewer.md")
+        for name in ("T44-r1-fix.md", "T44-r1-notes.md", "T44-r1-report.md",
+                     "evidence/T44-r1-GREEN.xml"):
+            self.touch(name)
+        proc = run(self.ws, "--grants", str(self.grants))
+        self.assertEqual(self.wide(proc), [], proc.stdout)
+
+    def test_the_receipt_names_every_artifact_in_the_wide_round(self):
+        """The binding control is a human reading the receipt, so the receipt must say WHICH."""
+        for kind in ("reviewer", "security", "architect", "tenancy"):
+            self.touch(f"verdicts/T45-r1-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants), "--json")
+        found = self.wide(proc)[0]
+        self.assertEqual(len(found["artifacts"]), 4, proc.stdout)
+        self.assertIn("verdicts/T45-r1-tenancy.md", found["artifacts"], proc.stdout)
+
+    def test_the_module_does_not_try_to_read_the_stage_off_a_filename(self):
+        """THE DELIBERATE OMISSION, pinned so a later edit has to argue with it.
+
+        Stage is the stronger half of the finding and it is not on disk. Two honest spellings of a
+        stage word-test over the same 1,203 real artifacts disagreed about 31 groups and moved the
+        design bucket by 13%. A `design` in a filename must therefore change NOTHING here.
+        """
+        source = SCRIPT.read_text(encoding="utf-8")
+        body = source.split("def main(", 1)[1]
+        for word in ("design", "implementation"):
+            self.assertNotIn(f'"{word}"', body,
+                             f"main() now tests for the literal {word!r}; stage is not on disk")
+        for kind in ("reviewer", "security", "architect", "tenancy"):
+            self.touch(f"verdicts/T46-design-r1-{kind}.md")
+        proc = run(self.ws, "--grants", str(self.grants))
+        self.assertEqual(self.wide(proc)[0]["width"], 4, proc.stdout)
 
 
 class SuppressionOrderTest(unittest.TestCase):
@@ -1807,7 +2044,7 @@ class AdvisoryPostureTest(unittest.TestCase):
                                      + r"\"", self.SOURCE, re.DOTALL)
                 self.assertEqual(appends, ["errors"], f"{kind} must be raised as an ERROR")
         for kind in ("NON_PROSE_UNCLASSIFIED", "TERMINAL_PASS_APPLIED", "GRANT_APPLIED",
-                     "STALE_GRANT", "TERMINAL_PASS_ALREADY_SPENT"):
+                     "STALE_GRANT", "TERMINAL_PASS_ALREADY_SPENT", "FAMILY_SPEND"):
             with self.subTest(kind=kind):
                 appends = re.findall(r"(errors|warnings)\.append\(\{[^}]*?\"kind\": \"" + kind
                                      + r"\"", self.SOURCE, re.DOTALL)
@@ -1828,6 +2065,278 @@ class AdvisoryPostureTest(unittest.TestCase):
                     continue
                 self.assertEqual(mine.read_bytes(), (codex / rel).read_bytes(), rel)
 
+
+
+# The REAL 51 filenames of the code-formatter family, one workspace, verbatim except that the card
+# id is generic. Pinned as DATA rather than generated, because a generated family is a family the
+# author invented and this repository has now recorded SEVEN checkers that passed their author's
+# fixtures and saw nothing in the corpus. Every name below was read off disk.
+FORMATTER_FAMILY = (
+    "M1-01-spotless-amendment-architecture-r11.md",
+    "M1-01-spotless-amendment-architecture-r12.md",
+    "M1-01-spotless-amendment-architecture-r13.md",
+    "M1-01-spotless-amendment-architecture-r14.md",
+    "M1-01-spotless-amendment-builder-r10.md",
+    "M1-01-spotless-amendment-builder-r11.md",
+    "M1-01-spotless-amendment-builder-r12.md",
+    "M1-01-spotless-amendment-builder-r13.md",
+    "M1-01-spotless-amendment-builder-r14.md",
+    "M1-01-spotless-amendment-builder-r7.md",
+    "M1-01-spotless-amendment-builder-r8.md",
+    "M1-01-spotless-amendment-builder-r9.md",
+    "M1-01-spotless-amendment-contract-full-r7.md",
+    "M1-01-spotless-amendment-contract-full-r8.md",
+    "M1-01-spotless-amendment-contract-prerequisite-r10.md",
+    "M1-01-spotless-amendment-contract-prerequisite-r9.md",
+    "M1-01-spotless-amendment-contract-r11.md",
+    "M1-01-spotless-amendment-contract-r12.md",
+    "M1-01-spotless-amendment-contract-r13.md",
+    "M1-01-spotless-amendment-contract-r14.md",
+    "M1-01-spotless-amendment-contract-review-r1.md",
+    "M1-01-spotless-amendment-contract-review-r2.md",
+    "M1-01-spotless-amendment-contract-review-r3.md",
+    "M1-01-spotless-amendment-contract-review-r5.md",
+    "M1-01-spotless-amendment-contract-review-r6.md",
+    "M1-01-spotless-amendment-contract-review-r7.md",
+    "M1-01-spotless-amendment-general-r11.md",
+    "M1-01-spotless-amendment-general-r12.md",
+    "M1-01-spotless-amendment-general-r13.md",
+    "M1-01-spotless-amendment-general-r14.md",
+    "M1-01-spotless-amendment-methodology-r11.md",
+    "M1-01-spotless-amendment-methodology-r12.md",
+    "M1-01-spotless-amendment-methodology-r13.md",
+    "M1-01-spotless-amendment-methodology-r14.md",
+    "M1-01-spotless-amendment-plan-full-r8.md",
+    "M1-01-spotless-amendment-plan-prerequisite-r10.md",
+    "M1-01-spotless-amendment-plan-prerequisite-r9.md",
+    "M1-01-spotless-amendment-plan-review-r1.md",
+    "M1-01-spotless-amendment-plan-review-r2.md",
+    "M1-01-spotless-amendment-plan-review-r3.md",
+    "M1-01-spotless-amendment-plan-review-r7.md",
+    "M1-01-spotless-amendment-security-full-r7.md",
+    "M1-01-spotless-amendment-security-full-r8.md",
+    "M1-01-spotless-amendment-security-prerequisite-r10.md",
+    "M1-01-spotless-amendment-security-prerequisite-r9.md",
+    "M1-01-spotless-amendment-security-r11.md",
+    "M1-01-spotless-amendment-security-r12.md",
+    "M1-01-spotless-amendment-security-r13.md",
+    "M1-01-spotless-amendment-security-r14.md",
+    "M1-01-spotless-amendment-security-review-r1.md",
+    "M1-01-spotless-r15-dispatch-blocker.md",
+)
+
+
+class SubjectFamilyTest(unittest.TestCase):
+    """RENAMING A SUBJECT RESETS ITS BUDGET — the family view that makes the true number visible.
+
+    Every assertion here is against the REAL 51-artifact formatter family (`FORMATTER_FAMILY`),
+    not against a shape invented to suit the code.
+    """
+
+    def setUp(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import check_review_budget as module
+        self.module = module
+        self._tmp = tempfile.TemporaryDirectory()
+        self.ws = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def touch(self, rel: str):
+        path = self.ws / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n")
+
+    def families(self, proc) -> dict:
+        return {f["root"]: f for f in findings(proc)["receipt"]["families"]}
+
+    def test_the_real_formatter_family_reports_as_one_lineage(self):
+        """THE MEASUREMENT THIS EXISTS FOR: 51 artifacts, 14 distinct rounds, ONE lineage.
+
+        Before this, the same 51 files reported as THIRTEEN separate subjects, each showing a
+        small spend, and no line in the receipt said 51 or 14.
+        """
+        for name in FORMATTER_FAMILY:
+            self.touch(f"reports/{name}")
+        proc = run(self.ws)
+        fams = self.families(proc)
+        self.assertIn("m1-01-spotless", fams, proc.stdout)
+        fam = fams["m1-01-spotless"]
+        self.assertEqual(fam["charged_artifacts"], 51, fam)
+        self.assertEqual(fam["distinct_rounds"], 14, fam)
+        self.assertEqual(fam["max_round"], 15, fam)
+        self.assertEqual(len(fam["members"]), 13, fam["members"])
+        # And the per-subject view is UNCHANGED beside it: 13 keys, none of them re-keyed.
+        charged = findings(proc)["receipt"]["rounds_charged"]
+        self.assertEqual(len([s for s in charged if s.startswith("m1-01-spotless")]), 13, charged)
+        warned = [w for w in findings(proc)["warnings"]
+                  if w["kind"] == "FAMILY_SPEND" and w["subject"] == "m1-01-spotless"]
+        self.assertEqual(len(warned), 1, proc.stdout)
+        self.assertEqual(warned[0]["charged_artifacts"], 51)
+
+    def test_the_family_view_is_advisory_and_changes_no_exit_code(self):
+        """Founder ruling 2026-08-20: this instrument reports, it does not gate."""
+        # Two names, one lineage, four judgements — over a budget of 2 by the artifact count and
+        # inside it by round number, so FAMILY_SPEND is the ONLY finding.
+        for name in ("T1-r1-reviewer.md", "T1-r2-reviewer.md",
+                     "T1-contract-r1-reviewer.md", "T1-contract-r2-reviewer.md"):
+            self.touch(f"reviews/{name}")
+        proc = run(self.ws)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(findings(proc)["errors"], [], proc.stdout)
+        kinds = [w["kind"] for w in findings(proc)["warnings"]]
+        self.assertEqual(kinds, ["FAMILY_SPEND"], proc.stdout)
+        self.assertEqual(self.families(proc)["t1"]["charged_artifacts"], 4)
+
+    def test_a_family_does_not_refuse_the_next_dispatch(self):
+        """It NAMES the --next subject in the family and still returns 0. Visible, not binding."""
+        for name in ("T1-r1-reviewer.md", "T1-contract-r1-reviewer.md",
+                     "T1-contract-full-r1-reviewer.md"):
+            self.touch(f"reviews/{name}")
+        proc = run(self.ws, "--next", "T1-contract-full-r2-reviewer")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        warned = [w for w in findings(proc)["warnings"] if w["kind"] == "FAMILY_SPEND"]
+        self.assertTrue(warned, proc.stdout)
+        self.assertIn("t1-contract-full", warned[0]["why"])
+
+    def test_unrelated_siblings_are_not_merged(self):
+        """The root must ITSELF be a live subject key. `f009-static-plan` and `f009-static-sites`
+        share the token `f009` and are NOT one family, because nothing is named `f009` alone."""
+        for name in ("f009-static-plan-r1-reviewer.md", "f009-static-plan-r2-reviewer.md",
+                     "f009-static-sites-r1-reviewer.md", "f009-static-sites-r2-reviewer.md"):
+            self.touch(f"reviews/{name}")
+        proc = run(self.ws)
+        self.assertEqual(self.families(proc), {}, proc.stdout)
+        self.assertEqual(findings(proc)["warnings"], [], proc.stdout)
+
+    def test_a_bare_prefix_is_not_invented(self):
+        self.assertEqual(self.module.subject_families({"a-b-c", "a-b-d"}), {})
+        self.assertEqual(self.module.subject_families({"a-b", "a-b-c", "a-b-d"}),
+                         {"a-b": ["a-b", "a-b-c", "a-b-d"]})
+
+    def test_a_prefix_must_land_on_a_token_boundary(self):
+        """`t1-contract` is not a prefix of `t1-contracts`: a family is built from an APPENDED
+        qualifier, and a longer WORD is a different subject."""
+        self.assertEqual(self.module.subject_families({"t1-contract", "t1-contracts"}), {})
+
+    def test_nested_roots_are_all_reported(self):
+        """Eliding the inner families would hide the 51/14 number: it lives at `<card>-spotless`,
+        while the outermost root reports the whole card."""
+        for name in FORMATTER_FAMILY:
+            self.touch(f"reports/{name}")
+        roots = set(self.families(run(self.ws)))
+        self.assertIn("m1-01-spotless", roots)
+        self.assertIn("m1-01-spotless-amendment", roots)
+        self.assertIn("m1-01-spotless-amendment-contract", roots)
+
+    def test_the_kind_vocabulary_is_not_widened_to_do_this(self):
+        """`prerequisite` is deliberately NOT a kind and the pin above is right. The family view
+        works around that pin rather than through it — `full`, `builder`, `authority` and
+        `methodology` are not kinds either and they reset a budget just as well."""
+        for name in ("M1-01-spotless-amendment-contract-prerequisite-r10.md",
+                     "M1-01-spotless-amendment-builder-r14.md"):
+            stem = Path(name).stem
+            marks = list(self.module.ROUND_RE.finditer(stem))
+            with self.subTest(name=name):
+                self.assertIsNone(self.module.kind_of(stem, marks[-1]), name)
+        self.assertEqual(self.module.subject_of(
+            "M1-01-spotless-amendment-contract-prerequisite-r10.md"),
+            "m1-01-spotless-amendment-contract-prerequisite")
+
+    def test_every_family_is_in_the_receipt_not_only_the_ones_that_warn(self):
+        for name in ("T1-r1-reviewer.md", "T1-contract-r1-reviewer.md"):
+            self.touch(f"reviews/{name}")
+        proc = run(self.ws)
+        self.assertEqual(findings(proc)["warnings"], [], proc.stdout)
+        self.assertEqual(self.families(proc)["t1"]["charged_artifacts"], 2)
+
+
+class TestJudgeIsEvidenceTest(unittest.TestCase):
+    """A JUDGE THAT RUNS A COMMAND DOES NOT SPEND A REVIEW ROUND.
+
+    Measured on the four real repositories: 124 `-test-judge` artifacts, 114 PASS / 2 FAIL / 1 with
+    no verdict line — 0.02, against 0.16 for `reviewer`.
+    """
+
+    def setUp(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import check_review_budget as module
+        self.module = module
+        self._tmp = tempfile.TemporaryDirectory()
+        self.ws = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def touch(self, rel: str):
+        path = self.ws / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n")
+
+    def test_a_test_judge_verdict_is_classified_as_work(self):
+        """Real names from the corpus, both orders of round marker and kind."""
+        for name in ("D185D-r1-test-judge.md", "TC-101-r1-test-judge.md",
+                     "D201-BYPASS-SHAPE-HYGIENE-r1-test-judge.md"):
+            with self.subTest(name=name):
+                stem = Path(name).stem
+                marks = list(self.module.ROUND_RE.finditer(stem))
+                self.assertEqual(self.module.kind_of(stem, marks[-1]), "work", name)
+
+    def test_the_evidence_token_beats_the_review_token(self):
+        """`test-judge` carries BOTH `test` and `judge`. Without the precedence inversion the
+        review token wins and this change would be inert — which is the failure mode this
+        repository has recorded seven times."""
+        self.assertIn("judge", self.module.REVIEW_KIND_TOKENS)
+        self.assertIn("test", self.module.EVIDENCE_KIND_TOKENS)
+        stem = "X-r1-test-judge"
+        marks = list(self.module.ROUND_RE.finditer(stem))
+        self.assertEqual(self.module.kind_of(stem, marks[-1]), "work")
+
+    def test_three_test_judge_rounds_do_not_exhaust_the_budget(self):
+        for r in (1, 2, 3):
+            self.touch(f"verdicts/T20-r{r}-test-judge.md")
+        proc = run(self.ws, "--next", "T20")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(findings(proc)["errors"], [], proc.stdout)
+
+    def test_a_reviewer_beside_a_test_judge_still_charges_the_round(self):
+        """The corpus shape: BOTH failing test-judges have a sibling REVIEW verdict at the same
+        (subject, round), so the round they belong to keeps its charge."""
+        for r in (1, 2):
+            self.touch(f"verdicts/T21-r{r}-test-judge.md")
+            self.touch(f"verdicts/T21-r{r}-reviewer.md")
+        proc = run(self.ws, "--next", "T21")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        refused = [e for e in findings(proc)["errors"]
+                   if e["kind"] == "ROUND_BUDGET_EXHAUSTED"]
+        self.assertEqual(len(refused), 1, proc.stdout)
+        self.assertEqual(refused[0]["round"], 2)
+
+    def test_a_test_judge_is_not_reported_as_unclassified(self):
+        """It is WORK, and work is silent. Warning on all 124 would be noise, and noise is how
+        the previous four warnings came to change nothing."""
+        self.touch("verdicts/T22-r1-test-judge.md")
+        proc = run(self.ws)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(findings(proc)["warnings"], [], proc.stdout)
+
+    def test_adding_test_to_the_vocabulary_re_keys_no_subject(self):
+        """Measured: ZERO `<subject>-test-r<N>.md` shapes exist in the 1,093 real artifacts, so no
+        grant key written against the old derivation moves."""
+        self.assertEqual(self.module.subject_of("T23-r1-test-judge.md"), "t23")
+        self.assertEqual(self.module.subject_of("T23-test-r1.md"), "t23")
+        self.assertEqual(self.module.subject_of("D185D-r1fix-test-judge.md"), "d185d")
+
+    def test_a_plain_reviewer_verdict_is_untouched(self):
+        """THE CONTROL. This change must narrow one kind, not the class."""
+        for name, kind in (("T24-r1-reviewer.md", "review"),
+                           ("T24-r1-security-validator.md", "review"),
+                           ("T24-r1-acceptance.md", "review")):
+            with self.subTest(name=name):
+                stem = Path(name).stem
+                marks = list(self.module.ROUND_RE.finditer(stem))
+                self.assertEqual(self.module.kind_of(stem, marks[-1]), kind, name)
 
 if __name__ == "__main__":
     unittest.main()
