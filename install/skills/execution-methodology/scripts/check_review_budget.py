@@ -91,10 +91,11 @@ Errors (exit 1) — the dispatch must not proceed:
                     terminal artifact is ALREADY IN THIS SCANNED DIRECTORY and carries no round
                     marker. It reports the pass it can SEE. It does not bound the pass to one per
                     subject: see F-C and the round-marked terminal artifact under KNOWN-OPEN.
-  * VERDICT_OVER_CAP — a JUDGE VERDICT longer than its documented line cap (30 lines,
-                    methodology: "The caps are gate-enforced, not advisory ... verdict 30 lines").
-                    Four of those five caps are enforced by an instrument and this one was written
-                    in prose only, which is why the same document's line "No reports. A report is a
+  * VERDICT_OVER_CAP — a JUDGE VERDICT longer than its documented line cap. The methodology fixes
+                    five caps in one paragraph — "Card 150 lines, verdict 30 lines, distillation 5
+                    lines, workspace 50 files or 500 KB, ledger 500 lines before rotation" — and
+                    says in the same breath that they are a ruling rather than advice. Four of the
+                    five are READ BY AN INSTRUMENT. This one was prose only, which is why the same document's line "No reports. A report is a
                     verdict that outgrew thirty lines" describes 121 files in the author's own
                     workspace. Measured there: the 150-line CARD cap holds at 50 of 51, and the
                     verdicts answering those cards run to 388 lines. We capped what the agent
@@ -443,14 +444,14 @@ SEPARATOR_RE = re.compile(r"[-_.]+")
 DEFAULT_GRANTS = Path(__file__).resolve().parent.parent / "ROUND-GRANTS.tsv"
 FILE_BUDGET = 50
 BYTE_BUDGET = 500 * 1024
-# THE VERDICT LINE CAP. Quoted, not chosen: methodology.md, "The caps are gate-enforced, not
-# advisory. Card 150 lines, verdict 30 lines, distillation 5 lines, workspace 50 files or 500 KB,
-# ledger 500 lines before rotation." The same document states the class distinction two paragraphs
-# earlier — "Verdicts, not reports, from judges. Thirty lines, structured, persisted once — and
-# named `<subject>-r<N>-<kind>.md`" and "No reports. A report is a verdict that outgrew thirty
-# lines" — so this check does not introduce a rule. It reads the one rule that had four caps
-# enforced and this one written in prose only: the 150-line card cap holds at 50 of 51 files in the
-# author's live workspace, while the verdicts beside those cards run to 388 lines.
+# THE VERDICT LINE CAP. Quoted, not chosen: methodology.md, the caps paragraph — "Card 150 lines,
+# verdict 30 lines, distillation 5 lines, workspace 50 files or 500 KB, ledger 500 lines before
+# rotation", stated there as a ruling rather than as advice. The same document states the class
+# distinction two paragraphs earlier — "Verdicts, not reports, from judges. Thirty lines,
+# structured, persisted once — and named `<subject>-r<N>-<kind>.md`" and "No reports. A report is
+# a verdict that outgrew thirty lines" — so this check introduces no rule. It reads the one cap of
+# the five that no instrument read: the 150-line card cap holds at 50 of 51 files in the author's
+# live workspace, while the verdicts beside those cards run to 388 lines.
 VERDICT_LINE_CAP = 30
 # The width at which a round stops looking like coverage. See the WIDE_ROUND block in `main` for
 # the measurement, and for why the STAGE half of the same rule is deliberately left in prose.
@@ -1031,9 +1032,8 @@ def main() -> int:
             "kind": "VERDICT_OVER_CAP", "path": rel, "subject": subj, "lines": n,
             "cap": VERDICT_LINE_CAP,
             "why": f"{why_it_is_a_verdict}, and it is {n} lines against the documented cap of "
-                   f"{VERDICT_LINE_CAP} (methodology: \"the caps are gate-enforced, not "
-                   f"advisory ... verdict 30 lines\"). A report is a verdict that outgrew thirty "
-                   f"lines. DO NOT DELETE A FINDING TO FIT: the finding stays and the prose around "
+                   f"{VERDICT_LINE_CAP} (methodology, the caps paragraph: \"verdict 30 lines\"). "
+                   f"A report is a verdict that outgrew thirty lines. DO NOT DELETE A FINDING TO FIT: the finding stays and the prose around "
                    f"it goes — one line per finding naming the criterion, the trigger, the "
                    f"consequence and the smallest correction; evidence goes to a named path and "
                    f"reasoning to the ledger line. If the length is genuinely earned, a human "

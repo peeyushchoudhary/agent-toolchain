@@ -1921,6 +1921,141 @@ class EmittedMessagesAreHonestTest(unittest.TestCase):
         self.terminal_pass_spent()
 
 
+class VerdictLineCapTest(unittest.TestCase):
+    """The cap methodology.md fixed at thirty lines and no instrument read.
+
+    THE RULE IS `VERDICT_OVER_CAP`; the cases here are about its VALVE and its BOUNDS. The paired
+    verdict/evidence cases live in `scripts/check_review_budget_selftest.py`, which is where a
+    break-test for a rule belongs in this repository.
+
+    What every case tries to falsify: that a `verdict:<artifact>` row does anything other than
+    excuse the LENGTH of the ONE FILE it names. A valve wider than its finding is how a cap becomes
+    a formality, and a cap with no valve at all is how the first person it blocks turns it off.
+    """
+
+    OVER = "finding\n" * 40
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._led = tempfile.TemporaryDirectory()
+        self.ws = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+        self._led.cleanup()
+
+    def touch(self, rel: str, content: str = "x\n"):
+        path = self.ws / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    def ledger(self, *lines: str) -> Path:
+        path = Path(self._led.name) / "ROUND-GRANTS.tsv"
+        path.write_text("# SUBJECT\tROUND\tCOMMIT\tDATE\tREASON\n"
+                        + "".join(line + "\n" for line in lines))
+        return track(path)
+
+    def row(self, subject: str, artifact: str, commit: str = "deadbee1") -> str:
+        return "\t".join([subject, f"verdict:{artifact}", commit, "2026-08-20",
+                           "founder read it; every line is a finding"])
+
+    def go(self, grants: Path, *extra: str) -> subprocess.CompletedProcess:
+        return run(self.ws, "--grants", str(grants), *extra)
+
+    def test_without_the_row_a_long_verdict_stops_the_dispatch(self):
+        """THE NEGATIVE CONTROL. A valve that passes with the row absent proves nothing."""
+        self.touch("verdicts/T70-r1-reviewer.md", self.OVER)
+        proc = self.go(self.ledger())
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        over = [e for e in findings(proc)["errors"] if e["kind"] == "VERDICT_OVER_CAP"]
+        self.assertEqual(len(over), 1, proc.stdout)
+        self.assertEqual(over[0]["path"], "verdicts/T70-r1-reviewer.md")
+        self.assertEqual(over[0]["lines"], 40)
+        self.assertEqual(over[0]["cap"], 30)
+
+    def test_the_error_names_the_ledger_row_to_append(self):
+        """The remedy is in the message, or the remedy is the off switch."""
+        self.touch("verdicts/T70-r1-reviewer.md", self.OVER)
+        proc = self.go(self.ledger())
+        why = [e for e in findings(proc)["errors"] if e["kind"] == "VERDICT_OVER_CAP"][0]["why"]
+        self.assertIn("verdict:T70-r1-reviewer.md", why)
+        self.assertIn("DO NOT DELETE A FINDING TO FIT", why)
+
+    def test_the_row_suppresses_exactly_that_artifact(self):
+        self.touch("verdicts/T70-r1-reviewer.md", self.OVER)
+        proc = self.go(self.ledger(self.row("t70", "T70-r1-reviewer.md")))
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        applied = [w for w in findings(proc)["warnings"] if w["kind"] == "VERDICT_GRANT_APPLIED"]
+        self.assertEqual(len(applied), 1, proc.stdout)
+        self.assertEqual(applied[0]["artifact"], "verdicts/T70-r1-reviewer.md")
+        self.assertEqual(applied[0]["commit"], "deadbee1")
+
+    def test_the_row_covers_no_other_verdict_at_the_same_round(self):
+        """A pair key would have excused this one too, including verdicts nobody read."""
+        self.touch("verdicts/T70-r1-reviewer.md", self.OVER)
+        self.touch("verdicts/T70-r1-security.md", self.OVER)
+        proc = self.go(self.ledger(self.row("t70", "T70-r1-reviewer.md")))
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        over = [e for e in findings(proc)["errors"] if e["kind"] == "VERDICT_OVER_CAP"]
+        self.assertEqual([e["path"] for e in over], ["verdicts/T70-r1-security.md"], proc.stdout)
+
+    def test_the_row_clears_no_other_finding(self):
+        """Exhaustive by design: it excuses a LENGTH. It is not a round grant."""
+        self.touch("verdicts/T71-r3-reviewer.md", self.OVER)
+        proc = self.go(self.ledger(self.row("t71", "T71-r3-reviewer.md")))
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        kinds = {e["kind"] for e in findings(proc)["errors"]}
+        self.assertIn("ROUND_CAP", kinds)
+        self.assertNotIn("VERDICT_OVER_CAP", kinds)
+
+    def test_an_unattributed_row_grants_nothing(self):
+        """The audit trail is the row's whole claim to authority."""
+        self.touch("verdicts/T70-r1-reviewer.md", self.OVER)
+        proc = self.go(self.ledger(self.row("t70", "T70-r1-reviewer.md", commit="not-a-hash")))
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("GRANT_LINE_MALFORMED", {w["kind"] for w in findings(proc)["warnings"]})
+
+    def test_a_row_naming_no_artifact_grants_nothing(self):
+        self.touch("verdicts/T70-r1-reviewer.md", self.OVER)
+        proc = self.go(self.ledger("\t".join(["t70", "verdict:", "deadbee1", "2026-08-20", "x"])))
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("GRANT_LINE_MALFORMED", {w["kind"] for w in findings(proc)["warnings"]})
+        self.assertIn("VERDICT_OVER_CAP", {e["kind"] for e in findings(proc)["errors"]})
+
+    def test_two_rows_for_one_artifact_keep_the_first_and_say_so(self):
+        self.touch("verdicts/T70-r1-reviewer.md", self.OVER)
+        proc = self.go(self.ledger(self.row("t70", "T70-r1-reviewer.md"),
+                                   self.row("t70", "T70-r1-reviewer.md", commit="cafe123")))
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        dup = [w for w in findings(proc)["warnings"] if w["kind"] == "DUPLICATE_VERDICT_GRANT"]
+        self.assertEqual(len(dup), 1, proc.stdout)
+        applied = [w for w in findings(proc)["warnings"] if w["kind"] == "VERDICT_GRANT_APPLIED"]
+        self.assertEqual(applied[0]["commit"], "deadbee1")
+
+    def test_a_row_named_by_path_still_matches_the_artifact(self):
+        """The scan may be handed the plan directory or a subdirectory of it; a row written with a
+        path prefix must not stop matching when the caller narrows the workspace."""
+        self.touch("verdicts/T70-r1-reviewer.md", self.OVER)
+        proc = self.go(self.ledger(self.row("t70", "verdicts/T70-r1-reviewer.md")))
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+
+    def test_the_receipt_counts_verdict_rows_apart_from_round_grants(self):
+        """A granted LENGTH and a granted ROUND are different decisions and are counted apart."""
+        self.touch("verdicts/T70-r1-reviewer.md", self.OVER)
+        proc = self.go(self.ledger(self.row("t70", "T70-r1-reviewer.md")))
+        ledger = findings(proc)["grants"]
+        self.assertEqual(ledger["verdict_grants"], 1, proc.stdout)
+        self.assertEqual(ledger["round_grants"], 0, proc.stdout)
+        self.assertEqual(ledger["entries"], 1, proc.stdout)
+
+    def test_the_receipt_reports_the_length_of_every_verdict_it_measured(self):
+        self.touch("verdicts/T70-r1-reviewer.md", self.OVER)
+        self.touch("verdicts/T70-r1-fix-report.md", self.OVER)
+        proc = self.go(self.ledger())
+        measured = findings(proc)["receipt"]["verdict_lines"]
+        self.assertEqual(measured, {"verdicts/T70-r1-reviewer.md": 40}, proc.stdout)
+
+
 class AdvisoryPostureTest(unittest.TestCase):
     """The module must not claim a bound it does not hold. Asserted on the SOURCE TEXT.
 
@@ -2038,13 +2173,14 @@ class AdvisoryPostureTest(unittest.TestCase):
     def test_round_cap_and_budget_exhausted_keep_their_error_severity(self):
         """Advisory describes what the tool can achieve against its operator, not a downgrade."""
         for kind in ("ROUND_CAP", "ROUND_BUDGET_EXHAUSTED", "BANNED_CLASS",
-                     "GRANTS_FILE_UNTRACKED", "NON_PROSE_VERDICT"):
+                     "GRANTS_FILE_UNTRACKED", "NON_PROSE_VERDICT", "VERDICT_OVER_CAP"):
             with self.subTest(kind=kind):
                 appends = re.findall(r"(errors|warnings)\.append\(\{[^}]*?\"kind\": \"" + kind
                                      + r"\"", self.SOURCE, re.DOTALL)
                 self.assertEqual(appends, ["errors"], f"{kind} must be raised as an ERROR")
         for kind in ("NON_PROSE_UNCLASSIFIED", "TERMINAL_PASS_APPLIED", "GRANT_APPLIED",
-                     "STALE_GRANT", "TERMINAL_PASS_ALREADY_SPENT", "FAMILY_SPEND"):
+                     "STALE_GRANT", "TERMINAL_PASS_ALREADY_SPENT", "FAMILY_SPEND",
+                     "VERDICT_GRANT_APPLIED", "DUPLICATE_VERDICT_GRANT"):
             with self.subTest(kind=kind):
                 appends = re.findall(r"(errors|warnings)\.append\(\{[^}]*?\"kind\": \"" + kind
                                      + r"\"", self.SOURCE, re.DOTALL)
