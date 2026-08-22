@@ -196,6 +196,7 @@ allowed once and belongs in the open questions, not here.
 **AC-1** When <trigger>, given <precondition>, <observable result>.
 
 Tag the criteria a horizontal constrains: `[authz]` `[audit]` `[money]` `[pii]` `[a11y]`.
+Optionally tag priority in the same slot: `[P1]` `[P2]` `[P3]`, and no more values than that.
 Edge cases — empty, first run, concurrent, partial failure, permission denied — are criteria like
 any other. A feature whose criteria only describe the happy path is not finished.
 
@@ -232,6 +233,64 @@ the paragraph would have cost is the label, and the label is the only part a mac
 
 The heavy `| Concern | Disposition |` table is optional and a bullet list is cheaper. Both are read.
 A free paragraph is not read, and `spec_check.py --personas` says so rather than passing it.
+
+## Criterion priority — optional, and it is a dispatch key rather than a rule
+
+A criterion may end with `[P1]`, `[P2]` or `[P3]`. Nothing requires it.
+
+```markdown
+**AC-3** When a refund is retried, given the first attempt settled, no second refund is issued. [P1]
+AC-7 When the export is empty, given no rows match, the file is written with a header only. [P3]
+```
+
+`[P1]` answers one question and no other: **if only one criterion in this spec ships, which one.**
+Criteria are otherwise unordered, and the first ordering in the corpus arrives at `milestone:`,
+which is decided after the spec is frozen — so when a milestone runs long, nothing in the document
+records which criteria were the point.
+
+**Why it goes at the END of the line, and not where spec-kit puts it.** Their template writes
+`### User Story N (Priority: PN)`, the marker beside the id. Written that way here —
+`**AC-1 (P1)** When …` — `AC_RE` hands `(P1)** When …` to `EARS_RE`, the shape match fails, and
+**every marked criterion raises a false C1** while C2 and C4 go inert on exactly the lines someone
+cared enough to rank. The trailing bracket is the slot this page already gives `[authz]` and
+`[money]`, and it was measured rather than assumed: the tag was appended to every criterion line of
+two real repositories — **995 real criteria** — and `spec_check.py` returned the same exit code and
+the identical finding set, 0 new and 0 lost. The notation is invisible to all eleven instruments.
+
+**Why it is optional, and why no checker demands it.** A required priority produces a finding on
+every criterion in the corpus on the day it ships, and a checker that opens with ninety findings is
+switched off before it reports a true one — which is exactly why `reviewed_by:` is optional. The
+stronger reason is that a rule saying *the field is present* is the section-presence check this
+methodology has banned by name: unprioritised looks identical to all-P1, so such a rule can be
+satisfied by typing `[P1]` on everything, which is the state it was meant to detect. And it could
+not be red on the day it shipped: **0 of those 995 criteria carry a tag**, so the rule would pass
+every document it read and become the tenth checker nobody has watched fail. There is no `C`-rule
+for priority, and adding one later needs a repository where the absence has already cost something
+nameable.
+
+**What reads it: `plan_waves.py --ready`, as the LAST key and only inside one feature.** A task
+already declares `covers: [AC-4, AC-7]`, so the join is free, and the ready set was previously
+ordered `(-unlocks, ident)` — alphabetical at the bottom, which is the tiebreak the operator has
+been supplying from memory. It is now `(-unlocks, feature, priority, ident)`, and each of those
+three placements is deliberate:
+
+- **Never ahead of `unlocks`.** That ordering is measured — 11%-22% faster than id order across two
+  to eight writers, and id order was itself slower than the wave barrier it replaced at five. A P1
+  leaf dispatched ahead of a P3 task that unlocks twenty hands that measurement back.
+- **Never across features.** A spec author ranked their own criteria and nobody else's. Compared
+  globally, the first feature in a milestone to write a tag would jump every feature that had not,
+  so adopting the notation anywhere would silently demote everything else. Cross-feature order is
+  the milestone's job and stays exactly as it was.
+- **A task that covers several criteria takes the BEST priority it covers**, because the task has to
+  run for that criterion to close at all.
+
+A spec that marks nothing dispatches bit-for-bit as it did before, and `--ready` prints a `priority`
+object saying what it read, so "the specs marked nothing" and "priority was read and changed
+nothing" are distinguishable at a glance.
+
+**Not imported: their `Independent Test` field.** The coverage map plus `trace_check.py` already
+bind a criterion to a test that RAN, which is strictly stronger than a prose sentence promising that
+one could be written.
 
 ## `reviewed_by:` — the domain validator arrives while the product is still being defined
 
