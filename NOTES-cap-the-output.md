@@ -150,3 +150,16 @@ never measured; 4g-4h the two polarities in one file (charged AND uncapped); 4i-
 fails; 4k-4l marker-free `-security.md` capped, marker-free `-review.md` not; 4m over-cap verdict
 STILL spends its round; 4n-4o receipt reports every length and the cap itself, so test literal and
 script constant cannot drift.
+
+## 9. Vendored suite (commit 5) + ONE KNOWN RED
+
+11 new cases in `tests/test_check_review_budget.py` (VerdictLineCapTest) — valve bounds, fail-closed
+parsing, receipt counts. 161 tests run.
+THE ONLY RED: `test_both_harness_copies_are_byte_identical`, which compares the repo copy against
+`~/.codex/skills/...`. Those mirrors are byte-identical to LOCAL main (checked), so this red is the
+expected state of ANY in-flight edit to this file and clears when `install/install.sh` runs. I did
+not write outside the repository to make it green.
+Also had to reword three lines: `AdvisoryPostureTest` bans the substring "enforc" anywhere in the
+module or in an emitted `why`, because the tool has been caught claiming a bound it does not hold.
+Quoting methodology's own "gate-enforced" heading tripped it. The quote is now the caps list itself
+("Card 150 lines, verdict 30 lines, ...") with "stated there as a ruling rather than as advice".
