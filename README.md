@@ -95,7 +95,7 @@ share by design; only bookkeeping is bounded.
 
 | Script | What it binds |
 |---|---|
-| `spec_check.py` | One PRD, its feature specs, and the milestone that states the goal no single feature owns. Each states what is true now rather than accumulating what it used to say. A newly exposed route must appear in the Surface section of an approved feature spec, so a module the PRD excluded cannot ship unnoticed. |
+| `spec_check.py` | One PRD, its feature specs, and the milestone that states the goal no single feature owns. Each states what is true now rather than accumulating what it used to say. A newly exposed route must appear in the Surface section of an approved feature spec, so a module the PRD excluded cannot ship unnoticed. A milestone holds features and defects together: a bug is a spec whose `Why` is a defect, because its reproduction is already an acceptance criterion. Criteria may carry an optional `[P1]`–`[P3]`, so what mattered is recorded where the spec is rather than where the schedule is. Deferred findings live in a register that can also say **no** — a dismissal states its reason and stops counting as open, because a queue that only grows is a queue nobody reads. |
 | `plan_waves.py` | Derives the dispatch schedule from a feature plan instead of asking anyone to write one down. Refuses a wave whose tasks would write the same file, and compares a commit against the write set its task declared. |
 | `trace_check.py` | Closes the loop from a criterion to a test that actually ran, reading verified JUnit evidence rather than grepping for a string. It says in every run what it does not prove. |
 
@@ -129,9 +129,18 @@ Review runs under a budget: two rounds, then apply-and-close. The orchestrator a
 verdict's named smallest correction. Only safety-class findings and scope changes escalate, and each
 brief names a default action taken after a short founder wait.
 
-The round count is advisory, because a checker run by the party it binds cannot bind that party. The
-banned-artifact scan beside it still binds, because what is on disk is a fact about a directory
-rather than a claim by its author.
+The output is capped as well as the input. A card is 150 lines and a verdict is 30, and the verdict
+cap now binds at the push: judge output ran 7.4 times the bytes of the cards it answered, so the
+budget was protecting the wrong half. **The cap binds a verdict and never the evidence** — charging
+a round fails closed, capping one fails open, because a wrong charge costs a round and a wrong cap
+costs a judge deleting a finding to fit.
+
+A workspace whose milestone has sealed is history, and no cap is applied to it. A closed loop cannot
+spend a round it has already spent.
+
+The round count itself stays advisory, because a checker run by the party it binds cannot bind that
+party. The banned-artifact scan beside it still binds, because what is on disk is a fact about a
+directory rather than a claim by its author.
 
 ### The shape of a milestone
 
