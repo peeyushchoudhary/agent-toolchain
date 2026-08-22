@@ -24,6 +24,7 @@ a push.
  16  a SHA-256 repository's 64-zero null oid  first push still exits 0, and still gets scanned
  17  the repo declares its own files binary   exit 1  <- the scan switched off from INSIDE the repo
  18  the pattern set cannot load, or is empty exit 2  <- a crash and an empty set, both before main()
+ 19  a review workspace the budget refuses    exit 1  <- the advisory exit code, bound at the push
 
 Cases 8 and 17 are the in-repository class: they attack the guard with content that arrives with a
 clone, rather than with something the founder's machine controls (argv, stdin, PATH, the object
@@ -895,6 +896,69 @@ def case_pattern_set_unusable() -> None:
           "pre-push BLOCKED" in out and "did not run" in out, out[:300])
 
 
+def case_review_budget_binds_at_the_push() -> None:
+    """19 — the review-budget exit code, which is ADVISORY in-process, blocks a push.
+
+    THE RULING WAS READ BEFORE THIS CASE WAS WRITTEN. check_review_budget.py is advisory by founder
+    gate ruling 2026-08-20: "No in-process control can bind its own operator." That is about the
+    tool binding THE ORCHESTRATOR THAT RUNS IT, whose filenames it reads. git is a different party
+    and the push is a different moment — the one that opens the pull request the same ruling calls
+    the merge gate. So the check stays advisory where it was ruled advisory, and the PUSH is where
+    it bites. This case exists because a wiring nobody has watched block is a wiring that does not
+    block: the review budget has printed findings for months and stopped nothing.
+
+    THE PAIRED HALF IS THE IMPORTANT ONE. A repository with no review workspace must stay SILENT —
+    not a warning, not a blank line. Adoption is staggered across a fleet, and a guard that
+    chatters at a repository which never opted in is a guard that gets uninstalled, which protects
+    nothing anywhere.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        repo = new_repo(tmp)
+
+        # A repository with no review workspace at all: silence, and a clean exit.
+        code, out = run_guard(repo)
+        check("19a a repository with no review workspace is silent",
+              code == 0 and "review budget" not in out, f"exit {code}: {out[:300]}")
+
+        # One workspace, one subject at r5 against a budget of 2, and one verdict past the
+        # documented thirty lines. The files are NOT committed — the workspace is git-ignored by
+        # design, and this guard blocks on the record of the review that justifies the push.
+        ws = repo / "sdd" / "plan-a"
+        ws.mkdir(parents=True)
+        (ws / "T1-r5-reviewer.md").write_text("finding\n" * 40)
+        code, out = run_guard(repo)
+        check("19b a workspace the budget refuses BLOCKS the push", code == 1,
+              f"exit {code}: {out[:400]}")
+        check("19c and the receipt is printed, not summarised away",
+              "ROUND_CAP" in out and "VERDICT_OVER_CAP" in out, out[:400])
+        check("19d nothing is auto-granted, and the message says what a human must decide",
+              "NOTHING HERE IS AUTO-GRANTED" in out and "founder appends one row" in out,
+              out[:600])
+
+        # The escape hatch exists — the alternative is --no-verify, which turns off the credential
+        # scan too — but a SILENT escape leaves a push that looks identical to a checked one.
+        code, out = run_guard(repo, env={"PD_ALLOW_REVIEW_BUDGET": "1"})
+        check("19e the escape hatch opens", code == 0, f"exit {code}: {out[:300]}")
+        check("19f and it SAYS that the check did not run",
+              "SKIPPED" in out and "not a clean result" in out, out[:300])
+
+        # Presence is not consent, exactly as for PD_ALLOW_MAIN_PUSH: an unrecognised value is a
+        # typo or a misunderstanding, and the safe reading of an instruction nobody can parse is
+        # "do not switch the check off".
+        for value in ("0", "false", "no", "off", "maybe", ""):
+            code, out = run_guard(repo, env={"PD_ALLOW_REVIEW_BUDGET": value})
+            check(f"19g PD_ALLOW_REVIEW_BUDGET={value!r} fails CLOSED", code == 1,
+                  f"exit {code}: {out[:200]}")
+
+        # And the block clears when the workspace is put right — the remedy in the message works.
+        (ws / "T1-r5-reviewer.md").unlink()
+        (ws / "T1-r1-reviewer.md").write_text("VERDICT: PASS\n")
+        code, out = run_guard(repo)
+        check("19h a workspace inside its budget pushes clean and silently",
+              code == 0 and "review budget" not in out, f"exit {code}: {out[:300]}")
+
+
 def main() -> int:
     if not GUARD.exists():
         print(f"push_guard.py not found at {GUARD}", file=sys.stderr)
@@ -911,7 +975,7 @@ def main() -> int:
                  case_scan_command_fails_inside_a_valid_range, case_object_store_unreadable,
                  case_crash_and_interrupt_fail_closed, case_direct_push_to_default_branch,
                  case_sha256_repository, case_repo_controlled_binary_classification,
-                 case_pattern_set_unusable):
+                 case_pattern_set_unusable, case_review_budget_binds_at_the_push):
         case()
 
     print()

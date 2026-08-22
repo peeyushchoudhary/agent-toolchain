@@ -37,11 +37,36 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parents[1]
 SYNC = SKILL / "scripts" / "sync_methodology.py"
 ONBOARDING = SKILL.parent / "project-onboarding" / "SKILL.md"
-DECISIONS = SKILL.parents[2] / "docs" / "decisions.md"
+
+
+def first_present(*candidates: Path) -> Path:
+    """The first candidate that exists, else the first candidate.
+
+    TWO LAYOUTS RESOLVE HERE, AND NEITHER IS WRONG. In the installed layer the repository documents
+    sit flat under `<root>/docs/`; in the repository that publishes this skill they now sit under
+    the shared structure standard, in `docs/decisions/` and `docs/runbooks/`. A single hardcoded
+    path is correct in one of those and SILENTLY SKIPS in the other — which is what happened: five
+    assertions in this file stopped executing the day the documents moved, and nothing went red,
+    because the guard below degrades a missing file to a skip. A skip names what was not checked and
+    never passes, so the suite was honest; it was simply no longer checking anything.
+
+    Falling back to the first candidate when none exists keeps the skip message pointing at the
+    layout this copy expects, rather than at whichever alternative was listed last.
+    """
+    for c in candidates:
+        if c.is_file():
+            return c
+    return candidates[0]
+
+
+REPO = SKILL.parents[2]
+DECISIONS = first_present(REPO / "docs" / "decisions" / "decisions.md",
+                          REPO / "docs" / "decisions.md")
 # The same step, written twice for two audiences. Repairing one copy of a duplicated block and not
 # the other is exactly how the defective Verify block survived: it stayed reachable through the more
 # likely door. Both are pinned, and pinned to each other.
-GUIDE = SKILL.parents[2] / "docs" / "onboarding-a-project.md"
+GUIDE = first_present(REPO / "docs" / "runbooks" / "onboarding-a-project.md",
+                      REPO / "docs" / "onboarding-a-project.md")
 
 # `ap.add_argument("--repo", ...)` — the parser is the only authority on which flags exist.
 ADD_ARGUMENT = re.compile(r'add_argument\(\s*"(--[a-z0-9-]+)"')

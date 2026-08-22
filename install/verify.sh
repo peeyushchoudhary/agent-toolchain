@@ -464,9 +464,11 @@ hook_produces_output() {
 # any check family was not requested — which is every default-flag run and every session-start run —
 # and `partial` still carries exit 1 when there are ERRORs. A consumer that mapped `partial` to
 # "non-blocking" would swallow every error on every project. For that script, READ THE EXIT CODE.
-# This script does not call it for findings (only `--help`, via runs_help), so that claim is stated
-# here and NOT asserted: asserting it needs a test that runs validate_disclosure.py, which lives in
-# the checker's own suite, not in this repository's write set.
+# THE REPOSITORY SECTION NOW DOES CALL IT FOR FINDINGS — see `── this repository against the
+# standard we ship`. This paragraph used to end "this script does not call it for findings (only
+# `--help`, via runs_help)", and that sentence stopped being true in the commit that aimed the
+# checker at this repository. It is corrected rather than deleted because it is the reason the call
+# site reads `$?` and never a payload field: the rule above is the whole contract that call obeys.
 #
 # THE ONE RULE THAT HOLDS FOR BOTH SCRIPTS: CHECK THE EXIT STATUS BEFORE PARSING, because both have
 # an rc-2 path that writes a reason to STDERR and emits NO JSON AT ALL, even under `--json`.
@@ -711,7 +713,8 @@ toolchain_report() {
 #                                                 and never absorbed into a pass.
 # Which skills are in (a) is a property of the last re-vendor, not of this repository — the
 # agent-personas suite is deliberately NOT vendored, because three of its tests resolve a human
-# record at <skill>/../../docs/decisions.md that does not exist in the vendored layout. A list
+# record at <skill>/../../docs/decisions.md that does not exist in the vendored layout — that path is
+# the INSTALLED layer's, under $HOME/.claude, and did not move when this repository's docs did. A list
 # written here would be a second copy of that fact and would drift the next time anyone re-vendors.
 # So: discover, and let the summary say what discovery found.
 #
@@ -1607,7 +1610,8 @@ check_persona_count() {
 #
 # A DERIVED FACT RESTATED IN PROSE IS A SECOND COPY, and a second copy drifts silently. MEASURED on
 # this repository at the moment this check was written: `README.md` said "fourteen generated
-# personas" in one line and "Thirteen base personas" in another, `docs/agent-personas.md` said
+# personas" in one line and "Thirteen base personas" in another, `docs/agents/agent-personas.md`
+# said
 # "Thirteen roles", and the truth on disk was fourteen. Two PUBLIC documents stated a wrong number
 # and every gate was green. Separately, of the six skills the declaration names, the top-level
 # README named four and never mentioned two at all.
@@ -5000,6 +5004,31 @@ elif python3 "$VSYNC" --list >/dev/null 2>&1; then
   ok "sync_personas.py"
 else
   bad "sync_personas.py is vendored but fails to run"
+fi
+
+echo "── this repository against the standard we ship"
+# THE CHECKER WE PUBLISH, AIMED AT US. `docs/architecture/repository-standard.md` opens by saying
+# the standard is "Enforced by `validate_disclosure.py --standard`" — and until this line,
+# nothing ran it against THIS repository. The flag appeared in install_hooks.py, in three tests
+# and in four documents, and in no gate pointed here. Seven errors survived that way for the life of the standard.
+#
+# WHY THEY SURVIVED, because it decides whether this line is worth its cost: every one of them is an
+# ABSENT thing — six missing directories and a missing route index. A missing `docs/architecture/`
+# is nothing on screen, so reading the tree does not show it to you and review never caught it. That
+# is the case where a machine buys something a careful reader does not already have.
+#
+# READ THE EXIT CODE, NEVER `status` — the consumer-contract comment above is the whole rule this
+# call obeys. `--standard` runs `partial` on every invocation that is not also given `--vs`, and
+# `partial` carries exit 1 whenever the checks that ran found an ERROR.
+#
+# `$REPO_ROOT`, NOT `$VENDOR`, AND NOT `$HOME`. The question is whether this repository complies;
+# neither operand is the machine, so the finding belongs on the repository verdict line by the same
+# rule that keeps `--vendored` off it.
+std_out=$(python3 "$VPD/validate_disclosure.py" "$REPO_ROOT" --standard 2>&1); std_rc=$?
+if [ "$std_rc" -eq 0 ]; then
+  ok "this repository satisfies the structure standard it ships (validate_disclosure.py --standard)"
+else
+  bad "this repository FAILS the structure standard it ships ($(printf '%s\n' "$std_out" | grep -c 'ERROR ') error(s), exit $std_rc): $(printf '%s\n' "$std_out" | grep 'ERROR ' | head -3 | tr -s ' ' | tr '\n' ';')"
 fi
 
 echo "── vendored personas"

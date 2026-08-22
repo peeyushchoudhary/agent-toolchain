@@ -138,8 +138,8 @@ overlap, and an overlapping persona is worse than a missing one because dispatch
 ## No cross-harness dispatch
 
 A persona runs in whichever harness is being driven. Nothing shells out to the other family.
-Measured and rejected — see [decisions.md](decisions.md) and
-[evidence/measurements.md](measurements.md).
+Measured and rejected — see [decisions.md](../decisions/decisions.md) and
+[evidence/measurements.md](../product/measurements.md).
 
 ## Reload behaviour
 

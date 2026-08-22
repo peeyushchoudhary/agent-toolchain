@@ -1,6 +1,7 @@
 ---
 name: execution-methodology
 description: Use when starting, planning, or executing substantive implementation work — writing a product or feature spec, taking a design to a plan, running an approved plan task by task, or deciding what must be true before work can be called done. Also use when a repository's rendered execution guide is missing or stale.
+disable-model-invocation: true
 ---
 
 # The execution methodology
@@ -77,6 +78,30 @@ It also rejects banned workspace artifact classes — `.diff` snapshots (name th
 stores the diff), restatement packets, and files recording failed dispatches (those are one ledger
 line each) — and warns when the workspace outgrows its budget, which is a process-regression
 signal for the milestone receipt.
+
+**It reads the verdict line cap** — thirty lines, the one cap of the five the methodology fixes
+that no instrument used to read. `VERDICT_OVER_CAP` binds a JUDGE VERDICT only: a round-marked
+prose artifact whose kind is a review, or a marker-free name that reads as a judge beyond
+reasonable doubt. It never binds evidence — a fix brief, an implementation report, a scout sweep,
+an analysis, a `-test-judge`, a JUnit XML, a probe log, a diff, a source file, or an artifact whose
+kind the tool does not recognise. CAP THE VERDICT, NEVER THE EVIDENCE: a judge that drops a finding
+to fit a line budget is a worse outcome than a long verdict, so charging an unknown kind fails
+CLOSED and capping it fails OPEN. Measured on one live workspace: 51 cards averaging 85 lines with
+50 of 51 inside their 150-line cap, answered by 204 verdict-class files running to 1,349 lines —
+the read side was capped and the write side was not.
+
+**The exit code binds at the push.** A pre-push hook runs this check over every review workspace it
+finds and refuses the push on exit 1. That does not overturn the founder ruling in the module
+docstring: the ruling is that the tool cannot bind the ORCHESTRATOR THAT RUNS IT, and git at the
+push is a different party at the moment that opens the pull request the ruling itself calls the
+merge gate. Every known-open bypass is inherited whole. `PD_ALLOW_REVIEW_BUDGET=1` skips it and
+says so.
+
+**Nothing is auto-granted.** A round past the cap is a decision: the subject CLOSES at its final
+verdict, or a founder appends one row per exact (subject, round) to `ROUND-GRANTS.tsv`. A verdict
+past thirty lines is cut, never dropped — the findings stay and the prose goes — or a
+`SUBJECT<TAB>verdict:<artifact><TAB>commit<TAB>date<TAB>reason` row records that a human read that
+one file and accepted its length.
 
 **Renaming a subject resets its budget, so the check reports the FAMILY too.** Subject keys that
 extend a live subject key at a token boundary (`<subj>`, `<subj>-contract`,
@@ -197,6 +222,37 @@ deferral age visibly instead of quietly becoming permanent.
 declares its own state and the check is evaluated against the repository it is invoked on — which is
 both a privacy property (this toolchain carries nothing about the repositories it serves) and a
 correctness one (a central list is a second source of truth that drifts).
+
+## This skill is user-invoked, in both harnesses
+
+`writes:` declares authority to CHANGE a file. Nothing here declares authority to ADVANCE A STAGE.
+A model may choose *how* to work; it may not authorise its own **promotion** — and the description
+at the top of this file is itself a model trigger on the one skill that holds every stage gate. So
+this skill is reached by a person naming it, never by a model deciding it is time.
+
+Two switches, one per harness, and **they are not the same mechanism**:
+
+| harness | mechanism | effect |
+| --- | --- | --- |
+| Claude Code | `disable-model-invocation: true`, in the front matter above | the model cannot load this skill on its own; `/execution-methodology` still works |
+| Codex | `agents/openai.yaml` → `policy.allow_implicit_invocation: false` | Codex will not invoke it implicitly; `$execution-methodology` still works |
+
+**The asymmetry is stated, not hidden.** `disable-model-invocation` is a Claude Code extension and is
+absent from the Agent Skills spec; OpenAI's own Claude-to-Codex migration reference lists it as
+*"No direct equivalent — Unsupported"* and calls `policy.allow_implicit_invocation` *"similar
+intent, not equivalent semantics"*. Set only the front-matter key and this gate would be enforced in
+one harness and inert in the other, inside a methodology whose first line is that it is followed
+identically by both. Hence the sidecar file. If a harness ever ignores its own key the gate is inert
+*there*, and **no front matter can tell you that** — the only evidence is a human noticing a model
+starting a stage unprompted. There is deliberately no checker: "the field is present" is green the
+moment the field exists and learns nothing.
+
+**Why the field is safe here at all.** `install.sh` **copies** these directories into
+`~/.claude/skills` and `~/.codex/skills`; it does not **package** them. The packaged-skill
+front-matter allowlist is `name` / `description` / `license` / `compatibility` / `metadata` /
+`allowed-tools`, and `disable-model-invocation` is not in it. Add a packaging or upload step to this
+repository and that field becomes a hard error, not an ignored key. (`argument-hint` is in the same
+forbidden set and appears nowhere in this repository. Keep it that way.)
 
 ## Running it
 

@@ -1,0 +1,12 @@
+# Codex-side half of the user-invoked gate. The Claude Code half is
+# `disable-model-invocation: true` in SKILL.md's front matter; Codex does not read that key, so
+# without this file the gate would be enforced in one harness and inert in the other. The two are
+# NOT equivalent: OpenAI's own Claude-to-Codex migration reference lists `disable-model-invocation`
+# as "No direct equivalent - Unsupported" and calls `allow_implicit_invocation` "similar intent, not
+# equivalent semantics". Explicit `execution-methodology` invocation still works; only implicit model invocation
+# is off. See SKILL.md, "This skill is user-invoked, in both harnesses".
+#
+# This file rides into ~/.codex/skills because install.sh copies the whole skill DIRECTORY
+# (install_tree, `cp -R`) into both harnesses. It needs no installer change.
+policy:
+  allow_implicit_invocation: false

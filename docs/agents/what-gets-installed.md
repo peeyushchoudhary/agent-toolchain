@@ -27,7 +27,7 @@ suite's collection failure.
 
 `check_toolchain.py --vendored <repo>` therefore reports **5 criticals at `a008768`, all expected**:
 three are those test files, two are `install/skills/.gitignore` and `install/skills/README.md`,
-differing by one line each — both `project-conformance`, see [README.md](README.md), "What is
+differing by one line each — both `project-conformance`, see [README.md](../README.md), "What is
 published, and what is not". The three cannot be silenced in that `.gitignore`: exclusion matches
 anchored rules on their first path component only, an interior-slash rule is skipped, and an
 unanchored pattern would exclude every test directory in both trees, including the

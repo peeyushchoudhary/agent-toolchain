@@ -1531,3 +1531,45 @@ class ReviewDemandIsNotADefectTest(SpecCheckFixture):
         self.write("docs/agents/personas/ghost.md",
                    "---\nname: ghost\ncovers: [no such concern]\nwrites: no\n---\n\n# x\n")
         self.assertEqual(self.run_cli().returncode, 1)
+
+
+class DismissedDeferralTest(SpecCheckFixture):
+    """A register that can only grow gets ignored.
+
+    Every outcome moved an entry FORWARD — owned by a milestone, or waiting for one. Nothing could
+    say NO. A real register measured at 205 rows with 13% closure is what a queue looks like when
+    the only exits are "do it" and "defer it again". spec-kit forces a verdict that includes
+    "Invalid / not a bug"; our ladder had no such branch.
+    """
+
+    def register(self, owner: str, threatens: str) -> None:
+        self.corpus()
+        self.write("docs/product/milestones/M1-a.md",
+                   "---\nmilestone: M1\ntitle: First\nstatus: building\nupdated: 2026-01-01\n---\n\n"
+                   "# M1\n\n## Goal\ng\n\n## Success criteria\n- a\n\n"
+                   "## Cross-feature validation\nj\n\nGate: `make test`\n\n## Deferred\n\n"
+                   "- **D-1** the digest ledger leaks on retry\n  found_by: none\n"
+                   "  site: backend/a.py\n  " + f"threatens: {threatens}\n"
+                   "  trigger: none\n  " + f"owner: {owner}\n  raised: 2026-01-01\n")
+
+    def test_a_dismissal_without_a_reason_is_refused(self) -> None:
+        """Dropped without a reason reads exactly like forgotten."""
+        self.register("dismissed", "none")
+        self.assertIn("E5", self.rules())
+
+    def test_a_dismissal_with_a_reason_is_accepted(self) -> None:
+        self.register("dismissed", "not a defect — expected behaviour")
+        self.assertNotIn("E5", self.rules())
+
+    def test_a_dismissed_entry_stops_counting_as_open(self) -> None:
+        """The half that makes the outcome real: if dismissal does not lower the number, the third
+        exit is decoration and the queue keeps growing while the count keeps saying so."""
+        self.register("dismissed", "already filed as D-2")
+        out = self.run_cli("--deferred").stdout
+        self.assertIn("0 open", out)
+        self.assertIn("1 dismissed", out)
+        self.assertIn("D-1", out, "a dismissal must stay visible enough to argue with")
+
+    def test_an_ordinary_entry_still_counts(self) -> None:
+        self.register("none", "none")
+        self.assertIn("1 open", self.run_cli("--deferred").stdout)

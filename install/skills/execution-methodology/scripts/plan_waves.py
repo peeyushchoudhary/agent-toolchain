@@ -139,7 +139,8 @@ from pathlib import Path
 from typing import Callable, NamedTuple, Sequence
 
 # One parser, one fence rule, one finding shape, one print cap — never a second copy of any of them.
-from spec_check import PRINT_CAP, Doc, Findings, SpecError, FENCE_RE, git, parse_front_matter
+from spec_check import (PRINT_CAP, Doc, Findings, SpecError, FENCE_RE, criteria, git,
+                        parse_front_matter)
 
 TASK_KEYS = (("task",), ("title", "lane", "needs", "writes", "covers", "serialises"))
 LANES = ("light", "full")
@@ -150,6 +151,12 @@ MAX_FULL_LANE = 12    # (P5) above this it is two features, and no wave plan rep
 
 FEATURE_ID_RE = re.compile(r"^F-\d+[A-Z]?$")
 QUALIFY = "/"                                 # `F-12/T1`: the feature, then its plan-local task id
+# The optional criterion priority tag, read from the END of a criterion: `... no second refund. [P1]`
+# It is read through spec_check's OWN `criteria()` fold, never through a second `AC-<n>` pattern —
+# that pattern has been recorded as too strict against the real corpus four times, and a private
+# copy here would be the fifth without anyone measuring it.
+PRIORITY_TAG_RE = re.compile(r"\[P([1-9])\]\s*$")
+UNRANKED = 99         # every unmarked task, and every task in a feature that marks nothing
 MILESTONE_RE = re.compile(r"^M\d+$")
 # ONE PATTERN, NOT TWO. This was `^F-\d+$` while `FEATURE_ID_RE` beside it accepted a suffix
 # letter, so a spec with `id: F-9A` and `milestone: M2` was dropped from its own milestone in
@@ -944,6 +951,59 @@ def derive_status(root: Path, rev: str, tasks: Sequence[Task], in_flight: Sequen
     return states, unclaimed
 
 
+def criterion_priorities(root: Path) -> dict[str, dict[str, int]]:
+    """`{feature id: {criterion number: 1|2|3}}`, read from the OPTIONAL `[P<n>]` tag on a criterion.
+
+    The tag is read through `spec_check.criteria()`, so it is read out of the same fold, with the
+    same fence rule, as every criterion check — a criterion wrapped over three lines carries its tag
+    on the last of them, and a line-at-a-time reader here would have missed every wrapped one.
+
+    A spec that marks nothing contributes nothing, which is the common case and has to stay free:
+    measured across two real repositories, 0 of 995 criteria carry a tag today.
+    """
+    directory = root / "docs" / "product" / "specs"
+    table: dict[str, dict[str, int]] = {}
+    for path in sorted(directory.glob("F-*.md")) if directory.is_dir() else []:
+        if not path.is_file():
+            continue
+        doc = Doc(path, root)
+        identifier = doc.scalar("id")
+        if doc.front_error or not FEATURE_RE.match(identifier):
+            continue
+        marked: dict[str, int] = {}
+        for item in criteria(doc):
+            tag = PRIORITY_TAG_RE.search(item.result.rstrip())
+            if tag:
+                # The BEST of the values on one criterion. Two tags on one criterion is an authoring
+                # slip, not a dispatch question, and refusing to order the task over it would make
+                # the operator fix a document to get a schedule back.
+                value = int(tag.group(1))
+                marked[item.number] = min(value, marked.get(item.number, value))
+        if marked:
+            table[identifier] = marked
+    return table
+
+
+def task_priorities(tasks: Sequence[Task], table: dict[str, dict[str, int]]) -> dict[str, int]:
+    """The rank each task inherits from the criteria it covers: the BEST one it carries.
+
+    A task takes the priority of the most important criterion in its `covers:` because the task has
+    to run for that criterion to close at all; the criterion's rank is the task's floor, and taking
+    the worst instead would bury a P1 behind whatever else the task happened to also satisfy.
+    """
+    ranks: dict[str, int] = {}
+    for task in tasks:
+        feature = task.ident.split(QUALIFY)[0]
+        marked = table.get(feature)
+        if not marked:
+            continue
+        values = [marked[reference[3:]] for reference in task.covers
+                  if reference.startswith("AC-") and reference[3:] in marked]
+        if values:
+            ranks[task.ident] = min(values)
+    return ranks
+
+
 def unlocks(tasks: Sequence[Task]) -> dict:
     """How many tasks sit transitively downstream of each id — the dispatch priority.
 
@@ -993,19 +1053,38 @@ def dispatch_block(task: Task, running: Sequence[Task]) -> str | None:
 
 
 def ready_set(tasks: Sequence[Task], states: Sequence[Status], in_flight: Sequence[str],
-              limit: int | None = None) -> tuple[list, list]:
+              limit: int | None = None,
+              priority: dict[str, int] | None = None) -> tuple[list, list]:
     """The tasks that may start NOW, and the ones deferred with the reason they were.
 
     Each admitted task JOINS the in-flight set for the candidates after it, so the emitted set is
     legal against itself and not only against what was already running. That matters because the
     milestone need not be clean: on a graph that still has W4 findings this still hands back a set
     no two members of which collide, instead of a set that is only safe if the plan was.
+
+    CRITERION PRIORITY IS THE TIEBREAK AND NEVER THE PRIMARY KEY. `unlocks` is a measured throughput
+    ordering — 11%-22% faster than id order, which was itself SLOWER than the barrier at five
+    writers — and a P1 leaf dispatched ahead of a P3 task that unlocks twenty hands that back. What
+    priority replaces is the LAST key, `task.ident`, which is alphabetical and which the operator
+    has been overriding from memory.
+
+    It is inserted AFTER the feature, so it can only reorder tasks WITHIN one feature. Ids are
+    qualified `F-<id>/T<n>` and `/` sorts below every digit and letter that can follow a feature id,
+    so ordering by feature-then-ident is exactly ordering by ident: this key is today's key with one
+    slot opened inside each feature. A spec that marks nothing is dispatched bit-for-bit as before.
+    Priority is deliberately NOT compared across features. A spec author ranks their own criteria
+    and has ranked nobody else's, so a global priority key would let the first feature to adopt the
+    notation demote every feature that had not — unprioritised reading as last, which is the same
+    inversion as unprioritised reading as all-P1, arriving through the dispatcher instead of a
+    checker. Across features the milestone already decides, and it decides by id.
     """
     index = {task.ident: task for task in tasks}
     rank = unlocks(tasks)
+    ranked = priority or {}
     running = [index[ident] for ident in in_flight if ident in index]
     candidates = sorted((index[s.ident] for s in states if s.state == "ready" and s.ident in index),
-                        key=lambda task: (-rank.get(task.ident, 0), task.ident))
+                        key=lambda task: (-rank.get(task.ident, 0), task.ident.split(QUALIFY)[0],
+                                          ranked.get(task.ident, UNRANKED), task.ident))
     chosen, deferred = [], []
     for task in candidates:
         reason = dispatch_block(task, running)
@@ -1021,7 +1100,7 @@ def ready_set(tasks: Sequence[Task], states: Sequence[Status], in_flight: Sequen
 
 def status_json(states: Sequence[Status], unclaimed: Sequence[dict], chosen: Sequence[Task],
                 deferred: Sequence[dict], rev: str, in_flight: Sequence[str],
-                limit: int | None) -> dict:
+                limit: int | None, priority: dict[str, int] | None = None) -> dict:
     """The `--since`/`--ready` half of the dispatch interface.
 
     `complete` is a KEY AND NOT AN EXIT CODE. Exit 1 means findings; a milestone that is merely
@@ -1036,6 +1115,11 @@ def status_json(states: Sequence[Status], unclaimed: Sequence[dict], chosen: Seq
                                  "commits": list(s.commits)} for s in states},
             "unclaimed_commits": [dict(item) for item in unclaimed],
             "ready": [task.ident for task in chosen],
+            # EVERY task that inherited one, not only the dispatched ones. The key is here so the
+            # tiebreak is visible rather than inferred from an order: an empty object says the
+            # milestone's specs marked nothing and `ready` is in plain id order, which is a
+            # different statement from "priority was read and changed nothing".
+            "priority": {ident: f"P{value}" for ident, value in sorted((priority or {}).items())},
             "deferred": [dict(item) for item in deferred]}
 
 
@@ -1134,10 +1218,15 @@ def main() -> int:
                     return 2
                 states, unclaimed = derive_status(root.resolve(), args.since, milestone.tasks,
                                                   in_flight, found)
-                chosen, deferred = (ready_set(milestone.tasks, states, in_flight, args.limit)
-                                    if args.ready else ([], []))
+                # Read only for `--ready`: it is the only mode that orders anything, and a `--since`
+                # status view that opened every spec to compute a key it never uses would be paying
+                # for a schedule nobody asked for.
+                ranked = (task_priorities(milestone.tasks, criterion_priorities(root.resolve()))
+                          if args.ready else {})
+                chosen, deferred = (ready_set(milestone.tasks, states, in_flight, args.limit,
+                                              ranked) if args.ready else ([], []))
                 status_payload = status_json(states, unclaimed, chosen, deferred, args.since,
-                                             in_flight, args.limit)
+                                             in_flight, args.limit, ranked)
         else:
             found, plans = run(root.resolve())
             if args.commit:

@@ -50,7 +50,7 @@ that never opted in is a gate that gets uninstalled, after which it protects not
 **154 ms added to a push**, which is why both run over the whole tree rather than the pushed range:
 range-scoping saves nothing a human can feel and would let a spec broken by an edit outside
 `docs/product/` push clean. The per-check numbers and the conditions they were taken under are in
-[measurements.md](measurements.md); re-measure there before changing this.
+[measurements.md](../product/measurements.md); re-measure there before changing this.
 
 For a deliberate direct push to the default branch, `PD_ALLOW_MAIN_PUSH=1 git push` is the
 supported escape — scoped to the one command, it leaves no hole behind. `PD_SKIP_SPEC_CHECK=1` and
