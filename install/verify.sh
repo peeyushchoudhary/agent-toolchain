@@ -1603,6 +1603,61 @@ check_persona_count() {
   fi
 }
 
+# check_prose_agrees DECL_DIR README PERSONA_DIR — the PROSE agrees with the declaration.
+#
+# A DERIVED FACT RESTATED IN PROSE IS A SECOND COPY, and a second copy drifts silently. MEASURED on
+# this repository at the moment this check was written: `README.md` said "fourteen generated
+# personas" in one line and "Thirteen base personas" in another, `docs/agent-personas.md` said
+# "Thirteen roles", and the truth on disk was fourteen. Two PUBLIC documents stated a wrong number
+# and every gate was green. Separately, of the six skills the declaration names, the top-level
+# README named four and never mentioned two at all.
+#
+# WHY THIS CHECK AND NOT A PROSE BUDGET. The set is ENUMERABLE from one named file — the same
+# `install/skills/.gitignore` the roster above already reads — and a violation is PRESENT rather
+# than an absence: a name that should be in a document and is not. Those are the two conditions
+# under which a rule can be held by a script at all instead of by whoever remembers it. The counts
+# fail the same test in the other direction: they are single numbers restated in English, nothing
+# derives them, and nobody re-reads a sentence they did not write.
+#
+# IT IS DELIBERATELY NARROW. It does not ask the README to DESCRIBE a skill, or to link its
+# SKILL.md, or to keep any particular shape — a check that demands prose take a form is a check that
+# gets argued with and then removed. It asks only that a published name be mentioned somewhere on
+# the front page, which is the weakest claim that still catches a skill nobody can find.
+check_prose_agrees() {
+  local decl_dir="$1" readme="$2" persona_dir="$3" roster missing=0 named=0 total=0 n_p
+  if [ ! -f "$readme" ]; then
+    ctx "prose agreement not checked — no $readme"
+    return
+  fi
+  roster=$(skill_roster "$decl_dir")
+  while IFS= read -r _s; do
+    [ -n "$_s" ] || continue
+    total=$((total + 1))
+    if grep -q -- "$_s" "$readme" 2>/dev/null; then
+      named=$((named + 1))
+    else
+      missing=$((missing + 1))
+      bad "$(basename "$readme"): declares skill \`$_s\` but the front page never names it"
+    fi
+  done <<EOF
+$roster
+EOF
+  n_p=$(find "$persona_dir" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+  n_p=${n_p:-0}
+  if [ "$n_p" -gt 0 ] && grep -qiE '\b(thirteen|fourteen|fifteen|sixteen)\b [a-z ]*persona' "$readme" 2>/dev/null; then
+    local word
+    case "$n_p" in 13) word=thirteen ;; 14) word=fourteen ;; 15) word=fifteen ;; 16) word=sixteen ;; *) word="" ;; esac
+    if [ -n "$word" ] && grep -qiE "\\b(thirteen|fourteen|fifteen|sixteen)\\b [a-z ]*persona" "$readme" \
+       && ! grep -qiE "\\b$word\\b [a-z ]*persona" "$readme"; then
+      bad "$(basename "$readme"): states a persona count that is not $n_p, the number of persona files on disk"
+      missing=$((missing + 1))
+    fi
+  fi
+  if [ "$missing" -eq 0 ]; then
+    ok "$named of $total declared skill(s) named on the front page; persona count agrees with $n_p file(s)"
+  fi
+}
+
 # check_installer_agrees INSTALLER DECL_DIR — the installer's OWN skill set, obtained by running it,
 # equals the roster derived above.
 #
@@ -4932,6 +4987,7 @@ echo "── vendored skills"
 # here, because everything on this line and below it is unreachable from `--self-test`.
 check_skill_presence "$VENDOR/skills" "$VENDOR/skills" "install/skills" 1
 check_installer_agrees "$VENDOR/install.sh" "$VENDOR/skills"
+check_prose_agrees "$VENDOR/skills" "$(dirname "$VENDOR")/README.md" "$VENDOR/skills/agent-personas/personas"
 
 echo "── vendored scripts run"
 for s in validate_disclosure check_github check_toolchain push_guard install_hooks identifier_guard promote_lesson; do
