@@ -127,3 +127,16 @@ ledger and not for the off switch.
 NOTE FOR THE OPERATOR (not fixable from this repo): the header comment inside the installed
 ROUND-GRANTS.tsv still says `FORMAT SUBJECT<TAB>r<N>|terminal<TAB>...`. It was already stale — it
 does not mention `terminal-spent` either. The script docstring is the authority and is now current.
+
+## 7. Implemented — binding at pre-push (commit 3)
+
+`push_guard.py`: `WORKSPACE_ANCHORS = {sdd, .workspace, workspaces}`, depth-4 `scandir` walk (no
+symlinks, skips `.git`/`node_modules`/...), `review_workspaces()`, `review_budget_findings()`, wired
+into `run()` beside the product checks with its own adoption predicate and its own loud escape hatch
+`PD_ALLOW_REVIEW_BUDGET=1`. `checker()` gained an `applies=` parameter so the "check did not run"
+message names the right adoption fact (product dir vs review workspace).
+Verified end-to-end on a throwaway git repo: workspace with r5 + 40-line verdict -> rc=1 with the
+receipt inline; no workspace -> rc=0 SILENT; escape hatch -> rc=0 and prints that it did not run;
+clean workspace -> rc=0 silent.
+The guard never reads an artifact name — it hands the anchor dir whole to check_review_budget.py.
+That is deliberate: a second classifier in the hook would drift from the first.
