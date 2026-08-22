@@ -235,3 +235,38 @@ docstring instead, ready to switch on with the fix.
   check_review_budget_selftest.py   3 cases / 13 assertions — fails under 1 of 1 mutation
 
   validate_card_selftest.py         5 cases / 9 assertions  — fails under 4 of 4 mutations
+
+## 6. Validation results (FINAL)
+  install/skills/execution-methodology  `unittest discover`  1027 tests, OK (skipped=2)
+      (was 1014; +11 break-test methods, +2 roster tests)
+  install/skills/progressive-disclosure `unittest discover`   387 tests, OK  (unchanged)
+  install/install.sh --dry-run   rc=0
+  install/verify.sh              rc=0  — PASS, 7 warnings, all pre-existing and machine-scoped
+
+## 3. FINAL per-script table — 11 of 11 scripts have a break-test
+  script                 cases  assertions  mutations it was watched failing under
+  start_junit_run.py       5        21      5 of 5
+  verify_junit.py          4        22      3 of 3
+  milestone_seal.py        6        20      5 of 5
+  sync_methodology.py      4        11      3 of 3
+  plan_waves.py            4        17      4 of 4   (all four from the seed set)
+  spec_check.py            3        13      3 of 3   (all three from the seed set)
+  ratio_meter.py           3         9      2 of 2
+  check_review_budget.py   3        13      1 of 1
+  validate_card.py         5         9      4 of 4
+  weekly_review.py         3         8      2 of 2
+  trace_check.py           2         7      1 of 1
+  TOTAL                   42       150
+
+## 4. Scripts with NO real case — none. Individual PROPERTIES with no case, and why:
+  milestone_seal  the 12-hex command digest in the receipt name: no honest case distinguishes 12
+                  from 2 without brute-forcing a collision, and a case pinned to a found collision
+                  tests the collision rather than the rule.
+  milestone_seal  write-then-rename: reproducing it needs a process killed between two calls.
+  trace_check     PARAMETERISED_RE: a real green mutation, but CITE_RE accepts `AC2[2]` anyway
+                  (`[` is not alphanumeric), so through every CLI path the stripped and unstripped
+                  names behave identically. Reaching it needs the --commit body matcher against a
+                  source tree.
+  check_review_budget  the `rereview` mis-warning (N9) is LIVE, so a case asserting the right
+                  answer would fail today. Reproduction written into the docstring instead.
+  Each is named in its own selftest docstring, not only here.
