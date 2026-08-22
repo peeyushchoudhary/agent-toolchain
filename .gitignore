@@ -4,3 +4,8 @@ __pycache__/
 
 # Local-only analysis workspace (contains private project detail; never commit)
 analysis/
+
+# Working notes. A seat's running findings are scratch: the conclusions belong in the commit
+# message and the reference it changed. Tracked, .wip/ was also INVISIBLE to every check —
+# walk_files skips dot-directories — so it was public and unexamined at the same time.
+/.wip/
