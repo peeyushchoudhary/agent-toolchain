@@ -230,3 +230,6 @@ change nothing".
 NOT COVERED BY A BREAK-TEST CASE, deliberately: the defect is LIVE, so a case asserting the correct
 behaviour would fail today and break the suite. The reproduction is recorded in the selftest
 docstring instead, ready to switch on with the fix.
+
+  ratio_meter_selftest.py           3 cases / 9 assertions  — fails under 2 of 2 mutations
+  check_review_budget_selftest.py   3 cases / 13 assertions — fails under 1 of 1 mutation
