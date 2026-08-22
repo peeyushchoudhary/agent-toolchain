@@ -23,6 +23,7 @@ declares its own state**, and every check is evaluated against the one repositor
 | `agent-persona-factory` | Deriving project-specific specialists from a repository's own guardrails, architecture, and PRD. |
 | `graph-navigation` | Navigating an existing knowledge graph without falling back to prose queries. |
 | `project-onboarding` | Bringing a new repository under all of the above, in order, proposing before writing. |
+| `project-conformance` | Whether a repository that was onboarded still meets the standard, and repairing the part of that answer that is mechanical. Reports first, writes only under `--fix`, and is run by hand — never by a hook. |
 
 ## The two ideas it is built on
 
