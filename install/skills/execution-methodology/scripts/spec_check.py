@@ -1435,7 +1435,13 @@ def main() -> int:
         for item in findings[:PRINT_CAP]:
             print(f"{item.path}:{item.line}".ljust(width) + f"  {item.rule}  {item.message}")
         if len(findings) > PRINT_CAP:
-            print(f"... and {len(findings) - PRINT_CAP} more finding(s); fix these and run again")
+            # The TOTAL, not just the remainder. Printing "and 91 more" alone makes the reader add
+            # two numbers, and a reader who greps the printed lines instead counts 40 and believes
+            # it. That happened: a 130-finding result was reported as 39 — a 3.3x under-count —
+            # because the display cap was mistaken for the finding count. The cap is a display
+            # decision; the total is the fact, so the total is what the line leads with.
+            print(f"... {len(findings)} finding(s) in total, {len(findings) - PRINT_CAP} not shown; "
+                  "fix these and run again, or use --json for all of them")
     if exempt and not args.json:
         print(f"{exempt} route(s) exempt")
     # PRINTED ON EVERY RUN THAT HAS A POOL, findings or none. `trace_check.py` prints its own limit

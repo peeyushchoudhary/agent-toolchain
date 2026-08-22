@@ -417,7 +417,10 @@ class OutputTest(SpecCheckFixture):
         result = self.run_cli()
         printed = result.stdout.splitlines()
         self.assertEqual(len(printed), spec_check.PRINT_CAP + 1)
-        self.assertIn("and 20 more finding(s)", printed[-1])
+        # The TOTAL leads the line. A reader who greps the printed lines counts the cap and
+        # believes it: a real 130-finding result was reported as 39 that way.
+        self.assertIn("60 finding(s) in total", printed[-1])
+        self.assertIn("20 not shown", printed[-1])
 
     def test_json_lists_every_finding_with_the_exit_code(self) -> None:
         self.corpus(spec_body="\n## Changelog\n")
