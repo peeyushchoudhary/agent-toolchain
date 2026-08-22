@@ -114,3 +114,15 @@ Mutation log (run = the script's own mapped test modules):
   MS10 atomic write-then-rename removed                                  GREEN — but see s.4
   Covered (RED, no case needed): MS2 command re-check, MS3 exit re-check, MS4 dirty-tree refusal,
   MS5 two-documents-claim-the-id, MS8 tree-not-commit binding.
+
+### N5 — weekly_review.py is the BEST-covered script; only two real cases
+  WR11 `share_text` `{value:5.3f}` -> `{value:5.2f}`                     GREEN — suite passes
+       The function's own docstring is the specification: "Three decimals, not two: a week
+       printed as `0.10  BREACH` argues with its own marker." Nothing tests it, so the report
+       can be made to contradict its own PASS/BREACH column and stay green.
+  WR9  weekly BREACH marker `> ceiling` -> `>= ceiling`                  GREEN — suite passes
+       The exact-ceiling boundary is tested nowhere.
+  Covered (RED): WR1 empty-weeks-not-averaged, WR2 dead band, WR3 all-repos-unreadable -> 2,
+  WR5 name-not-path, WR6 --weeks<1, WR7 --ceiling range, WR8 insufficient history,
+  WR10 "there is no exit 1".
+  (WR4 was a no-op edit and is discarded, not a result.)
