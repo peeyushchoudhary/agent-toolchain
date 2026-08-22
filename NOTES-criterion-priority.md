@@ -1,6 +1,6 @@
 # Criterion priority — working notes (agent/criterion-priority)
 
-**TOP 3 SO FAR:** (1) `[P1]` trailing tag, measured invisible to spec_check on 995 real criteria (0 new, 0 lost findings); (2) BUILT the within-feature tiebreak in `plan_waves --ready`, with a case that fails under all three wrong designs (old key, global key, priority-ahead-of-unlocks); (3) NO RULE — 0 task blocks, 0 milestones, 0 `covers:` in any sibling repo, so no new rule can be red today.
+**TOP 3 SO FAR:** (1) `[P1]` trailing tag, measured invisible to spec_check on 995 real criteria; (2) BUILT the within-feature tiebreak in `plan_waves --ready` (8 vendored tests + 1 selftest case, verified to fail under all three wrong designs); (3) NO RULE — 0 task blocks, 0 milestones, 0 `covers:` anywhere in reach, so no new rule can be red today.
 
 ## 0. Design basis (p_sdd finding, per-story priority)
 in progress
@@ -115,3 +115,28 @@ The red-today hunt, run to exhaustion against the four sibling repos:
 So: **no `spec_check` rule, and therefore no new case in `spec_check_selftest.py`.** The notation
 ships with the template and the dispatcher, and the checker opens with zero findings on 1005 real
 criteria — which is the whole point of it being optional.
+
+### M8 — suite state, and one thing the next seat must know
+- Vendored suite: **1055 tests, 8 new**, all green except `test_both_harness_copies_are_byte_
+  identical` x2. Those two are PRE-EXISTING and not mine: local `main` (a25f09a) is behind the
+  repo's checked-out branch, and `check_review_budget.py` changed in `40db635`/`67b203a`, so the
+  worktree copy differs from `~/.codex`. Same test passes when run from the repo's own working tree.
+- All eleven selftests green.
+- The `~/.codex` mirror is compared BY BYTES by that test. Anything shipped here must be installed
+  into the mirror or that test starts failing for the next seat as well.
+- REPO CONVENTION found in `40db635..`: commit `b4ccc82` "working notes do not ship at the repo
+  root" deleted a sibling seat's running-findings file for exactly this reason. This file is
+  therefore deleted in the last commit of the branch; every finding in it is in a commit message,
+  in `references/specs.md`, or in a test name, and git log keeps the file itself.
+
+### M9 — deliberately NOT built
+- No `spec_check` rule and no new `spec_check_selftest.py` case (M7 is why).
+- No `priority:` front-matter key. `withdrawn: [3, 9]` earns its second index of criterion numbers
+  because the body deletes the text; here the criterion stays, so a front-matter list would be a
+  second copy of an id that goes stale silently — the restatement failure this page already names.
+- Spec-kit's `Independent Test` field: NOT imported. The coverage map plus `trace_check.py` bind a
+  criterion to a test that RAN.
+- No `Why this priority` prose block. It is unenumerable and unfalsifiable, and the rank plus the
+  criterion sentence already say what a dispatcher needs.
+- No `P0`. Three values, closed, mirroring `severity:`.
+- No default. Absent is absent, never P1 and never last-across-features.
