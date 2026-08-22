@@ -35,6 +35,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -48,7 +49,11 @@ POOL = SKILL.parent / "agent-personas" / "personas"
 # a documented command that is not a real value and not a key here fails: an unrunnable command is
 # how a procedure becomes decorative.
 PLACEHOLDERS = ("M<n>", "<seal-rev>", "<rev>", "<range>", "<ids>", "<card>", "<receipt>",
-                "<tree>", "<gate>", "<workspace>", "<subject>", "N")
+                "<tree>", "<gate>", "<workspace>", "<subject>", "N",
+                # Step 4's evidence pair. The step named these two scripts in its table row and
+                # carried no command line, so the column WiredTest runs never reached them and the
+                # loop's own evidence instrument was documented and executed by nothing.
+                "<results-dir>", "<evidence>", "<FQCN>=<N>")
 # The steps the loop cannot lose. Each entry is a script and an option that must appear in the
 # document at least once, so a deleted step is a failure rather than a quiet omission.
 REQUIRED = (
@@ -768,3 +773,62 @@ commit_subject: "feat(F-7/T1): the work"
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EvidenceStepTest(WiredTest):
+    """Step 4 is the only step whose scripts were named and never run.
+
+    The row listed `start_junit_run.py` and `verify_junit.py` in its Command cell and carried no
+    command line, so the column this class executes never reached them: the loop's evidence
+    instrument was documented by the loop and exercised by nothing. The diagram work found it the
+    hard way — a rule requiring every drawn box to name a runnable command failed on this one row.
+    """
+
+    def results_dir(self) -> Path:
+        target = self.root / "build" / "test-results" / "test"
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    def write_xml(self, target: Path, name: str = "com.x.T", tests: int = 1) -> None:
+        cases = "".join(f'<testcase name="t{n}" classname="{name}" time="0.01"/>'
+                        for n in range(tests))
+        (target / f"TEST-{name}.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            f'<testsuite name="{name}" tests="{tests}" skipped="0" failures="0" errors="0">'
+            f'{cases}</testsuite>\n', encoding="utf-8")
+
+    def test_the_documented_pair_produces_evidence(self) -> None:
+        results, receipt = self.results_dir(), self.root / "start.json"
+        evidence = self.root / "evidence.json"
+
+        start = self.run_documented(self.documented("start_junit_run.py", "--results"),
+                                    **{"<results-dir>": str(results), "<receipt>": str(receipt)})
+        self.assertEqual(start.returncode, 0, start.stderr)
+        time.sleep(1.1)
+        self.write_xml(results)
+        verify = self.run_documented(self.documented("verify_junit.py", "--start-receipt"),
+                                     **{"<results-dir>": str(results), "<receipt>": str(receipt),
+                                        "<evidence>": str(evidence), "<FQCN>=<N>": "com.x.T=1"})
+
+        self.assertEqual(verify.returncode, 0, verify.stdout + verify.stderr)
+        self.assertTrue(evidence.is_file(), "step 4 must leave the evidence step 8 reads")
+
+    def test_a_consumed_receipt_is_refused(self) -> None:
+        """The single-use property, exercised through the documented command rather than asserted."""
+        results, receipt = self.results_dir(), self.root / "start.json"
+        self.run_documented(self.documented("start_junit_run.py", "--results"),
+                            **{"<results-dir>": str(results), "<receipt>": str(receipt)})
+        time.sleep(1.1)
+        self.write_xml(results)
+        command = self.documented("verify_junit.py", "--start-receipt")
+        first = self.run_documented(command, **{"<results-dir>": str(results),
+                                                "<receipt>": str(receipt),
+                                                "<evidence>": str(self.root / "e1.json"),
+                                                "<FQCN>=<N>": "com.x.T=1"})
+        second = self.run_documented(command, **{"<results-dir>": str(results),
+                                                 "<receipt>": str(receipt),
+                                                 "<evidence>": str(self.root / "e2.json"),
+                                                 "<FQCN>=<N>": "com.x.T=1"})
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertNotEqual(second.returncode, 0, "a consumed receipt must not verify twice")

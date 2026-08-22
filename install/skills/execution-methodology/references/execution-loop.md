@@ -179,9 +179,24 @@ bypass the test and are fixed in-task, never parked.
 
 ### Step 4 — validate
 
+```bash
+start_junit_run.py --results <results-dir> --output <receipt>
+verify_junit.py --results <results-dir> --expect <FQCN>=<N> --start-receipt <receipt> --output <evidence>
+```
+
 The card's `validation` argv is run by a read-only `test-judge`, never by the writer and never by
-the orchestrator, with `start_junit_run.py` immediately before the test task and `verify_junit.py`
-after. A verdict from the writer is a claim; the judge's re-run is the evidence.
+the orchestrator, with the receipt created immediately before the test task and verified after. A
+verdict from the writer is a claim; the judge's re-run is the evidence.
+
+`0` — the run is fresh and the expected classes and counts are present, and `<evidence>` is what
+step 8 reads. `2` — the receipt was already consumed, or the results directory moved, or the output
+path is inside the results directory it is meant to describe. The receipt is single-use by
+construction, so a second verification against the same path is refused rather than answered.
+
+This step carried no command line until the diagram work asked every drawn box to name a runnable
+one and this row could not. The two scripts were named in the table and executed by no test, which
+is the same defect the loop's own commands exist to prevent — a documented instrument nothing
+exercises.
 
 ### Step 5 — review
 
