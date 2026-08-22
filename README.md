@@ -162,9 +162,11 @@ stated in the skill's JUnit-evidence reference.
 
 ### What is not shipped
 
-- The remaining known publication gap is `project-conformance`. It is installed locally but is not
-  yet part of the vendored public skill set. Its scope and the coordinated edits still required are
-  recorded in [What is published, and what is not](docs/README.md#what-is-published-and-what-is-not).
+- There is no remaining publication gap: all eight skills the allowlist declares are vendored here.
+  `project-conformance` closed the last one and this line described it as open for as long as it
+  took to notice — `check_prose_agrees` asserts that a declared skill is NAMED on this page, never
+  that a sentence about it is still true. Which skills are published, and which are deliberately
+  not, is recorded in [What is published, and what is not](docs/README.md#what-is-published-and-what-is-not).
 - There is no application release, production deployment, or application roadmap behind this
   repository.
 

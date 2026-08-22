@@ -44,11 +44,11 @@ Installation lives in [../install/README.md](../install/README.md).
 everything that layer contains — each skill is a decision, and the decisions are recorded here
 because a skill that is silently absent is indistinguishable from one that was forgotten.
 
-Seven skills are published: `progressive-disclosure`, `agent-personas`, `agent-persona-factory`,
-`execution-methodology`, `graph-navigation`, `project-onboarding`, and `project-conformance`. The
-list is enforced by `install/skills/.gitignore`, which ignores its own directory and then
-re-includes those seven by name, so adding an eighth is a deliberate line in a file rather than a
-side effect of a copy.
+Eight skills are published: `progressive-disclosure`, `agent-personas`, `agent-persona-factory`,
+`execution-methodology`, `graph-navigation`, `project-onboarding`, `project-conformance`, and
+`project-migration`. The list is enforced by `install/skills/.gitignore`, which ignores its own
+directory and then re-includes those eight by name, so adding a ninth is a deliberate line in a
+file rather than a side effect of a copy.
 
 **`execution-methodology` is published.** It is the pipeline this repository describes — the
 artifacts, the three human gates, the task card, the ledger contract — and until now it was the one
@@ -83,6 +83,21 @@ green only on a machine that has the layer installed. And it is **not in `MIRROR
 list is machine state held in a file this repository only mirrors, so it is changed on the machine
 first. Publishing a skill and mirroring it to Codex are separate acts, and this is the first skill
 where they have come apart.
+
+**`project-migration` is published**, and the count below was tested rather than trusted. It moves
+an already-onboarded repository's product documents onto the bound schema — the opposite
+precondition to `project-onboarding`, which is for a repository that has nothing yet. It is its own
+skill for that reason: one description cannot honestly name both states, and a reader holding a
+conforming repository does not open a page that says the repository is not set up.
+
+Its publication landed all five edits in one commit, including `MIRRORED_SKILLS` — the paragraph
+above is what made that possible, and the register earning its keep once is the argument for
+keeping it. Two things the five-edit count still does not capture, both found by running it. FIRST,
+the edits are ORDERED: `git add` of a new `SKILL.md` is refused as ignored until the allowlist line
+exists, so edit 2 precedes edit 1 whatever order a list puts them in. SECOND, this paragraph is a
+SIXTH site, and nothing derives it — `verify.sh`'s `check_prose_agrees` reads the allowlist as the
+roster and greps the TOP-LEVEL `README.md`, never this file. It asserts that a published name is
+PRESENT somewhere on the front page. It cannot tell whether a sentence about that name is true.
 
 **`graphify` is deliberately not published**, and this is the opposite decision on purpose. It is a
 third-party vendor skill that installs itself into `~/.claude/skills` on its own schedule, not
