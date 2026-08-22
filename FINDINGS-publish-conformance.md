@@ -171,3 +171,19 @@ Result: what-gets-installed.md 1149 words, and `validate_disclosure.py . --stand
 `verify.sh`'s `check_prose_agrees` only checks the FRONT PAGE for the persona count, and the front
 page was right (fourteen). These three documents are downstream of that check and had drifted.
 
+## F17 — verify.sh re-run, and the earlier suite FAIL was flaky, not real
+Run 2 (with the ninth check in place): `project-conformance: 56 of 56 vendored test(s) passed`.
+Run 1 had reported `FAILED (failures=1)` for the same tree; three consecutive direct runs and
+run 2 are all green, so run 1's failure was a flake — the suite drives `check_github.py`, which
+touches the network. Reported here rather than quietly re-run until green.
+REPOSITORY VERDICT: **PASS — vendored tree — no failures in what ran.**
+MACHINE VERDICT: FAIL, 1 problem: `project-conformance missing from ~/.codex/skills`.
+That is exactly D22 and it is correctly scoped to the machine, not the tree: `install.sh` mirrors
+7 and has not been run since publication. `./install.sh` clears it. verify.sh exits 1 overall
+because the machine line is red; it did the right thing and said which scope owns it.
+Also: `verify.sh` runs the vendored suite of a skill that ships one, and SKIPS with
+`NOT TESTED HERE — no vendored test suite at <skill>/tests` for the ones that do not
+(agent-personas, agent-persona-factory, graph-navigation, project-onboarding). It does not treat
+a missing suite as a pass or a failure; it names it as untested. That is the answer to the
+brief's question — asked of the wrong skill, since this one does ship tests.
+
