@@ -332,7 +332,16 @@ def git(root: Path, *args: str) -> str | None:
 # A screen specification with a changelog section is NOT exempt. It states current behaviour, and
 # the section is exactly the drift this rule exists to stop.
 RECORD_SEQUENCES = ("/change-requests/", "/decisions/", "/adr/", "/rulings/")
-RECORD_NAMES = ("changelog.md", "history.md")
+# ONE CLASS, TWO READERS, AND THEY HAD DRIFTED. `validate_disclosure.py` exempts records from the
+# word budget on `^(measurements|benchmarks|decisions|adr|rulings|improvements|changelog|history)`;
+# this list held two of those names. The gap stayed invisible while the two readers looked at
+# different directories, and surfaced the moment the repository adopted its own structure standard
+# and `measurements.md` moved under `docs/product/` — where THIS checker binds. A record that
+# accretes by definition was then charged with describing its own past, which is what a record is.
+# The lists are now the same class said twice; if a third reader appears, this is the shape to
+# notice, because a class defined in two places is a class that will disagree in one of them.
+RECORD_NAMES = ("changelog.md", "history.md", "measurements.md", "benchmarks.md",
+                "decisions.md", "improvements-weekly.md")
 
 
 def is_record(doc: Doc) -> bool:
