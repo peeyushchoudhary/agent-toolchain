@@ -9,6 +9,7 @@
 | The persona roster and its routing | [agent-personas.md](agent-personas.md) | Current |
 | Decisions, each against its rejected alternative | [decisions.md](decisions.md) | Current |
 | Measurements the decisions rest on | [measurements.md](measurements.md) | **Dated** — re-derive when prices move |
+| The weekly improvement record, newest first | [improvements-weekly.md](improvements-weekly.md) | Current — a record: entries accrete, never rewritten |
 | Five steps to onboard a project | [onboarding-a-project.md](onboarding-a-project.md) | Current |
 | The long-form adoption walkthrough | [full-adoption.md](full-adoption.md) | Current |
 | The Codex side, and what it does not get | [codex.md](codex.md) | Current |

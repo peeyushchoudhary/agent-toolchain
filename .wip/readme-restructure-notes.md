@@ -136,3 +136,39 @@ recognised as a RECORD or it warns `over-budget` on arrival.
   non-record still does. Without the control half, "widen the class" and "delete the
   budget" are indistinguishable from outside.
   => progressive-disclosure suite goes 387 -> 395.
+
+## Finding: a routed record contaminates the disclosure graph
+
+First attempt retargeted the moved entries' links to `../README.md` and `../install/...`.
+Result, measured:
+
+```
+routed docs: 23  max depth: 4
+WARN [over-budget] README.md: 2899 words > 1200 budget at depth 3
+WARN [over-budget] install/skills/execution-methodology/methodology.md: 8611 words
+WARN [too-deep]   install/skills/graph-navigation/SKILL.md: 4 hops
+WARN [over-budget] install/skills/project-onboarding/SKILL.md: 1686 words
+WARN [too-deep]   install/skills/project-onboarding/SKILL.md: 4 hops
+WARN [over-budget] .../references/execution-loop.md: 4314 words
+WARN [too-deep]   .../references/execution-loop.md: 4 hops
+```
+
+The validator DELIBERATELY does not seed the crawl from README.md, with a comment
+saying seeding it "would mark everything it mentions as routed". A routed historical
+record has the same property and nobody had noticed: it links to everything it has
+ever touched, so it re-routed the README back into the graph at depth 3 and put the
+front page under a 1200-word guide budget.
+
+Fix: in the record, links into `install/` become code spans holding the same path.
+Links into `docs/` stay links (those targets are routed at depth 1 already, so they
+add no new depth). The reason is written into the record's own header.
+Back to `routed docs: 18  max depth: 2`, 0 findings.
+
+## Finding: one test hardcodes the architecture heading
+
+`test_readme_diagram.CorpusTest.test_putting_the_exported_image_back_is_refused`
+asserts the literal string `"## Architecture\n"` is present in the real README.
+Renaming the section to `## How it works` — which `README_SECTIONS` accepts — turned
+the suite red. REFUSED to weaken the test. Kept the heading `## Architecture` and
+moved the whole section to the top instead. The diagram still leads; nothing was
+relaxed to fit the edit.

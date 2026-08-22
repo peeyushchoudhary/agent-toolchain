@@ -4,8 +4,14 @@ One material repository improvement each week, newest first. This is a **record*
 and are never rewritten. Current tooling remains the authority for behaviour; each entry points to
 the implementation it describes.
 
-The three most recent entries are summarised on the [front page](../README.md#recent-improvements).
-Full text for every entry, including those three, is below.
+The three most recent entries are summarised on the front page; every entry, including those three,
+is below in full.
+
+**Why paths into `install/` appear here as code rather than as links.** This document is routed, so
+its outbound links join the disclosure graph. A record links to everything it has ever touched, and
+routing through it pulled `README.md`, the methodology, the execution loop, and two SKILL.md files
+into the crawl at depth 3 and 4 — five warnings that are true of the route and caused entirely by
+history. A record of past weeks is not a route.
 
 ## Week of 21 August 2026 — v5.0: the milestone runs itself, and a review rule was falsified
 
@@ -180,7 +186,7 @@ process than product: review rounds ran far past the written two-round stop-loss
 with re-serialized diffs of changes git already stored, and milestones stalled on card
 preconditions. The numbers are in [measurements.md](measurements.md). v3.0 applies the
 methodology's own mechanism-over-intention principle to its review loop:
-[`check_review_budget.py`](../install/skills/execution-methodology/scripts/check_review_budget.py)
+`install/skills/execution-methodology/scripts/check_review_budget.py`
 refuses a dispatch whose subject has spent its two review rounds and rejects the diff-snapshot and
 restatement-packet artifact classes; the orchestrator applies a 20% growth tripwire that ends any
 review expanding its subject.
@@ -192,7 +198,7 @@ changelog preserved alongside them.
 
 ## Week of 3 August 2026 — goal-bound execution with trustworthy evidence
 
-The [execution methodology](../install/skills/execution-methodology/methodology.md) now binds each
+The execution methodology (`install/skills/execution-methodology/methodology.md`) now binds each
 implementation and review repair to one approved Goal Capsule, classifies findings before they can
 become scope, and returns repeated causal failure to a human plan gate. Contract v2.1 also casts the
 existing read-only reviewer in fresh design and plan modes before their approval gates. `PASS` is a
@@ -205,6 +211,6 @@ post-boundary XML freshness and consistency and reject pre-existing or same-cont
 count mismatches, failures, errors, and skips; the exact uncached runner command establishes
 execution.
 
-[`verify.sh`](../install/verify.sh) executes the published vendored suites and reports what each proved:
+`install/verify.sh` executes the published vendored suites and reports what each proved:
 tests run, skips or not-tested status, failures, or inability to run. The installer also derives the
 published skill roster from its declaration instead of maintaining a second count.
