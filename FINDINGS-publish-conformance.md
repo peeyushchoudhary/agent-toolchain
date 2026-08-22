@@ -132,3 +132,18 @@ Every run prints `REPAIR PLAN ... (nothing is mechanically repairable here)`. Th
 no `Repair` object, so `--fix` cannot touch a product document. That is deliberate and the
 docstring says why: front matter carries `reviewed_by:`, and generating it forges a review.
 
+## F14 — break-test written AND PROVED TO BREAK
+`install/skills/project-conformance/scripts/product_definition_selftest.py`, stdlib only,
+exit 0/1, hermetic (builds a throwaway `PROJECT_CONFORMANCE_HOME` holding only
+execution-methodology/scripts; never reads or writes the real home, never writes in the repo).
+17 assertions, 4 cases, each PAIRED with a green control:
+ 1 missing `docs/product/` is a finding, not a clean run (control: same fixture with it -> exit 0)
+ 2 specs no rule binds are counted THOUGH spec_check.py exits 0 (control asserts spec_check
+   really does exit 0 on the fixture, so the case cannot silently stop reproducing)
+ 3 `--fix` on a red repo changes no byte under docs/ and prints an empty repair plan
+ 4 spec_check.py absent -> exit 2 COULD NOT BE CHECKED, never CONFORMS
+Break proof, both mutations reverted afterwards:
+ MUTATION A `elif unbound:` -> `elif False:`  => 5 assertions FAIL, rc=1
+ MUTATION B missing-layer verdict DOES_NOT_CONFORM -> CONFORMS => 1 assertion FAILS, rc=1
+ RESTORED => rc=0.
+
