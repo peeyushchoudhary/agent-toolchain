@@ -1,6 +1,6 @@
 # Break-tests for execution-methodology checkers
 
-TOP 3 SO FAR: N1 three checkers are mode 0644 while every documented invocation is the bare `script.py ...` form (rc=126); 2 & 3 pending mutation runs
+TOP 3 SO FAR: N1 three checkers ship mode 0644 while docs use the bare form; N2 start_junit_run receipt can be silently OVERWRITTEN with the suite green; N3 verify_junit's ctime-staleness, receipt-timestamp and output-location gates have zero tests
 
 ## 0. Method
 in progress
@@ -57,3 +57,31 @@ NOT ONE of the 1014 tests asserts the mode bit, and verify.sh does not check it 
 suite invokes the scripts as `python3 <path>`, which is exactly the invocation the docs do NOT use.
 Class: the same class as push_guard's case 6 ("the break-test invoked the guard the way nothing
 ever invokes it"), inverted — here the SUITE invokes it a way the DOCS never tell a reader to.
+
+### N2 — start_junit_run.py: the receipt's SINGLE-USE property is asserted by SHAPE only
+Mutation log (run = the script's own mapped test modules):
+  S1  `output.open("x")` -> `open("w")`                      GREEN — suite passes
+  S6  delete the `if output.exists(): parser.error(...)` precheck  GREEN — suite passes
+  S1+S6 TOGETHER (both layers removed at once)               GREEN — suite passes, 2436 tests OK
+        => a start receipt can be SILENTLY OVERWRITTEN and nothing in 1014 tests notices.
+        Overwriting the receipt resets `started_at_unix_ns`, which is the entire staleness
+        boundary verify_junit.py trusts. This is the replay the design says it forbids.
+  S5  `"nonce": secrets.token_hex(32)` -> `"nonce": "0" * 64` GREEN — suite passes
+        => the nonce is checked for SHAPE (`[0-9a-f]{64}`) by verify_junit and for nothing else.
+        A constant nonce makes every run carry the same run identity; no test compares two.
+  S2  delete the `.consumed` marker precheck                 GREEN — suite passes
+  S3  never snapshot pre-existing XML                        RED — covered
+  S4  nonce shortened to 16 bytes                            RED — covered (regex catches it)
+
+### N3 — verify_junit.py: three real gates have NO test at all
+  M2  `if stat.st_ctime_ns <= boundary:` -> dead             GREEN — suite passes
+        => the `touch`ed stale file. mtime forward, ctime old: an OLD green XML file made to
+        look fresh with `os.utime` passes verification. This gate is the ONLY thing that
+        catches it and nothing exercises it.
+  M3  receipt fs-timestamp window 5s -> 5,000,000s           GREEN — suite passes
+        => a receipt hand-written later with an old `started_at_unix_ns` is accepted.
+  M7  `--output must be outside the result directory` -> dead GREEN — suite passes
+        => evidence written INTO the results dir, where it becomes pre-existing content for
+        the next run.
+  M1 replay-by-hash, M4 skipped, M5 expect-count, M6 aggregate, M8 zero-tests,
+  M9 duplicate-suite-identity                                RED — all covered
