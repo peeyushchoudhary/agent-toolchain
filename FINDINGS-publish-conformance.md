@@ -117,3 +117,18 @@ is a vendored mirror of the installed one, so editing it here manufactures vendo
 The ninth check therefore invokes spec_check TWICE — `--json` for structure, plain for the
 note line — and says so in its docstring.
 
+## F13 — THE NINTH CHECK IS RED ON ALL FOUR. Real numbers.
+`check_conformance.py <repo> --only "product definition"` — exit 1, DOES NOT CONFORM, on all four.
+| repo | docs/product | docs under it | bound by a schema rule | no front matter | unbound in specs/ | verdict |
+|---|---|---|---|---|---|---|
+| A | yes | 236 | **0** | n/a | **233** | DOES NOT CONFORM (exit 1) |
+| B | yes | 8 | 1 | 1 of 1 | 0 | DOES NOT CONFORM (exit 1) |
+| C | yes | 24 | 22 | **22 of 22** | 1 | DOES NOT CONFORM (exit 1) |
+| D | yes | 5 | 3 | 3 of 3 | 1 | DOES NOT CONFORM (exit 1) |
+Repo A is the strongest case: `spec_check.py` alone EXITS 0 there. 236 documents sit under
+docs/product, not one is bound by a schema rule, and 233 of them are in specs/ under a name
+no rule reads. Eight checks and spec_check's own exit code all call that repository clean.
+Every run prints `REPAIR PLAN ... (nothing is mechanically repairable here)`. The check owns
+no `Repair` object, so `--fix` cannot touch a product document. That is deliberate and the
+docstring says why: front matter carries `reviewed_by:`, and generating it forges a review.
+
