@@ -200,3 +200,19 @@ WHAT A HUMAN MUST DECIDE, and nothing is auto-granted:
   2. The 33 over-cap verdicts: cut the prose, keep every finding. Or one `verdict:<artifact>` row
      each. 3,419 excess lines against a 30-line cap.
 This is a real velocity hit on day one, and it is the point.
+
+## 12. SKILL.md updated (commit 7) + FULL SUITE GREEN
+
+`install/skills/execution-methodology/SKILL.md`: the cap, the class split, the pre-push reading of
+the ruling, and both grant rows. Full suite `python3 -m unittest discover` in
+`execution-methodology/tests`: **1058 tests, OK (2 skipped)** — including the harness byte-identity
+test, see below.
+
+## 13. LIVE-SYSTEM OBSERVATION — the installed skills now carry this branch
+
+At 12:25 today `~/.claude/skills/` and `~/.codex/skills/` became BYTE-IDENTICAL to this worktree
+for `check_review_budget.py`, `push_guard.py` and `SKILL.md` — they had been identical to LOCAL
+main. **I did not run install.sh and I wrote nothing outside the repo.** Either another seat or the
+operator ran the installer against this worktree. Consequence to know about: the founder's machine
+is running the new verdict cap and the pre-push block NOW, before merge. It also means the
+harness-mirror test is green for a reason that is not this branch being merged.
