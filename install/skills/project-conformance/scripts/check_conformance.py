@@ -132,6 +132,7 @@ SKILLS = CLAUDE / "skills"
 PD = SKILLS / "progressive-disclosure" / "scripts"
 SYNC_PERSONAS = SKILLS / "agent-personas" / "scripts" / "sync_personas.py"
 SYNC_METHODOLOGY = SKILLS / "execution-methodology" / "scripts" / "sync_methodology.py"
+SPEC_CHECK = SKILLS / "execution-methodology" / "scripts" / "spec_check.py"
 PREFLIGHT = CLAUDE / "hooks" / "preflight.sh"
 
 # The interpreter that is running THIS file, not `python3` off PATH. Two live on a mac —
@@ -1360,6 +1361,146 @@ def check_preflight(repo: Path) -> Check:
                  findings=findings)
 
 
+# `spec_check.py` PRINTS this count and does not carry it in `--json`. `binding_payload()` emits
+# `no_front_matter` but not `unbound_specs`, and the whole `binding` object is absent from the JSON
+# when the repository has no persona pool. Adding the key there is the obvious repair and is not
+# this file's to make: `spec_check.py` is owned by `execution-methodology`, and the copy this
+# toolchain publishes is a vendored mirror of the installed one, so a key added on one side alone
+# is drift. So the count is read from the human run, and `check_product_definition` says so out
+# loud rather than quietly reporting a zero it never measured.
+UNBOUND_SPECS = re.compile(r"(?P<n>\d+) document\(s\) under docs/product/specs/ are not named")
+
+PRODUCT_REMEDY = (
+    "read `spec_check.py --root <repo>`'s own output, then migrate the documents by hand or with "
+    "the execution-methodology migration procedure. NOTHING HERE REWRITES A PRODUCT DOCUMENT: a "
+    "spec is a human artifact whose front matter records who reviewed it and when, and a tool that "
+    "invents those keys would be forging the review record this whole layer exists to hold."
+)
+
+
+def check_product_definition(repo: Path) -> Check:
+    """The product-definition layer: does it exist, and is any of it in a shape a rule can read?
+
+    THE CHECK THIS FILE WAS MISSING FOR A REASON WORTH STATING. The eight checks above predate the
+    product-definition layer entirely — specs, front matter, acceptance criteria, waves, traces,
+    milestone seals. On a repository that has not migrated to that layer, all eight can be satisfied
+    at once: the personas are synced, the route validates, the hooks are installed, and the
+    methodology render is current. The tool then printed CONFORMS. The one thing it repaired was the
+    methodology render — the DOCUMENT DESCRIBING the layer — while the layer itself was absent. A
+    conformance report whose only mechanical act is to refresh the description of something that is
+    not there is worse than silence, because it is signed.
+
+    REPORTS ONLY, AND OWNS NO REPAIR. Every other check that reports also repairs, and this one
+    deliberately does not, so the asymmetry is explained here rather than left to look like an
+    oversight. `--fix` may only do what the report named, and what this report names is a migration:
+    writing front matter onto a document, or renaming it into the shape a rule binds. Front matter
+    carries `reviewed_by:` and a status enum — a claim about a human. Generating it would manufacture
+    the approval record. Renaming a spec silently re-points every reference to it. Both are the
+    migrator's work, performed once, watched. `plan()` therefore never sees a `Repair` from here and
+    the repair plan cannot grow a product document by accident.
+
+    THREE FACTS, IN THE ORDER THEY STOP MATTERING. Whether `docs/product/` exists at all; how many
+    of the documents a schema rule binds carry no front matter; how many sit under
+    `docs/product/specs/` in a naming shape no rule reads. The third is the quiet one and it is why
+    the exit code of `spec_check.py` is not the answer here either: a repository whose specs are all
+    named outside `F-<n>-<slug>.md` has NOTHING inspected and exits 0 for it.
+    """
+    product = repo / "docs" / "product"
+    if not product.is_dir():
+        # Not a not-run. The absence IS the measurement, and it is the loudest form of the finding:
+        # there is no product-definition layer in this repository at all. Reported without running
+        # spec_check, because a linter pointed at a directory that does not exist reports nothing
+        # and exits 0, which is indistinguishable from a clean one.
+        return Check("product definition", Verdict.DOES_NOT_CONFORM,
+                     findings=[Finding("`docs/product/` does not exist: this repository has no "
+                                       "product-definition layer, so no specification, acceptance "
+                                       "criterion, wave plan, trace or milestone seal can be read "
+                                       "from it, and every product-definition rule in this "
+                                       "toolchain is silent here rather than satisfied",
+                                       files=[str(product)], remedy=PRODUCT_REMEDY)])
+
+    r = run([PY, SPEC_CHECK, "--root", repo, "--json"])
+    if not r.ok or r.undefined_rc((0, 1)):
+        return Check("product definition", Verdict.NOT_RUN, why_not_run=_why(r, "spec_check.py"))
+    try:
+        data = json.loads(r.out)
+    except (ValueError, TypeError):
+        return Check("product definition", Verdict.NOT_RUN,
+                     why_not_run=(f"spec_check.py --json did not emit JSON (exit {r.rc}): "
+                                  f"{(r.out or r.err).strip()[:800]}"))
+
+    # THE SECOND INVOCATION, and it is not laziness. See `UNBOUND_SPECS` above: the count of
+    # documents no rule binds exists only on the human-readable run. A failure here is NOT a
+    # not-run for the whole check — the two facts already in hand are still facts — so it degrades
+    # to "not measured" and says which of the three numbers is missing.
+    human = run([PY, SPEC_CHECK, "--root", repo])
+    unbound, unbound_why = None, ""
+    if not human.ok or human.undefined_rc((0, 1)):
+        unbound_why = _why(human, "spec_check.py (second, non-JSON run)")
+    else:
+        found = UNBOUND_SPECS.search(human.out)
+        # No match means the note was silent, and the note is silent exactly when the count is 0.
+        unbound = int(found.group("n")) if found else 0
+
+    binding = data.get("binding") or {}
+    findings: list[Finding] = []
+    notes: list[str] = []
+
+    if not binding:
+        # `binding` is omitted when the repository has no `docs/agents/personas/`. `no_front_matter`
+        # is a member of that object, so it was not measured — not zero.
+        notes.append("spec_check.py emitted no `binding` object, which happens when the repository "
+                     "has no `docs/agents/personas/` pool; the front-matter count is part of that "
+                     "object and so was NOT MEASURED on this run, which is not the same as zero")
+    else:
+        no_fm = int(binding.get("no_front_matter") or 0)
+        bound_docs = int(binding.get("documents") or 0)
+        product_docs = int(binding.get("product_documents") or 0)
+        notes.append(f"{product_docs} document(s) under docs/product, {bound_docs} of them bound "
+                     f"by a schema rule")
+        if no_fm:
+            findings.append(Finding(
+                f"{no_fm} of the {bound_docs} spec/PRD/milestone document(s) a schema rule binds "
+                f"carry no `---` front-matter block, so status, id and `reviewed_by:` cannot be "
+                f"read from them and every rule that keys on those is silent for them",
+                files=[str(product)], remedy=PRODUCT_REMEDY))
+        if bound_docs == 0 and product_docs:
+            findings.append(Finding(
+                f"none of the {product_docs} document(s) under docs/product is bound by a schema "
+                f"rule: nothing there is a spec, a PRD or a milestone as this toolchain names "
+                f"them, so the layer is present in name and unread in fact",
+                files=[str(product)], remedy=PRODUCT_REMEDY))
+
+    if unbound is None:
+        notes.append("the count of documents under docs/product/specs/ that no rule binds was NOT "
+                     "MEASURED: " + unbound_why)
+    elif unbound:
+        findings.append(Finding(
+            f"{unbound} document(s) under docs/product/specs/ are not named `F-<n>-<slug>.md`, so "
+            f"no schema rule and no persona binding reads them. spec_check.py inspected none of "
+            f"them and can still exit 0 for it, which is why this is reported here",
+            files=[str(product / "specs")], remedy=PRODUCT_REMEDY))
+
+    count = int(data.get("count") or 0)
+    if count:
+        notes.append(f"spec_check.py itself reports {count} finding(s) (exit {data.get('exit')}); "
+                     f"they are its to explain, not restated here")
+
+    # A `spec_check` exit of 1 with nothing this reader could attribute it to is not a pass. It is
+    # the same shape as `check_github`'s guard above: the callee's contract has moved out from under
+    # the reader, and a reader that reports CONFORMS on a callee it no longer understands is the
+    # false green this whole file is built against.
+    if r.rc == 1 and not findings:
+        return Check("product definition", Verdict.NOT_RUN, note="; ".join(n for n in notes if n),
+                     why_not_run=(f"spec_check.py exited 1 with {count} finding(s), and none of "
+                                  f"them is one of the three facts this check reads, so the "
+                                  f"product-definition state was not determined here"))
+
+    return Check("product definition",
+                 Verdict.DOES_NOT_CONFORM if findings else Verdict.CONFORMS,
+                 findings=findings, note="; ".join(n for n in notes if n))
+
+
 CHECKS = (
     ("personas", check_personas, True),
     ("route", check_route, True),
@@ -1369,6 +1510,7 @@ CHECKS = (
     ("github", check_github, True),
     ("plugin surface", lambda _repo: check_plugins(), False),
     ("preflight", check_preflight, True),
+    ("product definition", check_product_definition, True),
 )
 
 

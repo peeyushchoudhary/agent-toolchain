@@ -55,10 +55,33 @@ it, and an AST test holds that structurally.
 | **github** | `check_github.py R --json` |
 | **plugin surface** | `check_toolchain.py --json`, the `plugins` key — **machine-global** |
 | **preflight** | `hooks/preflight.sh R` |
+| **product definition** | `spec_check.py --root R --json`, plus one second non-JSON run for the count it prints but does not carry |
 
 If a conformance question you need has no owner, **stop and add it to the owning checker**, not
 here. A conformance tool carrying its own copy of what conforming means becomes the next thing that
 drifts.
+
+## The check that reports and never repairs: product definition
+
+The other eight checks predate the product-definition layer. On a repository that has not migrated
+to it, all eight can pass at once and the one thing `--fix` then repairs is the **methodology
+render** — the document that *describes* the layer — while the layer itself is absent or unread.
+
+`product definition` reports three facts, in the order they stop mattering:
+
+1. whether `docs/product/` exists at all;
+2. how many of the spec/PRD/milestone documents a schema rule binds carry no `---` front matter;
+3. how many documents sit under `docs/product/specs/` in a naming shape **no rule binds**.
+
+The third is the quiet one. `spec_check.py` can exit 0 on a repository whose specs are all named
+outside `F-<n>-<slug>.md`, because it inspected none of them. Its exit code is not the answer here,
+which is the same trap this whole skill is built against.
+
+**It owns no repair, deliberately.** `--fix` may do only what the report named, and what this report
+names is a migration: writing front matter onto a document, or renaming it. Front matter carries
+`reviewed_by:` and a status enum — a claim about a human. Generating it would forge the review
+record the layer exists to hold. Renaming a spec silently re-points every reference to it. Both are
+the migrator's work, done once and watched. The repair plan can never grow a product document.
 
 ## The finding this exists for: an unprotected project judge
 
