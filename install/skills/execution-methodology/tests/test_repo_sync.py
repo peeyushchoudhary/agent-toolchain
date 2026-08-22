@@ -69,8 +69,12 @@ class MethodologySyncTest(unittest.TestCase):
         process ceiling, so the published text has to carry it in both files a repository can
         reach — the skill entry point and the rendered methodology. The version left behind at
         1.4 while its rules shipped is the recorded reason this asserts more than the number.
+
+        The pin moves to 5.0 with the execution stage. The BUDGET assertions below do not move:
+        v5.0 changed how work is dispatched and reviewed, not what process is allowed to cost, and
+        a version bump that quietly relaxed the ceiling is exactly what this test exists to catch.
         """
-        self.assertEqual(installed_version(), "4.2")
+        self.assertEqual(installed_version(), "5.0")
         for relative in ("SKILL.md", "methodology.md"):
             with self.subTest(relative=relative):
                 body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())

@@ -23,11 +23,12 @@ and installer behaviour: [install/README.md](install/README.md).
 
 ## Current state
 
-The repository currently ships six published skills, thirteen generated personas, local session and
+The repository currently ships six published skills, fourteen generated personas, local session and
 Git guards, a cross-harness installer, and executable verification for the published toolchain. The
-execution methodology is at v4.2: the process has a spending limit, a script enforces it, the
-product definition it protects is checkable, and the plan that turns a feature into tasks is
-scheduled rather than described. Committed churn splits three ways — product, product
+execution methodology is at v5.0: the process has a spending limit, a script enforces it, the
+product definition it protects is checkable, the plan that turns a feature into tasks is scheduled
+rather than described, and the milestone that plan belongs to can be executed without a human
+deciding each dispatch. Committed churn splits three ways — product, product
 thinking, and process — and `ratio_meter.py` warns at a 15% process share and fails a merge at 30%,
 with a volume floor below which a quiet week cannot fail at all. `weekly_review.py` reports the
 trend across repositories. Product definition is never capped: a repository writing its PRD and
@@ -39,11 +40,20 @@ excluded cannot ship unnoticed. `plan_waves.py` derives the dispatch schedule fr
 instead of asking anyone to write one down, refuses a wave whose tasks would write the same file,
 and compares a commit against the write set its task declared. `trace_check.py` closes the loop
 from a criterion to a test that actually ran, reading verified JUnit evidence rather than grepping
-for a string, and says in every run what it does not prove. Work is bound to one approved outcome and capped at what
+for a string, and says in every run what it does not prove. Execution itself is a written procedure:
+[the execution loop](install/skills/execution-methodology/references/execution-loop.md) states ten
+steps against the real commands, `plan_waves.py --since <rev>` derives what is done from git instead
+of from a ledger, `--ready` hands back the tasks that may start now, and `validate_card.py
+--phase mid` catches a task writing outside its declared set before the commit rather than after.
+An issue found but not owned goes to a deferral register the milestone can be held against. A
+repository's own domain validators are bound to the horizontal concerns they declare they own, so an
+invariant is read while the product is being defined rather than after it is built. Work is bound to one approved outcome and capped at what
 the spec requires — a finding demanding more is over-engineering and non-blocking. Tasks default to a
 card-free light lane and earn a validated card only when they cross a durable boundary or safety
-surface. Review runs under a budget — one reviewer plus conditional specialists, two rounds, then
-apply-and-close: the orchestrator applies the final verdict's named smallest correction, and only
+surface. Review width is scoped by stage rather than capped by count: a panel of different lenses is
+admitted at design and plan, where measured block rates are highest, and implementation runs one
+reviewer plus the test judge, where a round four or more wide blocked in 8 of 78 real cases. Review
+runs under a budget — two rounds, then apply-and-close: the orchestrator applies the final verdict's named smallest correction, and only
 safety-class findings and scope changes escalate, each brief naming a default action taken after a
 short founder wait. The round count is advisory, because a checker run by the party it binds cannot
 bind that party; the banned-artifact scan beside it still binds, because what is on disk is a fact
@@ -162,6 +172,39 @@ independent review, and a merge commit that preserves the audit trail. See
 
 A concise record of one material repository improvement each week, newest first. Current tooling
 remains the authority for behaviour; each entry points to the implementation it describes.
+
+### Week of 21 August 2026 — v5.0: the milestone runs itself, and a review rule was falsified
+
+The plan could be scheduled but nothing ran it, and the rule governing who reviews what turned out
+to be wrong against the record.
+
+Execution is now a written procedure rather than one sentence naming a persona. Ten steps against
+the real commands, with a test that parses every command out of the document and checks it against
+the scripts' own interfaces — the page cannot drift from the tools the way the sentence it replaced
+did. State is derived from git rather than held in a ledger, because a ledger is a claim and one
+real ledger costs about 188,000 tokens to read. Dispatch is a continuous ready set rather than a
+wave barrier, since the collision check already compares every pair and waiting for the slowest task
+in a wave buys nothing.
+
+Scope discipline became checkable. A card's declared write set is compared to the working tree
+before the commit, not only after it: on real cards, 116 of 558 files had landed outside what the
+card allowed, across 25 of 56 cards. An issue found but not owned now has somewhere to go, under a
+rule that costs no model call — fix it only if it is inside your write set, names a criterion
+already on your card, and you can show the command and its output; otherwise record it.
+
+The review rule was falsified by its own record. It said one reviewer, never a panel, at every
+stage. Across 1,051 real review artifacts, panel findings are not redundant — 21 blocking pairs with
+a median anchor overlap of 0.20 — and the decisive cut is stage rather than width: design blocks at
+0.74 per artifact against 0.09 at implementation. Width is now scoped by stage. The published
+"two reviewers" optimum was deliberately not imported, because it measures the same lens twice on a
+diff while a design panel is different lenses on a document.
+
+Nine checkers were found to be inert or wrong against the real corpus, several of them shipped
+earlier by this repository. The worst reported a clean exit on a repository whose specs it had never
+read, because their filenames did not match the bound shape; that silence is now printed. A
+criterion pattern that demanded bold emphasis hid 521 real criteria in one repository — the fourth
+time that single pattern has been too strict. Every one was found by running against real
+repositories rather than fixtures, which is now a stated requirement rather than a habit.
 
 ### Week of 21 August 2026 — the product-definition checks reach a boundary that fires
 

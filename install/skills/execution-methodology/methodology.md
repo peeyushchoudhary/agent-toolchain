@@ -573,6 +573,49 @@ decisions; the methodology prepares them and never takes them.
 
 ## What changed, and what earned it
 
+### v5.0 — execution runs itself, and the review rule was wrong
+
+The plan could be scheduled but nothing ran it. This version makes the milestone plan executable and
+corrects a rule this methodology had asserted since v3.0.
+
+**The loop is a procedure, not a persona.** `references/execution-loop.md` states ten steps against
+the real commands, and a test parses every one of them out of the document and checks it against the
+scripts' own interfaces, so the page cannot drift from the tools the way one sentence of prose did.
+State is DERIVED: `plan_waves.py --since <rev>` reads what is done from git rather than from a
+ledger, because a ledger is a claim and git is the fact — and because one real ledger costs about
+188,000 tokens to read, which the loop must never pay to learn where it is. Dispatch is a continuous
+ready set rather than a wave barrier: the collision check already compares every pair, so waiting for
+the slowest task in a wave buys nothing.
+
+**Drift is caught mid-task.** `validate_card.py --phase mid` compares the working tree to the card's
+declared write set before the commit, using the same glob intersection the post-commit check uses.
+Measured on real cards: 116 of 558 files landed outside what the card allowed, across 25 of 56 cards.
+An issue found but not owned goes to a deferral register the milestone can be held against, under a
+rule that costs no model call — fix it only if it is inside your write set, names a criterion already
+on your card, and you can show the command and its output; otherwise record it.
+
+**Review width is scoped by STAGE, not capped by count.** The old rule said one reviewer and never a
+panel, at every stage. Measured across 1,051 real review artifacts, that is falsified: panel findings
+are not redundant — 21 blocking pairs, median anchor overlap 0.20 — and the decisive cut is stage,
+not width. Design and plan block at 0.74 per artifact; implementation blocks at 0.09, and a round
+four or more wide blocks in 8 of 78. So a panel of different lenses is admitted at design, and
+implementation runs one reviewer plus the test judge. The published "two reviewers" optimum is
+deliberately NOT imported: it measures the same lens twice on a diff, and a design panel is different
+lenses on a document.
+
+**A repository's own validators are bound to its product definition.** Custom domain validators
+produced 69 implementation reviews and zero blocks while blocking 6 of 14 at design. Rule F binds a
+validator to the `## Horizontals` rows it declares it owns, so the invariant is read while the
+product is being defined rather than after it is built. Where a validator's concern is not a
+horizontal row, it stays unbound and says so, because a label that matches nothing reports as though
+it matched.
+
+**Three seats merged and one added.** `docs-steward` folds into `product-steward`, `planner` into
+`chief-of-staff`, and `contract-architect` retires as a review seat with its concern split between
+the design reviewer and a new `migration-validator` that refuses to review until a parse, a dry run
+and the contract test are attached. The merge redirects selection rather than deleting files: those
+names are cited 425 times across the fleet, and the judging roster keeps its floor.
+
 ### v4.2 — the plan is scheduled, not described
 
 A feature spec says what to build; turning it into tasks was prose, and prose can neither schedule
