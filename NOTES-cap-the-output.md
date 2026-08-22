@@ -98,3 +98,32 @@ nor this cap can call them verdicts. They are the `-report` class methodology:45
 and banning it mechanically is a DIFFERENT rule with a different break-test — not smuggled in here.
 `-review` and `-audit` stay out of the marker-free set because `JUDGE_NAME_TOKENS` (:326) already
 excludes them by name as ordinary nouns; overriding that would be inventing a class.
+
+## 5. Implemented — the cap (commit 2)
+
+`check_review_budget.py`: `VERDICT_LINE_CAP = 30`, `verdict_lines()` (fails open on any unreadable
+file), `charge_the_verdict_cap()` called from exactly two sites, new error `VERDICT_OVER_CAP`, new
+warnings `VERDICT_GRANT_APPLIED` / `DUPLICATE_VERDICT_GRANT`, receipt key `verdict_lines` carrying
+EVERY verdict measured (not only breaches) so the cap is checkable against the directory it read.
+Bookkeeping (`charged`, `charged_files`, `round_width`) runs BEFORE the cap at both sites — the
+"suppression must never run ahead of the bookkeeping it does not intend to skip" rule this file has
+recorded four occurrences of.
+
+Smoke test on a synthetic workspace: `-r1-reviewer.md` 40 lines -> ERROR; `-r1-fix-report.md`
+40 lines -> silent; `-r1-opinion.md` (unrecognised kind) 40 lines -> charged, NOT capped;
+`T2-security.md` 40 lines marker-free -> ERROR + MISSING_ROUND_MARKER; 20-line verdict -> clean.
+
+## 6. The valve — `verdict:<artifact>`, a fourth row type
+
+`ROUND-GRANTS.tsv` is operator data: it is NOT in this repo (`install.sh:76-80` carries it across
+installs), it lives in the installed skill, and it already holds round-grant rows. The verdict cap
+gets its own row type there:
+    SUBJECT<TAB>verdict:<artifact-filename><TAB><granting-commit><TAB><date><TAB><reason>
+Keyed on the ARTIFACT, not on (subject, round): the finding is the length of one file, and a pair
+key would excuse every verdict filed at that round including ones nobody read. Suppresses
+VERDICT_OVER_CAP for that filename and nothing else. The error message prints the exact row,
+pre-filled with subject, filename and today's date, so the first person blocked reaches for the
+ledger and not for the off switch.
+NOTE FOR THE OPERATOR (not fixable from this repo): the header comment inside the installed
+ROUND-GRANTS.tsv still says `FORMAT SUBJECT<TAB>r<N>|terminal<TAB>...`. It was already stale — it
+does not mention `terminal-spent` either. The script docstring is the authority and is now current.
