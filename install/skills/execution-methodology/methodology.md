@@ -509,6 +509,14 @@ landed four commits, the warm ones a hundred and fifty-one.
 | Route, README, lessons | `product-steward` |
 | Holding the loop | `chief-of-staff` |
 
+**A divergent panel** may be cast on a frozen feature spec: two or three readers holding DIFFERENT
+QUESTIONS rather than different depths on one question — the marker's frame (`acceptance`), the
+adversary's frame (`security-validator`), and at most one domain validator chosen by `covers:`.
+`product-steward` is excluded from its own artifact and `architect` is not cast on product
+definition. Frames diverge under the isolation and growth rules of the review budget, and one
+`reviewer` converges them into a single brief with a default. Cast, receipt, cost and the PRD
+experiment: `references/specs.md`.
+
 **Prose routing** is by who still holds the judgement: a behavioural claim written by whoever
 changed the behaviour stays with the implementer; drift with no behavioural claim, and corrections
 a review has already worded, go to `product-steward`. The test: can the fix be applied without

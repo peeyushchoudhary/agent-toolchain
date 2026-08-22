@@ -270,3 +270,39 @@ Note what is NOT the reason: after `docs/agents/README.md` exists, the budget ch
 depth-0 entries and `docs/agents/*`, so nothing under `docs/decisions/` is budgeted whatever it is
 called. That protection is an ACCIDENT of where the route index sits, and one commit from
 disappearing. The rule is chosen over the accident deliberately.
+
+
+## D19 — No compression proxy in this repository, and the waste was structural anyway
+
+**Chose:** reject `caveman` and `headroom` as in-repo dependencies; attack token cost by capping
+what agents WRITE and by pruning unused MCP servers on the workstation.
+
+**Over:** wrapping the agent in a compression proxy, and over a `--json` mode on `validate_card.py`
+proposed for the same purpose.
+
+**Why:** three independent reasons, any one sufficient. LICENCE AND STACK — caveman's engine is
+BSL-1.1 with Go binaries and a Node installer; headroom is a proxy plus a HuggingFace model and a
+torch tree. Neither enters a python3-stdlib-only public repository whose scripts write nothing.
+WORKLOAD — caveman's 33.2% is honestly measured (paired arms, exact-answer oracle, the negative case
+left in) but its own `HONEST-NUMBERS.md` records a fixed per-turn overhead and a NET LOSS on terse
+coding question-and-answer, which is what this loop is; we are its measured loss case. Its own
+paired arm put headroom at 6.7% with a confidence interval crossing zero. EVIDENCE — headroom's
+accuracy table is GSM8K and SQuAD at n=100, with no agentic coding quality evidence at all.
+
+**And the finding that made the question smaller:** our waste was structural, not linguistic. Cards
+were capped at 150 lines and judge output was capped at nothing, so verdicts ran 7.4 times the bytes
+of the cards they answered. Deleting 56 banned diff snapshots removed half a workspace's bytes with
+no finding lost, because git regenerates a diff from a commit range. A proxy saving a third of a
+bill we should not be paying is worse than not paying it.
+
+**What is still worth doing, and it is not in this repository:** the harness prefix every subagent
+re-sends measures roughly 24,000 tokens of tool schema per call before any work — about 6.9 million
+tokens across the casts on record. Pruning unused MCP servers is a workstation action with zero
+lines and zero quality cost. If it is taken, nothing here should name the tool that measured it: an
+unverifiable claim pinned in a reference is how nine inert checkers were written.
+
+**Adopt later, method only:** an unshaped control group, so a future saving is measured rather than
+estimated.
+
+**Known-wrong-in-a-month if:** a milestone stalls on a removed tool, or the verdict cap is found to
+have made a judge drop a finding rather than cut prose.
