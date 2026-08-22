@@ -381,6 +381,14 @@ milestone which has **already shipped** is a finding, and that a milestone canno
 `status: shipped` while an entry it owns has `owner: none`. `spec_check.py --deferred` lists every
 register with its counts and exits 0.
 
+**An entry can be dismissed, and that is the third exit.** `owner: dismissed` says this will not be
+done, and `threatens:` carries the reason — not a defect, already filed, out of scope, or superseded
+by work that has landed. The reason is required, because an entry dropped without one reads exactly
+like an entry somebody forgot. A dismissed entry stops counting as open, which is the half that
+makes the outcome real: a register whose only exits are *do it* and *defer it again* can only grow,
+and a queue that only grows is a queue nobody reads. It stays printed under its own count until the
+row is deleted, so a dismissal is visible long enough to be argued with.
+
 **Why six keys and not prose.** One real project built this register itself, in TSV: 205 rows, 178
 open, 27 closed, 17 unowned, **2,046 characters per row** and 423 KB of file. The information a
 reader needs is the six keys; the rest is a row explaining itself because it has no shape. Six keys

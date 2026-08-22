@@ -142,35 +142,10 @@ machine review). Front-loading founder attention this way is what empties the es
 decisions that stalled repositories mid-execution are made in batch, up front, where they cost
 minutes.
 
-```
-PRODUCT SPEC        why this exists, who it serves, where it stops
-    │               → product-steward
-    ▼
-FEATURE SPEC        why · scope · surface · acceptance criteria · examples · horizontals
-    │               → product-steward
-    ▼
-DESIGN              structure, boundaries, invariants at risk
-    │               → architect · one adversarial review under the review budget
-    ╞══════════════ GATE 1 — human approves the design
-    ▼
-PLAN                Goal Capsule · lanes · file structure · task decomposition
-    │               FROZEN interfaces including payloads
-    │               → chief-of-staff, migration-validator on schema and migration
-    │               one adversarial review under the review budget
-    ╞══════════════ GATE 2 — human approves the plan
-    ▼
-TASKS               light lane: dispatch directly · full lane: card, machine-checked
-    │
-    │   ┌─────── unattended loop, per task ───────┐
-    └──▶│ context → implement → review (budgeted) │
-        │ → validate → commit + distillation      │
-        └──────────────────────────────────────────┘
-    ▼
-MILESTONE           release gate → sealed receipt (incl. process metrics) → acceptance
-    ╞══════════════ GATE 3 — human approves the merge
-    ▼
-                    merge commit, tagged
-```
+The same chain is drawn once, in the skill's own diagram, and pinned there by a test that requires
+every drawn stage to be a stage this methodology names. It is not redrawn here: an ASCII copy of a
+pinned diagram is a second drawing nothing checks, and this one had already drifted — seven of its
+tokens appeared nowhere else in this document.
 
 Between Gate 2 and Gate 3 the loop runs unattended. It stops only for a blocker it cannot resolve,
 a material ambiguity, an exhausted review budget, or a writer-failure escalation. **A report is not

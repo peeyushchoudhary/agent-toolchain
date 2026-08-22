@@ -681,7 +681,23 @@ def check_deferred(doc: Doc, milestones: dict, specs: dict, f: Findings) -> list
                   f"`{item.ident}` threatens `{threatens}`, which no live criterion in {name} "
                   "declares — it was renumbered, withdrawn, or belongs to another milestone")
         owner = item.keys.get("owner", "")
-        if owner and owner != "none":
+        # A REGISTER THAT CAN ONLY GROW GETS IGNORED. Every outcome here moved an entry FORWARD —
+        # it was owned by a milestone, or it waited for one. Nothing could say NO. A real register
+        # measured at 205 rows with 13% closure is what a queue looks like when the only exits are
+        # "do it" and "defer it again", and a queue nobody believes is a queue nobody reads.
+        #
+        # `owner: dismissed` is the third exit, and the reason is MANDATORY because a dismissal
+        # without one is indistinguishable from an entry somebody quietly stopped caring about.
+        # The four grounds are the ones a real triage actually uses: it is not a defect, it is
+        # already filed, it is out of scope, or it is superseded by work that has since landed.
+        if owner == "dismissed":
+            why = item.keys.get("threatens", "").strip()
+            if not why or why == "none":
+                f.add(doc, item.at["owner"], "E5",
+                      f"`{item.ident}` is dismissed with no reason. A dismissal states which it is "
+                      "— not a defect, already filed, out of scope, or superseded — in `threatens:`, "
+                      "because an entry dropped without a reason reads exactly like one forgotten")
+        elif owner and owner != "none":
             if not MILESTONE_RE.match(owner):
                 f.add(doc, item.at["owner"], "E5",
                       f"`{item.ident}` owner `{owner}` is not M<number> or `none`")
@@ -1286,20 +1302,31 @@ def deferral_queue(root: Path) -> list[tuple[str, str, int, str, str, str, str]]
 
 
 def print_deferred(rows: list[tuple[str, str, int, str, str, str, str]]) -> None:
-    """The count is the point. A register nobody counts is a register that only grows."""
+    """The count is the point. A register nobody counts is a register that only grows.
+
+    A DISMISSED ENTRY IS NOT OPEN, and counting it as open was the whole defect this outcome exists
+    to fix. If dismissal did not lower the number, the third exit would be decoration: the queue
+    would keep growing and the count would keep saying so, which is how a register stops being read.
+    Dismissed rows are still PRINTED, under their own count, because a dismissal is a decision
+    somebody should be able to see and argue with before the row is deleted the way a closed one is.
+    """
     if not rows:
         print("no deferral register found, or every register is empty")
         return
     width = max(len(row[3]) for row in rows)
+    live = [row for row in rows if row[4] != "dismissed"]
     for name in sorted({row[0] for row in rows}):
-        owned = [row for row in rows if row[0] == name]
-        unowned = [row for row in owned if row[4] == "none"]
-        print(f"{name}  {len(owned)} open, {len(unowned)} with no owner")
-        for _, path, line, ident, owner, raised, what in owned:
-            print(f"  {ident.ljust(width)}  {owner:<6} {raised:<10} {what[:70]}")
+        here = [row for row in rows if row[0] == name]
+        opened = [row for row in here if row[4] != "dismissed"]
+        dropped = [row for row in here if row[4] == "dismissed"]
+        unowned = [row for row in opened if row[4] == "none"]
+        tail = f", {len(dropped)} dismissed" if dropped else ""
+        print(f"{name}  {len(opened)} open, {len(unowned)} with no owner{tail}")
+        for _, path, line, ident, owner, raised, what in here:
+            print(f"  {ident.ljust(width)}  {owner:<9} {raised:<10} {what[:70]}")
             print(f"  {' ' * width}  {path}:{line}")
-    print(f"{len(rows)} open deferral(s) across "
-          f"{len({row[0] for row in rows})} milestone(s)")
+    print(f"{len(live)} open deferral(s) across "
+          f"{len({row[0] for row in live})} milestone(s)")
 
 
 def normalise_route(text: str) -> str:
