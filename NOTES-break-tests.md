@@ -158,3 +158,16 @@ Mutation log (run = the script's own mapped test modules):
   Covered (RED): SM1 is_ours, SM2 fenced-code stripping, SM4 deferral reason, SM7 overlay
   appended, SM10 deferral date format.
   (SM6 was a comment-only edit and is discarded, not a result.)
+
+## 2. Placement decision — IMPLEMENTED
+`scripts/<name>_selftest.py` (house shape, hand-runnable, exit 0/1/2)
+  + `tests/test_break_tests.py`, which DISCOVERS `scripts/*_selftest.py` and runs each as a
+    subprocess test method, so verify.sh executes them. Roster is discovered, never listed;
+    an empty roster fails.
+
+## 3. Per-script cases WRITTEN so far
+  start_junit_run_selftest.py   5 cases / 21 assertions — watched fail under 5 mutations
+  verify_junit_selftest.py      4 cases / 22 assertions — watched fail under 3 mutations
+  milestone_seal_selftest.py    6 cases / 20 assertions — watched fail under 4 of 5 mutations
+    (the 5th, the loose gate heading, needed the mutation stated the way the docstring states the
+     risk — `"validation" in line` — which IS green under the suite and IS caught here)
