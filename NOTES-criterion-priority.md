@@ -1,6 +1,6 @@
 # Criterion priority — working notes (agent/criterion-priority)
 
-**TOP 3 SO FAR:** (1) `[P1]` trailing tag measured invisible to spec_check on 995 real criteria (0 new, 0 lost); spec-kit's `(P1)` after the id raises a false C1 on every marked line; (2) priority CAN reach `--ready` for free (`milestone_features` already opens every spec) but only as a WITHIN-FEATURE tiebreak, never in the primary key; (3) no spec_check rule: zero of 1005 criteria carry priority, so every candidate rule is green on day one.
+**TOP 3 SO FAR:** (1) `[P1]` trailing tag, measured invisible to spec_check on 995 real criteria (0 new, 0 lost findings); (2) BUILT the within-feature tiebreak in `plan_waves --ready`, with a case that fails under all three wrong designs (old key, global key, priority-ahead-of-unlocks); (3) NO RULE — 0 task blocks, 0 milestones, 0 `covers:` in any sibling repo, so no new rule can be red today.
 
 ## 0. Design basis (p_sdd finding, per-story priority)
 in progress
@@ -85,3 +85,33 @@ That is the answer to "two tasks cover criteria of different priority":
   dispatcher instead of through a checker.
 - Unmarked criteria inside a feature that DOES mark some: sort after the marked ones, and only
   inside that feature. A feature that marks nothing is bit-for-bit unchanged.
+
+### M6 — BUILT: the tiebreak, with a case that dies under all three wrong designs
+`plan_waves.py`: `criterion_priorities()` reads the tag through **spec_check's own `criteria()`
+fold** (no second `AC-<n>` regex — that pattern is on record as too strict four times), and
+`ready_set` key becomes `(-rank, feature, priority, ident)`. `--ready` JSON gains a `priority`
+object: `{}` says the specs marked nothing, which is a different statement from "read and changed
+nothing". `case_priority_is_the_tiebreak_and_only_inside_the_feature` in `plan_waves_selftest.py`,
+seven assertions, and VERIFIED to fail under each wrong design:
+- old key `(-rank, ident)` -> 5c and 5g fail (the tag reaches nothing).
+- global key `(-rank, priority, ident)` -> **5e fails**: a P1 in the SECOND feature jumps the whole
+  of the first, i.e. the first spec to adopt the notation promotes itself over every spec that has
+  not.
+- priority ahead of `unlocks` -> 5g fails: the measured 11-22% is handed back.
+5d reads the tag off a WRAPPED criterion line, which carries no `AC-<n>` at all — a line-at-a-time
+reader passes every other assertion and fails that one.
+All eleven selftests still pass.
+
+### M7 — NO RULE, and the evidence is that no rule CAN be red here
+The red-today hunt, run to exhaustion against the four sibling repos:
+- ` ```task ` fenced blocks in the whole tree: **0**. `covers:` on a task: **0**. Milestone
+  documents: **0**. `threatens:` in a deferral register: **0**. The entire plan/milestone half of
+  this methodology has **no instance anywhere in reach**, so the strongest candidate — "a task's
+  `covers:` names a criterion its spec never defines or has withdrawn", which genuinely nothing
+  checks today (spec_check never reads plans, plan_waves never reads criterion ids) — has nothing
+  to fire on. It is a real gap and it is not RED TODAY.
+- On the spec side, 22 of 24 real specs in repo A carry **no `---` block at all** (B1), and repo B's
+  233 spec documents are not named `F-*.md`, so no front-matter rule can reach them either.
+So: **no `spec_check` rule, and therefore no new case in `spec_check_selftest.py`.** The notation
+ships with the template and the dispatcher, and the checker opens with zero findings on 1005 real
+criteria — which is the whole point of it being optional.
