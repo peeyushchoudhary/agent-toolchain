@@ -163,3 +163,12 @@ Also had to reword three lines: `AdvisoryPostureTest` bans the substring "enforc
 module or in an emitted `why`, because the tool has been caught claiming a bound it does not hold.
 Quoting methodology's own "gate-enforced" heading tripped it. The quote is now the caps list itself
 ("Card 150 lines, verdict 30 lines, ...") with "stated there as a ruling rather than as advice".
+
+## 10. push_guard break-test (commit 6)
+
+Case 19, 13 checks, all green: silent with no workspace / BLOCKS with r5 + 40-line verdict /
+receipt printed in full / "NOTHING HERE IS AUTO-GRANTED" present / escape hatch opens and SAYS so /
+six negative env spellings all fail CLOSED / block clears when the workspace is put right.
+`test_push_guard_product`: 25 tests OK.
+PRE-EXISTING RED, verified identical on LOCAL main: `11 the hook template points at the guard under
+test` — that case only passes when run from the installed skill path, not from a checkout.
