@@ -1,6 +1,7 @@
 ---
 name: execution-methodology
 description: Use when starting, planning, or executing substantive implementation work — writing a product or feature spec, taking a design to a plan, running an approved plan task by task, or deciding what must be true before work can be called done. Also use when a repository's rendered execution guide is missing or stale.
+disable-model-invocation: true
 ---
 
 # The execution methodology
@@ -197,6 +198,37 @@ deferral age visibly instead of quietly becoming permanent.
 declares its own state and the check is evaluated against the repository it is invoked on — which is
 both a privacy property (this toolchain carries nothing about the repositories it serves) and a
 correctness one (a central list is a second source of truth that drifts).
+
+## This skill is user-invoked, in both harnesses
+
+`writes:` declares authority to CHANGE a file. Nothing here declares authority to ADVANCE A STAGE.
+A model may choose *how* to work; it may not authorise its own **promotion** — and the description
+at the top of this file is itself a model trigger on the one skill that holds every stage gate. So
+this skill is reached by a person naming it, never by a model deciding it is time.
+
+Two switches, one per harness, and **they are not the same mechanism**:
+
+| harness | mechanism | effect |
+| --- | --- | --- |
+| Claude Code | `disable-model-invocation: true`, in the front matter above | the model cannot load this skill on its own; `/execution-methodology` still works |
+| Codex | `agents/openai.yaml` → `policy.allow_implicit_invocation: false` | Codex will not invoke it implicitly; `$execution-methodology` still works |
+
+**The asymmetry is stated, not hidden.** `disable-model-invocation` is a Claude Code extension and is
+absent from the Agent Skills spec; OpenAI's own Claude-to-Codex migration reference lists it as
+*"No direct equivalent — Unsupported"* and calls `policy.allow_implicit_invocation` *"similar
+intent, not equivalent semantics"*. Set only the front-matter key and this gate would be enforced in
+one harness and inert in the other, inside a methodology whose first line is that it is followed
+identically by both. Hence the sidecar file. If a harness ever ignores its own key the gate is inert
+*there*, and **no front matter can tell you that** — the only evidence is a human noticing a model
+starting a stage unprompted. There is deliberately no checker: "the field is present" is green the
+moment the field exists and learns nothing.
+
+**Why the field is safe here at all.** `install.sh` **copies** these directories into
+`~/.claude/skills` and `~/.codex/skills`; it does not **package** them. The packaged-skill
+front-matter allowlist is `name` / `description` / `license` / `compatibility` / `metadata` /
+`allowed-tools`, and `disable-model-invocation` is not in it. Add a packaging or upload step to this
+repository and that field becomes a hard error, not an ignored key. (`argument-hint` is in the same
+forbidden set and appears nowhere in this repository. Keep it that way.)
 
 ## Running it
 

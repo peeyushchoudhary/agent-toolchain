@@ -1,6 +1,7 @@
 ---
 name: project-onboarding
 description: Use when a project is not yet set up for agent work — no docs/agents/README.md, no git hooks installed, no GitHub remote, or the session-start hook reported it as uninitialised. Also use when opening a repository for the first time and you are unsure whether it has been brought under the shared standard.
+disable-model-invocation: true
 ---
 
 # Bringing a project under the standard
@@ -214,6 +215,33 @@ never have a pre-commit hook, so that check is its sole automated integrity gate
 
 Never run `graphify claude install`: it appends to `CLAUDE.md`, breaking the one-line rule and
 making that guidance invisible to every non-Claude agent.
+
+## This skill is user-invoked, in both harnesses
+
+This skill creates repositories, installs git hooks, and writes a repository's route. Its own first
+rule is **"Propose before writing"** — so it must not start because a model decided a repository
+looked uninitialised. A model may choose *how* to work; it may not authorise its own **promotion**,
+and onboarding is a promotion: it moves a repository from outside the standard to inside it.
+
+Two switches, one per harness, and **they are not the same mechanism**:
+
+| harness | mechanism | effect |
+| --- | --- | --- |
+| Claude Code | `disable-model-invocation: true`, in the front matter above | the model cannot load this skill on its own; `/project-onboarding` still works |
+| Codex | `agents/openai.yaml` → `policy.allow_implicit_invocation: false` | Codex will not invoke it implicitly; `$project-onboarding` still works |
+
+**The asymmetry is stated, not hidden.** `disable-model-invocation` is a Claude Code extension,
+absent from the Agent Skills spec; OpenAI's Claude-to-Codex migration reference lists it as *"No
+direct equivalent — Unsupported"* and calls `policy.allow_implicit_invocation` *"similar intent, not
+equivalent semantics"*. The front-matter key alone would be enforced in one harness and inert in the
+other, so both are set. If a harness ignores its key the gate is inert *there* and no front matter
+can say so — there is deliberately no checker, because "the field is present" is green the moment the
+field exists and learns nothing.
+
+Nothing is lost when a repository genuinely needs this: the SessionStart reporter still says the
+project is uninitialised, and a human runs the skill by name. The full detail of both mechanisms,
+and why the packaged-skill front-matter allowlist does not apply to this repository, is in
+`execution-methodology/SKILL.md`, "This skill is user-invoked, in both harnesses".
 
 ## Related
 
