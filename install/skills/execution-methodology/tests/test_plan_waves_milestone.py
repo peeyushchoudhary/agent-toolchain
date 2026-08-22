@@ -40,13 +40,23 @@ updated: 2026-01-01
 """
 
 
-def spec(ident: str, milestone: str | None = "M2") -> str:
-    """A feature spec. `milestone=None` is the specified-and-waiting state, not a defect."""
+def spec(ident: str, milestone: str | None = "M2", tags: dict | None = None) -> str:
+    """A feature spec. `milestone=None` is the specified-and-waiting state, not a defect.
+
+    `tags` writes acceptance criteria and marks them: `{2: "P1", 3: ""}`. The criteria are WRAPPED
+    over two lines, as the real corpus writes them, so the optional `[P1]` tag lands on a line
+    carrying no `AC-<n>` at all — a reader that took one line at a time would find nothing here.
+    """
     lines = ["---", f"id: {ident}", f"title: feature {ident}", "prd: docs/product/prd.md",
              "status: approved", "updated: 2026-01-01"]
     if milestone is not None:
         lines.append(f"milestone: {milestone}")
     lines += ["---", "", f"# {ident} — feature", ""]
+    for number in sorted(tags or {}):
+        mark = f" [{tags[number]}]" if tags[number] else ""
+        lines += ["## Acceptance criteria" if number == sorted(tags)[0] else "", "",
+                  f"**AC-{number}** When request {number} arrives, given the store is",
+                  f"reachable, result {number} is recorded.{mark}", ""]
     return "\n".join(lines)
 
 
@@ -81,10 +91,10 @@ class MilestoneFixture(unittest.TestCase):
         return path
 
     def feature(self, ident: str, *blocks: str, milestone: str | None = "M2",
-                slug: str = "thing") -> None:
+                slug: str = "thing", tags: dict | None = None) -> None:
         """A spec, and a plan for it when any task block is given."""
         (self.root / "docs" / "product" / "specs" / f"{ident}-{slug}.md").write_text(
-            spec(ident, milestone), encoding="utf-8")
+            spec(ident, milestone, tags), encoding="utf-8")
         if blocks:
             (self.root / "docs" / "product" / "plans" / f"{ident}-{slug}.md").write_text(
                 f"---\nid: {ident}\n---\n\n# {ident} — plan\n" + "".join(blocks),
@@ -739,6 +749,83 @@ class ReadySetTest(DerivedStateFixture):
         base = self.start()
         self.commit("feat(F-11/T1): done", "a/x")
         self.assertEqual(self.since(base, "--ready")["ready"], [])
+
+
+class CriterionPriorityTest(DerivedStateFixture):
+    """The OPTIONAL `[P1]` tag on a criterion, and the one key it is allowed to touch.
+
+    The tag exists because `AC-1..n` are unordered and the first ordering in the corpus arrives at
+    `milestone:`, after the spec is frozen. It reaches exactly one decision — the last sort key of
+    the ready set, which was alphabetical and which the operator was overriding from memory.
+    """
+
+    def test_the_tag_is_read_off_the_wrapped_line_that_carries_no_criterion_id(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"), tags={1: "P2", 2: "", 3: "P1"})
+        table = plan_waves.criterion_priorities(self.root.resolve())
+        self.assertEqual(table, {"F-11": {"1": 2, "3": 1}})
+
+    def test_a_spec_that_marks_nothing_contributes_nothing(self) -> None:
+        """The common case, and it has to stay free: 0 of 995 real criteria carry a tag today."""
+        self.feature("F-11", task("T1", writes="a/**"), tags={1: "", 2: ""})
+        self.assertEqual(plan_waves.criterion_priorities(self.root.resolve()), {})
+
+    def test_a_task_takes_the_best_priority_it_covers(self) -> None:
+        """The task has to run for its most important criterion to close, so that rank is its
+        floor; taking the worst would bury a P1 behind whatever else the task also satisfied."""
+        self.feature("F-11", task("T1", writes="a/**", covers="[AC-1, AC-3]"),
+                     tags={1: "P3", 3: "P1"})
+        _, milestone = self.result()
+        table = plan_waves.criterion_priorities(self.root.resolve())
+        self.assertEqual(plan_waves.task_priorities(milestone.tasks, table), {"F-11/T1": 1})
+
+    def test_the_marked_criterion_reorders_its_own_feature(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**", covers="[AC-1]"),
+                     task("T2", writes="b/**", covers="[AC-2]"),
+                     task("T3", writes="c/**", covers="[AC-3]"), tags={1: "", 2: "", 3: ""})
+        base = self.start()
+        self.assertEqual(self.since(base, "--ready")["ready"],
+                         ["F-11/T1", "F-11/T2", "F-11/T3"])
+        self.feature("F-11", task("T1", writes="a/**", covers="[AC-1]"),
+                     task("T2", writes="b/**", covers="[AC-2]"),
+                     task("T3", writes="c/**", covers="[AC-3]"), tags={1: "", 2: "", 3: "P1"})
+        report = self.since(base, "--ready")
+        self.assertEqual(report["ready"], ["F-11/T3", "F-11/T1", "F-11/T2"])
+        self.assertEqual(report["priority"], {"F-11/T3": "P1"})
+
+    def test_a_priority_in_one_feature_never_jumps_another_feature(self) -> None:
+        """The inversion this guards: the FIRST spec in a milestone to write a tag would otherwise
+        promote itself over every feature that had not, so unmarked would silently mean last."""
+        self.feature("F-11", task("T1", writes="a/**"), task("T2", writes="b/**"),
+                     tags={1: "", 2: ""})
+        self.feature("F-12", task("T1", writes="c/**", covers="[AC-1]"), slug="other",
+                     tags={1: "P1"})
+        base = self.start()
+        report = self.since(base, "--ready")
+        self.assertEqual(report["ready"], ["F-11/T1", "F-11/T2", "F-12/T1"])
+        self.assertEqual(report["priority"], {"F-12/T1": "P1"})
+
+    def test_a_task_that_unlocks_another_still_outranks_the_p1(self) -> None:
+        """`unlocks` is a measured throughput ordering — 11%-22% faster than id order across two to
+        eight writers. Priority is the tiebreak and never buys any of that back."""
+        self.feature("F-11", task("T1", writes="a/**", covers="[AC-1]"),
+                     task("T2", needs="[T1]", writes="b/**", covers="[AC-1]"),
+                     task("T3", writes="c/**", covers="[AC-3]"), tags={1: "", 3: "P1"})
+        base = self.start()
+        self.assertEqual(self.since(base, "--ready")["ready"], ["F-11/T1", "F-11/T3"])
+
+    def test_the_payload_distinguishes_marked_nothing_from_changed_nothing(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"), tags={1: ""})
+        base = self.start()
+        self.assertEqual(self.since(base, "--ready")["priority"], {})
+
+    def test_a_spec_whose_front_matter_does_not_parse_is_skipped_in_silence(self) -> None:
+        """The spec checker owns that finding; a second copy here would report it twice, and a
+        traceback would take the schedule away over a document this run does not own."""
+        self.feature("F-11", task("T1", writes="a/**"), tags={1: "P1"})
+        path = next((self.root / "docs" / "product" / "specs").glob("F-11-*.md"))
+        path.write_text("# F-11 — no front matter\n\n**AC-1** When a thing happens, given "
+                        "another, a third is recorded. [P1]\n", encoding="utf-8")
+        self.assertEqual(plan_waves.criterion_priorities(self.root.resolve()), {})
 
 
 class DispatchInterfaceTest(MilestoneFixture):
