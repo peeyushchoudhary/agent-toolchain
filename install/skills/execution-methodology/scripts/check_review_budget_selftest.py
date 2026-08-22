@@ -272,6 +272,30 @@ def case_the_verdict_cap_binds_verdicts_and_never_evidence() -> None:
               str(payload.get("receipt", {}).get("verdict_cap")))
 
 
+
+def case_a_sealed_workspace_is_history() -> None:
+    """DEFECT 5, live on the day the cap went binding: it blocked a push over 40 findings in a
+    workspace whose milestone had SEALED months earlier and had had no write since. Every round was
+    spent, adjudicated and closed; the tool was measuring a graveyard and asking a human to grant
+    rounds that could no longer be taken. Re-introducing the miss means deleting the SEALED-RECEIPT
+    probe, after which a sealed workspace fails exactly like a live one.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp) / "ws"
+        work.mkdir()
+        # A workspace that WOULD fail: a verdict far over the cap.
+        (work / "S1-r1-review.md").write_text("x\n" * 400, encoding="utf-8")
+
+        live_code, live_out = run(work)
+        (work / "SEALED-RECEIPT.md").write_text("# Sealed\n", encoding="utf-8")
+        code, out = run(work)
+
+        check("a live workspace over the cap still fails", live_code == 1, live_out)
+        check("a sealed workspace exits 0", code == 0, out)
+        check("and says WHY it checked nothing", out.get("sealed"), out)
+        check("naming the receipt it found", out.get("sealed") == "SEALED-RECEIPT.md", out)
+        check("with no findings invented", out.get("errors") == [], out)
+
 def main() -> int:
     if not SCRIPT.exists():
         print(f"check_review_budget.py not found at {SCRIPT}", file=sys.stderr)
@@ -280,7 +304,8 @@ def main() -> int:
     print("check_review_budget break-test")
     for case in (case_kind_before_the_marker_is_read, case_the_kind_is_not_part_of_the_subject,
                  case_family_spend_is_visible_and_advisory,
-                 case_the_verdict_cap_binds_verdicts_and_never_evidence):
+                 case_the_verdict_cap_binds_verdicts_and_never_evidence,
+                 case_a_sealed_workspace_is_history):
         case()
 
     print()

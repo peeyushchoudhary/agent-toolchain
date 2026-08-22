@@ -968,6 +968,33 @@ def main() -> int:
         print(f"ERROR: not a directory: {args.workspace}", file=sys.stderr)
         return 2
 
+    # A SEALED WORKSPACE IS HISTORY, AND HISTORY IS NOT A BUDGET.
+    #
+    # Found the day the verdict cap went binding: it blocked a push over 40 findings in a workspace
+    # whose milestone SEALED on 2026-08-03 and which has had no write since. Every one of those
+    # rounds was spent, adjudicated and closed months ago; the tool was measuring a graveyard and
+    # asking a human to grant rounds that can no longer be taken.
+    #
+    # This is the same rule the register already follows — "a closed deferral is history, history
+    # lives in git" — applied to the workspace that produced it. A sealed receipt is the milestone's
+    # own statement that its rounds are finished, so the caps have nothing left to protect: they
+    # exist to stop a LIVE loop spending forever, not to re-litigate a loop that stopped.
+    #
+    # It is reported, never silent. A workspace that answers nothing because it is sealed must say
+    # so, or this is indistinguishable from a checker that found nothing — which is precisely the
+    # failure this repository has recorded nine times.
+    sealed = next((p for p in sorted(args.workspace.glob("SEALED-RECEIPT*")) if p.is_file()), None)
+    if sealed is not None and not args.json:
+        print(f"{args.workspace.name}: sealed by {sealed.name} — the rounds are spent and the "
+              "milestone closed, so no cap is applied. History lives in git.")
+        return 0
+    if sealed is not None:
+        json.dump({"workspace": str(args.workspace), "sealed": sealed.name, "exit": 0,
+                   "errors": [], "warnings": [], "why": "a sealed milestone's rounds are history"},
+                  sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 0
+
     errors, warnings = [], []
     grants_path = (args.grants or DEFAULT_GRANTS).expanduser()
     is_default = grants_path.resolve() == DEFAULT_GRANTS.resolve()
