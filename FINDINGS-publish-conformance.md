@@ -88,3 +88,10 @@ PLUS two the brief did not list but the gates require:
 disclosure validator. Not blocking, but it is a real prose-budget regression caused by the
 baseline rewrite. Trim before finishing.
 
+## F10 — install.sh re-verified: `7 of 7 declared skill(s) installed` / `7 of 7 mirrored`
+`cd install && ./install.sh --dry-run`. It derives the roster from the allowlist, so the one
+line in `.gitignore` moved both numbers with no edit to install.sh.
+NOTE the mirror line: install.sh mirrors 7 to `~/.codex/skills`, but `check_toolchain.py`'s
+`MIRRORED_SKILLS` still watches 6. Those two disagree now. Documented in what-gets-installed.md
+rather than silently fixed, because check_toolchain.py here is a vendored mirror (see F3).
+
