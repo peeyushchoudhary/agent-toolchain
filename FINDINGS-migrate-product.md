@@ -29,7 +29,29 @@ TOP 3 SO FAR: (in progress)
 - `check_updated` compares `updated:` against the file's git commit date (dirty paths exempt).
 
 ## 2. Corpus survey (real repo copy)
-in progress
+CORPUS = `~/Documents/Claude/Projects/Loomaya`, validated on a COPY at `/tmp/loomaya-copy`
+(`git clone --local --no-hardlinks`, 21 MB, HEAD e8ea7b0). Original never touched.
+
+BASELINE `spec_check.py --root .` on the copy, exit 0, ZERO findings, one note line:
+    ... 0 spec/PRD/milestone document(s) of 236 under docs/product, 0 with a `## Horizontals`
+    section, 0 labelled concern row(s), 0 live -- RULE F CHECKED NOTHING ...
+    233 document(s) under docs/product/specs/ are not named `F-<n>-<slug>.md`,
+    so NOTHING here read them.
+This is the exact "0 findings mistaken for clean" state the brief describes.
+
+SHAPE OF THE 233 under `docs/product/specs/`:
+    65  <slug>/spec.md      <- the spec-shaped ones
+    80  README.md
+    65  plan.md
+     4  AGENTS.md / CLAUDE.md
+    19  area pages + eval material (feed.md, trust.md, evals/**, rubrics, ...)
+Only the 65 may be renamed. plan.md/README.md are siblings of a spec and must be left alone.
+
+**THE 64/65 SPLIT IS REAL AND MEASURED.** Every `spec.md` H1 is `<AREA-ID> — <Title>`, e.g.
+`# FED-C1 - Health-only ingestion boundary`. 64 of 65 carry a matchable area id.
+The one that does NOT: `docs/product/specs/met-metric-tree/spec.md`, H1 = `MET - Metric tree and
+guardrails` -- an area with no ordinal. That is exactly the "64 of them" in the brief.
+The mode must REFUSE to invent an id for it and hand it to a human.
 
 ## 3. Design of the docs/product mode
 in progress
