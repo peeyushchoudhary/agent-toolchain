@@ -1494,3 +1494,40 @@ class UnboundSpecSilenceTest(SpecCheckFixture):
         """The line must stay quiet when there is nothing unread, or it becomes noise."""
         self.corpus()
         self.assertNotIn("are not named `F-<n>-<slug>.md`", self.run_cli().stdout)
+
+
+class ReviewDemandIsNotADefectTest(SpecCheckFixture):
+    """F3 is a debt; every other rule reports a break. Only one of them may fail a push.
+
+    Measured: binding two validators in one real repository produced 130 F3 demands at once — 65
+    specs each moving two owned concerns, none reviewed yet. As an error that is a wall from the
+    moment a repository declares its first `covers:`, which is how a guard gets uninstalled. The
+    same lesson is already recorded here from 12 findings that would have blocked every push in
+    another repository.
+    """
+
+    HORIZONTALS = ("\n## Horizontals\n\n| Concern | Disposition |\n|---|---|\n"
+                   "| Tenancy / isolation | Runs on the shared plane. |\n")
+
+    def bound(self) -> None:
+        self.corpus(spec_body=CRITERIA + self.HORIZONTALS)
+        self.write("docs/agents/personas/tenancy-validator.md",
+                   "---\nname: tenancy-validator\ncovers: [Tenancy / isolation]\nwrites: no\n---\n\n# x\n")
+
+    def test_a_review_demand_alone_does_not_fail_the_run(self) -> None:
+        self.bound()
+        result = self.run_cli()
+        self.assertIn("F3", result.stdout)
+        self.assertEqual(result.returncode, 0, "a debt is not a break")
+
+    def test_a_real_defect_beside_it_still_fails(self) -> None:
+        self.bound()
+        self.write("docs/product/specs/F-8-other.md", "# F-8\n\n## Changelog\n\nx\n")
+        self.assertEqual(self.run_cli().returncode, 1)
+
+    def test_a_dead_binding_is_a_defect_not_a_demand(self) -> None:
+        """F4 says a `covers:` label matches no row — that is wrong, not merely undone."""
+        self.corpus(spec_body=CRITERIA + self.HORIZONTALS)
+        self.write("docs/agents/personas/ghost.md",
+                   "---\nname: ghost\ncovers: [no such concern]\nwrites: no\n---\n\n# x\n")
+        self.assertEqual(self.run_cli().returncode, 1)
