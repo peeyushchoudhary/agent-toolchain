@@ -344,6 +344,41 @@ let edge cases stay prose while the real criteria sat elsewhere, so they were ne
 
 ---
 
+## The divergent panel — three frames on one feature spec
+
+*In progress.*
+
+### What a panel is, and what it is not
+
+*In progress.*
+
+### The casting
+
+*In progress.*
+
+### Isolation
+
+*In progress.*
+
+### Symmetric signal and the growth tripwire
+
+*In progress.*
+
+### The PRD arm — a bounded experiment, and its precondition
+
+*In progress.*
+
+### What this costs, and where the cost hides
+
+*In progress.*
+
+### Default is expiry
+
+*In progress.*
+
+---
+
+
 ## The milestone
 
 `docs/product/milestones/M<n>-<slug>.md` — what a set of features is being taken to together, and
