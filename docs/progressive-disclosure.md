@@ -39,7 +39,7 @@ synonyms are accepted — but each question must be answered:
 | Overview | What is this, and what problem does it solve? |
 | Current state | What ships today, what is left, where is the plan? |
 | Product requirements | Where are the PRDs? A table of links, never the PRD text |
-| Architecture | How is it built? **Must contain a diagram in this section** |
+| Architecture | How is it built? **Must hold a ```mermaid diagram**, never a raster |
 | Components | One row per component: responsibility, entry point, deep-dive link |
 | Run locally | How do I start it? |
 | Working in this repository | The agent route, and how work lands |

@@ -76,6 +76,16 @@ BASH_FENCE = re.compile(r"^```bash\s*$")
 FENCE_END = re.compile(r"^```\s*$")
 BACKTICKED = re.compile(r"`([a-z][a-z-]+)`")
 
+# The ```mermaid fence at the head of section 2, and the table it draws. A picture is the one part
+# of a document that no reader can diff in their head, so it is pinned harder than the prose: the
+# boxes ARE the table's rows, read out of the same document at run time and never repeated here.
+MERMAID_FENCE = re.compile(r"^```mermaid\s*$(.*?)^```\s*$", re.DOTALL | re.MULTILINE)
+MERMAID_NODE = re.compile(r"\[\"([^\"]+)\"\]")
+# A step box: "4. validate<br/>verify_junit.py". Any other box is a non-step node -- an outcome or
+# a stop -- and is held to a weaker rule, that the document says the words somewhere.
+STEP_BOX = re.compile(r"^(\d+)\.\s+(.+?)<br/>(.+)$")
+TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|")
+
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8-sig")
@@ -130,6 +140,28 @@ def choices(script: Path, option: str) -> list[str]:
         if f'"{option}"' in call and "choices=" in call:
             return re.findall(r'"([a-z]+)"', call.split("choices=", 1)[1])
     return []
+
+
+def mermaid_nodes(text: str) -> list[str]:
+    """Every quoted node label in the document's first ```mermaid fence, in source order."""
+    fence = MERMAID_FENCE.search(text)
+    return MERMAID_NODE.findall(fence.group(1)) if fence else []
+
+
+def step_table(text: str) -> list[tuple[str, str, str]]:
+    """(number, step name, command cell) per row of the `| # | Step | Command | Cast |` table."""
+    rows, inside = [], False
+    for line in text.splitlines():
+        if line.startswith("| # | Step |"):
+            inside = True
+            continue
+        if inside:
+            if not line.startswith("|"):
+                break
+            row = TABLE_ROW.match(line)
+            if row:
+                rows.append((row.group(1), row.group(2), row.group(3)))
+    return rows
 
 
 def section(text: str, starts_with: str) -> str:
@@ -293,6 +325,151 @@ class DocumentedInterfaceTest(unittest.TestCase):
         too, and a literal home prefix written here is the very thing it refuses."""
         for forbidden in ("/Us" + "ers/", "/ho" + "me/", "C:" + chr(92)):
             self.assertNotIn(forbidden, self.text, "a personal path reached a public document")
+
+
+def diagram_problems(text: str) -> list[str]:
+    """Every way the section-2 fence can disagree with the section-2 table, as `kind: detail`.
+
+    ONE implementation, used by both classes below: the shipped document must produce none, and a
+    mutated copy of that same document must produce the matching kind. A checker whose only witness
+    is a fixture it also wrote is how this toolchain shipped nine inert checks; the mutation tests
+    are what make this one testable in the direction that matters.
+    """
+    problems: list[str] = []
+    fence = MERMAID_FENCE.search(text)
+    if fence is None:
+        return ["no-diagram: section 2 has no ```mermaid fence"]
+    rows = step_table(text)
+    if len(rows) != 10:
+        problems.append(f"no-table: the loop table is {len(rows)} rows, not ten")
+    nodes = mermaid_nodes(text)
+    boxes = [(node, STEP_BOX.match(node)) for node in nodes]
+    drawn = {box.group(1): box for _, box in boxes if box}
+    cells = {number: cell for number, _, cell in rows}
+
+    for number, name, _ in rows:
+        if number not in drawn:
+            problems.append(f"step-not-drawn: step {number} ({name}) has no box")
+        elif drawn[number].group(2).strip() != name:
+            problems.append(f"name-drift: step {number} is {name!r} in the table and "
+                            f"{drawn[number].group(2).strip()!r} in the diagram")
+    for number in drawn:
+        if number not in cells:
+            problems.append(f"box-not-a-step: the diagram draws step {number}, the table does not")
+    order = [box.group(1) for _, box in boxes if box]
+    if order != [number for number, _, _ in rows][:len(order)]:
+        problems.append(f"order-drift: the diagram runs {order}")
+
+    for number, box in sorted(drawn.items()):
+        command = shlex.split(box.group(3).strip())
+        script = SCRIPTS / command[0]
+        if not script.is_file():
+            problems.append(f"no-such-script: step {number} draws {command[0]}, which is not in "
+                            f"{SCRIPTS.name}/")
+            continue
+        if command[0] not in cells.get(number, ""):
+            problems.append(f"script-drift: step {number} draws {command[0]}, its table row says "
+                            f"{cells.get(number)!r}")
+        table = options(script)
+        for token in command[1:]:
+            if token.startswith("--") and token not in table:
+                problems.append(f"no-such-option: {command[0]} does not parse {token}")
+
+    # Outside the fence: a box that only quotes itself is not evidence that the document says it.
+    outside = text[:fence.start()] + text[fence.end():]
+    for node, box in boxes:
+        if box is None and node.casefold() not in outside.casefold():
+            problems.append(f"invented-box: {node!r} is said nowhere in this document")
+    if re.search(r"!\[[^\]]*\]\([^)]+\.(png|jpe?g|gif|webp|bmp|avif)", text):
+        problems.append("raster: an exported image is back in a document the guard cannot read")
+    return problems
+
+
+class DiagramTest(unittest.TestCase):
+    """The ```mermaid fence at the head of section 2, against the table underneath it.
+
+    WHY THIS CLASS EXISTS, and it is the same reason as the rest of this file. This repository
+    shipped an architecture PNG in its README on 5 August and left it there for 93 commits and one
+    major version: its work-loop box said scope -> build -> review -> test while this document had
+    grown to ten steps. Nothing failed, because nothing could read the picture. The remedy is not
+    "review diagrams more carefully" -- it is to make the diagram a SECOND ENCODING OF DATA THAT
+    ALREADY HAS A CHECKED FORM. Every box is a row of the table below it, and the script and flags
+    a box names are put to the same parser the command lines are put to.
+
+    The pin is transitive, which is the point. The table's Command column is already checked twice:
+    `DocumentedInterfaceTest` puts every command line against its script's own parser, and
+    `WiredTest` RUNS those lines against a fixture and asserts their effect. Tying each box to the
+    command cell of the row with its number makes the diagram inherit both, instead of becoming a
+    third place where the loop is described and the first one to go stale.
+    """
+
+    def setUp(self) -> None:
+        self.text = read(LOOP)
+
+    def test_the_document_holds_a_diagram_and_a_ten_row_table_at_all(self) -> None:
+        """The guard on every assertion below: an empty fence satisfies every loop over it."""
+        self.assertTrue(MERMAID_FENCE.search(self.text), "section 2 has no ```mermaid fence")
+        self.assertEqual(10, len(step_table(self.text)), "the loop table is no longer ten rows")
+        self.assertEqual(10, len([n for n in mermaid_nodes(self.text) if STEP_BOX.match(n)]),
+                         "the diagram no longer draws ten steps")
+
+    def test_the_diagram_and_the_table_say_the_same_thing(self) -> None:
+        self.assertEqual([], diagram_problems(self.text))
+
+
+class DiagramDriftTest(unittest.TestCase):
+    """Each way the diagram can go false, applied to the SHIPPED document, in memory.
+
+    Nothing is written: the text is read once and mutated as a string. A rule that has only ever
+    fired on a fixture someone wrote to make it fire has no evidence it reaches a real document,
+    and every inert checker found in this toolchain passed its own fixtures.
+    """
+
+    def setUp(self) -> None:
+        self.text = read(LOOP)
+
+    def assert_fires(self, kind: str, mutated: str) -> None:
+        problems = diagram_problems(mutated)
+        self.assertTrue(any(p.startswith(kind) for p in problems),
+                        f"mutating the document produced {problems!r}, no {kind}")
+
+    def test_renaming_a_step_in_the_table_alone_is_caught(self) -> None:
+        self.assert_fires("name-drift", self.text.replace("| 5 | review |", "| 5 | re-review |", 1))
+
+    def test_renaming_a_step_in_the_diagram_alone_is_caught(self) -> None:
+        self.assert_fires("name-drift", self.text.replace('S5["5. review<br/>', 'S5["5. audit<br/>', 1))
+
+    def test_deleting_a_box_is_caught(self) -> None:
+        without = "\n".join(line for line in self.text.splitlines() if 'S8["8. coverage' not in line)
+        self.assert_fires("step-not-drawn", without)
+
+    def test_drawing_a_step_the_table_does_not_have_is_caught(self) -> None:
+        self.assert_fires("box-not-a-step",
+                          self.text.replace('S9["9. seal', 'S9["10. seal', 1))
+
+    def test_pointing_a_box_at_another_step_script_is_caught(self) -> None:
+        self.assert_fires("script-drift",
+                          self.text.replace("7. deferrals<br/>spec_check.py --deferred",
+                                            "7. deferrals<br/>trace_check.py --evidence", 1))
+
+    def test_a_flag_no_parser_defines_is_caught(self) -> None:
+        self.assert_fires("no-such-option",
+                          self.text.replace("plan_waves.py --ready", "plan_waves.py --dispatch", 1))
+
+    def test_a_script_that_does_not_exist_is_caught(self) -> None:
+        self.assert_fires("no-such-script",
+                          self.text.replace("milestone_seal.py --record", "seal_milestone.py", 1))
+
+    def test_an_outcome_box_the_document_never_states_is_caught(self) -> None:
+        self.assert_fires("invented-box",
+                          self.text.replace('STOP["what stops the loop"]',
+                                            'STOP["escalate to the founder"]', 1))
+
+    def test_putting_an_exported_image_back_is_caught(self) -> None:
+        self.assert_fires("raster", self.text + "\n![the loop](assets/loop.png)\n")
+
+    def test_deleting_the_fence_is_caught(self) -> None:
+        self.assert_fires("no-diagram", MERMAID_FENCE.sub("", self.text, count=1))
 
 
 class WiredTest(unittest.TestCase):
