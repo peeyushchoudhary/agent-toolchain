@@ -116,7 +116,16 @@ route, installer, or local checks.
 
 ## Architecture
 
-![SWE Agent architecture and data flow](docs/assets/swe-agent-architecture.png)
+```mermaid
+flowchart LR
+    S1["1. Repository route"] --> S2["2. Shared capabilities"]
+    S2 --> S3["3. Harness layer"]
+    S3 --> S4["4. Controlled work loop"]
+    S4 --> S5["5. Local proof"]
+    S5 --> S6["6. PR and audit trail"]
+    S5 -- "a failed gate returns the card" --> S4
+    S6 -. "lessons and session signals" .-> S1
+```
 
 Repository knowledge is the durable source of truth. Shared skills accelerate both harnesses;
 session signals are Claude-specific. Neither replaces repository knowledge.
