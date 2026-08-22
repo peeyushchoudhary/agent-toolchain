@@ -1,24 +1,22 @@
 # README restructure — working notes
 
-TOP 3 SO FAR: in progress
+TOP 3 SO FAR:
+1. A routed historical record contaminates the disclosure graph — moving the changelog into
+   docs/ with its links intact re-routed README.md back in at depth 3 and put the FRONT PAGE
+   under a 1200-word guide budget. Links into `install/` must become code spans.
+2. No existing routed doc could receive the 2,520-word record: three sit at 1,199-1,200 of
+   1,200. `RECORD_NAME` had to learn the accreting-improvement class, with a test pinning both
+   halves (a long record does not warn, a long non-record still does).
+3. `test_readme_diagram` hardcodes the literal `"## Architecture\n"`. Renaming that heading —
+   which `README_SECTIONS` allows — turns the suite red. Kept the heading, moved the section.
 
-## Baseline measurements
-in progress
+STATUS: COMPLETE. README 4910 -> 2895 words. All gates green.
 
-## Constraint verification
-in progress
 
-## What moved where
-in progress
 
-## Template changes
-in progress
 
-## Refused to cut
-in progress
 
-## Validation results
-in progress
+
 
 ---
 
@@ -223,3 +221,17 @@ relaxed to fit the edit.
   was summarised away; the front-page summaries are IN ADDITION to the full text.
 - Refused to weaken `test_readme_diagram` to allow a renamed architecture heading.
 - Refused to add badges or any marketing line.
+
+## What moved where
+
+| From | To |
+|---|---|
+| README `## Weekly improvements`, all 8 entries, 2520 words | `docs/improvements-weekly.md`, verbatim, `###` demoted to `##` |
+| README `## Weekly improvements` | README `## Recent improvements`: a 3-row index table + 3 summaries, 470 words |
+| README `## Architecture` (was 7th) | README 2nd, directly under the title block — diagram leads |
+| README `## Current state`, 739 words in one paragraph | 8 `###` subsections, 3 tables, same 20 claims |
+| nothing | README title block: a 4-row at-a-glance table |
+| nothing | `docs/README.md`: one index row for the record |
+
+Base commit: afacd28. Local `main` advanced to 5453737 while this branch worked, so
+diff against afacd28, not against main.
