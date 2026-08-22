@@ -83,13 +83,13 @@ def messages(payload: dict, rule: str) -> list[str]:
 
 
 def task(ident: str, writes: str, needs: str = "", serialises: str = "",
-         lane: str = "light") -> str:
+         lane: str = "light", covers: str = "AC-1") -> str:
     lines = [f"task: {ident}", f"title: work for {ident}", f"lane: {lane}"]
     if needs:
         lines.append(f"needs: {needs}")
     if serialises:
         lines.append(f"serialises: {serialises}")
-    lines += [f"writes: [{writes}]", "covers: [AC-1]"]
+    lines += [f"writes: [{writes}]", f"covers: [{covers}]"]
     return "\n```task\n" + "\n".join(lines) + "\n```\n"
 
 
@@ -108,12 +108,25 @@ def write_plan(root: Path, ident: str, *blocks: str, slug: str = "thing") -> Pat
     return path
 
 
-def write_spec(root: Path, ident: str, milestone: str | None = None, slug: str = "thing") -> None:
+def write_spec(root: Path, ident: str, milestone: str | None = None, slug: str = "thing",
+               tags: dict | None = None) -> None:
+    """`tags` marks a criterion with the optional priority tag: `{2: "P1"}` -> `AC-2 ... [P1]`.
+
+    The criteria are written WRAPPED over two lines, because that is how the real corpus writes
+    them and because the tag then lands on a line that carries no `AC-<n>` at all — a reader that
+    scanned one line at a time would find no tag here and this case would pass on nothing.
+    """
     lines = ["---", f"id: {ident}", f"title: feature {ident}", "prd: docs/product/prd.md",
              "status: approved", "updated: 2026-01-01"]
     if milestone:
         lines.append(f"milestone: {milestone}")
     lines += ["---", "", f"# {ident} — feature", ""]
+    if tags is not None:
+        lines += ["## Acceptance criteria", ""]
+        for number in sorted(tags):
+            mark = f" [{tags[number]}]" if tags[number] else ""
+            lines += [f"**AC-{number}** When request {number} arrives, given the store is",
+                      f"reachable, result {number} is recorded.{mark}", ""]
     (root / "docs" / "product" / "specs" / f"{ident}-{slug}.md").write_text(
         "\n".join(lines), encoding="utf-8")
 
@@ -273,6 +286,77 @@ def case_documented_serialises_is_qualified_under_milestone() -> None:
               "W6" in undeclared, f"rules: {undeclared}")
 
 
+def case_priority_is_the_tiebreak_and_only_inside_the_feature() -> None:
+    """The defect: the ready set's LAST key was `task.ident`, so nothing the spec said about which
+    criteria were the point could reach the dispatcher, and the operator supplied the order from
+    memory. Priority is now that last key — and the three assertions below are the three ways
+    putting it anywhere else goes wrong.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        root = make_root(Path(td))
+        (root / "docs" / "product" / "milestones" / "M2-two-features.md").write_text(
+            "---\nmilestone: M2\ntitle: the milestone\nstatus: building\nupdated: 2026-01-01\n"
+            "---\n\n# M2 — the milestone\n", encoding="utf-8")
+        write_spec(root, "F-1", milestone="M2", slug="one", tags={1: "", 2: "", 3: ""})
+        write_spec(root, "F-2", milestone="M2", slug="two", tags={1: "", 2: ""})
+        # Disjoint writes throughout, so every task is legal beside every other and the emitted
+        # order is the ORDER and not the collision rule showing through.
+        write_plan(root, "F-1",
+                   task("T1", "src/one/a/**", covers="AC-1"),
+                   task("T2", "src/one/b/**", covers="AC-2"),
+                   task("T3", "src/one/c/**", covers="AC-3"), slug="one")
+        write_plan(root, "F-2",
+                   task("T1", "src/two/a/**", covers="AC-1"),
+                   task("T2", "src/two/b/**", covers="AC-2"), slug="two")
+        init_repo(root)
+        rev = git(root, "rev-parse", "HEAD").strip()
+
+        flat = report(root, "--milestone", "M2", "--since", rev, "--ready")
+        expected = ["F-1/T1", "F-1/T2", "F-1/T3", "F-2/T1", "F-2/T2"]
+        check("5a with no criterion marked, the ready set is exactly the order it was before",
+              flat.get("ready") == expected, f"got {flat.get('ready')}")
+        check("5b and the run says so: `priority` is empty, so 5a is not passing on silence",
+              flat.get("priority") == {}, f"got {flat.get('priority')}")
+
+        # AC-3 is the criterion this feature exists for, and T3 is the task that closes it.
+        write_spec(root, "F-1", milestone="M2", slug="one", tags={1: "P3", 2: "", 3: "P1"})
+        marked = report(root, "--milestone", "M2", "--since", rev, "--ready")
+        check("5c the marked criterion reaches the dispatcher: T3 now leads its feature",
+              marked.get("ready") == ["F-1/T3", "F-1/T1", "F-1/T2", "F-2/T1", "F-2/T2"],
+              f"got {marked.get('ready')}")
+        check("5d and the tag is read off the WRAPPED line, where no `AC-<n>` appears",
+              marked.get("priority") == {"F-1/T1": "P3", "F-1/T3": "P1"},
+              f"got {marked.get('priority')}")
+
+        # TRAP ONE: the LATER feature adopts the notation and the earlier one has not. Under a
+        # priority key compared across features, `F-2/T1` would jump the whole of F-1 — so the
+        # first spec in a milestone to write a tag would promote itself over every feature that had
+        # not written one, and unmarked would silently mean last. Nobody ranked feature against
+        # feature in a spec; the milestone does that, and it does it by id.
+        write_spec(root, "F-1", milestone="M2", slug="one", tags={1: "", 2: "", 3: ""})
+        write_spec(root, "F-2", milestone="M2", slug="two", tags={1: "P1", 2: ""})
+        across = report(root, "--milestone", "M2", "--since", rev, "--ready")
+        check("5e a P1 in the SECOND feature does not jump the first: priority is never compared "
+              "across features", across.get("ready") == expected, f"got {across.get('ready')}")
+        check("5f and it was genuinely read, so 5e is not passing on an unread tag",
+              across.get("priority") == {"F-2/T1": "P1"}, f"got {across.get('priority')}")
+
+        write_spec(root, "F-1", milestone="M2", slug="one", tags={1: "P3", 2: "", 3: "P1"})
+        write_spec(root, "F-2", milestone="M2", slug="two", tags={1: "", 2: ""})
+
+        # TRAP TWO: priority must not outrank the measured throughput key. T2 now unlocks T9, so
+        # it leads the feature even though T3 is the P1 — 11%-22% of makespan is not for sale to a
+        # tag. The P1 still leads everything T2 does not unlock.
+        write_plan(root, "F-1",
+                   task("T1", "src/one/a/**", covers="AC-1"),
+                   task("T2", "src/one/b/**", covers="AC-2"),
+                   task("T3", "src/one/c/**", covers="AC-3"),
+                   task("T9", "src/one/d/**", needs="[T2]", covers="AC-2"), slug="one")
+        ranked = report(root, "--milestone", "M2", "--since", rev, "--ready")
+        check("5g a task that unlocks another still outranks the P1: `unlocks` stays the first key",
+              ranked.get("ready", [])[:2] == ["F-1/T2", "F-1/T3"], f"got {ranked.get('ready')}")
+
+
 def main() -> int:
     if not SCRIPT.exists():
         print(f"plan_waves.py not found at {SCRIPT}", file=sys.stderr)
@@ -287,7 +371,8 @@ def main() -> int:
     for case in (case_w7_reads_the_qualified_subject,
                  case_milestone_commit_actually_runs_the_check,
                  case_w4_remedy_applied_verbatim_silences_it,
-                 case_documented_serialises_is_qualified_under_milestone):
+                 case_documented_serialises_is_qualified_under_milestone,
+                 case_priority_is_the_tiebreak_and_only_inside_the_feature):
         case()
 
     print()
