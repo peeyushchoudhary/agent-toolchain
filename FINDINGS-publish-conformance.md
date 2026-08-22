@@ -147,3 +147,27 @@ Break proof, both mutations reverted afterwards:
  MUTATION B missing-layer verdict DOES_NOT_CONFORM -> CONFORMS => 1 assertion FAILS, rc=1
  RESTORED => rc=0.
 
+## F15 — the prose budget was NOT gamed and NOT paid by evicting evidence
+`docs/agents/what-gets-installed.md` was at **1199 of 1200 words** on `main` — one word of slack.
+A seventh skill cannot be added to that inventory without breaking the budget, so the WARN my
+edits produced was structural, not sloppiness. Resolved by ADDRESSING, which is what this
+toolchain's own validator says the honest fix is:
+ - the `agent-personas` re-vendoring rationale and its fixture output are a DECISION with a named
+   alternative, so they moved to `docs/decisions/decisions.md` as **D24**;
+ - the new material became **D20** (publish), **D21** (the suite is green only with the layer
+   installed, with all three suites' numbers), **D22** (publishing and Codex-mirroring came
+   apart), **D23** (the ninth check reports and owns no repair).
+`decisions.md` is a RECORD in `RECORD_NAME`, so it carries NO word budget — that is the
+validator's own recorded ruling, not a loophole found for this task.
+Result: what-gets-installed.md 1149 words, and `validate_disclosure.py . --standard` now reports
+**no findings in what ran**, where it reported 1 warning before.
+
+## F16 — three stale current-state claims found in passing, all fixed
+ - `what-gets-installed.md`: "`~/.claude/agents/` — 13 `.md` files". Truth on disk: **14**.
+ - `what-gets-installed.md`: "14 `.toml` files — 13 generated personas plus grok_worker".
+   Truth: **15 toml, 14 generated**.
+ - `decisions.md` D16 called `project-conformance` "**read-only**". It has `--fix`, which writes.
+   Reworded to "reports by default and writes nothing; `--fix` applies only what the report named".
+`verify.sh`'s `check_prose_agrees` only checks the FRONT PAGE for the persona count, and the front
+page was right (fourteen). These three documents are downstream of that check and had drifted.
+

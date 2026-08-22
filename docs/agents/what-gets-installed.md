@@ -8,60 +8,19 @@ The installed files are the authority; when this document disagrees, they win.
 ## Re-vendoring: what is left behind on purpose
 
 **The `agent-personas` test directory is not vendored. Do not restore it.** Its preflight resolves
-the human record of the judging roster as a sibling of the skill tree, which in the vendored layout
-lands under `install/`, where no `docs/` exists and none should — this repository's `docs/` is one
-level further up, and planting a copy to satisfy a fixture would let a test dictate the layout.
-Measured at `a008768`, that directory copied into the vendored position with the rest of `install/`
-present, so the record is the only missing input:
+the human record of the judging roster as a sibling of the skill tree, which under `install/` does
+not exist and should not. Measured, and weighed against the alternative, in
+[D24](../decisions/decisions.md).
 
-```
-IncompleteTree: THE FIXTURE IS WRONG, NOT THE CODE.
-  - the human record of the judging roster ... is ABSENT
-Ran 26 tests ... FAILED (failures=2, errors=11)
-```
+`check_toolchain.py --vendored <repo>` therefore reports **3 criticals, all expected**: those three
+test files, which cannot be silenced in that `.gitignore` — D24 says why. A count other than 3, or
+a finding not named here, is drift. **The baseline was 5**, at `a008768`; the other two were the
+`project-conformance` publication gap, now closed ([D20](../decisions/decisions.md)).
 
-Positive control, the same suite installed: `Ran 68 tests ... OK`. The suite is correct; the
-vendored position is not a complete tree for it, and collection itself fails — 26 reached, not 68.
-`verify.sh` runs vendored suites. Restoring this directory would surface the `agent-personas`
-suite's collection failure.
-
-`check_toolchain.py --vendored <repo>` therefore reports **3 criticals, all expected**: the three
-`agent-personas` test files above. A count other than 3, or a finding not named here, is drift.
-They cannot be silenced in that `.gitignore`: exclusion matches anchored rules on their first path
-component only, an interior-slash rule is skipped, and an unanchored pattern would exclude every
-test directory in both trees, including the `progressive-disclosure` suite `verify.sh` does run.
-
-**The baseline was 5 at `a008768`.** The other two were `install/skills/.gitignore` and
-`install/skills/README.md`, differing by one line each, both of them `project-conformance` — the
-publication gap. That gap is closed: the skill is vendored, declared, and named in both READMEs, so
-those two findings no longer have anything to report and the expected count drops to three.
-
-**`project-conformance` ships its tests and they are vendored.** Unlike `agent-personas`, its suite
-needs nothing outside the skill tree. Measured from the vendored position, run the way
-`run_one_suite` runs it — `cd install/skills/project-conformance && python3 -m unittest discover -s
-tests` — it is `Ran 56 tests ... OK`.
-
-That green is conditioned on `$HOME`, more tightly than the other suites are, and the difference is
-worth stating rather than discovering. `check_conformance.py` orchestrates and reimplements
-nothing: every judgement comes from the installed checker that already owns it. Its suite therefore
-drives the real tools under `~/.claude`. Under `HOME=$(mktemp -d)`, the three vendored suites
-measure:
-
-| suite | inherited `$HOME` | empty `$HOME` |
-|---|---|---|
-| `execution-methodology` | OK | `Ran 1070 ... OK (skipped=12)` |
-| `progressive-disclosure` | OK | `Ran 395 ... FAILED (failures=1, skipped=9)` |
-| `project-conformance` | `Ran 56 ... OK` | `Ran 56 ... FAILED (failures=15, errors=7, skipped=3)` |
-
-So `HOME=$(mktemp -d) ./verify.sh` — the run that shows what a machine with no installed toolchain
-sees — is red on this suite by construction, and that is a property of an orchestrator, not a
-defect in it. `./verify.sh` on a machine that has the layer installed is the run this suite answers.
-
-**`project-conformance` is NOT in `MIRRORED_SKILLS`, deliberately.** That tuple lives in
-`check_toolchain.py`, and the copy of `check_toolchain.py` in this repository is a vendored mirror
-of the installed one. Adding a name here and not there would manufacture a sixth vendored-drift
-critical against the very file that reports it. The mirror list is machine state and is changed on
-the machine first; publication does not change it.
+**`project-conformance` ships tests and they ARE vendored**, and it is **not** in
+`MIRRORED_SKILLS`. Its suite is `Ran 56 tests ... OK` from the vendored position and red under
+`HOME=$(mktemp -d)`, by construction rather than by defect. Both, with their numbers, are
+[D21](../decisions/decisions.md) and [D22](../decisions/decisions.md).
 
 ## Claude Code — `~/.claude/`
 
@@ -75,7 +34,7 @@ the machine first; publication does not change it.
 | `skills/execution-methodology/` | The pipeline from product spec to sealed milestone, and its renderer |
 | `skills/project-onboarding/` | The end-to-end procedure for bringing a project under the standard. Named by the session hook when a project is uninitialised |
 | `skills/graph-navigation/` | The symbol-first ladder for querying a graphify graph |
-| `skills/project-conformance/` | Whether an onboarded repository still meets the standard. Reports first; repairs only what the report named, under `--fix`. Run by hand, never by a hook |
+| `skills/project-conformance/` | Whether an onboarded repository still meets the standard. Reports; repairs only what it named, under `--fix`. Run by hand, never by a hook |
 | `skills/graphify/` | Vendor skill, not published by this repository. Hidden from model-initiated listing (see below) |
 
 `install.sh` installs the seven published ones, deriving that set from `install/skills/.gitignore`
@@ -94,7 +53,7 @@ rather than carrying its own list. `graphify` is listed because the installed la
 | `agent-personas/scripts/sync_personas.py` | Renders the pool into both harnesses; prunes orphans |
 | `execution-methodology/scripts/sync_methodology.py` | Renders the methodology into a repository as `docs/agents/execution/methodology.md` |
 | `execution-methodology/scripts/check_review_budget.py` | Bans workspace debris classes; the round count is advisory |
-| `project-conformance/scripts/check_conformance.py` | Nine checks against one onboarded repository: personas, route, hooks, identifier guard, methodology, github, plugin surface, preflight, product definition. Exit 0/1/2, where 2 is "could not be checked" |
+| `project-conformance/scripts/check_conformance.py` | Nine checks against one onboarded repository, each owned by the checker that already answers it. Exit 0/1/2, where 2 is "could not be checked" |
 
 ### Session hooks — wired in `~/.claude/settings.json`
 
@@ -113,7 +72,7 @@ including repositories that are not yours.
 
 ### Generated agents
 
-`~/.claude/agents/` — 13 `.md` files, one per persona. Generated by `sync_personas.py`. Do not edit.
+`~/.claude/agents/` — 14 `.md` files, one per persona. Generated by `sync_personas.py`. Do not edit.
 
 ### Instructions
 
@@ -125,8 +84,8 @@ posture. The GitHub and persona sections are byte-identical to their Codex count
 | Path | Purpose |
 |---|---|
 | `AGENTS.md` | Mirror of `~/.claude/CLAUDE.md`'s shared sections |
-| `agents/` | 14 `.toml` files — 13 generated personas plus the hand-written `grok_worker.toml` |
-| `skills/` | The published skills mirrored by `MIRRORED_SKILLS` in `check_toolchain.py` — six of the seven; `project-conformance` is published but not yet mirrored, see below. Refreshed by `install_hooks.py` or `install.sh`. `graphify` is there too, put by the vendor |
+| `agents/` | 15 `.toml` files — 14 generated personas plus the hand-written `grok_worker.toml` |
+| `skills/` | The six skills `MIRRORED_SKILLS` names — the seventh, `project-conformance`, is published but not watched here ([D22](../decisions/decisions.md)). Refreshed by `install_hooks.py` or `install.sh`. `graphify` is there too, put by the vendor |
 | `config.toml` | `[agents]` block: `enabled = true`, default subagent `gpt-5.6-terra` at `medium`, max 6 concurrent threads |
 
 The `[agents]` block leaves parent session settings untouched; it sets only what spawned agents
