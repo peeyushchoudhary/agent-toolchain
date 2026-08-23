@@ -19,12 +19,13 @@ declares its own state**, and every check is evaluated against the one repositor
 | --- | --- |
 | `progressive-disclosure` | The route standard: how a repository tells an agent what to read, in what order, and how much. Ships the validator, the git hooks, and the push guard. |
 | `execution-methodology` | The pipeline from product spec to merged milestone — its artifacts, its three human gates, the task card, the ledger contract. Rendered into each repository so both harnesses read the same rules. |
-| `agent-personas` | The thirteen harness-neutral roles, with model and effort already chosen, generated into `~/.claude/agents/` and `~/.codex/agents/`. |
+| `agent-personas` | The fourteen harness-neutral roles, with model and effort already chosen, generated into `~/.claude/agents/` and `~/.codex/agents/`. |
 | `agent-persona-factory` | Deriving project-specific specialists from a repository's own guardrails, architecture, and PRD. |
 | `graph-navigation` | Navigating an existing knowledge graph without falling back to prose queries. |
 | `project-onboarding` | Bringing a new repository under all of the above, in order, proposing before writing. |
 | `project-conformance` | Whether a repository that was onboarded still meets the standard, and repairing the part of that answer that is mechanical. Reports first, writes only under `--fix`, and is run by hand — never by a hook. |
 | `project-migration` | Moving an already-onboarded repository's product documents onto the bound schema — triage, plan, apply, adopt, confirm. Two read-only steps before the one that writes; `status:` and `reviewed_by:` are left for a person. |
+| `gate-sandbox` | Running a write-producing gate against a manifest-equal standalone copy inside an enforced macOS profile, with a readiness phase that refuses to spend an attempt on an unready machine. Machinery only; every project fact arrives from configuration outside this repository. |
 
 ## The two ideas it is built on
 
