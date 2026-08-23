@@ -69,16 +69,42 @@ chmod_scripts() {
 # leaving a gutted destination and no swap. A rename does not recurse, so it does not care what is
 # inside; the old copy only gets removed once the new one is already in place, and a failure there
 # leaves a working install. There is therefore no point at which both copies are gone.
+# Content that lives ONLY on the installed machine and must survive being installed over. Each entry
+# is `<skill>/<path within it>`, named one at a time, because the whole point is that adding one is a
+# decision somebody made rather than a pattern that swept a file up.
+#
+# `install_tree` replaces a skill directory wholesale, so anything under it that the vendored tree
+# does not carry is deleted on every run. That is correct for a stale script and catastrophic for
+# operator data, and the difference cannot be inferred — a file absent from the vendored tree looks
+# identical either way.
+#
+# ROUND-GRANTS.tsv is a ledger of founder decisions made on this machine. agent-personas/tests is
+# the persona suite, which is deliberately NOT vendored: three of its tests resolve the human record
+# at `<skill>/../../docs/`, a path that exists on an installed machine and not in this repository.
+# It was on no list, so every install deleted it, and it went missing for a whole milestone with
+# four live files still citing it — one by absolute path, as the only check that catches a judging
+# persona gaining a Bash tool. That is what a missing line here costs.
+#
+# A vendored copy always WINS: the guard below only restores a path the staged tree does not already
+# have. So vendoring one of these later needs no edit here — the entry just goes inert.
+PRESERVE_ACROSS_INSTALLS="
+execution-methodology/ROUND-GRANTS.tsv
+agent-personas/tests
+"
+
 install_tree() {
   local src="$1" dest="$2" staged="$2.staging.$$" aside="$2.replacing.$$"
+  local skill rel sub
+  skill="$(basename "$dest")"
   rm -rf "$staged" "$aside" || return 1
   if cp -R "$src" "$staged" && chmod_scripts "$staged"; then
-    # Operator data rides across installs. ROUND-GRANTS.tsv is a ledger of founder decisions made
-    # on THIS machine — it is not published behaviour, is deliberately absent from the vendored
-    # tree, and an install must never erase it.
-    if [ -f "$dest/ROUND-GRANTS.tsv" ] && [ ! -e "$staged/ROUND-GRANTS.tsv" ]; then
-      cp "$dest/ROUND-GRANTS.tsv" "$staged/ROUND-GRANTS.tsv" || { rm -rf "$staged"; return 1; }
-    fi
+    while IFS= read -r rel; do
+      [ -n "$rel" ] || continue
+      case "$rel" in "$skill"/?*) sub="${rel#*/}" ;; *) continue ;; esac
+      [ -e "$dest/$sub" ] && [ ! -e "$staged/$sub" ] || continue
+      mkdir -p "$(dirname "$staged/$sub")" || { rm -rf "$staged"; return 1; }
+      cp -R "$dest/$sub" "$staged/$sub" || { rm -rf "$staged"; return 1; }
+    done <<< "$PRESERVE_ACROSS_INSTALLS"
     if [ ! -e "$dest" ] || mv "$dest" "$aside"; then
       if mv "$staged" "$dest"; then
         [ ! -e "$aside" ] || rm -rf "$aside" ||
@@ -341,6 +367,7 @@ if path.is_file():
         print(f"  REFUSED: {path} is not valid JSON ({e}).")
         print("  Fix it by hand, then re-run. A malformed settings.json disables every setting in it.")
         raise SystemExit(1)
+
 # THE MERGE IS COMPUTED BEFORE ANYTHING IS BACKED UP OR WRITTEN, so that a run which adds nothing
 # touches nothing. The backup used to be taken here, immediately after the read, and the write
 # happened unconditionally below — so re-running the installer on an already-installed machine
