@@ -498,6 +498,36 @@ def tree(root: Path, pattern: str = "**/*") -> tuple[dict[str, bytes], list[tupl
     return files, problems
 
 
+# Paths inside a mirrored skill that live on the CLAUDE SIDE ONLY, by construction rather than by
+# drift. `<skill>/<path within it>`, one entry at a time, each carrying an argument a reader can
+# weigh — the same discipline `DECLARED_VENDOR_SKILLS` is held to, and for the same reason.
+#
+# WHY THIS EXISTS AT ALL. `check_skills` compares two trees and reports every difference, which is
+# right for a stale mirror and wrong for a difference that CANNOT be removed. The remedy it prints
+# is `install_hooks.py <any-repo>`, and for a path that must not exist on the Codex side that
+# command will never clear the finding. A warning that fires at every session start, in every
+# directory, under a remedy that does not work is the cry-wolf pathology this file's own comments
+# name repeatedly — the reader runs the command, sees the finding survive, and learns to skip both
+# it and the real ones beside it.
+#
+# THE ONE ENTRY. `agent-personas/tests` resolves the human record at `<skill>/../../docs/`. That
+# path exists under ~/.claude and does not exist under ~/.codex, so a mirrored copy could not run;
+# the suite fails loudly on a partial tree rather than passing weakly, which is the behaviour that
+# makes copying it there actively worse than not having it.
+#
+# IT IS EXEMPT FROM THE DIFF, NOT FROM THE CHECK, and the difference matters. Absent on the Codex
+# side is the declared state and is silent. PRESENT on the Codex side is a finding — something
+# copied it where it cannot work — so the exemption fails CLOSED in the direction it is not making
+# a claim about. An exemption that silenced both directions would be the fail-open shape this file
+# exists to remove.
+CLAUDE_ONLY_IN_MIRROR: dict[str, str] = {
+    "agent-personas/tests": "the persona suite resolves the human record at `<skill>/../../docs/`, "
+                            "a path that exists under ~/.claude and not under ~/.codex, so a "
+                            "mirrored copy could not run and install_hooks.py cannot ever clear "
+                            "the difference; it is permanent by construction, not drift.",
+}
+
+
 def check_skills() -> list[tuple[str, str]]:
     if not CODEX_SKILLS.is_dir():
         return [(NOT_RUN, "the Codex skill mirror was NOT RUN: ~/.codex/skills does not exist, so "
@@ -523,6 +553,34 @@ def check_skills() -> list[tuple[str, str]]:
         # A path this walk could not read is neither present nor absent — exclude it from the
         # present/absent diff and name it directly, rather than reporting it as missing.
         unread = {rel for rel, _ in a_bad} | {rel for rel, _ in b_bad}
+
+        # Claude-only regions come out of the diff, in the Claude-only direction ONLY.
+        owned = {rel.split("/", 1)[1]: why for rel, why in CLAUDE_ONLY_IN_MIRROR.items()
+                 if rel.split("/", 1)[0] == name}
+
+        def owning_entry(rel: str) -> str | None:
+            """The declared sub-path covering `rel`, or None. Longest match, so a nested
+            declaration is attributed to the entry that actually names it rather than to whichever
+            one happened to be first in the dict."""
+            hits = [sub for sub in owned if rel == sub or rel.startswith(sub + "/")]
+            return max(hits, key=len) if hits else None
+
+        # The direction this is NOT a claim about. Something put the region on the Codex side, where
+        # it cannot work; that is reported rather than swallowed, and its remedy is a deletion, so it
+        # does not inherit the install_hooks.py line that would not clear it.
+        intruders = sorted(rel for rel in set(b) | {r for r, _ in b_bad} if owning_entry(rel))
+        if intruders:
+            detail = ", ".join(intruders[:3]) + (f", +{len(intruders) - 3} more"
+                                                 if len(intruders) > 3 else "")
+            why = owned[owning_entry(intruders[0])]
+            out.append(("warn", f"skill `{name}` has Claude-only path(s) present in ~/.codex/skills "
+                                f"({detail}) — {why} Fix: delete them from ~/.codex/skills; "
+                                f"install_hooks.py will not."))
+        a = {k: v for k, v in a.items() if not owning_entry(k)}
+        b = {k: v for k, v in b.items() if not owning_entry(k)}
+        a_bad = [(rel, w) for rel, w in a_bad if not owning_entry(rel)]
+        b_bad = [(rel, w) for rel, w in b_bad if not owning_entry(rel)]
+        unread = {rel for rel in unread if not owning_entry(rel)}
 
         # Symlinks get their own finding, because they get their own remedy. Folded into `bad`
         # below they inherited "Fix: install_hooks.py <any-repo>", which cannot clear them under

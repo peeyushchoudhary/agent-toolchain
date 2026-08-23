@@ -989,6 +989,126 @@ class CodexMirrorRemedyTest(unittest.TestCase):
             self.assertIn("replace the symlink with a real directory", joined)
             self.assertNotIn("Fix: install_hooks.py", joined)
 
+    def test_a_declared_claude_only_path_is_not_reported_as_drift(self) -> None:
+        """The reason the exemption exists: a difference no remedy can clear must not be reported.
+
+        `install_hooks.py` is what this check prescribes, and for a path that must NOT reach the
+        Codex side that command can never clear the finding. A warning firing at every session
+        start under a remedy that does not work is the cry-wolf failure this file names repeatedly.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            with self.mirror(tmp) as (claude, codex):
+                saved = toolchain.CLAUDE_ONLY_IN_MIRROR
+                toolchain.CLAUDE_ONLY_IN_MIRROR = {"demo/tests": "declared for this test"}
+                try:
+                    (claude / "demo" / "tests").mkdir()
+                    (claude / "demo" / "tests" / "only_here.py").write_text("x\n", encoding="utf-8")
+                    findings = toolchain.check_skills()
+                finally:
+                    toolchain.CLAUDE_ONLY_IN_MIRROR = saved
+
+            self.assertEqual(findings, [], findings)
+
+    def test_emptying_the_declaration_makes_it_a_finding_again(self) -> None:
+        """The exemption must be load-bearing rather than decorative — the same property
+        `test_deleting_the_declaration_makes_the_vendor_skill_a_finding_again` asserts for the
+        vendor list. If the finding does not come back when the list is emptied, the list is not
+        what is suppressing it and the entry is documenting something that is not happening."""
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            with self.mirror(tmp) as (claude, codex):
+                (claude / "demo" / "tests").mkdir()
+                (claude / "demo" / "tests" / "only_here.py").write_text("x\n", encoding="utf-8")
+                saved = toolchain.CLAUDE_ONLY_IN_MIRROR
+                toolchain.CLAUDE_ONLY_IN_MIRROR = {}
+                try:
+                    findings = toolchain.check_skills()
+                finally:
+                    toolchain.CLAUDE_ONLY_IN_MIRROR = saved
+
+            self.assertEqual([sev for sev, _ in findings], ["warn"], findings)
+            self.assertIn("differs from the Codex copy", findings[0][1])
+
+    def test_a_claude_only_path_PRESENT_on_the_codex_side_is_still_a_finding(self) -> None:
+        """The exemption is scoped to one direction, and the other one fails CLOSED.
+
+        Absent on the Codex side is the declared state and is silent. Present there means something
+        copied the region where it cannot work, which is a real defect with a real remedy — and the
+        remedy is a deletion, so it must NOT inherit the `install_hooks.py` line that would not
+        clear it. An exemption that silenced both directions would be the fail-open shape this file
+        exists to remove.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            with self.mirror(tmp) as (claude, codex):
+                saved = toolchain.CLAUDE_ONLY_IN_MIRROR
+                toolchain.CLAUDE_ONLY_IN_MIRROR = {"demo/tests": "cannot run on the Codex side."}
+                try:
+                    for side in (claude, codex):
+                        (side / "demo" / "tests").mkdir()
+                        (side / "demo" / "tests" / "t.py").write_text("x\n", encoding="utf-8")
+                    findings = toolchain.check_skills()
+                finally:
+                    toolchain.CLAUDE_ONLY_IN_MIRROR = saved
+
+            self.assertEqual([sev for sev, _ in findings], ["warn"], findings)
+            self.assertIn("Claude-only path(s) present in ~/.codex/skills", findings[0][1])
+            self.assertIn("delete them", findings[0][1])
+            self.assertNotIn("Fix: install_hooks.py", findings[0][1])
+
+    def test_the_claude_only_list_is_short_and_every_entry_carries_a_reason(self) -> None:
+        """The other half of the exemption, matching the vendor list's cap exactly. A list that may
+        grow silently is an allow-list again, and an exclusion set large enough to skim is one
+        nobody audits. Two is one more than today's single legitimate entry."""
+        declared = toolchain.CLAUDE_ONLY_IN_MIRROR
+        self.assertIsInstance(declared, dict)
+        self.assertGreaterEqual(len(declared), 1, "an empty list makes the exemption vacuous")
+        self.assertLessEqual(len(declared), 2, sorted(declared))
+        for rel, why in declared.items():
+            self.assertIn("/", rel, f"`{rel}` must be <skill>/<path within it>, not a bare name — "
+                                    f"a bare basename would exempt that name in every skill")
+            self.assertIn(rel.split("/", 1)[0], toolchain.MIRRORED_SKILLS,
+                          f"`{rel}` names a skill that is not mirrored, so it exempts nothing")
+            self.assertGreater(len(why), 40,
+                               f"`{rel}` is excluded with no argument a reader can weigh: {why!r}")
+
+    def test_the_copier_reads_the_same_declaration_as_the_checker(self) -> None:
+        """The defect this file already suffered once, one turn later.
+
+        `sync_codex`'s own comment records it: a second hardcoded copy of the mirrored-skill roster
+        is how `execution-methodology` came to be checked but never copied, so the checker's own
+        suggested fix could not satisfy the checker. A Claude-only list that the COPIER does not
+        read is the same shape — the checker would report a path it must not see while the copier
+        kept putting it there, forever, under a remedy that causes the finding.
+
+        Asserted against the AST, not the text: READING the name is the whole point, so a line
+        containing it proves nothing on its own and a substring rule cannot tell a use from a
+        redefinition. What must not exist is an ASSIGNMENT to the name — that is the second copy.
+        """
+        src = (Path(toolchain.__file__).resolve().parent / "install_hooks.py").read_text(
+            encoding="utf-8")
+        tree = ast.parse(src)
+
+        imported = [n for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+                    and n.module == "check_toolchain"
+                    and any(a.name == "CLAUDE_ONLY_IN_MIRROR" for a in n.names)]
+        self.assertTrue(imported,
+                        "sync_codex does not import the Claude-only declaration, so it will copy "
+                        "the very paths check_skills reports as intruders — the checker's own "
+                        "remedy would then be the thing causing the finding")
+
+        assigned = []
+        for n in ast.walk(tree):
+            targets = ([n.target] if isinstance(n, ast.AnnAssign)
+                       else getattr(n, "targets", []) if isinstance(n, ast.Assign) else [])
+            for t in targets:
+                if isinstance(t, ast.Name) and t.id == "CLAUDE_ONLY_IN_MIRROR":
+                    assigned.append(n.lineno)
+        self.assertEqual(assigned, [],
+                         f"install_hooks.py RESTATES the declaration at line(s) {assigned} rather "
+                         f"than importing it — the second-copy defect its own comment describes")
+
     def test_ordinary_drift_still_prescribes_install_hooks(self) -> None:
         """The remedy that DOES work must survive the split, unchanged."""
         with tempfile.TemporaryDirectory() as t:
