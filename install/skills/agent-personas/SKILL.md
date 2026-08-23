@@ -237,7 +237,7 @@ has already been defined, which is the most expensive moment to discover it.
 
 One optional key in the overlay's front matter fixes that:
 
-```yaml
+```yml
 covers: [tenancy, personal data]
 ```
 
