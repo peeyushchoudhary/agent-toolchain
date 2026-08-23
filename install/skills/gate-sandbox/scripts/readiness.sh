@@ -39,7 +39,18 @@ ok "branch    $REFERENT_BRANCH, tree clean"
 NONCE="$(date +%s)$$"
 COMPOSE_PROJECT="$(compose_project_name "$NONCE")"
 ROOT="$(resolve_root "$GATE_RUN_ROOT/readiness-$NONCE")"   # physical, or the sandbox denies every write
-trap '[ "$CLEAN" = "1" ] && rm -rf "$ROOT"' EXIT
+# --clean removes the run root, EXCEPT when checks failed. Evidence for a failed run is the only
+# evidence anyone needs: the first version deleted a 900s timeout's log along with everything else,
+# so the one line that could explain the failure was destroyed by the flag meant to keep things
+# tidy. A passing run has nothing worth keeping; a failing one is all keep.
+cleanup() {
+  if [ "$CLEAN" = "1" ] && [ "$FAILURES" -eq 0 ]; then
+    rm -rf "$ROOT"
+  elif [ "$CLEAN" = "1" ]; then
+    printf '%sevidence kept at %s/evidence (checks failed; --clean does not discard that)%s\n' "$DIM" "$ROOT" "$RST"
+  fi
+}
+trap cleanup EXIT
 
 head_ "Run root"
 provision_root "$ROOT"
