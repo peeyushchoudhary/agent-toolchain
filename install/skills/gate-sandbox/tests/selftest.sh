@@ -104,6 +104,20 @@ check "exactly one write subpath grant per run root" "1" \
 case "$PROF" in *"(allow network-outbound (literal \"$GATE_DOCKER_SOCKET\"))"*) sk=yes ;; *) sk=no ;; esac
 check "the daemon socket is granted by literal path, not a subpath" "yes" "$sk"
 
+# A JVM binds IPv4 loopback through a dual-stack socket, so the kernel sees ::ffff:127.0.0.1 and no
+# `(local ip "localhost:*")` filter matches it. That denied every Gradle daemon and reported
+# "Unable to start the daemon process", which sends you to look at the daemon. Reproduced here with
+# a dual-stack Python socket so the check needs no JDK and runs anywhere.
+check "a dual-stack IPv4 loopback bind is permitted (the JVM's shape)" "BOUND" \
+  "$(sandboxed "$FIX" "$FIX/copy" 'python3 -c "
+import socket
+s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+try:
+    s.bind((\"::ffff:127.0.0.1\", 0)); s.listen(1); print(\"BOUND\")
+except Exception as e: print(\"DENIED\", e)
+"')"
+
 printf '\n── the physical-path trap\n'
 # The regression that cost the most time. A profile written against the LOGICAL path denies every
 # write, because macOS matches resolved paths -- and it presents as "the copy is broken", which

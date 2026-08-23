@@ -322,8 +322,27 @@ write_profile() {
 ; The EXACT socket, by literal path. Not a subpath of its directory, not a wildcard.
 (allow network-outbound (literal "$GATE_DOCKER_SOCKET"))
 
-; Loopback only. The stack talks to itself; nothing here reaches the internet.
-(allow network* (local ip "localhost:*") (remote ip "localhost:*"))
+; OUTBOUND is the restricted direction, and it stays restricted: loopback only, plus the one
+; daemon socket granted above. Nothing in this profile can reach the internet, and that is the
+; property the receipt depends on.
+(allow network-outbound (remote ip "localhost:*"))
+
+; BIND AND INBOUND ARE UNFILTERED, deliberately, with a measured cause.
+;
+; A JVM on macOS binds IPv4 loopback through a DUAL-STACK socket, so the kernel sees
+; ::ffff:127.0.0.1 and no (local ip "localhost:*") filter matches it. Measured with a control: in
+; the filtered profile the JVM's bind to 127.0.0.1 is denied while its bind to ::1 succeeds, and
+; Python's bind to 127.0.0.1 succeeds -- the difference is the socket, not the address. It presents
+; as "Unable to start the daemon process", which sends you to look at the daemon.
+;
+; Both are required together; each alone still denies the bind, and the filtered forms
+; (local ip "*:*") do not help. Tested, not assumed.
+;
+; What this widens: listening, not reaching out. The residual exposure is a listening socket on a
+; non-loopback address, and that is not a new class here -- the compose stack already publishes
+; host ports from OUTSIDE this sandbox entirely.
+(allow network-bind)
+(allow network-inbound)
 SBPL
 }
 

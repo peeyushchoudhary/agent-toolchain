@@ -107,7 +107,21 @@ A project names cache **kinds** (`gradle`, `pnpm`, `uv`, `playwright`, `npm`, `c
 `maven`); the host file owns where each one lives. That is the boundary that keeps a project file
 portable.
 
-## Three traps that cost real time
+### What a probe command can reference
+
+Probe commands in `GATE_OFFLINE_STEPS` run inside the sandbox and can use anything the environment
+carries, including:
+
+| Variable | Meaning |
+| --- | --- |
+| `GATE_CACHE_DIR_<kind>` | the provisioned cache directory for that kind |
+
+That exists for toolchains whose cache location is **not settable by environment at all** — pnpm is
+the example below. Reference it in the probe and pass whatever flag the tool requires, rather than
+hardcoding a path this skill already knows. Single-quote the array element so it reaches the sandbox
+unexpanded; the config file is sourced by the launcher, where the variable is not set.
+
+## Five traps that cost real time
 
 **The run root must be a physical path.** macOS matches *resolved* paths, and both natural homes for
 a run root are symlinks — `/tmp` → `/private/tmp`, and `$TMPDIR`'s `/var` → `/private/var`. A
@@ -124,6 +138,21 @@ subject instead of itself. Scripts are written to a file and executed.
 so an isolated `HOME` makes them vanish — which reads as a broken daemon and is really a missing
 lookup path. The runtime's own plugin directory is exposed through a throwaway config; the real
 `~/.docker/config.json` carries registry auth and must never enter the sandbox.
+
+**A JVM binds IPv4 loopback through a dual-stack socket.** The kernel therefore sees
+`::ffff:127.0.0.1`, which no `(local ip "localhost:*")` filter matches — so every Gradle daemon
+failed to start under a filtered rule, reporting *Unable to start the daemon process*, which sends
+you to look at the daemon. Measured with a control: the JVM's bind to `127.0.0.1` was denied while
+its bind to `::1` succeeded, and Python's bind to `127.0.0.1` succeeded. The difference is the
+socket, not the address. `network-bind` and `network-inbound` must BOTH be unfiltered; each alone
+still denies it, and `(local ip "*:*")` does not help. Outbound stays restricted.
+
+**A cache setting the tool ignores looks exactly like one it honours.** pnpm's store location is
+settable by `--store-dir` and nothing else — not `PNPM_STORE_PATH`, not `npm_config_store_dir`, and
+not a `store-dir=` line in `.npmrc`, `.config/pnpm/rc` or `.config/npm/npmrc`. All five were tried
+and silently ignored. With a real HOME the default store is correct anyway, so the setting appears
+to work everywhere except the fresh HOME this sandbox insists on. Asserting the path *exists* is
+necessary and insufficient; `check_cache_agreement` asks the **tool** where its cache is.
 
 ## Verifying
 
