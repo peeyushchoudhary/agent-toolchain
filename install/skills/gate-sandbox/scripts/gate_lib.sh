@@ -385,7 +385,20 @@ gate_env() { # gate_env <run-root> -> one VAR=value per line
   printf 'DOCKER_HOST=unix://%s\n'    "$GATE_DOCKER_SOCKET"
   printf 'COMPOSE_PROJECT_NAME=%s\n'  "$COMPOSE_PROJECT"
   printf 'LANG=%s\n'                  "${GATE_LANG:-en_US.UTF-8}"
-  [ -n "${GATE_JAVA_HOME:-}" ] && printf 'JAVA_HOME=%s\n' "$GATE_JAVA_HOME"
+  if [ -n "${GATE_JAVA_HOME:-}" ]; then
+    printf 'JAVA_HOME=%s\n' "$GATE_JAVA_HOME"
+    # FORCE A PURE IPv4 STACK, and the reason is the profile rather than the JVM.
+    #
+    # A dual-stack JVM connects to loopback as ::ffff:127.0.0.1, and SBPL cannot express that: it
+    # accepts only `*` or `localhost` as a host in a network address, so the mapped form matches no
+    # filter. The Gradle client then cannot reach its own daemon and reports "Could not connect to
+    # the Gradle daemon", which sends you to look at the daemon.
+    #
+    # The alternative was unfiltered outbound, which would have allowed real internet egress and
+    # cost the one property the receipt depends on. This keeps it: verified with a control, egress
+    # to a raw IP is still refused under this profile.
+    printf 'JAVA_TOOL_OPTIONS=%s\n' "${GATE_JAVA_TOOL_OPTIONS:--Djava.net.preferIPv4Stack=true}"
+  fi
   # An offline step that retries a lookup it can never satisfy turns a fast failure into a stall;
   # these bound npm-family resolvers so a blocked fetch reports rather than hangs.
   printf 'npm_config_fetch_retries=0\n'

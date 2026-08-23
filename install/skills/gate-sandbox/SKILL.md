@@ -100,6 +100,7 @@ runtime changed without anyone noticing is not the same gate.
 | `GATE_JAVA_HOME` | JDK for JVM projects; `env -i` strips the inherited one |
 | `GATE_RUN_ROOT` | where run roots and the shared cache clone live |
 | `GATE_CACHE_PATH_<kind>` | host location of each cache kind |
+| `GATE_JAVA_TOOL_OPTIONS` | JVM options inside the sandbox; defaults to `-Djava.net.preferIPv4Stack=true` |
 | `GATE_LANG` | locale inside the sandbox; defaults to `en_US.UTF-8` |
 | `GATE_EXTRA_PATH` | extra `PATH` entries for a toolchain in an unusual place |
 
