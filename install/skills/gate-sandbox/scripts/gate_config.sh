@@ -77,7 +77,10 @@ gate_derive_host() {
 gate_cache_env_vars() { # gate_cache_env_vars <kind> <path>
   case "$1" in
     gradle)     printf 'GRADLE_USER_HOME=%s\n' "$2" ;;
-    pnpm)       printf 'PNPM_HOME=%s\nPNPM_STORE_PATH=%s/store\n' "$2" "$2" ;;
+    # The cloned directory IS the store. pnpm appends its own `v<N>` inside it, so pointing at a
+    # `store/` subdirectory hands pnpm an empty store it then silently creates — and `--offline`
+    # has nothing to link from. That cost a 900s timeout that looked like slowness and was a typo.
+    pnpm)       printf 'PNPM_STORE_PATH=%s\nPNPM_HOME=%s\n' "$2" "$2/.pnpm-home" ;;
     uv)         printf 'UV_CACHE_DIR=%s\n' "$2" ;;
     playwright) printf 'PLAYWRIGHT_BROWSERS_PATH=%s\n' "$2" ;;
     npm)        printf 'npm_config_cache=%s\n' "$2" ;;

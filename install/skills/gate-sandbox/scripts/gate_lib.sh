@@ -196,6 +196,29 @@ provision_caches() { # provision_caches <run-root> [refresh]
   rm -rf "$root/caches"
   ln -s "$shared" "$root/caches"
   CACHE_SOURCE="$shared"
+  check_cache_targets "$root"
+}
+
+# EVERY VARIABLE HANDED TO A TOOLCHAIN MUST POINT AT SOMETHING THAT EXISTS.
+#
+# A cache variable aimed at a path the clone never created does not fail — the toolchain creates the
+# directory, finds it empty, and behaves as though it has no cache at all. Offline then fails for a
+# reason that has nothing to do with being offline. That is exactly how a mistyped pnpm store path
+# presented as a 900-second timeout, with the log saying only that it had not finished.
+check_cache_targets() {
+  local root="$1" kind line var path
+  for kind in ${GATE_CACHES[@]+"${GATE_CACHES[@]}"}; do
+    var="GATE_CACHE_PATH_$kind"; [ -n "${!var:-}" ] || continue
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      path="${line#*=}"
+      case "$path" in
+        *.pnpm-home) continue ;;   # a bin directory the toolchain creates; not a cache lookup
+        -*) continue ;;            # a flag, not a path (maven passes -Dmaven.repo.local=...)
+      esac
+      [ -e "$path" ] || bad "$kind cache: ${line%%=*} points at $path, which does not exist — the toolchain will see an EMPTY cache and offline steps will fail for the wrong reason"
+    done < <(gate_cache_env_vars "$kind" "$root/caches/$kind")
+  done
 }
 
 # "The imported caches contain no project build/test outputs" is true BY CONSTRUCTION -- only host
