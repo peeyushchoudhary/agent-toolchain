@@ -956,7 +956,12 @@ def sync_codex(root: Path) -> str | None:
     # checker's own suggested fix could not satisfy the checker. Import rather than restate; the two
     # scripts ship in the same directory, so an ImportError means a broken install, not a fallback.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from check_toolchain import MIRRORED_SKILLS
+    # CLAUDE_ONLY_IN_MIRROR for the same reason, and it is the same defect one turn later. The
+    # checker declares which paths must NOT reach the Codex side; this function is what puts them
+    # there. Restating the list here instead of importing it would reproduce exactly the failure the
+    # paragraph above describes — the checker reporting a difference that its own suggested fix
+    # cannot clear, because a different copy of the roster decided otherwise.
+    from check_toolchain import CLAUDE_ONLY_IN_MIRROR, MIRRORED_SKILLS
 
     targets = [d for d in (Path.home() / ".codex" / "skills", root / ".codex" / "skills")
                if d.is_dir()]
@@ -971,7 +976,27 @@ def sync_codex(root: Path) -> str | None:
             dest = dest_root / name
             if dest.exists():
                 shutil.rmtree(dest)
-            shutil.copytree(src, dest, ignore=shutil.ignore_patterns("__pycache__"))
+            # Declared Claude-only sub-paths are skipped rather than copied. `ignore` is called with
+            # each directory being walked, so the comparison is rebuilt per directory against the
+            # skill-relative path — matching a bare basename would skip a `tests/` anywhere in any
+            # skill, which is a wider rule than anything declared.
+            owned = [rel.split("/", 1)[1] for rel in CLAUDE_ONLY_IN_MIRROR
+                     if rel.split("/", 1)[0] == name]
+
+            def skip(directory: str, entries: list[str], _src: Path = src,
+                     _owned: list[str] = owned) -> set[str]:
+                out = {e for e in entries if e == "__pycache__"}
+                here = Path(directory).resolve().relative_to(_src.resolve())
+                for e in entries:
+                    # NOT `(here / e).as_posix().lstrip("./")`. `lstrip` takes a character SET, so it
+                    # would strip the leading dot off every dotfile at the top level — `.gitignore`
+                    # arriving as `gitignore` — and silently compare the wrong name.
+                    rel = e if here == Path(".") else f"{here.as_posix()}/{e}"
+                    if any(rel == sub or rel.startswith(sub + "/") for sub in _owned):
+                        out.add(e)
+                return out
+
+            shutil.copytree(src, dest, ignore=skip)
             copied.add(name)
     where = " + ".join("global" if t == Path.home() / ".codex" / "skills" else "repo" for t in targets)
     return f"{', '.join(sorted(copied))} -> {where}" if copied else None
