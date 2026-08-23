@@ -197,6 +197,35 @@ provision_caches() { # provision_caches <run-root> [refresh]
   ln -s "$shared" "$root/caches"
   CACHE_SOURCE="$shared"
   check_cache_targets "$root"
+  check_cache_agreement "$root"
+}
+
+# THE VARIABLE EXISTED, POINTED SOMEWHERE REAL, AND THE TOOL IGNORED IT.
+#
+# check_cache_targets asserts the path exists, which is necessary and was not sufficient: pnpm was
+# handed a correct path through a variable it does not read, so the check passed and the toolchain
+# still used an empty default store. The only honest question is whether the TOOL AGREES about
+# where its cache is, so that is what this asks — of the tool, not of our configuration.
+check_cache_agreement() {
+  local root="$1" kind reported
+  for kind in ${GATE_CACHES[@]+"${GATE_CACHES[@]}"}; do
+    case "$kind" in
+      pnpm)
+        # Asked through the ONLY mechanism that works. pnpm's store location is settable by
+        # `--store-dir` and by nothing else: not PNPM_STORE_PATH, not npm_config_store_dir, and not
+        # a `store-dir=` line in .npmrc, .config/pnpm/rc or .config/npm/npmrc — all four were tried
+        # and all four were silently ignored. So a project's probe must pass the flag, and this
+        # verifies the flag reaches the provisioned cache rather than verifying our own intent.
+        command -v pnpm >/dev/null 2>&1 || continue
+        reported="$(HOME="$root/home" pnpm store path --store-dir "$root/caches/pnpm" 2>/dev/null)"
+        case "$reported" in
+          "$root/caches/pnpm"/*)
+            ok "pnpm resolves --store-dir to the provisioned cache (\$GATE_CACHE_DIR_pnpm)" ;;
+          *)
+            bad "pnpm resolves --store-dir to ${reported:-<unknown>}, not the provisioned cache" ;;
+        esac ;;
+    esac
+  done
 }
 
 # EVERY VARIABLE HANDED TO A TOOLCHAIN MUST POINT AT SOMETHING THAT EXISTS.
@@ -346,6 +375,10 @@ gate_env() { # gate_env <run-root> -> one VAR=value per line
     var="GATE_CACHE_PATH_$kind"; path="${!var:-}"
     [ -n "$path" ] || continue
     gate_cache_env_vars "$kind" "$root/caches/$kind"
+    # The raw directory, for toolchains whose cache location is NOT settable by environment. A
+    # project's probe references it as $GATE_CACHE_DIR_<kind> and passes whatever flag that tool
+    # requires, rather than every project hardcoding a path this skill already knows.
+    printf 'GATE_CACHE_DIR_%s=%s\n' "$kind" "$root/caches/$kind"
   done
   printf 'PATH=%s\n' "$(gate_path)"
 }

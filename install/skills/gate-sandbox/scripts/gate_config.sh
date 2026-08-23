@@ -77,10 +77,13 @@ gate_derive_host() {
 gate_cache_env_vars() { # gate_cache_env_vars <kind> <path>
   case "$1" in
     gradle)     printf 'GRADLE_USER_HOME=%s\n' "$2" ;;
-    # The cloned directory IS the store. pnpm appends its own `v<N>` inside it, so pointing at a
-    # `store/` subdirectory hands pnpm an empty store it then silently creates — and `--offline`
-    # has nothing to link from. That cost a 900s timeout that looked like slowness and was a typo.
-    pnpm)       printf 'PNPM_STORE_PATH=%s\nPNPM_HOME=%s\n' "$2" "$2/.pnpm-home" ;;
+    # pnpm's store location is NOT settable by environment variable. Neither PNPM_STORE_PATH nor
+    # npm_config_store_dir is read; only `--store-dir` or an npmrc `store-dir=` entry is. Setting a
+    # variable pnpm ignores looks correct and does nothing, and with a real HOME the default store
+    # is the right one anyway — so it works everywhere except the fresh HOME this sandbox insists
+    # on. See write_cache_config in gate_lib.sh, which writes the npmrc that actually works.
+    # PNPM_HOME is a bin directory and is genuinely a variable.
+    pnpm)       printf 'PNPM_HOME=%s\n' "$2/.pnpm-home" ;;
     uv)         printf 'UV_CACHE_DIR=%s\n' "$2" ;;
     playwright) printf 'PLAYWRIGHT_BROWSERS_PATH=%s\n' "$2" ;;
     npm)        printf 'npm_config_cache=%s\n' "$2" ;;
