@@ -69,16 +69,42 @@ chmod_scripts() {
 # leaving a gutted destination and no swap. A rename does not recurse, so it does not care what is
 # inside; the old copy only gets removed once the new one is already in place, and a failure there
 # leaves a working install. There is therefore no point at which both copies are gone.
+# Content that lives ONLY on the installed machine and must survive being installed over. Each entry
+# is `<skill>/<path within it>`, named one at a time, because the whole point is that adding one is a
+# decision somebody made rather than a pattern that swept a file up.
+#
+# `install_tree` replaces a skill directory wholesale, so anything under it that the vendored tree
+# does not carry is deleted on every run. That is correct for a stale script and catastrophic for
+# operator data, and the difference cannot be inferred — a file absent from the vendored tree looks
+# identical either way.
+#
+# ROUND-GRANTS.tsv is a ledger of founder decisions made on this machine. agent-personas/tests is
+# the persona suite, which is deliberately NOT vendored: three of its tests resolve the human record
+# at `<skill>/../../docs/`, a path that exists on an installed machine and not in this repository.
+# It was on no list, so every install deleted it, and it went missing for a whole milestone with
+# four live files still citing it — one by absolute path, as the only check that catches a judging
+# persona gaining a Bash tool. That is what a missing line here costs.
+#
+# A vendored copy always WINS: the guard below only restores a path the staged tree does not already
+# have. So vendoring one of these later needs no edit here — the entry just goes inert.
+PRESERVE_ACROSS_INSTALLS="
+execution-methodology/ROUND-GRANTS.tsv
+agent-personas/tests
+"
+
 install_tree() {
   local src="$1" dest="$2" staged="$2.staging.$$" aside="$2.replacing.$$"
+  local skill rel sub
+  skill="$(basename "$dest")"
   rm -rf "$staged" "$aside" || return 1
   if cp -R "$src" "$staged" && chmod_scripts "$staged"; then
-    # Operator data rides across installs. ROUND-GRANTS.tsv is a ledger of founder decisions made
-    # on THIS machine — it is not published behaviour, is deliberately absent from the vendored
-    # tree, and an install must never erase it.
-    if [ -f "$dest/ROUND-GRANTS.tsv" ] && [ ! -e "$staged/ROUND-GRANTS.tsv" ]; then
-      cp "$dest/ROUND-GRANTS.tsv" "$staged/ROUND-GRANTS.tsv" || { rm -rf "$staged"; return 1; }
-    fi
+    while IFS= read -r rel; do
+      [ -n "$rel" ] || continue
+      case "$rel" in "$skill"/?*) sub="${rel#*/}" ;; *) continue ;; esac
+      [ -e "$dest/$sub" ] && [ ! -e "$staged/$sub" ] || continue
+      mkdir -p "$(dirname "$staged/$sub")" || { rm -rf "$staged"; return 1; }
+      cp -R "$dest/$sub" "$staged/$sub" || { rm -rf "$staged"; return 1; }
+    done <<< "$PRESERVE_ACROSS_INSTALLS"
     if [ ! -e "$dest" ] || mv "$dest" "$aside"; then
       if mv "$staged" "$dest"; then
         [ ! -e "$aside" ] || rm -rf "$aside" ||
@@ -341,10 +367,26 @@ if path.is_file():
         print(f"  REFUSED: {path} is not valid JSON ({e}).")
         print("  Fix it by hand, then re-run. A malformed settings.json disables every setting in it.")
         raise SystemExit(1)
-    backup = path.with_suffix(f".json.bak-{time.strftime('%Y%m%d-%H%M%S')}")
-    shutil.copy2(path, backup)
-    print(f"  backup: {backup.name}")
 
+# THE MERGE IS COMPUTED BEFORE ANYTHING IS BACKED UP OR WRITTEN, so that a run which adds nothing
+# touches nothing. The backup used to be taken here, immediately after the read, and the write
+# happened unconditionally below — so re-running the installer on an already-installed machine
+# rewrote settings.json and dropped a backup beside it every time, having changed no setting.
+#
+# That is not merely noise. Re-serialising the file reformats a document this script does not own:
+# `json.dumps` defaults to ensure_ascii=True, so every em dash, arrow and accented character in
+# somebody else's unrelated preference came back as a \uXXXX escape. Measured against a real
+# settings.json whose prose settings are full of them: a run reporting "0 hook entries added, 4
+# already present" changed 15 lines, 14 of which were nothing but an em dash re-encoded, and the
+# parsed document was identical before and after. A diff that says a file changed when no setting
+# changed is how a real change goes unnoticed in the noise beside it.
+#
+# The two halves of the fix are separate and both are needed: not writing when nothing was added
+# stops the churn on the common path, and ensure_ascii=False stops it on the path that DOES write,
+# where the escaping would otherwise ride along with a legitimate hook entry.
+#
+# The section below already made this ruling for Codex's config.toml, in its own words: "there is
+# nothing to back up, so the success line must not claim a backup was taken."
 hooks = data.setdefault("hooks", {})
 added = 0
 for event, matcher, command in WANT:
@@ -359,9 +401,23 @@ for event, matcher, command in WANT:
     entries.append(entry)
     added += 1
 
+word = f"hook entr{'y' if added == 1 else 'ies'}"
+if added == 0 and path.is_file():
+    # Every WANT entry is already present, so there is nothing to merge and the file is left exactly
+    # as its owner last wrote it -- byte for byte, formatting and all.
+    print(f"  0 {word} added, {len(WANT)} already present -- settings.json unchanged, not rewritten")
+    raise SystemExit(0)
+
+if path.is_file():
+    backup = path.with_suffix(f".json.bak-{time.strftime('%Y%m%d-%H%M%S')}")
+    shutil.copy2(path, backup)
+    print(f"  backup: {backup.name}")
+
 path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text(json.dumps(data, indent=2) + "\n")
-print(f"  {added} hook entr{'y' if added == 1 else 'ies'} added, {len(WANT) - added} already present")
+# ensure_ascii=False: this file belongs to whoever else writes settings into it, and re-encoding
+# their text as escapes is a change to their document made on the way past.
+path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+print(f"  {added} {word} added, {len(WANT) - added} already present")
 PY
 
 # THE GUARD NOW GATES THE MERGE INSTEAD OF ONLY REPORTING ON IT. `fail` records and returns — it
@@ -408,7 +464,11 @@ if [ "$hook_want_ok" -eq 0 ]; then
 elif [ "$DRY" -eq 1 ]; then
   entry_word="entr$([ "$want_count" -eq 1 ] && echo y || echo ies)"
   if [ -f "$CLAUDE/settings.json" ]; then
-    say "would merge $want_count hook $entry_word into $CLAUDE/settings.json (backup taken first)"
+    # "any of", not "$want_count": the merge adds only the entries that are not already there, and
+    # on an already-installed machine that is none of them — in which case the real run writes
+    # nothing and takes no backup. This line predicted a backup that the run it describes would not
+    # take, which is the same over-claim the merge itself was just fixed for.
+    say "would merge any of $want_count hook $entry_word not already present into $CLAUDE/settings.json (backup taken only if one is added)"
   else
     say "would merge $want_count hook $entry_word into $CLAUDE/settings.json (nothing to back up — it does not exist yet)"
   fi
