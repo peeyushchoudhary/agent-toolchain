@@ -129,6 +129,34 @@ class FixtureTest(FixtureMixin, unittest.TestCase):
         fence = '```mermaid\nflowchart LR\n    A["1. Intake"] --> B["2. Deploy"]\n```'
         self.assertEqual(["readme-diagram-drift"], diagram_findings(self.repo(fence)))
 
+    def test_a_description_after_a_line_break_is_not_required_in_the_prose(self) -> None:
+        """The box NAME is what the table has to agree with. A label carrying a description was
+        compared whole, which demanded the literal `<br/>` appear in a sentence — unsatisfiable, so
+        the only way to green was to strip the diagram or pad the prose. Both damage a correct
+        README to quiet the matcher, which is the opposite of what the rule is for."""
+        fence = ('```mermaid\nflowchart LR\n'
+                 '    A["1. Intake<br/>within one working day"] --> B["2. Work"]\n```')
+        self.assertEqual([], diagram_findings(self.repo(fence)))
+
+    def test_a_description_after_a_spaced_em_dash_is_not_required_either(self) -> None:
+        fence = ('```mermaid\nflowchart LR\n'
+                 '    A["1. Intake — within one working day"] --> B["2. Work"]\n```')
+        self.assertEqual([], diagram_findings(self.repo(fence)))
+
+    def test_renaming_a_described_box_is_still_drift(self) -> None:
+        """The tolerance above must not cost the rule its teeth: a description may say anything,
+        but the name in front of it still has to be in the table."""
+        fence = ('```mermaid\nflowchart LR\n'
+                 '    A["1. Intake"] --> B["2. Deploy<br/>within one working day"]\n```')
+        self.assertEqual(["readme-diagram-drift"], diagram_findings(self.repo(fence)))
+
+    def test_a_label_that_is_nothing_but_a_separator_does_not_silence_the_rule(self) -> None:
+        """An empty name would be `"" in rest`, which is always true — the rule would pass on a
+        malformed box instead of failing on it. Going quiet on bad input is the worse failure."""
+        fence = ('```mermaid\nflowchart LR\n'
+                 '    A["<br/>unnamed"] --> B["2. Work"]\n```')
+        self.assertEqual(["readme-diagram-drift"], diagram_findings(self.repo(fence)))
+
     def test_an_edge_label_is_not_required_to_appear_in_the_prose(self) -> None:
         """An edge says how two boxes relate. That sentence has no reason to be in the table, and
         requiring it there would make the rule noisy enough to be turned off."""
