@@ -95,11 +95,12 @@ gate_derive_host() {
 gate_cache_env_vars() { # gate_cache_env_vars <kind> <path>
   case "$1" in
     gradle)     printf 'GRADLE_USER_HOME=%s\n' "$2" ;;
-    # pnpm's store location is NOT settable by environment variable. Neither PNPM_STORE_PATH nor
-    # npm_config_store_dir is read; only `--store-dir` or an npmrc `store-dir=` entry is. Setting a
-    # variable pnpm ignores looks correct and does nothing, and with a real HOME the default store
-    # is the right one anyway — so it works everywhere except the fresh HOME this sandbox insists
-    # on. See write_cache_config in gate_lib.sh, which writes the npmrc that actually works.
+    # pnpm's store location is settable by `--store-dir` AND BY NOTHING ELSE. Not PNPM_STORE_PATH,
+    # not npm_config_store_dir, and not a `store-dir=` line in .npmrc, .config/pnpm/rc or
+    # .config/npm/npmrc -- all five were tried and silently ignored. A setting pnpm ignores looks
+    # exactly like one it honours, and with a real HOME the default store is the right one anyway,
+    # so it appears to work everywhere except the fresh HOME this sandbox insists on. The
+    # provisioned directory is exposed as $GATE_CACHE_DIR_pnpm and the consumer passes the flag.
     # PNPM_HOME is a bin directory and is genuinely a variable.
     pnpm)       printf 'PNPM_HOME=%s\n' "$2/.pnpm-home" ;;
     uv)         printf 'UV_CACHE_DIR=%s\n' "$2" ;;
