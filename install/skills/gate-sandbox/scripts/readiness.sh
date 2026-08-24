@@ -74,6 +74,7 @@ fi
 head_ "Caches"
 provision_caches "$ROOT" "$REFRESH_CACHES"
 check_cache_provenance "$ROOT"
+check_cache_content
 
 # THE MANIFEST RECHECK BELONGS HERE, NOT AT THE END.
 #
@@ -202,12 +203,20 @@ JAVA
   if [ -n "${GATE_MIN_HEAP_MB:-}" ]; then
     cat > "$ROOT/probes/GateHeapProbe.java" <<'JAVA'
 public class GateHeapProbe {
+  // 256 KiB, and the size is load-bearing. G1 treats any allocation over half a region as
+  // "humongous" and gives it whole regions: with a 2 MiB region, 1 MiB chunks cost 2 MiB each, so a
+  // probe using them reports OutOfMemoryError at HALF the heap it was given. That is a measurement
+  // of G1 fragmentation, not of available memory, and it fails identically outside the sandbox --
+  // which is how it was caught. Anything well under the smallest region stays out of that path.
+  private static final int CHUNK = 256 * 1024;
+
   public static void main(String[] a) {
     int mb = Integer.parseInt(a[0]);
+    int chunks = mb * (1024 * 1024 / CHUNK);
     try {
-      byte[][] held = new byte[mb][];
-      for (int i = 0; i < mb; i++) {
-        held[i] = new byte[1024 * 1024];
+      byte[][] held = new byte[chunks][];
+      for (int i = 0; i < chunks; i++) {
+        held[i] = new byte[CHUNK];
         held[i][0] = 1;   // touch it: reserving address space is not the same as having the memory
       }
       System.out.println("heap:ok " + mb + "m reserved and touched");
@@ -217,12 +226,18 @@ public class GateHeapProbe {
   }
 }
 JAVA
+    # THE PROBE RUNS AT EXACTLY THE WORKER'S -Xmx AND FILLS 70% OF IT, and both halves of that are
+    # measured rather than chosen for neatness. A JVM cannot hold a live set anywhere near its own
+    # maximum -- collector headroom is not optional -- so asking for 100% reports a failure on a
+    # machine with memory to spare. Measured on a 24 GB host: 70% of a 2048m heap succeeds, 80%
+    # fails, and the same 2048m succeeds outright under a 3072m heap. 70% is under the first cliff.
+    LIVE_MB=$(( GATE_MIN_HEAP_MB * 7 / 10 ))
     hprobe="$(sandboxed "$ROOT" "$ROOT/probes" "
-      java -Xmx$(( GATE_MIN_HEAP_MB + 96 ))m GateHeapProbe.java $GATE_MIN_HEAP_MB 2>&1 | grep '^heap:' || echo 'heap:FAILED probe did not run'
+      java -Xmx${GATE_MIN_HEAP_MB}m GateHeapProbe.java $LIVE_MB 2>&1 | grep '^heap:' || echo 'heap:FAILED probe did not run'
     " 180 2>&1)"
     case "$hprobe" in
-      *heap:ok*) ok "a forked JVM can reserve and touch ${GATE_MIN_HEAP_MB}m of heap" ;;
-      *) bad "a JVM cannot obtain ${GATE_MIN_HEAP_MB}m of heap here -- test workers will die with OutOfMemoryError, which presents as the test framework failing to start"
+      *heap:ok*) ok "a JVM at -Xmx${GATE_MIN_HEAP_MB}m holds a ${LIVE_MB}m live set (70%, the worker's configured size)" ;;
+      *) bad "a JVM at -Xmx${GATE_MIN_HEAP_MB}m cannot hold a ${LIVE_MB}m live set -- test workers will die with OutOfMemoryError, which presents as the test framework failing to start"
          printf '%s\n' "$hprobe" | sed 's/^/        /' ;;
     esac
   fi

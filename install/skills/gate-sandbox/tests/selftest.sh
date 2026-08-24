@@ -118,6 +118,31 @@ try:
 except Exception as e: print(\"DENIED\", e)
 "')"
 
+printf '\n── the cache census (a marker is not the thing it stands for)\n'
+# $TMPDIR is reaped by the operating system, and it reaps FILES while leaving DIRECTORIES. The
+# clone therefore keeps its shape while losing its contents, the `.provisioned` marker survives,
+# and provisioning reports "reused" over an empty cache -- after which every offline step fails as
+# though the project were misconfigured. Measured once for real: 594 of 117,347 files left.
+CACHEFIX="$FIXHOME/cachefix"
+mkdir -p "$CACHEFIX/host/sub"
+i=0; while [ "$i" -lt 40 ]; do printf 'x' > "$CACHEFIX/host/sub/f$i"; i=$((i+1)); done
+
+census() { # census <run-root-for-caches> -> the check's own output
+  ( GATE_RUN_ROOT="$1"; GATE_CACHES=(gradle); GATE_CACHE_PATH_gradle="$CACHEFIX/host"
+    FAILURES=0
+    provision_caches "$FIX" 1 >/dev/null 2>&1
+    if [ "${2:-}" = "hollow" ]; then find "$(shared_cache_root)/gradle" -type f -delete; fi
+    check_cache_content 2>&1
+  )
+}
+full="$(census "$CACHEFIX/run-full")"
+case "$full" in *intact*) c=intact ;; *) c="$full" ;; esac
+check "an intact clone is reported intact" "intact" "$c"
+
+hollowed="$(census "$CACHEFIX/run-hollow" hollow)"
+case "$hollowed" in *"has lost content"*) h=caught ;; *) h="$hollowed" ;; esac
+check "a clone whose files were reaped is CAUGHT, not reused" "caught" "$h"
+
 printf '\n── the JVM agent-attach grant (present only for JVM gates, and narrow)\n'
 # A denial here does not look like a denial: an inline mock maker attaches an agent to its own JVM
 # on first use, so one denied handshake becomes one failure per mocked class, each reported as an

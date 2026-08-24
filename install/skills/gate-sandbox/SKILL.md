@@ -131,7 +131,7 @@ the example below. Reference it in the probe and pass whatever flag the tool req
 hardcoding a path this skill already knows. Single-quote the array element so it reaches the sandbox
 unexpanded; the config file is sourced by the launcher, where the variable is not set.
 
-## Six traps that cost real time
+## Seven traps that cost real time
 
 **The run root must be a physical path.** macOS matches *resolved* paths, and both natural homes for
 a run root are symlinks — `/tmp` → `/private/tmp`, and `$TMPDIR`'s `/var` → `/private/var`. A
@@ -170,6 +170,15 @@ the JVM's own refusal reports *Can not attach to current VM* and arrives first. 
 **not** be anchored at the end: the socket is bound under a suffixed temporary name and renamed into
 place, so `[0-9]+$` matches the final name and not the one created — which fails as *target process
 doesn't respond within 10500ms*, i.e. as a hung JVM rather than a denied write.
+
+**`$TMPDIR` is reaped, and it takes files while leaving directories.** The shared cache clone lives
+there, so a day later the tree still has its shape and almost none of its contents — measured:
+gradle held 594 of 117,347 files, pnpm held 2 of 123,756. The `.provisioned` marker survived, so
+provisioning reported *shared caches reused* and every offline step then failed as though the
+project were misconfigured: a wrapper trying to download, a missing tarball, a missing wheel. None
+of it looked like a cache problem. A file census is recorded at clone time and checked on reuse;
+`--refresh-caches` rebuilds. Trusting a marker over the thing it stands for is the same defect
+whatever the marker is.
 
 **A cache setting the tool ignores looks exactly like one it honours.** pnpm's store location is
 settable by `--store-dir` and nothing else — not `PNPM_STORE_PATH`, not `npm_config_store_dir`, and

@@ -171,7 +171,39 @@ clone_cache() {
   mkdir -p "$(dirname "$dst")"
   if cp -c -R "$src" "$dst" 2>/dev/null; then ok "$label cloned (APFS clone, no extra disk)"
   elif cp -R "$src" "$dst" 2>/dev/null;  then warn "$label copied (clone unavailable -- slower, uses disk)"
-  else bad "$label could not be provisioned"; fi
+  else bad "$label could not be provisioned"; return 0; fi
+  # The census this clone is judged against later. See check_cache_content.
+  cache_file_count "$dst" > "$(shared_cache_root)/.provisioned/$(basename "$dst").count"
+}
+
+cache_file_count() { find "$1" -type f 2>/dev/null | wc -l | tr -d " "; }
+
+# A CACHE ROOT THAT STILL EXISTS IS NOT A CACHE ROOT THAT STILL HAS ANYTHING IN IT.
+#
+# The shared clone lives under $TMPDIR, which the operating system reaps. It reaps FILES and leaves
+# DIRECTORIES, so the tree keeps its shape while its contents go: measured, one day after
+# provisioning, gradle held 594 of 117,347 files and pnpm held 2 of 123,756. The `.provisioned`
+# marker directory survived intact, so provisioning reported "shared caches reused" and every
+# offline step then failed as though the project were misconfigured -- a download attempt from a
+# wrapper, a missing tarball, a missing wheel. None of it looked like a cache problem.
+#
+# Reusing a marker to decide a cache is present is the same defect as trusting any other marker over
+# the thing it stands for. This counts.
+check_cache_content() { # check_cache_content
+  local shared kind recorded now
+  shared="$(shared_cache_root)"
+  for kind in ${GATE_CACHES[@]+"${GATE_CACHES[@]}"}; do
+    [ -d "$shared/$kind" ] || { bad "$kind cache directory is gone from the shared clone"; continue; }
+    recorded="$(cat "$shared/.provisioned/$kind.count" 2>/dev/null || echo "")"
+    now="$(cache_file_count "$shared/$kind")"
+    if [ -z "$recorded" ]; then
+      warn "$kind clone holds $now files, but no census was recorded when it was made -- re-run with --refresh-caches to establish one"
+    elif [ "$now" -lt $(( recorded * 95 / 100 )) ]; then
+      bad "$kind clone has lost content: $now files now, $recorded when cloned. \$TMPDIR is reaped -- re-run with --refresh-caches"
+    else
+      ok "$kind clone intact ($now files, census $recorded)"
+    fi
+  done
 }
 
 provision_caches() { # provision_caches <run-root> [refresh]
@@ -185,6 +217,7 @@ provision_caches() { # provision_caches <run-root> [refresh]
     ok "shared caches reused from $shared"
   else
     say "first run: cloning host caches into $shared (once; later runs reuse it)"
+    mkdir -p "$shared/.provisioned"
     for kind in "${GATE_CACHES[@]}"; do
       var="GATE_CACHE_PATH_$kind"; path="${!var:-}"
       [ -n "$path" ] || { warn "no host path known for cache kind '$kind'"; continue; }
