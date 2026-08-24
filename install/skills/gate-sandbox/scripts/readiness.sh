@@ -115,6 +115,119 @@ case "$dprobe" in *"Docker Compose"*)  ok "compose plugin discovered in a fresh 
 case "$dprobe" in *buildx*)            ok "buildx plugin discovered in a fresh HOME"  ;; *) bad "buildx plugin not discovered" ;; esac
 case "$dprobe" in *compose-config=ok*) ok "compose model resolves" ;; *) bad "compose config does not resolve" ;; esac
 
+# ── Runtime behaviours (inside the exact gate profile) ──────────────────────────────────────────
+# A CLASS THE REST OF THIS SCRIPT DOES NOT COVER, added because its absence cost a whole gate
+# attempt.
+#
+# Everything above checks PROVISIONING: is the port free, is the image present, is the cache
+# populated, does the offline install resolve. All of it passed, the gate was cast, and it failed
+# 1,142 times on something none of it models -- whether the profile permits the runtime behaviours
+# a real test suite performs once it is running. Those are not provisioning facts and no amount of
+# provisioning checking finds them.
+#
+# The probes here are the behaviours that have actually broken, each reduced to its smallest form.
+# They are deliberately about the SANDBOX and the RUNTIME, never about the product: a failure here
+# means the environment would refuse a working test suite.
+if [ -n "${GATE_JAVA_HOME:-}" ]; then
+  head_ "Runtime behaviours (inside the exact gate profile)"
+  mkdir -p "$ROOT/probes"
+
+  # Loading an agent into your own JVM. This is what every inline mock maker does on first use, so
+  # a denial here is one failure per mocked class rather than one failure.
+  cat > "$ROOT/probes/GateAttachProbe.java" <<'JAVA'
+import com.sun.tools.attach.VirtualMachine;
+public class GateAttachProbe {
+  public static void main(String[] a) {
+    try {
+      VirtualMachine vm = VirtualMachine.attach(String.valueOf(ProcessHandle.current().pid()));
+      vm.detach();
+      System.out.println("attach:ok");
+    } catch (Throwable e) {
+      System.out.println("attach:FAILED " + e);
+    }
+  }
+}
+JAVA
+
+  # A loopback round trip THROUGH A JVM SOCKET, which is not the same probe as reaching a port.
+  # A dual-stack JVM presents 127.0.0.1 to the kernel as ::ffff:127.0.0.1, an address SBPL cannot
+  # express, so a filtered profile denies the JVM while every other client on the machine succeeds.
+  cat > "$ROOT/probes/GateLoopbackProbe.java" <<'JAVA'
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+public class GateLoopbackProbe {
+  public static void main(String[] a) {
+    try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
+      Thread t = new Thread(() -> {
+        try (Socket peer = server.accept(); OutputStream out = peer.getOutputStream()) {
+          out.write(42);
+        } catch (Exception ignored) { }
+      });
+      t.setDaemon(true);
+      t.start();
+      try (Socket client = new Socket()) {
+        client.connect(new InetSocketAddress("127.0.0.1", server.getLocalPort()), 5000);
+        InputStream in = client.getInputStream();
+        System.out.println(in.read() == 42 ? "loopback:ok" : "loopback:FAILED wrong byte");
+      }
+    } catch (Throwable e) {
+      System.out.println("loopback:FAILED " + e);
+    }
+  }
+}
+JAVA
+
+  rprobe="$(sandboxed "$ROOT" "$ROOT/probes" '
+    java GateAttachProbe.java   2>&1 | grep "^attach:"   || echo "attach:FAILED probe did not run"
+    java GateLoopbackProbe.java 2>&1 | grep "^loopback:" || echo "loopback:FAILED probe did not run"
+  ' 180 2>&1)"
+  printf '%s\n' "$rprobe" | grep -v '^\(attach\|loopback\):ok$' | sed 's/^/        /'
+  case "$rprobe" in
+    *attach:ok*) ok "JVM can load an agent into itself (inline mock makers need this)" ;;
+    *) bad "JVM agent self-attach is DENIED -- every inline-mocked test will fail, and the exception will name the mocking library rather than this" ;;
+  esac
+  case "$rprobe" in
+    *loopback:ok*) ok "JVM loopback round trip (dual-stack IPv4, the shape that breaks)" ;;
+    *) bad "a JVM cannot complete a loopback round trip -- build daemons and test containers will report themselves unreachable" ;;
+  esac
+
+  # Heap is a RESOURCE fact, not a permission one, and it is checked here because it fails in the
+  # same place and reads the same way: an OutOfMemoryError inside a test worker surfaces as the
+  # framework failing to start, not as a memory problem. Only checked when a project states what it
+  # needs; this skill will not invent a number.
+  if [ -n "${GATE_MIN_HEAP_MB:-}" ]; then
+    cat > "$ROOT/probes/GateHeapProbe.java" <<'JAVA'
+public class GateHeapProbe {
+  public static void main(String[] a) {
+    int mb = Integer.parseInt(a[0]);
+    try {
+      byte[][] held = new byte[mb][];
+      for (int i = 0; i < mb; i++) {
+        held[i] = new byte[1024 * 1024];
+        held[i][0] = 1;   // touch it: reserving address space is not the same as having the memory
+      }
+      System.out.println("heap:ok " + mb + "m reserved and touched");
+    } catch (Throwable e) {
+      System.out.println("heap:FAILED " + e);
+    }
+  }
+}
+JAVA
+    hprobe="$(sandboxed "$ROOT" "$ROOT/probes" "
+      java -Xmx$(( GATE_MIN_HEAP_MB + 96 ))m GateHeapProbe.java $GATE_MIN_HEAP_MB 2>&1 | grep '^heap:' || echo 'heap:FAILED probe did not run'
+    " 180 2>&1)"
+    case "$hprobe" in
+      *heap:ok*) ok "a forked JVM can reserve and touch ${GATE_MIN_HEAP_MB}m of heap" ;;
+      *) bad "a JVM cannot obtain ${GATE_MIN_HEAP_MB}m of heap here -- test workers will die with OutOfMemoryError, which presents as the test framework failing to start"
+         printf '%s\n' "$hprobe" | sed 's/^/        /' ;;
+    esac
+  fi
+fi
+
 if [ -n "$GATE_PORTS" ]; then
   head_ "Host preconditions"
   busy=""

@@ -118,6 +118,68 @@ try:
 except Exception as e: print(\"DENIED\", e)
 "')"
 
+printf '\n── the JVM agent-attach grant (present only for JVM gates, and narrow)\n'
+# A denial here does not look like a denial: an inline mock maker attaches an agent to its own JVM
+# on first use, so one denied handshake becomes one failure per mocked class, each reported as an
+# exception from the mocking library. 1,142 of them in one run. These assert the rule's SHAPE,
+# because the behavioural check below cannot run on a machine with no JDK.
+JVM_PROF="$FIX/profile-jvm.sb"; NOJVM_PROF="$FIX/profile-nojvm.sb"
+( GATE_JAVA_HOME="/nonexistent/jdk"; write_profile "$FIX" "$JVM_PROF" )
+( GATE_JAVA_HOME="";                 write_profile "$FIX" "$NOJVM_PROF" )
+
+check "a JVM gate is granted the attach paths" "1" \
+  "$(grep -c 'java_pid|attach_pid' "$JVM_PROF" || true)"
+check "a non-JVM gate is NOT widened by it" "0" \
+  "$(grep -c 'java_pid|attach_pid' "$NOJVM_PROF" || true)"
+# Both operations are in the one rule. Tested with a control: write alone and connect alone each
+# still fail, so a rule carrying only one of them reads as correct and denies the handshake.
+check "the grant carries file-write* AND network-outbound" "1" \
+  "$(grep -c 'allow file-write\* network-outbound' "$JVM_PROF" || true)"
+# THE BREAK-TEST FOR THE EXACT MISTAKE. The socket is bound under a suffixed temporary name and
+# renamed into place, so a pattern anchored with [0-9]+$ matches the final name and never the one
+# created -- and it fails as "target process doesn't respond within 10500ms", i.e. as a hung JVM.
+check "the attach pattern is NOT anchored at the end" "0" \
+  "$(grep -c 'attach_pid)\[0-9\]+\$' "$JVM_PROF" || true)"
+
+# Neither flag is enough alone: without the profile grant the sandbox denies the handshake, and
+# without the property the JVM refuses itself first with a different message.
+JTO="$( GATE_JAVA_HOME=/nonexistent/jdk gate_env "$FIX" | sed -n 's/^JAVA_TOOL_OPTIONS=//p' )"
+case "$JTO" in *allowAttachSelf=true*) sa=yes ;; *) sa=no ;; esac
+check "the default JVM options permit self-attach" "yes" "$sa"
+case "$JTO" in *preferIPv4Stack=true*) ip4=yes ;; *) ip4=no ;; esac
+check "the default JVM options keep the IPv4 stack" "yes" "$ip4"
+
+# THE GRANT MUST NOT WIDEN THE TEMP DIRECTORY. The per-user temp dir is shared and outside the run
+# root; if this check ever flips, the sandbox has a writable escape hatch and every other deny
+# assertion above is worth less.
+check "a non-attach file in the per-user temp dir is still NOT writable" denied \
+  "$(sandboxed "$FIX" "$FIX/copy" "touch '$GATE_DARWIN_TEMP_DIR/.__selftest_probe' 2>/dev/null && echo ok || echo denied")"
+rm -f "$GATE_DARWIN_TEMP_DIR/.__selftest_probe" 2>/dev/null
+
+# The behavioural check, when the machine has a JDK to run it with. Everything above is structure;
+# this is the only one that proves the handshake actually completes.
+if [ -n "${GATE_JAVA_HOME:-}" ] && [ -x "$GATE_JAVA_HOME/bin/java" ]; then
+  mkdir -p "$FIX/attachprobe"
+  cat > "$FIX/attachprobe/GateAttachSelftest.java" <<'JAVA'
+import com.sun.tools.attach.VirtualMachine;
+public class GateAttachSelftest {
+  public static void main(String[] a) {
+    try {
+      VirtualMachine vm = VirtualMachine.attach(String.valueOf(ProcessHandle.current().pid()));
+      vm.detach();
+      System.out.println("ATTACHED");
+    } catch (Throwable e) {
+      System.out.println("DENIED");
+    }
+  }
+}
+JAVA
+  check "a JVM can attach an agent to itself inside the profile" "ATTACHED" \
+    "$(sandboxed "$FIX" "$FIX/attachprobe" 'java GateAttachSelftest.java 2>/dev/null | grep -E "^(ATTACHED|DENIED)$" || echo NORUN' 180)"
+else
+  printf '  %sskip%s  JVM attach behaviour (no JDK on this machine; structure asserted above)\n' "$DIM" "$RST"
+fi
+
 printf '\n── the physical-path trap\n'
 # The regression that cost the most time. A profile written against the LOGICAL path denies every
 # write, because macOS matches resolved paths -- and it presents as "the copy is broken", which

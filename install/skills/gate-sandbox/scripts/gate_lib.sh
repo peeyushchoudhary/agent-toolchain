@@ -344,6 +344,37 @@ write_profile() {
 (allow network-bind)
 (allow network-inbound)
 SBPL
+
+  # THE AGENT-ATTACH HANDSHAKE, granted only when this is a JVM gate.
+  #
+  # A JVM that loads an agent into itself -- which is what every inline-mock-maker test framework
+  # does -- performs a handshake through the PER-USER temp directory: the target binds a unix socket
+  # at <darwin-temp>/.java_pid<pid> and the client writes <darwin-temp>/.attach_pid<pid>. That
+  # directory is NOT $TMPDIR and does not follow it (see GATE_DARWIN_TEMP_DIR), so it falls outside
+  # every write grant above and the handshake is denied.
+  #
+  # It presents as a mass failure of unrelated tests -- one denial per mock -- with an exception
+  # that names the mocking library, so the whole search goes to the test code. Measured: 1,142
+  # failures in one run, all of them this.
+  #
+  # BOTH OPERATIONS ARE REQUIRED TOGETHER. Tested with a control: write alone and connect alone each
+  # still fail. file-write* creates the two files; network-outbound is the client CONNECTING to the
+  # unix socket, which SBPL treats as an outbound operation on a path rather than a file one.
+  #
+  # DELIBERATELY UNANCHORED AT THE END. The socket is bound under a suffixed temporary name and
+  # renamed into place, so a pattern ending in [0-9]+$ matches the final name and not the one
+  # actually created -- which fails as "target process doesn't respond within 10500ms", i.e. as a
+  # hung JVM rather than as a denied write. Anchored at the start only.
+  #
+  # This does NOT widen the temp directory: everything there that is not an attach file stays
+  # denied, and egress to a raw address is still refused. Both re-verified with controls.
+  if [ -n "${GATE_JAVA_HOME:-}" ]; then
+    cat >> "$out" <<SBPL
+
+(allow file-write* network-outbound
+  (regex #"^$GATE_DARWIN_TEMP_DIR/\.(java_pid|attach_pid)[0-9]+"))
+SBPL
+  fi
 }
 
 # ── Provisioning the run root ───────────────────────────────────────────────────────────────────
@@ -397,7 +428,12 @@ gate_env() { # gate_env <run-root> -> one VAR=value per line
     # The alternative was unfiltered outbound, which would have allowed real internet egress and
     # cost the one property the receipt depends on. This keeps it: verified with a control, egress
     # to a raw IP is still refused under this profile.
-    printf 'JAVA_TOOL_OPTIONS=%s\n' "${GATE_JAVA_TOOL_OPTIONS:--Djava.net.preferIPv4Stack=true}"
+    #
+    # ALLOW SELF-ATTACH, for the same class of reason. A JVM refuses to attach an agent to itself
+    # unless asked to permit it, and reports "Can not attach to current VM" -- which is a different
+    # message from the sandbox denial and arrives first, so fixing only the profile leaves the
+    # failure looking untouched. Both halves are needed; neither alone is enough.
+    printf 'JAVA_TOOL_OPTIONS=%s\n' "${GATE_JAVA_TOOL_OPTIONS:--Djava.net.preferIPv4Stack=true -Djdk.attach.allowAttachSelf=true}"
   fi
   # An offline step that retries a lookup it can never satisfy turns a fast failure into a stall;
   # these bound npm-family resolvers so a blocked fetch reports rather than hangs.

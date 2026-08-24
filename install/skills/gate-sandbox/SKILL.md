@@ -23,6 +23,13 @@ no project name, path, or referent anywhere in these scripts, and
 | [`scripts/readiness.sh`](scripts/readiness.sh) | **Preparation.** Is this machine able to run the gate at all? |
 | [`scripts/gate.sh`](scripts/gate.sh) | **The attempt.** Runs the exact gate argv and persists a receipt. |
 
+Readiness checks two classes, and the second was added only after its absence cost an attempt.
+**Provisioning** — port free, image present, cache populated, offline install resolves — and
+**runtime behaviours**: whether the profile permits what a real suite does once it is already
+running. Every provisioning check passed on the run that then failed 1,142 times on an agent-attach
+denial, because no provisioning fact models it. When adding a check, ask which class it is in; a
+whole class can be missing while the section list looks complete.
+
 Readiness exists because a gate attempt that dies on a busy port or a missing base image has cost
 the full price of the attempt and returned nothing — no test counts, no verdict, nothing that can be
 recorded. Those runs look like failures in a ledger and are not: they are provisioning blocks. So
@@ -86,6 +93,7 @@ install. That is not hypothetical — it is the bug that deleted an entire test 
 | `GATE_HOME_SEED` | no | host paths to copy into the sandbox `HOME` |
 | `GATE_PROJECT_PREFIX` | no | compose project prefix; lowercase, `-`/`_` only |
 | `GATE_EVIDENCE_ROOT` | no | where receipts are kept; defaults under `$GATE_HOME` |
+| `GATE_MIN_HEAP_MB` | no | heap a JVM must be able to reserve **and touch**; unset skips the check |
 
 ### Host file schema
 
@@ -100,7 +108,8 @@ runtime changed without anyone noticing is not the same gate.
 | `GATE_JAVA_HOME` | JDK for JVM projects; `env -i` strips the inherited one |
 | `GATE_RUN_ROOT` | where run roots and the shared cache clone live |
 | `GATE_CACHE_PATH_<kind>` | host location of each cache kind |
-| `GATE_JAVA_TOOL_OPTIONS` | JVM options inside the sandbox; defaults to `-Djava.net.preferIPv4Stack=true` |
+| `GATE_JAVA_TOOL_OPTIONS` | JVM options inside the sandbox; defaults to `-Djava.net.preferIPv4Stack=true -Djdk.attach.allowAttachSelf=true`. Override and you own both — each fixes a distinct denial |
+| `GATE_DARWIN_TEMP_DIR` | the per-user temp directory the JVM uses regardless of `TMPDIR`; derived, and only worth setting if derivation is wrong |
 | `GATE_LANG` | locale inside the sandbox; defaults to `en_US.UTF-8` |
 | `GATE_EXTRA_PATH` | extra `PATH` entries for a toolchain in an unusual place |
 
@@ -122,7 +131,7 @@ the example below. Reference it in the probe and pass whatever flag the tool req
 hardcoding a path this skill already knows. Single-quote the array element so it reaches the sandbox
 unexpanded; the config file is sourced by the launcher, where the variable is not set.
 
-## Five traps that cost real time
+## Six traps that cost real time
 
 **The run root must be a physical path.** macOS matches *resolved* paths, and both natural homes for
 a run root are symlinks — `/tmp` → `/private/tmp`, and `$TMPDIR`'s `/var` → `/private/var`. A
@@ -147,6 +156,20 @@ you to look at the daemon. Measured with a control: the JVM's bind to `127.0.0.1
 its bind to `::1` succeeded, and Python's bind to `127.0.0.1` succeeded. The difference is the
 socket, not the address. `network-bind` and `network-inbound` must BOTH be unfiltered; each alone
 still denies it, and `(local ip "*:*")` does not help. Outbound stays restricted.
+
+**A JVM's temp directory is not `$TMPDIR`, and loading an agent into itself needs two grants.**
+`java.io.tmpdir` comes from `confstr(_CS_DARWIN_USER_TEMP_DIR)`, so it keeps pointing at
+`/var/folders/.../T` no matter what `TMPDIR` is set to — measured, not assumed. The agent-attach
+handshake happens there: the target binds `<darwin-temp>/.java_pid<pid>` and the client writes
+`.attach_pid<pid>`. Every inline mock maker does this on first use, so one denial becomes one
+failure per mocked class, with an exception naming the mocking library — the whole search goes to
+the test code. Three separate things are required, and each alone leaves the failure looking
+untouched: `file-write*` **and** `network-outbound` on those paths (the client connecting to a unix
+socket is an outbound operation, not a file one), plus `-Djdk.attach.allowAttachSelf=true`, since
+the JVM's own refusal reports *Can not attach to current VM* and arrives first. The pattern must
+**not** be anchored at the end: the socket is bound under a suffixed temporary name and renamed into
+place, so `[0-9]+$` matches the final name and not the one created — which fails as *target process
+doesn't respond within 10500ms*, i.e. as a hung JVM rather than a denied write.
 
 **A cache setting the tool ignores looks exactly like one it honours.** pnpm's store location is
 settable by `--store-dir` and nothing else — not `PNPM_STORE_PATH`, not `npm_config_store_dir`, and

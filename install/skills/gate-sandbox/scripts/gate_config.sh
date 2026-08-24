@@ -58,6 +58,24 @@ gate_derive_host() {
 
   : "${GATE_RUN_ROOT:=${TMPDIR:-/tmp}/gate-sandbox}"
 
+  # THE PER-USER TEMP DIRECTORY, WHICH IS NOT $TMPDIR AND CANNOT BE REDIRECTED.
+  #
+  # A JVM asks the OS for its temp directory through confstr(_CS_DARWIN_USER_TEMP_DIR), not through
+  # the environment, so java.io.tmpdir keeps pointing at /var/folders/.../T no matter what TMPDIR
+  # is set to. Anything the JVM does there -- notably the agent-attach handshake -- lands outside
+  # the run root, and the profile has to name that directory explicitly or deny it.
+  #
+  # Measured, not assumed: setting TMPDIR to a directory under the run root left java.io.tmpdir
+  # unchanged. Derived here so the profile and the probes agree on one physical path.
+  if [ -z "${GATE_DARWIN_TEMP_DIR:-}" ]; then
+    GATE_DARWIN_TEMP_DIR="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)"
+    if [ -n "$GATE_DARWIN_TEMP_DIR" ] && [ -d "$GATE_DARWIN_TEMP_DIR" ]; then
+      GATE_DARWIN_TEMP_DIR="$(cd "$GATE_DARWIN_TEMP_DIR" && pwd -P)"
+    else
+      GATE_DARWIN_TEMP_DIR=/private/tmp
+    fi
+  fi
+
   # Host cache locations, per toolchain. Overridable individually; a project names only the KINDS it
   # wants imported, never the paths.
   : "${GATE_CACHE_PATH_gradle:=$HOME/.gradle}"
@@ -146,6 +164,9 @@ gate_validate_config() {
   : "${GATE_IMAGES:=}"
   : "${GATE_LOCKFILES:=}"
   : "${GATE_PROJECT_PREFIX:=gate}"
+  # Optional. When set, readiness proves a JVM can actually reserve and touch this much heap inside
+  # the profile before a gate attempt is spent discovering it cannot.
+  : "${GATE_MIN_HEAP_MB:=}"
   # Evidence outlives the run root by construction: it is written OUTSIDE the tree that cleanup
   # removes. Persisting it inside the run root and copying it out afterwards is the arrangement in
   # which a failed cleanup and a lost receipt are the same incident.
