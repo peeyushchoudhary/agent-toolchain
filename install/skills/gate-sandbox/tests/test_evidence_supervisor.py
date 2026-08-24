@@ -50,6 +50,13 @@ class Fixture:
     def verify_cmd(self):
         return [sys.executable,str(SCRIPT),"verify","--trusted-ancestor",str(self.root),
           "--evidence-parent","receipts","--run-id",self.run_id,"--launch-anchor",str(self.anchor_file)]
+    def patched_run_cmd(self,body):
+        helper=self.root/("helper-"+str(time.monotonic_ns())+".py")
+        helper.write_text("import importlib.util,sys\n"
+          +"spec=importlib.util.spec_from_file_location('evidence_supervisor_helper',"+repr(str(SCRIPT))+")\n"
+          +"module=importlib.util.module_from_spec(spec); sys.modules[spec.name]=module; spec.loader.exec_module(module)\n"
+          +body+"\nraise SystemExit(module.main())\n")
+        return [sys.executable,str(helper),*self.run_cmd()[2:]]
     @property
     def run_dir(self): return self.parent/self.run_id
     def execute(self): return subprocess.run(self.run_cmd(),stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -159,6 +166,46 @@ class LifecycleTests(unittest.TestCase):
                            "run_id":self.fx.run_id,"launch_anchor":str(self.fx.anchor_file)})()
         with mock.patch.object(es,"_read_log_once",side_effect=mutate_after_first):
             with self.assertRaises(es.EvidenceError): es.verify_capture(ns)
+    def test_anchor_mutation_after_initial_read_returns_verify_error(self):
+        self.assertEqual(self.fx.execute().returncode,0)
+        original=es._read_log_once; changed=False
+        def change_anchor(*args,**kwargs):
+            nonlocal changed
+            result=original(*args,**kwargs)
+            if not changed:
+                changed=True; self.fx.write_private(self.fx.anchor_file,b"{}")
+            return result
+        argv=["verify","--trusted-ancestor",str(self.fx.root),"--evidence-parent","receipts",
+              "--run-id",self.fx.run_id,"--launch-anchor",str(self.fx.anchor_file)]
+        with mock.patch.object(es,"_read_log_once",side_effect=change_anchor):
+            self.assertEqual(es.main(argv),es.VERIFY_ERROR)
+        self.assertTrue(changed); self.assertEqual(self.fx.anchor_file.read_bytes(),b"{}")
+    def test_injected_postfork_write_failure_terminates_and_reaps_boundary(self):
+        self.fx.close(); self.fx=Fixture(self,literal="echo $$ > child.pid; sleep 30 & echo $! > descendant.pid; printf trigger; sleep 30")
+        marker=self.fx.root/"failure-injected"
+        body=("original=module._write_all\nfired=False\n"
+          +"def injected(fd,data):\n global fired\n if not fired:\n  fired=True\n  open("+repr(str(marker))+",'w').close()\n  raise OSError('injected capture failure')\n return original(fd,data)\n"
+          +"module._write_all=injected")
+        result=subprocess.run(self.fx.patched_run_cmd(body),stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=5)
+        self.assertEqual(result.returncode,es.CAPTURE_ERROR,result.stderr); self.assertTrue(marker.exists())
+        self.assertFalse((self.fx.run_dir/"terminal.json").exists())
+        child=int((self.fx.cwd/"child.pid").read_text()); descendant=int((self.fx.cwd/"descendant.pid").read_text())
+        with self.assertRaises(ProcessLookupError): os.kill(child,0)
+        with self.assertRaises((ProcessLookupError,PermissionError)): os.killpg(child,0)
+        with self.assertRaises(ProcessLookupError): os.kill(descendant,0)
+    def test_lingering_descendant_pipe_is_bounded_killed_and_direct_child_reaped(self):
+        self.fx.close(); self.fx=Fixture(self,literal="echo $$ > child.pid; sleep 30 & echo $! > descendant.pid; exit 0")
+        body="module.POST_EXIT_DRAIN_SECONDS=.05; module.TERM_GRACE_SECONDS=.05; module.KILL_DRAIN_SECONDS=.05"
+        started=time.monotonic()
+        result=subprocess.run(self.fx.patched_run_cmd(body),stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=5)
+        elapsed=time.monotonic()-started
+        self.assertEqual(result.returncode,es.CAPTURE_ERROR,result.stderr); self.assertLess(elapsed,3)
+        self.assertIn(b"retained the capture pipe",result.stderr)
+        self.assertFalse((self.fx.run_dir/"terminal.json").exists())
+        child=int((self.fx.cwd/"child.pid").read_text()); descendant=int((self.fx.cwd/"descendant.pid").read_text())
+        with self.assertRaises(ProcessLookupError): os.kill(child,0)
+        with self.assertRaises((ProcessLookupError,PermissionError)): os.killpg(child,0)
+        with self.assertRaises(ProcessLookupError): os.kill(descendant,0)
     def test_preexisting_run_or_artifact_fails_without_terminal(self):
         self.fx.run_dir.mkdir(mode=0o700); r=self.fx.execute(); self.assertStructuralFailure(r); self.assertFalse((self.fx.run_dir/"terminal.json").exists())
     def test_bad_pwd_and_anchor_self_or_caller_mismatch_fail_before_child(self):

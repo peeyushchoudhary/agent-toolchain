@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import select
 import signal
 import stat
 import struct
@@ -28,6 +29,10 @@ VERIFY_ERROR = 2
 SCHEMA_ENV = "gate-capture-env/v1"
 SCHEMA_LAUNCH = "gate-capture-launch/v1"
 SCHEMA_TERMINAL = "gate-capture-terminal/v1"
+POST_EXIT_DRAIN_SECONDS = 0.25
+TERM_GRACE_SECONDS = 0.20
+KILL_DRAIN_SECONDS = 0.20
+
 RUN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
@@ -334,6 +339,125 @@ def _wait_exact(pid: int) -> int:
         return status
 
 
+
+def _signal_boundary(pid: int, group_proven: bool, sig: int) -> None:
+    try:
+        if group_proven:
+            os.killpg(pid, sig)
+        else:
+            os.kill(pid, sig)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        # Darwin reports EPERM for a proven group containing only an unreaped zombie.
+        if not group_proven:
+            raise
+
+
+def _bounded_pause(seconds: float) -> None:
+    # select() is interruptible and does not depend on a signal handler or child handle.
+    deadline = time.monotonic() + seconds
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        try:
+            select.select([], [], [], remaining)
+        except InterruptedError:
+            continue
+
+
+def _terminate_and_reap(pid: int, group_proven: bool) -> int:
+    """Terminate only the owned PID/boundary, keeping PID unreaped until KILL."""
+    _signal_boundary(pid, group_proven, signal.SIGTERM)
+    _bounded_pause(TERM_GRACE_SECONDS)
+    # The unreaped direct child prevents PID reuse while its known group is addressed.
+    _signal_boundary(pid, group_proven, signal.SIGKILL)
+    return _wait_exact(pid)
+
+
+def _drain_available(readfd: int, logfd: int, digest: Any) -> tuple[int, bool]:
+    count = 0
+    while True:
+        try:
+            chunk = os.read(readfd, 65536)
+        except InterruptedError:
+            continue
+        except BlockingIOError:
+            return count, False
+        if not chunk:
+            return count, True
+        _write_all(logfd, chunk)
+        digest.update(chunk)
+        count += len(chunk)
+
+
+def _drain_for(readfd: int, logfd: int, digest: Any, seconds: float) -> tuple[int, bool]:
+    count = 0
+    deadline = time.monotonic() + seconds
+    while True:
+        added, eof = _drain_available(readfd, logfd, digest)
+        count += added
+        if eof:
+            return count, True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return count, False
+        try:
+            readable, _, _ = select.select([readfd], [], [], remaining)
+        except InterruptedError:
+            continue
+        if not readable:
+            return count, False
+
+
+def _pump_and_wait(pid: int, readfd: int, logfd: int, digest: Any, lifecycle: dict[str, bool]) -> tuple[int, int]:
+    """Pump pipe and observe child exit concurrently, retaining the zombie until EOF."""
+    kq = select.kqueue()
+    count = 0
+    eof = False
+    child_terminal = False
+    exit_deadline: Optional[float] = None
+    os.set_blocking(readfd, False)
+    changes = [
+        select.kevent(readfd, filter=select.KQ_FILTER_READ,
+                      flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE),
+        select.kevent(pid, filter=select.KQ_FILTER_PROC,
+                      flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_ONESHOT,
+                      fflags=select.KQ_NOTE_EXIT),
+    ]
+    try:
+        kq.control(changes, 0, 0)
+        while not (eof and child_terminal):
+            timeout = None
+            if child_terminal:
+                timeout = max(0.0, exit_deadline - time.monotonic())
+            try:
+                events = kq.control(None, 8, timeout)
+            except InterruptedError:
+                continue
+            for event in events:
+                if event.filter == select.KQ_FILTER_PROC and event.ident == pid:
+                    child_terminal = True
+                    exit_deadline = time.monotonic() + POST_EXIT_DRAIN_SECONDS
+                elif event.filter == select.KQ_FILTER_READ and event.ident == readfd:
+                    added, saw_eof = _drain_available(readfd, logfd, digest)
+                    count += added
+                    eof = eof or saw_eof or bool(event.flags & select.KQ_EV_EOF)
+            if child_terminal and not eof and time.monotonic() >= exit_deadline:
+                _signal_boundary(pid, True, signal.SIGTERM)
+                added, eof = _drain_for(readfd, logfd, digest, TERM_GRACE_SECONDS)
+                count += added
+                _signal_boundary(pid, True, signal.SIGKILL)
+                added, _ = _drain_for(readfd, logfd, digest, KILL_DRAIN_SECONDS)
+                count += added
+                raise EvidenceError("command descendants retained the capture pipe")
+        status = _wait_exact(pid)
+        lifecycle["waited"] = True
+        return status, count
+    finally:
+        kq.close()
+
 def _child_result(status: int) -> dict[str, Any]:
     if os.WIFEXITED(status):
         return {"exit_kind": "exit", "exit_code": os.WEXITSTATUS(status), "signal": None}
@@ -412,6 +536,9 @@ def run_capture(args: argparse.Namespace) -> int:
         _regular_file(os.fstat(logfd),0o600)
         readfd,writefd=os.pipe()
         os.set_inheritable(readfd,False); os.set_inheritable(writefd,False)
+        pid: Optional[int] = None
+        group_proven = False
+        lifecycle = {"waited": False}
         try:
             try:
                 os.setsid()
@@ -424,6 +551,7 @@ def run_capture(args: argparse.Namespace) -> int:
             pid=os.fork()
             if pid==0:
                 try:
+                    os.setpgid(0,0)
                     os.close(readfd)
                     os.fchdir(cwd.fd)
                     os.dup2(writefd,1); os.dup2(writefd,2)
@@ -433,16 +561,32 @@ def run_capture(args: argparse.Namespace) -> int:
                     os.execve("/bin/sh",argv,env)
                 except BaseException:
                     os._exit(127)
+            try:
+                os.setpgid(pid,pid)
+            except OSError as exc:
+                if exc.errno not in (errno.EACCES, errno.EPERM, errno.ESRCH):
+                    raise
+            try:
+                group_proven = os.getpgid(pid) == pid
+            except ProcessLookupError:
+                group_proven = False
+            if not group_proven:
+                _fail("command process group could not be proven")
             os.close(writefd); writefd=-1
-            h=hashlib.sha256(); count=0
-            while True:
-                try: chunk=os.read(readfd,65536)
-                except InterruptedError: continue
-                if not chunk: break
-                _write_all(logfd,chunk); h.update(chunk); count+=len(chunk)
+            h=hashlib.sha256()
+            status,count=_pump_and_wait(pid,readfd,logfd,h,lifecycle)
             os.close(readfd); readfd=-1
-            status=_wait_exact(pid)
             ended_mono=time.monotonic_ns(); ended_utc=_utc_now()
+        except BaseException:
+            for fd in (readfd,writefd):
+                if fd >= 0:
+                    try: os.close(fd)
+                    except OSError: pass
+            readfd=writefd=-1
+            if pid is not None and not lifecycle["waited"]:
+                _terminate_and_reap(pid,group_proven)
+                lifecycle["waited"] = True
+            raise
         finally:
             for fd in (readfd,writefd):
                 if fd >= 0:
@@ -558,7 +702,7 @@ def verify_capture(args: argparse.Namespace) -> int:
         run=bind_relative_dir(parent,args.run_id)
         before=_snapshot(run.fd)
         if {x[0] for x in before}!={"gate.log","terminal.json"}: _fail("unexpected run directory entries")
-        anchor_raw,_=read_external(args.launch_anchor,"launch anchor"); anchor=parse_anchor(anchor_raw)
+        anchor_raw,anchor_stat=read_external(args.launch_anchor,"launch anchor"); anchor=parse_anchor(anchor_raw)
         traw,_=read_artifact(run.fd,"terminal.json"); terminal=_validate_terminal(parse_json_bytes(traw,"terminal"))
         if traw!=canonical(terminal,newline=True): _fail("terminal is not canonical")
         if anchor["run_id"]!=args.run_id or terminal["run_id"]!=args.run_id: _fail("run id mismatch")
@@ -583,6 +727,12 @@ def verify_capture(args: argparse.Namespace) -> int:
         if got2!=expected: _fail("second log read mismatch")
         for b in (ancestor,parent,cwd,run): _revalidate(b)
         if _snapshot(run.fd)!=before: _fail("run directory changed during verification")
+        final_anchor_raw,final_anchor_stat=read_external(args.launch_anchor,"launch anchor")
+        initial_identity=(anchor_stat.st_dev,anchor_stat.st_ino,anchor_stat.st_size)
+        final_identity=(final_anchor_stat.st_dev,final_anchor_stat.st_ino,final_anchor_stat.st_size)
+        if (final_identity != initial_identity or final_anchor_raw != anchor_raw
+                or hashlib.sha256(final_anchor_raw).digest() != hashlib.sha256(anchor_raw).digest()):
+            _fail("launch anchor changed during verification")
         child=terminal["child"]
         print(f"captured: child {child['exit_kind']} " + str(child['exit_code'] if child['exit_kind']=='exit' else child['signal']))
         return 0

@@ -209,10 +209,13 @@ python3 scripts/evidence_supervisor.py verify --trusted-ancestor /absolute/ances
 ```
 
 The supervisor owns the child, merged binary output pipe, exclusive publications, and terminal
-process status. The launch anchor binds the exact argv, canonical complete exec environment,
-physical directory identities, caller identifiers, and `supervisor_sha256`. That last value is
-SHA-256 over the exact bytes of `evidence_supervisor.py`; defining it this way avoids any
-self-referential artifact.
+process status. It pumps output while observing the direct child in a distinct command process
+group. A descendant that retains the pipe past the bounded post-exit drain makes capture fail; the
+supervisor terminates only that proven group and reaps its direct child. The launch anchor binds the
+exact argv, canonical complete exec environment, physical directory identities, caller identifiers,
+and `supervisor_sha256`. Verification reads that external anchor again after all evidence checks and
+requires the original identity and bytes. The self hash is SHA-256 over the exact bytes of
+`evidence_supervisor.py`; defining it this way avoids any self-referential artifact.
 
 This interface is **capture only**. It does not copy a repository, prepare dependencies, inspect
 services, clean up, sandbox, sign, inject markers, judge stages, or publish `PASS`. `verify` returning
