@@ -240,7 +240,10 @@ MIRRORED_SKILLS = ("progressive-disclosure", "agent-personas", "agent-persona-fa
                    # install.sh whether or not this tuple knows about it, so an omission here does
                    # not fail loudly — it installs the skill on the Codex side and guards it with
                    # nothing.
-                   "project-migration")
+                   "project-migration",
+                   # Added WITH the `gate-sandbox` publication. The comment above has now been
+                   # right twice and is being trusted the third time rather than re-learned.
+                   "gate-sandbox")
 
 # The third state. A `not-run` is not a severity of finding in the ordinary sense — it is the
 # absence of a finding *and* the absence of a clean result, which is precisely the thing two-state

@@ -44,11 +44,11 @@ Installation lives in [../install/README.md](../install/README.md).
 everything that layer contains — each skill is a decision, and the decisions are recorded here
 because a skill that is silently absent is indistinguishable from one that was forgotten.
 
-Eight skills are published: `progressive-disclosure`, `agent-personas`, `agent-persona-factory`,
-`execution-methodology`, `graph-navigation`, `project-onboarding`, `project-conformance`, and
-`project-migration`. The list is enforced by `install/skills/.gitignore`, which ignores its own
-directory and then re-includes those eight by name, so adding a ninth is a deliberate line in a
-file rather than a side effect of a copy.
+Nine skills are published: `progressive-disclosure`, `agent-personas`, `agent-persona-factory`,
+`execution-methodology`, `graph-navigation`, `project-onboarding`, `project-conformance`,
+`project-migration`, and `gate-sandbox`. The list is enforced by `install/skills/.gitignore`,
+which ignores its own directory and then re-includes those nine by name, so adding a tenth is a
+deliberate line in a file rather than a side effect of a copy.
 
 **`execution-methodology` is published.** It is the pipeline this repository describes — the
 artifacts, the three human gates, the task card, the ledger contract — and until now it was the one
@@ -89,6 +89,23 @@ an already-onboarded repository's product documents onto the bound schema — th
 precondition to `project-onboarding`, which is for a repository that has nothing yet. It is its own
 skill for that reason: one description cannot honestly name both states, and a reader holding a
 conforming repository does not open a page that says the repository is not set up.
+
+**`gate-sandbox` is published.** It is machinery for running a write-producing gate against a
+manifest-equal standalone copy — the executable form of a protocol this repository already
+described in prose and had never shipped. Publishing it is only defensible because it contains no
+project fact at all: every checkout path, branch, referent, port and image arrives from
+configuration outside this repository, and a test asserts the absence rather than trusting it.
+
+It is the first published skill whose configuration is deliberately NOT published. The machinery is
+public; the three-layer config it reads lives in the private home repository. That split is the
+whole reason a public copy is possible, and collapsing it would be the way this skill stops being
+publishable.
+
+Its own break-tests were mutation-tested before they were believed, and one mutation SURVIVED:
+deleting `(deny file-write*)` from the profile changed nothing, because the deny-default line is
+what denies writes. The behavioural checks could not say which line they depended on. That is
+recorded in the profile itself, and the load-bearing line is now asserted structurally — a passing
+suite is not evidence that the rule you think you are testing exists.
 
 Its publication landed all five edits in one commit, including `MIRRORED_SKILLS` — the paragraph
 above is what made that possible, and the register earning its keep once is the argument for
