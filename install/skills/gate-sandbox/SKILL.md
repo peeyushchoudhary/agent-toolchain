@@ -108,7 +108,7 @@ runtime changed without anyone noticing is not the same gate.
 | `GATE_JAVA_HOME` | JDK for JVM projects; `env -i` strips the inherited one |
 | `GATE_RUN_ROOT` | where run roots and the shared cache clone live |
 | `GATE_CACHE_PATH_<kind>` | host location of each cache kind |
-| `GATE_JAVA_TOOL_OPTIONS` | JVM options inside the sandbox; defaults to `-Djava.net.preferIPv4Stack=true -Djdk.attach.allowAttachSelf=true`. Override and you own both — each fixes a distinct denial |
+| `GATE_JAVA_TOOL_OPTIONS` | JVM options inside the sandbox. Defaults to `-Djava.net.preferIPv4Stack=true -Djdk.attach.allowAttachSelf=true -Djava.io.tmpdir=<run-root>/tmp`. Override and you own all three — each fixes a distinct denial, and the third cannot be expressed through `TMPDIR` |
 | `GATE_DARWIN_TEMP_DIR` | the per-user temp directory the JVM uses regardless of `TMPDIR`; derived, and only worth setting if derivation is wrong |
 | `GATE_LANG` | locale inside the sandbox; defaults to `en_US.UTF-8` |
 | `GATE_EXTRA_PATH` | extra `PATH` entries for a toolchain in an unusual place |
@@ -166,7 +166,12 @@ failure per mocked class, with an exception naming the mocking library — the w
 the test code. Three separate things are required, and each alone leaves the failure looking
 untouched: `file-write*` **and** `network-outbound` on those paths (the client connecting to a unix
 socket is an outbound operation, not a file one), plus `-Djdk.attach.allowAttachSelf=true`, since
-the JVM's own refusal reports *Can not attach to current VM* and arrives first. The pattern must
+the JVM's own refusal reports *Can not attach to current VM* and arrives first. A **fourth** thing
+hides behind those three: `java.io.tmpdir` comes from the same unreachable place, so the mock maker
+then fails writing its boot jar — reported as an `IOException` from a native method with no path in
+it, under the same mocking-library exception, so the failure count barely moves and it reads as *the
+fix did nothing* rather than *the next cause*. `-Djava.io.tmpdir=<run-root>/tmp` moves it, and fixes
+every ordinary test that writes a temp file too. The pattern must
 **not** be anchored at the end: the socket is bound under a suffixed temporary name and renamed into
 place, so `[0-9]+$` matches the final name and not the one created — which fails as *target process
 doesn't respond within 10500ms*, i.e. as a hung JVM rather than a denied write.

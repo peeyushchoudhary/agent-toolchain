@@ -182,11 +182,30 @@ public class GateLoopbackProbe {
 }
 JAVA
 
+  # Writing a temp file. TMPDIR does not move java.io.tmpdir -- only the system property does -- so
+  # this fails wherever that redirect is missing, and it fails for ordinary tests as well as for the
+  # mock maker's boot jar.
+  cat > "$ROOT/probes/GateTempFileProbe.java" <<'JAVA'
+import java.io.File;
+public class GateTempFileProbe {
+  public static void main(String[] a) {
+    try {
+      File f = File.createTempFile("gate-readiness", ".probe");
+      f.delete();
+      System.out.println("tempfile:ok " + System.getProperty("java.io.tmpdir"));
+    } catch (Throwable e) {
+      System.out.println("tempfile:FAILED " + System.getProperty("java.io.tmpdir") + " -- " + e);
+    }
+  }
+}
+JAVA
+
   rprobe="$(sandboxed "$ROOT" "$ROOT/probes" '
     java GateAttachProbe.java   2>&1 | grep "^attach:"   || echo "attach:FAILED probe did not run"
     java GateLoopbackProbe.java 2>&1 | grep "^loopback:" || echo "loopback:FAILED probe did not run"
+    java GateTempFileProbe.java 2>&1 | grep "^tempfile:" || echo "tempfile:FAILED probe did not run"
   ' 180 2>&1)"
-  printf '%s\n' "$rprobe" | grep -v '^\(attach\|loopback\):ok$' | sed 's/^/        /'
+  printf '%s\n' "$rprobe" | grep -vE '^(attach|loopback):ok$|^tempfile:ok ' | sed 's/^/        /'
   case "$rprobe" in
     *attach:ok*) ok "JVM can load an agent into itself (inline mock makers need this)" ;;
     *) bad "JVM agent self-attach is DENIED -- every inline-mocked test will fail, and the exception will name the mocking library rather than this" ;;
@@ -194,6 +213,10 @@ JAVA
   case "$rprobe" in
     *loopback:ok*) ok "JVM loopback round trip (dual-stack IPv4, the shape that breaks)" ;;
     *) bad "a JVM cannot complete a loopback round trip -- build daemons and test containers will report themselves unreachable" ;;
+  esac
+  case "$rprobe" in
+    *tempfile:ok*) ok "JVM can write a temp file (java.io.tmpdir points inside the run root)" ;;
+    *) bad "a JVM cannot write a temp file -- java.io.tmpdir is outside every write grant, and TMPDIR does not move it" ;;
   esac
 
   # Heap is a RESOURCE fact, not a permission one, and it is checked here because it fails in the

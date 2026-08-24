@@ -173,6 +173,27 @@ case "$JTO" in *allowAttachSelf=true*) sa=yes ;; *) sa=no ;; esac
 check "the default JVM options permit self-attach" "yes" "$sa"
 case "$JTO" in *preferIPv4Stack=true*) ip4=yes ;; *) ip4=no ;; esac
 check "the default JVM options keep the IPv4 stack" "yes" "$ip4"
+# java.io.tmpdir is NOT movable by TMPDIR -- the JVM reads its temp directory from confstr -- so
+# without this every File.createTempFile lands outside every write grant. It hides behind the attach
+# grant: with attach fixed and this missing, the mock maker gets one step further and fails writing
+# its boot jar, under the same exception as before, so the failure count barely moves.
+case "$JTO" in *"-Djava.io.tmpdir=$FIX/tmp"*) td=yes ;; *) td=no ;; esac
+check "the default JVM options move java.io.tmpdir into the run root" "yes" "$td"
+
+if [ -n "${GATE_JAVA_HOME:-}" ] && [ -x "$GATE_JAVA_HOME/bin/java" ]; then
+  mkdir -p "$FIX/tmpprobe"
+  cat > "$FIX/tmpprobe/GateTempSelftest.java" <<'JAVA'
+import java.io.File;
+public class GateTempSelftest {
+  public static void main(String[] a) {
+    try { File f = File.createTempFile("gate-selftest", ".probe"); f.delete(); System.out.println("WROTE"); }
+    catch (Throwable e) { System.out.println("DENIED"); }
+  }
+}
+JAVA
+  check "a JVM can write a temp file inside the profile" "WROTE" \
+    "$(sandboxed "$FIX" "$FIX/tmpprobe" 'java GateTempSelftest.java 2>/dev/null | grep -E "^(WROTE|DENIED)$" || echo NORUN' 180)"
+fi
 
 # THE GRANT MUST NOT WIDEN THE TEMP DIRECTORY. The per-user temp dir is shared and outside the run
 # root; if this check ever flips, the sandbox has a writable escape hatch and every other deny

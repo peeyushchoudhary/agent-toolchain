@@ -466,7 +466,20 @@ gate_env() { # gate_env <run-root> -> one VAR=value per line
     # unless asked to permit it, and reports "Can not attach to current VM" -- which is a different
     # message from the sandbox denial and arrives first, so fixing only the profile leaves the
     # failure looking untouched. Both halves are needed; neither alone is enough.
-    printf 'JAVA_TOOL_OPTIONS=%s\n' "${GATE_JAVA_TOOL_OPTIONS:--Djava.net.preferIPv4Stack=true -Djdk.attach.allowAttachSelf=true}"
+    #
+    # REDIRECT java.io.tmpdir INTO THE RUN ROOT. TMPDIR does not do this: the JVM reads its temp
+    # directory from confstr(_CS_DARWIN_USER_TEMP_DIR), which no environment variable reaches, so
+    # every File.createTempFile lands outside every write grant. The system property is the only
+    # thing that moves it.
+    #
+    # This is the SECOND half of making inline mocking work, and it hides behind the first. With the
+    # attach handshake granted but the temp directory still unwritable, the mock maker gets one step
+    # further and then fails writing its boot jar -- reported as an IOException from a native method
+    # with no path in it, under the same mocking-library exception as before. The failure count
+    # barely moves, which reads as "the fix did nothing" rather than "the next cause".
+    #
+    # It also fixes every ordinary test that writes a temp file, which failed the same way.
+    printf 'JAVA_TOOL_OPTIONS=%s\n' "${GATE_JAVA_TOOL_OPTIONS:--Djava.net.preferIPv4Stack=true -Djdk.attach.allowAttachSelf=true -Djava.io.tmpdir=$root/tmp}"
   fi
   # An offline step that retries a lookup it can never satisfy turns a fast failure into a stall;
   # these bound npm-family resolvers so a blocked fetch reports rather than hangs.
