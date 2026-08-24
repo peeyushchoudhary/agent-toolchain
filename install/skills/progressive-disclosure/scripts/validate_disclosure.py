@@ -117,6 +117,14 @@ MERMAID_FENCE = re.compile(r"^```mermaid\s*$(.*?)^```\s*$", re.DOTALL | re.MULTI
 # A node label, quoted, in any of Mermaid's shape brackets. Quoted edge labels are deliberately not
 # matched: an edge says how two boxes relate, and that sentence has no reason to appear in a table.
 MERMAID_NODE_LABEL = re.compile(r"[\[({>]{1,2}\s*\"([^\"]+)\"\s*[\])}]{1,2}")
+# A label may carry a description after a line break or a spaced em-dash —
+# `":core-api<br/>framework-free ports and events"`. The NAME is the half that must appear in
+# the prose; the description is decoration. Comparing the WHOLE label made every described box
+# unsatisfiable, because going green demanded the literal `<br/>` appear inside a sentence — so
+# the only way to satisfy it was to strip the diagram or pad the prose, damaging a correct
+# README so a defective matcher would go quiet. Drift detection is unaffected: the name is
+# still what is compared, so renaming a module still fails.
+MERMAID_LABEL_BREAK = re.compile(r"<\s*br\s*/?\s*>|\s+—\s+", re.IGNORECASE)
 RASTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".avif"}
 # An @import must look like a path. Without the dot-or-slash requirement this matches a bare Java
 # annotation sitting on its own line — `@Entity`, `@RestController` — and every design document that
@@ -835,14 +843,20 @@ def check_readme(root: Path, files: list[Path], report: Report) -> None:
                              f"{target} draws the architecture as pixels — no diff shows it going "
                              "stale, and a private name inside it is invisible to the guard")
         # The half that actually stops drift: a fence whose boxes no longer match the prose beside
-        # them is a second, contradicting source of truth. Every quoted node label must appear
-        # verbatim in the rest of the section, so renaming a stage in the table renames it here too.
+        # them is a second, contradicting source of truth. Every node's NAME must appear verbatim in
+        # the rest of the section, so renaming a stage in the table renames it here too. The name is
+        # the label up to its first line break or spaced em-dash; what follows is description, and
+        # requiring that too made the rule unsatisfiable rather than strict.
         if fence is not None:
             rest = arch_body[:fence.start()] + arch_body[fence.end():]
             for label in MERMAID_NODE_LABEL.findall(fence.group(1)):
-                if label.casefold() not in rest.casefold():
+                # `or label` matters: a label opening with its own separator would otherwise yield
+                # an empty name, and `"" in rest` is always true — silencing the check instead of
+                # failing it. A rule that goes quiet on a malformed input is worse than a strict one.
+                name = MERMAID_LABEL_BREAK.split(label, 1)[0].strip() or label
+                if name.casefold() not in rest.casefold():
                     report.error("readme-diagram-drift", rel_readme,
-                                 f"the diagram has a box named \"{label}\" that the architecture "
+                                 f"the diagram has a box named \"{name}\" that the architecture "
                                  "section never mentions — one of the two has moved on")
 
     # Every component a reader can see in the tree should be findable from the front page.
