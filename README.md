@@ -163,11 +163,13 @@ stated in the skill's JUnit-evidence reference.
 
 ### What is not shipped
 
-- There is no remaining publication gap: all eight skills the allowlist declares are vendored here.
+- There is no remaining publication gap: all nine skills the allowlist declares are vendored here.
   `project-conformance` closed the last one and this line described it as open for as long as it
   took to notice — `check_prose_agrees` asserts that a declared skill is NAMED on this page, never
-  that a sentence about it is still true. Which skills are published, and which are deliberately
-  not, is recorded in [What is published, and what is not](docs/README.md#what-is-published-and-what-is-not).
+  that a sentence about it is still true. **It then said "eight" through the publication of
+  `gate-sandbox`, for the same reason, in the same sentence.** A number in prose is unguarded here
+  by construction; `docs/README.md` said nine throughout. Which skills are published, and which are
+  deliberately not, is recorded in [What is published, and what is not](docs/README.md#what-is-published-and-what-is-not).
 - There is no application release, production deployment, or application roadmap behind this
   repository.
 
