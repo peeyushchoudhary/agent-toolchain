@@ -192,10 +192,46 @@ and silently ignored. With a real HOME the default store is correct anyway, so t
 to work everywhere except the fresh HOME this sandbox insists on. Asserting the path *exists* is
 necessary and insufficient; `check_cache_agreement` asks the **tool** where its cache is.
 
+## Durable evidence capture (Darwin only)
+
+[`scripts/evidence_supervisor.py`](scripts/evidence_supervisor.py) is a generic capture primitive,
+not another gate launcher. A trusted controller supplies a complete environment file and an
+external launch anchor, then invokes exactly one literal shell command:
+
+```sh
+python3 scripts/evidence_supervisor.py run --trusted-ancestor /absolute/ancestor \
+  --evidence-parent relative/receipts --run-id RUN_ID --cwd /absolute/work \
+  --env-file /absolute/environment.json --launch-anchor /absolute/launch.json \
+  -- /bin/sh -c 'literal command'
+python3 scripts/evidence_supervisor.py verify --trusted-ancestor /absolute/ancestor \
+  --evidence-parent relative/receipts --run-id RUN_ID \
+  --launch-anchor /absolute/launch.json
+```
+
+The supervisor owns the child, merged binary output pipe, exclusive publications, and terminal
+process status. It pumps output while observing the direct child in a distinct command process
+group. A descendant that retains the pipe past the bounded post-exit drain makes capture fail; the
+supervisor terminates only that proven group and reaps its direct child. The launch anchor binds the
+exact argv, canonical complete exec environment, physical directory identities, caller identifiers,
+and `supervisor_sha256`. Verification reads that external anchor again after all evidence checks and
+requires the original identity and bytes. The self hash is SHA-256 over the exact bytes of
+`evidence_supervisor.py`; defining it this way avoids any self-referential artifact.
+
+This interface is **capture only**. It does not copy a repository, prepare dependencies, inspect
+services, clean up, sandbox, sign, inject markers, judge stages, or publish `PASS`. `verify` returning
+zero means the capture is structurally valid, including when the child exited nonzero or by signal.
+It prints the raw child result. Admission and semantic success remain separate decisions.
+
+The trust boundary includes the controller, kernel, exported working directory, and toolchain. The
+safe-walk, retained descriptors, exclusive Darwin renames, revalidation, and independent final
+reads detect namespace and artifact mutation during capture. They make no claim against a malicious
+same-UID process that can inject data or edit and restore bytes between observations.
+
 ## Verifying
 
 ```sh
 tests/selftest.sh
+python3 -m unittest tests/test_evidence_supervisor.py
 ```
 
 Hermetic: it builds its own git repository and its own configuration, so it runs on any machine and
