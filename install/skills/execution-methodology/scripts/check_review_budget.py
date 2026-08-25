@@ -44,11 +44,15 @@ left the CLASS open. The four occurrences, one mechanism:
 THE CEILING ON THE WHOLE DESIGN, which is why hardening stopped: the DEFAULT ledger is never
 git-queried at all (`read_grants`, deliberate, for harness parity — the Codex mirror of this skill
 is git-ignored, so a tracked-ness test would make two byte-identical copies disagree). **Appending
-one row to the shipped ROUND-GRANTS.tsv costs nothing and prints no NON_DEFAULT_GRANTS.** Every
+one row to the default ROUND-GRANTS.tsv costs nothing and prints no NON_DEFAULT_GRANTS.** That file
+is NOT shipped, which makes the gate wider rather than narrower: it is operator-local, restored
+beside this script after every install by `PRESERVE_ACROSS_INSTALLS` in install.sh and published
+nowhere, so a row appended to it is reviewed by no one and diffed against nothing. Every
 hardening in this file concerns caller-named ledgers only. The cheapest route was never forged
 because it never needed to be. Anything below is a fence beside an open gate, and is worth having
-only because it makes the open gate the one route, and that route is one line in a tracked,
-diffable, reviewable file.
+only because it makes the open gate the one route: one line in one named file, on one machine,
+which is at least a place a human can be pointed at. Not, as this paragraph claimed until the
+preserve list was read, a tracked and reviewable one.
 
 F-A, NARROWED AND OPEN — git's environment answers "which repository". `is_a_committed_authority`
 asks git where it is. A caller who sets GIT_DIR/GIT_WORK_TREE answered that question themselves and

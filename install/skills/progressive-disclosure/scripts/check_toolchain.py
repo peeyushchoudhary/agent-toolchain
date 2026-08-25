@@ -68,6 +68,13 @@ A fifth machine-global concern was added by TC-47, and it sits one floor BELOW e
      is a concern of its own rather than a mode of the machine-global ones because the comparison is
      between a machine and a *specific* repository, named on the command line.
 
+     TWO declarations bound it, both READ from the repository and neither written here:
+     `install/skills/.gitignore` says what the repository publishes (`read_declaration`), and
+     `PRESERVE_ACROSS_INSTALLS` in `install/install.sh` says what the installer restores into
+     `~/.claude/skills` after replacing it (`read_preserved`). The first is symmetric; the second
+     applies to the installed-only direction alone. Everything either one removes is reported as
+     excluded, with the file that removed it named.
+
 The two repository-scoped modes are MUTUALLY EXCLUSIVE at the argument parser: they are verdicts
 about different trees, and a run that silently executed one of them would print a status for a
 question the caller did not ask.
@@ -249,6 +256,12 @@ MIRRORED_SKILLS = ("progressive-disclosure", "agent-personas", "agent-persona-fa
 # absence of a finding *and* the absence of a clean result, which is precisely the thing two-state
 # reporting cannot express. Spelled the way it is printed, so a grep for the word finds both.
 NOT_RUN = "not-run"
+
+# The reason string for a path the installer restores after every install. Distinct from the
+# .gitignore reason on purpose: they come from different files and mean different things, and
+# collapsing them into one phrase would tell a reader "out of scope" without saying which
+# declaration put it there or which file to edit to change that.
+PRESERVED_WHY = "declared preserved across installs by install/install.sh"
 
 # TC-06's ruling, implemented here rather than restated: RANK GOVERNS VISIBILITY, `BLOCKING`
 # GOVERNS THE EXIT CODE, and the two are deliberately different objects. An unknown severity —
@@ -710,6 +723,64 @@ def read_declaration(vendored_skills: Path) -> tuple[list[tuple[str, bool, bool]
                               f"presence finding below would be trustworthy")]
 
 
+def read_preserved(vendored_skills: Path) -> tuple[frozenset[str], list[tuple[str, str]]]:
+    """The paths `install/install.sh` declares it restores after every install. `(paths, findings)`.
+
+    THE DECLARATION ALREADY EXISTS, and it is not the one `read_declaration` reads. Those two files
+    answer different questions, and there is no third roster: `install/skills/.gitignore` says what
+    this repository PUBLISHES, and `PRESERVE_ACROSS_INSTALLS` in `install/install.sh` says what the
+    installer puts BACK into `~/.claude/skills` after `install_tree` has replaced it wholesale. A
+    path named there is operator-local state the installer creates BY DESIGN — a founder's decision
+    ledger, a suite whose fixtures resolve a path that exists on an installed machine and not in
+    this repository. It is installed because the installer installs it, and it is absent from the
+    vendored copy because publishing it would hand one machine's local state to every installer as
+    a default. Reported as unpublished-and-absent forever, it was a CRITICAL no action could clear.
+
+    Naming those paths in `install/skills/.gitignore` instead would be the second roster: the same
+    fact in two files, free to disagree, and false as well — `.gitignore` is the question git is
+    asked about publication, and these paths are not things git is being asked.
+
+    A missing install.sh declares nothing, and "nothing declared" must read as "nothing preserved";
+    inventing exclusions from an absent file is the fail-open this area exists to remove. An
+    UNREADABLE one is a `not-run`, for the reason `read_declaration` gives: what is preserved would
+    be unknown, and every installed-only finding below it would be a guess.
+    """
+    installer = vendored_skills.parent / "install.sh"
+    if not installer.is_file():
+        return frozenset(), []
+    try:
+        text = installer.read_text(encoding="utf-8", errors="strict")
+    except (OSError, UnicodeDecodeError) as e:
+        return frozenset(), [(NOT_RUN, f"vendored drift was NOT RUN: {installer} could not be read "
+                                       f"({e}), so what the installer preserves across installs is "
+                                       f"unknown and no installed-only finding below would be "
+                                       f"trustworthy")]
+    paths, inside = [], False
+    for line in text.splitlines():
+        if not inside:
+            # Only the assignment opening a heredoc-style multi-line list. A one-line assignment
+            # would end on the same line and is not this file's form; it is left undeclared rather
+            # than half-parsed, because a silent partial read is worse than no read.
+            inside = line.strip() == 'PRESERVE_ACROSS_INSTALLS="'
+            continue
+        if line.strip() == '"':
+            break
+        entry = line.strip().strip("/")
+        if entry and not entry.startswith("#"):
+            paths.append(entry)
+    return frozenset(paths), []
+
+
+def preserved_by(preserved: frozenset[str], rel: str) -> bool:
+    """Does `rel` — a path relative to the SKILLS ROOT — fall under a preserved declaration?
+
+    Prefix-aware, because `agent-personas/tests` names a DIRECTORY and what a comparison sees is
+    every file beneath it. Matching the directory name alone would leave each of its files a
+    CRITICAL, which is the finding this reader exists to retire.
+    """
+    return any(rel == p or rel.startswith(p + "/") for p in preserved)
+
+
 def declared_unpublished(vendored_skills: Path, rules) -> dict[str, str]:
     """The top-level skill DIRECTORIES the declaration covers, on either side.
 
@@ -749,7 +820,7 @@ def _describe_vendored(skill: str, rel_path: str) -> str:
     return f"skill `{skill}` file `{rel_path}`"
 
 
-def check_vendored(vendored_skills: Path, rules=()) -> list[tuple[str, str]]:
+def check_vendored(vendored_skills: Path, rules=(), preserved=frozenset()) -> list[tuple[str, str]]:
     """Diff ~/.claude/skills (the installed shared layer) against a repository's vendored copy.
 
     Reuses `tree()` — once per side for the top-level regular files, once per shared skill for the
@@ -782,6 +853,16 @@ def check_vendored(vendored_skills: Path, rules=()) -> list[tuple[str, str]]:
     What exclusion means, in all three directions: a path git will never publish is not missing
     from the vendored copy, is not stale published content if it happens to sit there untracked,
     and has no published bytes to compare.
+
+    `preserved` is the SECOND declaration — `PRESERVE_ACROSS_INSTALLS` from `install/install.sh`
+    (see `read_preserved`) — and it is deliberately NOT folded into `rules`, because it is not
+    symmetric. `install.sh` says of its own list: "A vendored copy always WINS: the guard below only
+    restores a path the staged tree does not already have... vendoring one of these later needs no
+    edit here — the entry just goes inert." So a preserved path that IS in the vendored copy is
+    published, and must be compared exactly like anything else — present, absent, and content alike.
+    Only the installed-only direction is retired, and only there. Reusing `is_excluded` would have
+    made vendoring one of these paths silently uncompared, which is a worse failure than the
+    permanent CRITICAL it was fixing.
 
     NOTHING IS DROPPED SILENTLY, and getting that right required deriving the report from the drop.
     An earlier version re-enumerated the excluded set by listing top-level DIRECTORIES, so an
@@ -825,34 +906,50 @@ def check_vendored(vendored_skills: Path, rules=()) -> list[tuple[str, str]]:
     # were previously invisible in both directions because only directories were enumerated.
     # "entry", not "file": this sweep is also what reports a symlinked skill DIRECTORY, and calling
     # that a file is the same class of inaccuracy as calling it stale.
-    found, skipped = _compare(CLAUDE_SKILLS, vendored_skills, "*",
-                              lambda rel: f"top-level entry `{rel}`",
-                              lambda rel: excluded_by(rules, rel))
+    found, skipped, kept = _compare(CLAUDE_SKILLS, vendored_skills, "*",
+                                    lambda rel: f"top-level entry `{rel}`",
+                                    lambda rel: excluded_by(rules, rel),
+                                    is_preserved=lambda rel: preserved_by(preserved, rel))
     out += found
     dropped.update({rel: why for rel in skipped})
+    dropped.update({rel: PRESERVED_WHY for rel in kept})
 
     for name in sorted(installed & vendored):
-        found, skipped = _compare(
+        found, skipped, kept = _compare(
             CLAUDE_SKILLS / name, vendored_skills / name, "**/*",
             lambda rel, _n=name: _describe_vendored(_n, rel),
             # The rule set is relative to the SKILLS ROOT, so a path inside a skill has to be
             # re-rooted before it is matched. Passing the skill-relative path would test
             # `scripts/x.py` against rules written for `<skill>/scripts/…` and quietly
             # under-exclude.
-            lambda rel, _n=name: excluded_by(rules, f"{_n}/{rel}"))
+            lambda rel, _n=name: excluded_by(rules, f"{_n}/{rel}"),
+            # Same re-rooting, same reason: `PRESERVE_ACROSS_INSTALLS` names
+            # `execution-methodology/ROUND-GRANTS.tsv`, and what arrives here is `ROUND-GRANTS.tsv`.
+            is_preserved=lambda rel, _n=name: preserved_by(preserved, f"{_n}/{rel}"))
         out += found
         dropped.update({f"{name}/{rel}": why for rel in skipped})
+        dropped.update({f"{name}/{rel}": PRESERVED_WHY for rel in kept})
 
     return out, sorted(dropped.items())
 
 
 def _compare(installed_root: Path, vendored_root: Path, pattern: str,
-             describe, is_excluded) -> tuple[list[tuple[str, str]], list[str]]:
+             describe, is_excluded, is_preserved) -> tuple[list[tuple[str, str]],
+                                                           list[str], list[str]]:
     """One `tree()` per side, rendered as the three drift categories plus unreadable entries.
 
-    Returns `(findings, skipped)`. `skipped` is every path the declaration removed here, so that
-    what gets REPORTED as out of scope is derived from what was actually skipped rather than from a
-    second enumeration free to disagree with it.
+    Returns `(findings, skipped, preserved)`. `skipped` is every path the declaration removed here
+    and `preserved` is every path the installer's preserve list retired, so that what gets REPORTED
+    as out of scope is derived from what was actually dropped rather than from a second enumeration
+    free to disagree with it. Two lists rather than one, because the two carry different reasons and
+    a reader who is told only "out of scope" cannot tell an unpublishable path from operator-local
+    state the installer creates.
+
+    `is_preserved` HAS NO DEFAULT either, and for the reason `is_excluded` has none. It is applied
+    to ONE direction — installed-present, vendored-absent — and nowhere else. See the note in
+    `check_vendored`: `install.sh` guarantees a vendored copy wins, so a preserved path that is also
+    published must still be compared for content, and must still be reported if it goes missing
+    from the installed side.
 
     `is_excluded` HAS NO DEFAULT, deliberately. It was `lambda rel: False`, which meant a call site
     added later would compare unexcluded, reintroduce the permanent CRITICAL this parameter exists
@@ -885,13 +982,15 @@ def _compare(installed_root: Path, vendored_root: Path, pattern: str,
         out.append(("critical", f"{describe(rel)} could not be compared "
                                 f"in the vendored copy ({why})"))
 
-    for rel in sorted((set(a) - set(b)) - unread):
+    installed_only = (set(a) - set(b)) - unread
+    preserved = sorted(rel for rel in installed_only if is_preserved(rel))
+    for rel in sorted(installed_only - set(preserved)):
         out.append(("critical", f"{describe(rel)} present installed, absent from vendored"))
     for rel in sorted((set(b) - set(a)) - unread):
         out.append(("critical", f"{describe(rel)} present in vendored, not installed"))
     for rel in sorted(k for k in (set(a) & set(b)) - unread if a[k] != b[k]):
         out.append(("critical", f"{describe(rel)} content differs from vendored"))
-    return out, skipped
+    return out, skipped, preserved
 
 
 def _read_json(path: Path) -> tuple[dict | None, str | None]:
@@ -2778,10 +2877,15 @@ def main() -> int:
         try:
             rules, declaration_problems = read_declaration(vendored_skills)
             run.add(declaration_problems)
+            # The second declaration, read from install.sh rather than .gitignore. Both are read
+            # here and neither is derived from the other; see `read_preserved` on why they are two
+            # files and not one list.
+            preserved, preserve_problems = read_preserved(vendored_skills)
+            run.add(preserve_problems)
             # The scope report comes back FROM the comparison, not from a parallel enumeration that
             # can disagree with it. See `check_vendored` on why re-deriving it dropped files
             # silently.
-            findings, run.excluded = check_vendored(vendored_skills, rules)
+            findings, run.excluded = check_vendored(vendored_skills, rules, preserved)
             run.add(findings,
                     label="vendored drift",
                     # Scoped to what the walk can actually see. "byte for byte" would overclaim:
