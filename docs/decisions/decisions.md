@@ -401,7 +401,9 @@ rule and **233** of them named outside `F-<n>-<slug>.md`; `spec_check.py` exits 
 ## D24 — the `agent-personas` test directory is not vendored
 
 **Chose:** leave it out of `install/skills/`, and record the three resulting drift criticals as
-expected.
+expected. Superseded in part by [D26](#d26--the-vendored-check-reads-the-installers-preserve-list):
+the three are still expected, but they are now reported as *excluded* rather than as criticals,
+because `install.sh` already declares this directory preserved.
 
 **Over:** vendoring it like every other suite, or planting a copy of the human record of the judging
 roster under `install/docs/` so its preflight resolves.
@@ -422,10 +424,11 @@ Positive control, the same suite installed: `Ran 68 tests ... OK`. Collection it
 reached, not 68. `verify.sh` runs vendored suites, so restoring the directory would surface that
 collection failure on every run.
 
-**Consequence:** three expected `--vendored` criticals, one per test file, and they cannot be
+**Consequence:** three expected `--vendored` findings, one per test file, and they cannot be
 silenced in `install/skills/.gitignore`: exclusion matches anchored rules on their first path
 component only, an interior-slash rule is skipped, and an unanchored pattern would exclude every
 test directory in both trees — including the `progressive-disclosure` suite `verify.sh` does run.
+That last sentence is why D26 reads a different file instead of adding a line here.
 
 
 ## D25 — The vendored-drift baseline names its findings, because the count did not hold
@@ -442,17 +445,64 @@ are a top-level `.gitignore` difference, a top-level `README.md` difference, and
 here is drift* — so this was drift, and it went unnoticed for as long as only the number was
 compared. **A count is a weak hash.**
 
-**The three, and why each is expected:**
+**The three, and what became of each:**
 
-| critical | why |
-|---|---|
-| top-level `.gitignore` differs | `~/.claude/skills/.gitignore` is a SIXTH allowlist, machine-global and separate from `install/skills/.gitignore`. It governs what the installed tree commits, not what this repository publishes. |
-| top-level `README.md` differs | the installed index is generated for the machine; the vendored one is the published page. |
-| `execution-methodology` `ROUND-GRANTS.tsv` installed, absent vendored | operator data. The vendored copy ships without the ledger by invariant, because a grants row names a real subject on a real machine. |
+| critical | why it was expected | now |
+|---|---|---|
+| top-level `.gitignore` differs | `~/.claude/skills/.gitignore` is a SIXTH allowlist, machine-global and separate from `install/skills/.gitignore`. It governs what the installed tree commits, not what this repository publishes. | TRANSIENT, not invariant — see below |
+| top-level `README.md` differs | the installed index is generated for the machine; the vendored one is the published page. | TRANSIENT, not invariant — see below |
+| `execution-methodology` `ROUND-GRANTS.tsv` installed, absent vendored | operator data. The vendored copy ships without the ledger by invariant, because a grants row names a real subject on a real machine. | EXCLUDED by [D26](#d26--the-vendored-check-reads-the-installers-preserve-list), along with the three `agent-personas` test files |
 
+**The first two were never invariant, and this record said they were.** Measured immediately after
+`./install.sh`, with D26 in place: `--vendored .` is **clean, exit 0**. `install.sh` copies both
+files, so the installed and vendored copies are equal the moment it finishes; the difference is
+something the machine reintroduces afterwards by regenerating its own index. Whatever this record
+was measuring, it was not measuring a fresh install — which is the same defect it was raised to
+document, one level up: **a baseline whose measurement conditions are not stated is a weak hash
+too.** The condition is now stated. The reproducible baseline is *clean after install*, and any
+finding at all is a real answer about a machine that has drifted since.
 **Why it lives here and not in the inventory:** that page is a routed guide under a word budget and
 sat at 1,199 of 1,200 before the eighth skill was published. This record accretes and carries no
 budget by the same validator's ruling, which is where a list that will grow belongs.
 
-**Known-wrong-in-a-month if:** a fourth critical appears and this table is not extended in the same
-change, which would reproduce the exact failure it documents.
+**Known-wrong-in-a-month if:** a critical appears immediately after `./install.sh` and this record
+is not extended in the same change, which would reproduce the exact failure it documents.
+
+
+---
+
+## D26 — the vendored check reads the installer's preserve list
+
+**Chose:** teach `check_toolchain.py --vendored` to read `PRESERVE_ACROSS_INSTALLS` from
+`install/install.sh` and report the paths it names as **excluded**, in the installed-only direction
+only.
+
+**Over:** naming those paths in `install/skills/.gitignore`, adding an exception list inside
+`check_toolchain.py`, or leaving four permanent criticals in place and remembering which ones they
+were.
+
+**Why:** every one of the four was operator-local state the installer creates BY DESIGN, and the
+declaration that creates it already existed — in a different file from the one the check was
+reading. `.gitignore` answers "what does this repository publish"; `PRESERVE_ACROSS_INSTALLS`
+answers "what does the installer put back after replacing the tree wholesale". Copying names from
+the second into the first would be the same fact in two rosters, free to disagree, and false as
+well: git is not being asked about those paths. D24 had already established that `.gitignore` is
+the wrong instrument here — an interior-slash rule is skipped and an unanchored one would silence
+every test directory in both trees.
+
+**Direction-awareness is the load-bearing part.** `install.sh` says of its own list: *"A vendored
+copy always WINS: the guard below only restores a path the staged tree does not already have... So
+vendoring one of these later needs no edit here — the entry just goes inert."* A symmetric
+exclusion would honour that sentence in reverse: vendor `ROUND-GRANTS.tsv` one day and the check
+would stop comparing it entirely, trading a loud permanent finding for a silent uncompared one.
+`is_preserved` is therefore a separate predicate from `is_excluded`, applied to the
+installed-present/vendored-absent category and to nothing else, with the same no-default and
+same AST-walking guard that protects `is_excluded`.
+
+**Evidence:** `--vendored .` went from four criticals to zero of that class, with all four named in
+the excluded line and their reason naming the file that produced them. Three tests pin the
+behaviour, and the third deletes the install.sh line and asserts the critical returns — so nothing
+here is a hard-coded name wearing a reader's clothes.
+
+**Known-wrong-in-a-month if:** a preserved path is later vendored and stops being compared, which
+`test_a_preserved_path_that_is_vendored_is_compared_normally` exists to catch.

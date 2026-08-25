@@ -1222,7 +1222,8 @@ class ExitContractTest(unittest.TestCase):
             saved_argv = sys.argv
             saved_check = toolchain.check_vendored
             toolchain.check_vendored = (
-                lambda _root, _rules=(): ([("warn", "synthetic non-critical finding")], []))
+                lambda _root, _rules=(), _preserved=frozenset():
+            ([("warn", "synthetic non-critical finding")], []))
             sys.argv = ["check_toolchain.py", "--vendored", str(tmp / "repo")]
             buffer = io.StringIO()
             try:
@@ -1238,6 +1239,131 @@ class ExitContractTest(unittest.TestCase):
             self.assertEqual(rc, 1, buffer.getvalue())
             self.assertIn("synthetic non-critical finding", buffer.getvalue())
             self.assertNotIn("clean", buffer.getvalue())
+
+
+class PreserveAcrossInstallsTest(unittest.TestCase):
+    """`PRESERVE_ACROSS_INSTALLS` retires the installed-only finding, and ONLY that one.
+
+    The four permanent CRITICALs this closes were all the same shape: a path the installer puts
+    into `~/.claude/skills` on purpose, absent from the vendored copy on purpose, reported as drift
+    with no action that could ever clear it. The declaration that creates them already exists in
+    `install/install.sh`; the check was reading a different file.
+
+    Direction-awareness is the part worth pinning. `install.sh` promises "a vendored copy always
+    WINS... the entry just goes inert", so a preserved path that IS published must be compared
+    normally. An exclusion that ignored direction would make vendoring one of these paths silently
+    uncompared — a quieter failure than the loud one it replaced.
+    """
+
+    def build(self, tmp: Path, preserve_block: str) -> tuple[Path, Path]:
+        """Installed and vendored roots sharing one skill, with an installer carrying `preserve_block`.
+
+        The preserved entries are one FILE and one DIRECTORY, because the real list holds both and
+        a directory is the case a naive equality match gets wrong.
+        """
+        installed = tmp / "home" / ".claude" / "skills"
+        vendored = tmp / "repo" / "install" / "skills"
+        for root in (installed, vendored):
+            (root / "alpha").mkdir(parents=True)
+            (root / "alpha" / "SKILL.md").write_text("same\n", encoding="utf-8")
+        (installed / "alpha" / "LEDGER.tsv").write_text("local\n", encoding="utf-8")
+        (installed / "alpha" / "tests").mkdir()
+        (installed / "alpha" / "tests" / "test_local.py").write_text("pass\n", encoding="utf-8")
+        (vendored.parent / "install.sh").write_text(preserve_block, encoding="utf-8")
+        return installed, vendored
+
+    INSTALLER = 'PRESERVE_ACROSS_INSTALLS="\nalpha/LEDGER.tsv\nalpha/tests\n"\n'
+
+    def run_check(self, installed: Path, vendored: Path):
+        preserved, problems = toolchain.read_preserved(vendored)
+        self.assertEqual(problems, [], problems)
+        original = toolchain.CLAUDE_SKILLS
+        toolchain.CLAUDE_SKILLS = installed
+        try:
+            return toolchain.check_vendored(vendored, (), preserved)
+        finally:
+            toolchain.CLAUDE_SKILLS = original
+
+    def test_preserved_installed_only_paths_are_excluded_not_critical(self) -> None:
+        """No finding — and NOT silence. Every retired path is named in `excluded`, with its file.
+
+        Both halves matter. Dropping the finding alone would trade a permanent CRITICAL for an
+        invisible one, which is the failure mode this module has spent itself removing; and the
+        reason string has to name `install/install.sh`, because that is the file an operator edits
+        to change the answer.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            installed, vendored = self.build(tmp, self.INSTALLER)
+            findings, excluded = self.run_check(installed, vendored)
+
+            self.assertEqual(findings, [], findings)
+            self.assertEqual([rel for rel, _ in excluded],
+                             ["alpha/LEDGER.tsv", "alpha/tests/test_local.py"], excluded)
+            for _rel, why in excluded:
+                self.assertEqual(why, "declared preserved across installs by install/install.sh")
+
+    def test_a_preserved_path_that_is_vendored_is_compared_normally(self) -> None:
+        """The direction-awareness test. A published copy wins, so its content is still compared.
+
+        Fails loudly if `is_preserved` is ever folded into `is_excluded`: a symmetric exclusion
+        drops the path from both sides before any category is computed, and this content difference
+        would vanish.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            installed, vendored = self.build(tmp, self.INSTALLER)
+            (vendored / "alpha" / "LEDGER.tsv").write_text("published\n", encoding="utf-8")
+
+            findings, excluded = self.run_check(installed, vendored)
+
+            self.assertEqual(len(findings), 1, findings)
+            self.assertEqual(findings[0][0], "critical")
+            self.assertIn("LEDGER.tsv", findings[0][1])
+            self.assertIn("content differs", findings[0][1])
+            self.assertNotIn("alpha/LEDGER.tsv", [rel for rel, _ in excluded], excluded)
+
+    def test_deleting_the_installer_entry_brings_the_finding_back(self) -> None:
+        """Nothing is special-cased in check_toolchain.py; the answer comes from install.sh.
+
+        Same construction as the declaration test on the `.gitignore` side: remove the line and the
+        CRITICAL returns. If it did not, the exclusion would be a hard-coded name list wearing a
+        reader's clothes.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            installed, vendored = self.build(tmp, 'PRESERVE_ACROSS_INSTALLS="\nalpha/tests\n"\n')
+
+            findings, excluded = self.run_check(installed, vendored)
+
+            self.assertEqual(len(findings), 1, findings)
+            self.assertIn("LEDGER.tsv", findings[0][1])
+            self.assertIn("present installed, absent from vendored", findings[0][1])
+            # The other entry still holds, so this is the LINE that was removed and not the reader.
+            self.assertEqual([rel for rel, _ in excluded], ["alpha/tests/test_local.py"], excluded)
+
+    def test_an_absent_installer_preserves_nothing(self) -> None:
+        """"No declaration" reads as "nothing preserved", never as "everything preserved".
+
+        The opposite reading is the fail-open: a repository that lost its install.sh would report
+        clean over whatever the installed tree happens to hold.
+        """
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            installed, vendored = self.build(tmp, self.INSTALLER)
+            (vendored.parent / "install.sh").unlink()
+
+            preserved, problems = toolchain.read_preserved(vendored)
+            self.assertEqual((preserved, problems), (frozenset(), []))
+
+    def test_preserved_by_matches_a_directory_prefix_not_a_bare_name(self) -> None:
+        """`alpha/tests` must cover what is beneath it, and must not cover `alpha/tests-extra`."""
+        preserved = frozenset({"alpha/tests", "alpha/LEDGER.tsv"})
+        self.assertTrue(toolchain.preserved_by(preserved, "alpha/tests"))
+        self.assertTrue(toolchain.preserved_by(preserved, "alpha/tests/deep/x.py"))
+        self.assertTrue(toolchain.preserved_by(preserved, "alpha/LEDGER.tsv"))
+        self.assertFalse(toolchain.preserved_by(preserved, "alpha/tests-extra/x.py"))
+        self.assertFalse(toolchain.preserved_by(preserved, "beta/tests/x.py"))
 
 
 class UnchangedModesTest(unittest.TestCase):
@@ -1991,6 +2117,17 @@ class NoSecondExceptionListTest(unittest.TestCase):
                      if len(c.args) < 5 and not any(k.arg == "is_excluded" for k in c.keywords)]
         self.assertEqual(offenders, [], "a comparison that does not apply the declaration:\n  "
                                         + "\n  ".join(offenders))
+
+        # The SECOND declaration, under the same rule. `PRESERVE_ACROSS_INSTALLS` reaches every
+        # comparison or it reaches none of them usefully: a call site that omits it re-emits the
+        # permanent CRITICAL for whichever region it covers, and every test above stays green
+        # because they all read the region that still has it.
+        missing = [f"line {c.lineno}: _compare(...) with {len(c.args)} positional args and no "
+                   f"is_preserved= keyword"
+                   for c in calls
+                   if len(c.args) < 6 and not any(k.arg == "is_preserved" for k in c.keywords)]
+        self.assertEqual(missing, [], "a comparison that does not apply the installer's preserve "
+                                      "list:\n  " + "\n  ".join(missing))
 
     def test_every_severity_emitted_is_ranked(self) -> None:
         """Every severity this file emits, not a whitelist of the six we happen to have used.
