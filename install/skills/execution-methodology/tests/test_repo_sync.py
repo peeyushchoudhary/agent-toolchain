@@ -321,6 +321,8 @@ class MethodologySyncTest(unittest.TestCase):
             root = Path(tmp)
             skill = root / "execution-methodology"
             shutil.copytree(SKILL, skill)
+            shutil.copytree(SKILL.parent / "agent-personas", root / "agent-personas")
+            shutil.copytree(SKILL.parent / "gate-sandbox", root / "gate-sandbox")
             script = skill / "scripts" / "sync_methodology.py"
             source = skill / "methodology.md"
 
@@ -356,9 +358,11 @@ class MethodologySyncTest(unittest.TestCase):
             normalized = source.read_text(encoding="utf-8").strip()
             expected_digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
             self.assertEqual(
-                json.loads(match.group(1)),
+                {key: value for key, value in json.loads(match.group(1)).items()
+                 if key != "runtime_sha256"},
                 {"v": installed_version(), "source_sha256": expected_digest},
             )
+            self.assertRegex(json.loads(match.group(1))["runtime_sha256"], r"^[0-9a-f]{64}$")
 
             source.write_text(normalized + "\n\nA changed rule.\n", encoding="utf-8")
             stale = copied_sync(first_repo, "--check")
@@ -721,7 +725,7 @@ class AdoptionCheckTest(unittest.TestCase):
             self.assertIn("out of date", out)
             self.assertNotIn("has not been adopted", out)
 
-    def test_an_unmanaged_file_is_stale_and_says_to_move_it_aside(self) -> None:
+    def test_an_unmanaged_file_routes_to_management_without_re_render_advice(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
             (repo / TARGET_REL).parent.mkdir(parents=True, exist_ok=True)
@@ -730,7 +734,67 @@ class AdoptionCheckTest(unittest.TestCase):
             out = self.run_check(repo).stdout
 
             self.assertIn("out of date", out)
-            self.assertIn("Move it aside", out)
+            self.assertIn("methodology-management", out)
+            self.assertNotIn("Re-render", out)
+            self.assertNotIn("Move it aside", out)
+
+    def copied_owner(self, root: Path) -> Path:
+        bundle = root / "skills"
+        shutil.copytree(SKILL, bundle / "execution-methodology")
+        shutil.copytree(SKILL.parent / "agent-personas", bundle / "agent-personas")
+        shutil.copytree(SKILL.parent / "gate-sandbox", bundle / "gate-sandbox")
+        return bundle / "execution-methodology/scripts/sync_methodology.py"
+
+    def run_copied(self, script: Path, repo: Path, *extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(script), "--repo", str(repo), *extra],
+                              capture_output=True, text=True)
+
+    def test_inventory_damage_and_route_break_are_never_silent_or_nonzero(self) -> None:
+        for case in ("missing-inventory", "corrupt-inventory", "broken-route"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                script = self.copied_owner(root)
+                repo = self.make_repo(root)
+                rendered = self.run_copied(script, repo)
+                self.assertEqual(rendered.returncode, 0, rendered.stdout + rendered.stderr)
+                if case == "missing-inventory":
+                    (repo / "docs/agents/execution/runtime.json").unlink()
+                elif case == "corrupt-inventory":
+                    (repo / "docs/agents/execution/runtime.json").write_text(
+                        "{bad json\n", encoding="utf-8")
+                else:
+                    (repo / "docs/agents/README.md").write_text("# route removed\n",
+                                                                encoding="utf-8")
+
+                result = self.run_copied(script, repo, "--adoption-check")
+
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("AGENT CONTEXT:", result.stdout)
+                self.assertIn("methodology-management", result.stdout)
+                self.assertNotIn("Re-render", result.stdout)
+
+    def test_changed_source_and_missing_dependency_are_never_silent_or_upgrade_advice(self) -> None:
+        for case in ("changed-source", "missing-dependency"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                script = self.copied_owner(root)
+                repo = self.make_repo(root)
+                rendered = self.run_copied(script, repo)
+                self.assertEqual(rendered.returncode, 0, rendered.stdout + rendered.stderr)
+                if case == "changed-source":
+                    source = script.parents[1] / "methodology.md"
+                    source.write_text(source.read_text(encoding="utf-8") + "\nchanged\n",
+                                      encoding="utf-8")
+                else:
+                    (script.parent / "spec_check.py").unlink()
+
+                result = self.run_copied(script, repo, "--adoption-check")
+
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("AGENT CONTEXT:", result.stdout)
+                self.assertIn("out of date", result.stdout)
+                self.assertIn("methodology-management", result.stdout)
+                self.assertNotIn("Re-render", result.stdout)
 
     # 3. deliberately deferred
 
@@ -778,7 +842,8 @@ class AdoptionCheckTest(unittest.TestCase):
 
             self.assertIn("AGENT CONTEXT:", out)
             self.assertIn("has not been adopted", out)
-            self.assertIn(f"--repo {repo.resolve()}", out)
+            self.assertIn(str(repo.resolve()), out)
+            self.assertIn("methodology-management", out)
             self.assertIn('"mode":"deferred"', out)
             self.assertIn("never automatic", out)
 

@@ -8,11 +8,12 @@
 | Understand what the installer places, and where | [what-gets-installed.md](what-gets-installed.md) | `./install/install.sh --dry-run` |
 | Understand the route itself and its validator | [progressive-disclosure.md](progressive-disclosure.md) | `python3 install/skills/progressive-disclosure/scripts/validate_disclosure.py . --standard` |
 | Route work to a persona, or add one | [agent-personas.md](agent-personas.md) | `python3 install/skills/agent-personas/scripts/sync_personas.py --list --format markdown` |
+| Assess, set up, repair, migrate or upgrade methodology | [../runbooks/methodology-management.md](../runbooks/methodology-management.md) | `python3 install/skills/execution-methodology/scripts/sync_methodology.py --repo . --status-json` |
 | Learn how the route works in THIS repository | [disclosure.md](disclosure.md) | `./install/verify.sh` |
 | Find where a document belongs | [../architecture/repository-standard.md](../architecture/repository-standard.md) | `python3 install/skills/progressive-disclosure/scripts/migrate_to_standard.py .` |
 | Read a settled decision before re-opening it | [../decisions/decisions.md](../decisions/decisions.md) | — |
 | Read what an earlier agent already learned here | [lessons.md](lessons.md) | — |
-| Onboard another repository | [../runbooks/onboarding-a-project.md](../runbooks/onboarding-a-project.md) | `./install/install.sh` |
+| Follow the explicit onboarding compatibility route | [../runbooks/onboarding-a-project.md](../runbooks/onboarding-a-project.md) | `python3 install/skills/progressive-disclosure/scripts/install_hooks.py . --scope project --preview --json` |
 
 Everything else is one hop further: [../README.md](../README.md) is the documentation index.
 

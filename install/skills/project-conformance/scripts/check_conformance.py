@@ -1,117 +1,20 @@
 #!/usr/bin/env python3
-"""Ask whether a repository still meets the standard, and repair it when told to.
+"""Aggregate owning conformance checks and apply only their approved mechanical repairs.
 
-`project-onboarding` brings a repository under the standard ONCE. This asks whether it still
-conforms, every time you want to know, and repairs the subset of drift that is safe to repair
-mechanically. It is the founder's instrument, run by hand, in repositories that hold health and
-financial data. Nothing here is wired to a hook, a session-start path, or any unattended loop.
+Every subprocess runs from the sibling skill bundle containing this checker. Methodology readiness
+comes only from `sync_methodology.py --status-json`; malformed or contradictory status fails
+closed. Hook and persona repairs use their explicit project scopes, so repository maintenance has
+no machine-global write side effect. `--fix` can render only an already approved `repairable`
+runtime and reverifies owner status after every apply. It never adopts, upgrades, publishes, or
+deletes unmanaged content.
 
-IT ORCHESTRATES. IT REIMPLEMENTS NOTHING.
-------------------------------------------
-Every conformance judgement in this file comes from a checker that already owns it, invoked as a
-subprocess through the single `run()` chokepoint, with BOTH its exit code and BOTH its streams
-read. There is no second opinion here about what conforming means:
-
-    personas      agent-personas/scripts/sync_personas.py --repo R --check
-    persona
-    protection    the SAME module's own `absent_restrictions()`, imported, applied to the EMITTED
-                  artifact. The definition of "restricted" stays in agent-personas; this file only
-                  chooses which artifacts to apply it to and where to read them from.
-    route         progressive-disclosure/scripts/validate_disclosure.py R --readme --standard
-                  --vs HEAD --json — all four gating flags, because each one it does not get is a
-                  family that does not run and a status of `partial`
-    hooks         progressive-disclosure/scripts/install_hooks.py R --check
-    id guard      progressive-disclosure/scripts/identifier_guard.py, liveness-probed on an empty
-                  message, so an absent deny-list is a could-not-be-checked rather than a pass
-    methodology   execution-methodology/scripts/sync_methodology.py --repo R --adoption-check
-    github        progressive-disclosure/scripts/check_github.py R --json
-    plugins       progressive-disclosure/scripts/check_toolchain.py --json, `plugins` key (TC-41)
-    preflight     hooks/preflight.sh R
-
-If a conformance question has no owner, it does not get answered here. Adding a check to this file
-instead of to the checker that owns it is how a conformance tool becomes the fourteenth thing that
-drifts. `tests/test_conformance.py::test_no_conformance_rule_is_defined_in_this_file` holds that
-structurally, by AST, rather than by this paragraph.
-
-THREE STATES, AND THE THIRD IS THE POINT
------------------------------------------
-    0   CONFORMS               every check ran and every check was satisfied
-    1   DOES NOT CONFORM       every check ran and at least one was not satisfied
-    2   COULD NOT BE CHECKED   at least one check did not run
-
-2 OUTRANKS 1, and the reason is the one `check_toolchain.exit_code` gives: the exit code answers
-"can you trust this report" before it answers "did it find anything". A repository with one broken
-checker and nine clean ones is not a repository that has been checked.
-
-The aggregation therefore never reduces to a boolean. `Verdict` has three members, the summary line
-names how many checks landed in each, and `--json` carries `not_run` as its own array with a `why`
-per entry. A caller reading only `exit` still cannot mistake not-run for pass, because 2 is not 0.
-The failure this closes has three recorded instances in this programme's ledger: fifteen unguarded
-reads behind one reported finding, a warn-only path exiting 0, and a summary rendered from an exit
-code with the findings on stdout thrown away.
-
-WHY READING THE EXIT CODE ALONE WOULD ANSWER WRONG HERE, MEASURED, NOT ASSUMED
--------------------------------------------------------------------------------
-Three of the eight callees deliberately exit 0 while carrying the finding elsewhere:
-
-    sync_personas.py --repo R --check   exits 0 and prints "in sync" on STDOUT while every
-                                        unprotected project judge is named on STDERR
-    sync_methodology.py --adoption-check ALWAYS exits 0, by contract; the adoption state is stdout
-    check_toolchain.py                  exits 0 on `warn`; the plugin surface is in --json only
-
-So `run()` captures both streams always, and no check in this file decides anything from `rc`
-alone.
-
-REPORT BEFORE REPAIR
----------------------
-The default path is read-only and writes NOTHING — no cache, no temp file, no generated artifact
-inside the target. The report ends with a REPAIR PLAN naming every file `--fix` would touch, before
-anything is touched. `--fix` then applies only what that plan named, prints each path as it changes
-it, and finally asserts the changed set is a subset of the planned set. Running it twice changes
-nothing the second time and says so in those words.
-
-WHAT --fix WILL NOT DO, and why each refusal is deliberate:
-
-  * It never deletes an agent file. An unmanaged `<repo>/.claude/agents/<name>.md` is reported with
-    its working remedy and left alone; deleting a file a human wrote, in a repository holding
-    health data, is not a thing a tool should decide.
-  * It never adopts a repository into the execution methodology. Adoption is staggered and
-    deliberate — `sync_methodology.py`'s own docstring says nothing there ever adopts a repository
-    on its own — so `--fix` re-renders a repository that has ALREADY adopted and drifted, and
-    reports the un-adopted one.
-  * It never declares a repository public, never creates a remote, never pushes, never changes
-    visibility, and never overwrites a tool policy a human wrote by hand.
-
-THE ADVERTISED REMEDY FOR persona-drift IS A NO-OP, AND THIS FILE SAYS THE WORKING ONE
-----------------------------------------------------------------------------------------
-`validate_disclosure.py`'s `persona-drift` ERROR, and `sync_personas.py`'s own `run:` line, both
-tell the operator to run `sync_personas.py --repo .`. For the case that actually fires — an
-unmanaged `<repo>/.claude/agents/<name>.md` with no persona source — that command prints
-`already up to date`, exits 0, LEAVES the file, and the identical error fires again next session.
-Measured on a fixture, with the file still on disk afterwards and the second `--check` returning 1
-with the same text.
-
-A maintainer who runs the prescribed fix, sees success, and sees the error again concludes the
-CHECK is broken. That is how a true finding gets disabled, and it would happen in exactly the
-hostile scenario this skill exists for. So `UNMANAGED_REMEDY` below states the remedy that works —
-delete the file, or give it a persona source — and
-`tests/test_conformance.py::test_the_advertised_persona_drift_remedy_is_still_a_no_op` drives the
-real `sync_personas.py` against a real fixture and fails the day that stops being true, so this
-paragraph cannot rot into a lie.
-
-SCOPE OF A FINDING IS NOT ALWAYS THE SCOPE OF THE RUN
--------------------------------------------------------
-Every finding carries a `scope`. All are `repository` except the plugin surface, which is
-`machine-global`: plugins live in `~/.claude/plugins` and `~/.codex`, and are identical in every
-repository on this machine. Printed with a `[machine-global]` tag and segregated in `--json`,
-because a per-project tool printing a per-machine fact otherwise has someone fix it in one
-repository and expect the others to change. It will not; the same finding will appear in all of
-them until the machine changes.
+Exit 0 means all selected checks conform, 1 means a completed check found drift, and 2 means at
+least one selected check could not be trusted. Findings already collected remain in either case.
 
 Usage:
-  check_conformance.py [ROOT]          # report; writes nothing
+  check_conformance.py [ROOT]
   check_conformance.py [ROOT] --json
-  check_conformance.py [ROOT] --fix    # apply exactly what the report named
+  check_conformance.py [ROOT] --fix
 """
 from __future__ import annotations
 
@@ -126,9 +29,14 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-HOME = Path(os.environ.get("PROJECT_CONFORMANCE_HOME", Path.home()))
+EXPLICIT_TOOLCHAIN_HOME = os.environ.get("PROJECT_CONFORMANCE_HOME")
+HOME = Path(EXPLICIT_TOOLCHAIN_HOME) if EXPLICIT_TOOLCHAIN_HOME else Path.home()
 CLAUDE = HOME / ".claude"
-SKILLS = CLAUDE / "skills"
+# Maintenance runs against the bundle that contains this checker. Falling back to a live HOME
+# could mix the candidate consumer with older installed producers and, under --fix, write output
+# from an unapproved source.
+SKILLS = (CLAUDE / "skills" if EXPLICIT_TOOLCHAIN_HOME
+          else Path(__file__).resolve().parents[2])
 PD = SKILLS / "progressive-disclosure" / "scripts"
 SYNC_PERSONAS = SKILLS / "agent-personas" / "scripts" / "sync_personas.py"
 SYNC_METHODOLOGY = SKILLS / "execution-methodology" / "scripts" / "sync_methodology.py"
@@ -166,19 +74,11 @@ PERSONA_DRIFT = "persona-drift"
 # "absent" from "not applicable — no graph in this repository". That is a separate card in its
 # write set, not something to decide here. graphify is an optional dependency and the core must
 # never require it, so this stays a finding with an honest remedy rather than becoming a hard gate.
-GRAPH_HOOK_REMEDY = (
-    "the post-commit graph hook is skipped by `install_hooks.py` when the repository has no "
-    "`graphify-out/graph.json`, so re-running it will NOT install this one and this tool does not "
-    "pretend otherwise. Either build the graph first (`graphify extract . --mode deep`) and then "
-    "`install_hooks.py {repo}`, or accept its absence — graphify is an optional dependency and "
-    "nothing in the core requires it."
-)
-
 # The working remedy for an unmanaged generated agent, stated because the advertised one is a
 # no-op. See the module docstring; a test drives the no-op against the real tool.
 UNMANAGED_REMEDY = (
-    "`sync_personas.py --repo .` does NOT fix this — it prints `already up to date`, exits 0, and "
-    "leaves the file, so the identical error fires again next session. The remedies that work are: "
+    "The project-scoped renderer preserves unmanaged content and refuses all writes while this "
+    "finding exists. The remedies that work are: "
     "(a) delete the file, if it was a hand-written agent that should never have existed, or "
     "(b) give it a persona source at `docs/agents/personas/<name>.md`, if the agent is wanted — "
     "then re-render. This tool will not delete it for you."
@@ -186,19 +86,9 @@ UNMANAGED_REMEDY = (
 
 
 ORPHAN_REMEDY = (
-    "an orphan is a file the renderer DELETES, so it is the founder's call and not this tool's. "
-    "`sync_personas.py --repo {repo}` will unlink it — and note what else that command does, "
-    "because nothing else will tell you: with `--repo` it writes EVERY base persona into "
-    "~/.claude/agents and ~/.codex/agents and prunes both of those machine-global trees too. If "
-    "the persona was retired on purpose, run it. If the file should survive, restore its source at "
-    "docs/agents/personas/<name>.md first, or move the file out of the generated directory."
-)
-
-TRUNCATION_REMEDY = (
-    "run `sync_personas.py --repo {repo} --check` by hand and read its whole output; this reader "
-    "can only see the first twelve entries the callee chooses to print. The durable fix belongs in "
-    "`sync_personas.py`, which should print every stale path or emit them as JSON rather than "
-    "capping a list whose tail carries the unmanaged and orphaned entries."
+    "an orphan is a file the project-scoped renderer would delete, so it remains a founder "
+    "decision. If it was retired on purpose, invoke that deletion explicitly. If it should "
+    "survive, restore its source under docs/agents/personas/ first."
 )
 
 
@@ -429,136 +319,36 @@ def emitted_meta(sp, path: Path) -> dict[str, str]:
 # Checks
 # --------------------------------------------------------------------------------------------
 
-STALE_HEADER = re.compile(r"^\s*STALE — (?P<total>\d+) generated file\(s\)")
-# A path, optionally followed by the callee's own parenthesised classification. The kind is
-# captured GENERICALLY rather than matched against one known word: `prune` emits both
-# `(unmanaged — …)` and `(orphaned — …)`, an earlier version of this reader knew only the first,
-# and the anchored pattern silently swallowed `(orphaned — …)` INTO THE PATH — producing a
-# filename that does not exist and describing a file about to be DELETED as one about to be
-# re-rendered. Anything whose kind this reader does not recognise is counted as unparsed and
-# disables the mechanical repair; it is never quietly filed under the benign case.
-STALE_ENTRY = re.compile(r"^ {4}(?P<path>\S.*?)(?: \((?P<kind>[a-z]+) — [^)]*\))?$")
-
-REGENERABLE, UNMANAGED, ORPHANED = "regenerable", "unmanaged", "orphaned"
-
-
 @dataclass
 class Stale:
-    """What `sync_personas --check` said about one tree, classified by what a WRITE run would do.
-
-    Three classes, and the difference between them is the difference between a safe repair and a
-    deletion:
-
-      regenerable  the file exists, has a source, and does not match it. A write run REWRITES it.
-      unmanaged    no banner, no source. A write run PRESERVES it — this is the fifth door, and
-                   `UNMANAGED_REMEDY` is the only remedy that clears it.
-      orphaned     carries our banner, has no source. A WRITE RUN DELETES IT, with `f.unlink()`.
-
-    `truncated` is not a detail. The callee prints its header with the TRUE total and then caps the
-    list at twelve, so on a large drift this reader cannot see every path — and because `prune`
-    appends after the write loop, the entries that fall off the end are exactly the `unmanaged` and
-    `orphaned` ones. Silently repairing what it could see would mean writing files the plan never
-    named and, worse, losing the one finding this whole skill exists for. So truncation disables
-    the mechanical repair and is reported in those words.
-    """
+    """Project operations from the persona owner's complete structured preview."""
 
     total: int = 0
     regenerable: list[str] = field(default_factory=list)
-    unmanaged: list[str] = field(default_factory=list)
     orphaned: list[str] = field(default_factory=list)
-    unparsed: list[str] = field(default_factory=list)
 
     @property
     def seen(self) -> int:
-        return len(self.regenerable) + len(self.unmanaged) + len(self.orphaned) + len(self.unparsed)
-
-    @property
-    def truncated(self) -> bool:
-        return self.total > self.seen
-
-    @property
-    def enumerable(self) -> bool:
-        """Whether every file the callee knows about was named to this reader."""
-        return not self.truncated and not self.unparsed
-
-
-def _stale_paths(stdout: str) -> Stale:
-    """Read the callee's own STALE block. Classifies; never recomputes."""
-    out = Stale()
-    inside = False
-    for line in stdout.splitlines():
-        header = STALE_HEADER.match(line)
-        if header:
-            inside = True
-            out.total = int(header.group("total"))
-            continue
-        if not inside:
-            continue
-        if not line.startswith("    "):
-            break
-        m = STALE_ENTRY.match(line.rstrip())
-        if not m:
-            out.unparsed.append(line.strip())
-            continue
-        kind = m.group("kind")
-        if kind is None:
-            out.regenerable.append(m.group("path"))
-        elif kind == UNMANAGED:
-            out.unmanaged.append(m.group("path"))
-        elif kind == ORPHANED:
-            out.orphaned.append(m.group("path"))
-        else:
-            out.unparsed.append(line.strip())
-    return out
+        return len(self.regenerable) + len(self.orphaned)
 
 
 def _persona_scopes(repo: Path) -> tuple[dict[str, Stale], Run | None]:
-    """Enumerate BOTH scopes the write run acts on. Returns `(scopes, failed_run)`.
-
-    THE ONE-QUERY PROPERTY, AND WHY IT CANNOT BE ONE QUERY TODAY.
-    --------------------------------------------------------------
-    The rule this file must satisfy is that the set the report enumerates and the set the repair
-    touches are derived from the same scope. `sync_personas.sync()` makes that impossible in a
-    single invocation, and the reason is one line — `check_global = not (check and repo is not
-    None)`:
-
-        --repo R --check    check_global FALSE   compares the project trees only
-        --check             check_global TRUE    compares the machine-global trees only
-        --repo R  (write)   check_global TRUE    WRITES AND PRUNES BOTH
-
-    There is no read-only invocation whose scope equals the write invocation's. So the enumeration
-    is the UNION of the two read-only invocations, and that union is not a convenient assumption —
-    it is derivable from `sync()` and it is MEASURED:
-
-      * `expected` for the global trees is the same set in `--check` and in `--repo R`, because
-        the `check_global` branch that fills it is identical and does not depend on `repo`.
-      * `expected` for the project trees is the same set in `--repo R --check` and in `--repo R`,
-        because the overlay and project-specialist branches do not depend on `check`.
-      * `prune` is called on exactly those two target lists, with exactly those two `expected`
-        sets, in all three invocations.
-
-    `test_the_two_read_scopes_together_equal_what_the_write_touches` drives the real tool against a
-    real fixture and asserts SET EQUALITY between the union of the two checks and the files a write
-    run actually changes. That is a measurement, not a shape argument, and it fails the day the
-    callee's scoping changes.
-
-    WHAT WOULD MAKE IT ONE QUERY, and it is a one-line change in a file this card may not touch:
-    `sync_personas.py` should make `--check` honour the same scope as the write it is checking —
-    either `check_global = True` unconditionally, or a `--dry-run` that is the write path with the
-    two mutating calls suppressed. Handed to `skills/agent-personas/` as its own card.
-    """
-    scopes: dict[str, Stale] = {}
-    for scope, argv in (("repository", [PY, SYNC_PERSONAS, "--repo", repo, "--check"]),
-                        ("machine-global", [PY, SYNC_PERSONAS, "--check"])):
-        r = run(argv)
-        if not r.ok or r.undefined_rc((0, 1, 2)) or r.rc == 2:
-            return scopes, r
-        stale = _stale_paths(r.out)
-        if r.rc == 1 and stale.seen == 0:
-            return scopes, Run(r.argv, True, r.rc, r.out, r.err,
-                               why=f"the STALE block in the {scope} scope was unreadable")
-        scopes[scope] = stale
-    return scopes, None
+    """Adapt the persona owner's project preview to the existing stale categories."""
+    argv = [PY, SYNC_PERSONAS, "--scope", "project", "--repo", repo, "--preview", "--json"]
+    r = run(argv)
+    operations, findings, error = _scoped_plan(r, "sync_personas.py", "project",
+                                                (repo / ".claude" / "agents",
+                                                 repo / ".codex" / "agents"))
+    if error or findings:
+        why = error or "; ".join(f.detail for f in findings)
+        return {}, Run(r.argv, r.ok, r.rc, r.out, r.err, why=why)
+    stale = Stale(total=len(operations))
+    for action, path in operations:
+        if action == "delete":
+            stale.orphaned.append(str(path))
+        else:
+            stale.regenerable.append(str(path))
+    return {"repository": stale}, None
 
 
 def _stale_findings(scope: str, repo: Path, stale: Stale) -> list[Finding]:
@@ -572,102 +362,46 @@ def _stale_findings(scope: str, repo: Path, stale: Stale) -> list[Finding]:
             f"persona source",
             scope=scope, files=list(stale.regenerable),
             remedy=f"re-render: sync_personas.py --repo {repo}"))
-    for path in stale.unmanaged:
-        out.append(Finding(
-            f"{Path(path).name} is a generated-agents file with NO persona source. It overrides "
-            f"the same-named user-level persona wholesale in this repository, and nothing "
-            f"automatic compares it against anything",
-            scope=scope, files=[path], remedy=UNMANAGED_REMEDY))
     for path in stale.orphaned:
         out.append(Finding(
             f"{Path(path).name} in {where} carries the generated banner but its persona is no "
             f"longer in the pool. A WRITE RUN OF THE RENDERER DELETES THIS FILE with `unlink()`. "
             f"This tool will not do that for you",
             scope=scope, files=[path], remedy=ORPHAN_REMEDY.format(repo=repo)))
-    if stale.truncated:
-        out.append(Finding(
-            f"the callee named only {stale.seen} of {stale.total} stale file(s) in {where} — it "
-            f"caps its printed list — so this report CANNOT name the rest. Because `prune` appends "
-            f"after the write loop, the entries that fall off the end are exactly the unmanaged "
-            f"and orphaned ones, which means an unmanaged-agent finding may be hidden right now. "
-            f"No mechanical repair is offered while the enumeration is incomplete",
-            scope=scope, remedy=TRUNCATION_REMEDY.format(repo=repo)))
-    if stale.unparsed:
-        out.append(Finding(
-            f"{len(stale.unparsed)} line(s) of the callee's STALE block in {where} were in a form "
-            f"this reader does not recognise: {stale.unparsed[:3]}. No mechanical repair is "
-            f"offered while any line is unread",
-            scope=scope, remedy=TRUNCATION_REMEDY.format(repo=repo)))
     return out
 
 
 def _render_blockers(scopes: dict[str, Stale]) -> list[str]:
     """Why the re-render repair must NOT be offered. Empty means it is safe to offer.
 
-    Three blockers, and each one is a way the plan could fail to authorise what the write does:
-
-      an orphan          the write run would DELETE it, and this tool refuses to delete
-      a truncated list   files exist that the plan cannot name
-      an unparsed line   a file this reader could not classify
-
-    Checked over BOTH scopes, because the write acts on both.
+    Deletions remain a founder decision even when the owning preview names them exactly.
     """
     why: list[str] = []
     for scope, stale in scopes.items():
         if stale.orphaned:
             why.append(f"{len(stale.orphaned)} orphaned file(s) in the {scope} scope would be "
                        f"DELETED by a write run")
-        if stale.truncated:
-            why.append(f"the {scope} scope's stale list is truncated at {stale.seen} of "
-                       f"{stale.total}")
-        if stale.unparsed:
-            why.append(f"{len(stale.unparsed)} unreadable line(s) in the {scope} scope")
     return why
 
 
 def check_personas(repo: Path) -> Check:
-    """Persona conformance, asserted on the EMITTED artifact rather than on the source.
+    """Check the owner's project preview and emitted project judge restrictions.
 
-    Two questions, one callee each, and they are genuinely different:
-
-      1. Are the generated artifacts what the sources say they should be?  `--check`'s exit code.
-      2. Is every judging persona in this repository actually restricted?  `absent_restrictions`,
-         the persona module's own function, applied to what is on disk in `.claude/agents/`.
-
-    (2) is asserted on the artifact and not on the source because the artifact is what the harness
-    loads. That is the LEDGER B principle and it is the only place the claim counts: a source can
-    be impeccable and the emitted file hand-edited, and (1) catches that only while the file is
-    still managed.
-
-    WHICH artifacts are judges comes from the SOURCE, and it has to: `writes:` is not among the
-    keys `render_claude` emits, so the emitted file does not carry it. So the SELECTION is made by
-    the module's own `claims_no_writes` over the parsed sources, and the JUDGEMENT is made on the
-    emitted file. Both halves are the module's; neither is this file's.
-
-    TWO SCOPES, NOT ONE, AND THIS FILE HAD TO LEARN THAT THE HARD WAY.
-    ---------------------------------------------------------------------
-    `sync_personas.sync()` computes `check_global = not (check and repo is not None)`. Read that
-    carefully, because it is asymmetric between the two invocations this file makes:
-
-        --repo R --check     check_global is FALSE.  ~/.claude/agents and ~/.codex/agents are
-                             neither compared nor pruned.
-        --repo R             check_global is TRUE.   Every base persona is WRITTEN into both of
-                             those trees, and both are PRUNED.
-
-    So a version of this check that asked only the first question was structurally incapable of
-    naming a machine-global file that the repair it offered would then write — the report could not
-    have named it even in principle, because the checker was never asked to look. `--fix` inside a
-    project repository would silently rewrite, and with `prune`, DELETE from, two trees outside it.
-
-    The fix is to ask the second question too: a second read-only invocation with NO `--repo`,
-    which is the mode that does compare the global trees. Both scopes are enumerated before
-    anything is repaired, and every machine-global finding is tagged `machine-global` for the same
-    reason the plugin surface is — the scope of the finding is not the scope of the run.
+    Preview, apply and recheck all use explicit project scope. The owner identifies generated
+    drift and unmanaged content; this consumer separately applies the owner's own restriction
+    function to emitted project judge artifacts because those are what the harness loads.
     """
     scopes, failed = _persona_scopes(repo)
     if failed is not None:
+        _operations, owner_findings, owner_error = _scoped_plan(
+            failed, "sync_personas.py", "project", (repo / ".claude" / "agents",
+                                                     repo / ".codex" / "agents"))
+        for finding in owner_findings:
+            if PERSONA_UNMANAGED_MARKER in finding.detail:
+                finding.remedy = UNMANAGED_REMEDY
         return Check("personas", Verdict.NOT_RUN,
-                     why_not_run=(failed.why or
+                     findings=owner_findings,
+                     why_not_run=(owner_error or failed.why or
                                   f"sync_personas.py --check exited {failed.rc}: "
                                   f"{(failed.err or failed.out).strip()[:400]}")
                      + f" [{' '.join(failed.argv)}]")
@@ -677,9 +411,7 @@ def check_personas(repo: Path) -> Check:
     for scope, stale in scopes.items():
         findings.extend(_stale_findings(scope, repo, stale))
 
-    # ONE REPAIR FOR BOTH SCOPES, because one command does both: `sync_personas.py --repo R` writes
-    # the project tree AND the machine-global trees. Two repairs would double-run it, and a repair
-    # scoped to one tree would be a lie about what the command does.
+    # The explicit project plan is the exact mutation scope of the repair.
     regenerable = [p for s in scopes.values() for p in s.regenerable]
     blockers = _render_blockers(scopes)
     if blockers:
@@ -689,8 +421,7 @@ def check_personas(repo: Path) -> Check:
             remedy=ORPHAN_REMEDY.format(repo=repo)))
     elif regenerable:
         repairs.append(Repair(
-            "re-render the generated agent files (project AND machine-global trees — one "
-            "`sync_personas.py --repo R` writes both)",
+            "re-render the project generated agent files",
             [Path(p) for p in regenerable],
             lambda: _apply_render(repo)))
 
@@ -761,7 +492,8 @@ def _unprotected_judges(sp, repo: Path) -> list[tuple[Finding, Repair | None]]:
         can_fix = "claude.tools" not in source_meta
         remedy = (
             f"add an explicit `claude.tools` allow-list to {src}, then re-render with "
-            f"`sync_personas.py --repo {repo}`. A deny-list cannot close this: it is default-open "
+            f"`sync_personas.py --scope project --repo {repo}`. A deny-list cannot close this: "
+            f"it is default-open "
             f"against a tool roster that grows, which is the finding that put the base roster on "
             f"an allow-list in the first place."
         )
@@ -786,33 +518,8 @@ def _unprotected_judges(sp, repo: Path) -> list[tuple[Finding, Repair | None]]:
     return out
 
 
-WROTE = re.compile(r"^\s*wrote\s+(?P<path>\S.*?)\s*$")
-# `removed` lines carry a trailing parenthetical the `wrote` lines do not.
-REMOVED = re.compile(r"^\s*removed\s+(?P<path>\S.*?)(?:\s{2,}\(.*\))?\s*$")
-
-
 def _apply_render(repo: Path) -> tuple[list[Path], str]:
-    """Run the renderer in write mode — but only after re-proving it will not delete anything.
-
-    TWO GUARDS, AND THE ORDER MATTERS.
-
-    BEFORE the write: both scopes are enumerated again, immediately, and the run is ABANDONED if
-    anything blocks it. `check_personas` already refused to offer this repair when a blocker
-    existed, but that decision was made at report time and the operator reads the report before
-    typing `--fix`. Re-checking here closes the window, and it is the guard that keeps the
-    refusal — "this tool never deletes a file" — actually true rather than merely intended.
-
-    AFTER the write: `removed` lines are parsed and returned in `changed`, so any deletion trips
-    the `changed ⊆ planned` contract check. That backstop is deliberately NOT the only defence.
-    Raising CONTRACT VIOLATION after the writes have landed is exactly what this card calls "worse
-    than no tool" — it converts a silent deletion into an announced one and authorises neither. It
-    exists to catch the case the pre-write guard did not anticipate, not to substitute for it.
-
-    The earlier version of this function parsed only `wrote ` lines. `prune` prints deletions as
-    `removed {f}`, so a `--fix` that unlinked two files reported an empty changed set and printed
-    `nothing changed — the second run of --fix is a no-op, as it must be`. Both guards exist
-    because of that.
-    """
+    """Re-preview, apply exactly project scope, then require an empty owner preview."""
     scopes, failed = _persona_scopes(repo)
     if failed is not None:
         return [], (f"FAILED — refusing to run the renderer: the pre-write re-check could not "
@@ -822,27 +529,19 @@ def _apply_render(repo: Path) -> tuple[list[Path], str]:
         return [], ("FAILED — refusing to run the renderer, nothing was written: "
                     + "; ".join(blockers))
 
-    r = run([PY, SYNC_PERSONAS, "--repo", repo])
+    planned = [Path(path) for stale in scopes.values() for path in stale.regenerable]
+    before = {path: path.read_bytes() if path.is_file() else None for path in planned}
+    r = run([PY, SYNC_PERSONAS, "--scope", "project", "--repo", repo])
     if not r.ok or r.rc != 0:
         return [], f"FAILED — {r.why or (r.err or r.out).strip()[:300]}"
-    changed: list[Path] = []
-    deleted: list[Path] = []
-    for line in r.out.splitlines():
-        m = WROTE.match(line)
-        if m:
-            changed.append(Path(m.group("path")))
-            continue
-        m = REMOVED.match(line)
-        if m:
-            deleted.append(Path(m.group("path")))
-    changed.extend(deleted)
-    if deleted:
-        return changed, (f"FAILED — the renderer DELETED {len(deleted)} file(s) that the pre-write "
-                         f"guard did not predict: {', '.join(str(p) for p in deleted)}. This is a "
-                         f"defect in this tool's guard, not an authorised repair")
+    changed = [path for path in planned
+               if (path.read_bytes() if path.is_file() else None) != before[path]]
+    after_scopes, after_failed = _persona_scopes(repo)
+    if after_failed is not None or any(stale.seen for stale in after_scopes.values()):
+        return changed, "FAILED — project persona apply did not reverify cleanly"
     if not changed:
         return [], "already up to date"
-    return changed, f"re-rendered {len(changed)} file(s)"
+    return changed, f"re-rendered {len(changed)} project file(s)"
 
 
 def _apply_allow_list(sp, source: Path, repo: Path) -> tuple[list[Path], str]:
@@ -948,10 +647,6 @@ PUBLIC_KEY = "repository declares itself PUBLIC"
 # `METHODOLOGY_STATES` is: everything this file knows about interpreting another tool's output is
 # a named table, so the coupling is visible and a test can assert no `check_` function classifies
 # by a literal typed inline. Every entry is a substring of a label the callee prints.
-HOOK_NOT_A_HOOK = ("repository declares", "repo has")   # state lines, not installable hooks
-HOOK_GUARD = "private-identifier"                       # public repositories only
-HOOK_GRAPH = "graph"                                    # skipped when the repo has no graph
-
 # `check_toolchain.py --json` emits every check's findings into ONE flat `findings` array with no
 # key saying which check produced each, so selecting the plugin ones is a substring match on the
 # detail. Named here rather than typed inline, and stated as the weakness it is: the correct fix
@@ -982,87 +677,81 @@ def _declares_public(states: dict[str, str]) -> bool:
     return states.get(PUBLIC_KEY, "").lower().startswith("yes")
 
 
-def check_hooks(repo: Path) -> Check:
-    """Hooks installed, and the dependencies they invoke present.
-
-    `install_hooks.py --check` reports one `name: state` line per hook and is the owner of what
-    "installed" means — including, since the fix that made a hook unable to be declared installed
-    without verifying what it invokes, the presence of its dependencies. This reads its lines; it
-    does not look at `.git/hooks` itself.
-
-    The identifier guard is reported here too and NOT treated as a hole in a private repository:
-    it is for repositories that are DELIBERATELY PUBLIC, and `install_hooks.py` says which this is.
-    Declaring a repository public is a founder decision and `--fix` never makes it.
-    """
-    r = run([PY, PD / "install_hooks.py", repo, "--check"])
-    if not r.ok or r.undefined_rc((0, 1, 2)):
-        return Check("hooks", Verdict.NOT_RUN, why_not_run=_why(r, "install_hooks.py --check"))
-    if r.rc == 2:
-        return Check("hooks", Verdict.NOT_RUN,
-                     why_not_run=f"install_hooks.py --check could not run: {(r.err or r.out).strip()[:300]}")
-    states = _hook_states(r.out)
-    if not states:
-        return Check("hooks", Verdict.NOT_RUN,
-                     why_not_run=("install_hooks.py --check printed nothing this reader could "
-                                  f"interpret:\n{r.out.strip()[:300]}"))
-    public = _declares_public(states)
+def _scoped_plan(r: Run, owner: str, scope: str, roots: tuple[Path, ...]) \
+        -> tuple[list[tuple[str, Path]], list[Finding], str | None]:
+    """Read the shared preview envelope used by the hook and persona owners."""
+    if not r.ok or r.rc not in (0, 2):
+        return [], [], _why(r, owner)
+    if not r.out.strip():
+        return [], [], f"{owner} preview printed no JSON object"
+    try:
+        payload = json.loads(r.out)
+    except json.JSONDecodeError as exc:
+        return [], [], f"{owner} preview printed malformed JSON: {exc}"
+    if not (isinstance(payload, dict)
+            and set(payload) == {"schema_version", "scope", "operations", "findings"}
+            and payload["schema_version"] == 1 and payload["scope"] == scope
+            and isinstance(payload["operations"], list) and isinstance(payload["findings"], list)):
+        return [], [], f"{owner} preview envelope is invalid"
     findings: list[Finding] = []
-    mechanical: list[str] = []
-    for what, state in states.items():
-        if any(what.startswith(prefix) for prefix in HOOK_NOT_A_HOOK):
-            continue
-        if not state.upper().startswith("ABSENT"):
-            continue
-        guard = HOOK_GUARD in what
-        if guard and not public:
-            continue                      # correctly absent: the guard is for public repos only
-        graph = HOOK_GRAPH in what.lower()
-        findings.append(Finding(
-            f"{what}: ABSENT",
-            files=[str(repo / ".git" / "hooks")],
-            remedy=(GRAPH_HOOK_REMEDY.format(repo=repo) if graph else
-                    f"install_hooks.py {repo}" if not guard else
-                    f"the repository declares itself PUBLIC but the guard is absent — "
-                    f"install_hooks.py {repo}")))
-        if not graph:
-            mechanical.append(what)
-    # THE HOOK REPAIR REACHES OUTSIDE THE REPOSITORY, and the plan has to say so.
-    # `install_hooks.py` also refreshes the Codex skills mirror and re-syncs the persona pool —
-    # its own SKILL.md calls that "repairs global drift as a side effect". Harmless, and the
-    # founder may even want it, but a report that promised to name every file `--fix` touches and
-    # then silently rewrote two machine-global trees would have broken its own contract. Named as
-    # directories because the exact file set is decided by the callee at run time, and claiming a
-    # precise list this file cannot know would be a worse kind of wrong.
-    repairs = [Repair(
-        "install the missing git hooks (ALSO refreshes the machine-global Codex skill mirror and "
-        "re-renders the persona pool — install_hooks.py does this on every run)",
-        [repo / ".git" / "hooks", HOME / ".codex" / "skills", HOME / ".codex" / "agents",
-         CLAUDE / "agents"],
-        lambda: _apply_install_hooks(repo))] if mechanical else []
-    return Check("hooks", Verdict.DOES_NOT_CONFORM if findings else Verdict.CONFORMS,
-                 findings=findings, repairs=repairs)
+    for item in payload["findings"]:
+        if not (isinstance(item, dict) and isinstance(item.get("code"), str)
+                and isinstance(item.get("message"), str)):
+            return [], findings, f"{owner} preview contains an invalid finding"
+        findings.append(Finding(f"{item['code']}: {item['message']}"))
+    operations: list[tuple[str, Path]] = []
+    resolved_roots = tuple(root.resolve() for root in roots)
+    for item in payload["operations"]:
+        if not (isinstance(item, dict) and set(item) == {"action", "path"}
+                and item["action"] in {"create", "update", "delete"}
+                and isinstance(item["path"], str)):
+            return [], findings, f"{owner} preview contains an invalid operation"
+        path = Path(item["path"])
+        if not path.is_absolute():
+            return [], findings, f"{owner} preview contains a non-absolute path: {path}"
+        resolved = path.resolve()
+        if not any(resolved == root or root in resolved.parents for root in resolved_roots):
+            return [], findings, f"{owner} preview path escapes scope {scope}: {path}"
+        operations.append((item["action"], resolved))
+    if r.rc == 2 and not findings:
+        return operations, findings, f"{owner} preview exited 2 without a finding"
+    return operations, findings, None
+
+
+def check_hooks(repo: Path) -> Check:
+    """Consume the hook owner's write-equivalent project preview."""
+    r = run([PY, PD / "install_hooks.py", repo, "--scope", "project", "--preview", "--json"])
+    operations, owner_findings, error = _scoped_plan(
+        r, "install_hooks.py", "project", (repo,))
+    if error or owner_findings:
+        return Check("hooks", Verdict.NOT_RUN, findings=owner_findings,
+                     why_not_run=error or "install_hooks.py project preview reported blockers")
+    if not operations:
+        return Check("hooks", Verdict.CONFORMS)
+    files = [path for _action, path in operations]
+    findings = [Finding(f"hook owner plans {action}: {path}", files=[str(path)],
+                        remedy=f"install_hooks.py {repo} --scope project")
+                for action, path in operations]
+    return Check("hooks", Verdict.DOES_NOT_CONFORM, findings=findings,
+                 repairs=[Repair("apply the project-scoped hook plan", files,
+                                 lambda: _apply_install_hooks(repo))])
 
 
 def _apply_install_hooks(repo: Path) -> tuple[list[Path], str]:
-    """Install the hooks, and report every tree the callee says it acted on — not just one.
-
-    `install_hooks.py` writes in three places and used to be reported as writing in one. Its own
-    stdout says which it touched on this run (`synced .codex/skills: …`, a `personas:` line, and
-    the hook lines), so the changed set is read out of that rather than assumed. The exact file
-    list inside the two machine-global trees is the callee's to know; naming the directories is
-    the most precise honest claim available, and they are all in the plan.
-    """
-    r = run([PY, PD / "install_hooks.py", repo])
+    before_check = check_hooks(repo)
+    if before_check.verdict is Verdict.NOT_RUN or not before_check.repairs:
+        return [], "FAILED — hook plan is no longer verified repairable"
+    files = before_check.repairs[0].files
+    before = {path: path.read_bytes() if path.is_file() else None for path in files}
+    r = run([PY, PD / "install_hooks.py", repo, "--scope", "project"])
     if not r.ok or r.rc != 0:
         return [], f"FAILED — {r.why or (r.err or r.out).strip()[:300]}"
-    changed = [repo / ".git" / "hooks"]
-    notes = ["hooks installed"]
-    if "synced .codex/skills" in r.out:
-        changed.append(HOME / ".codex" / "skills")
-        notes.append("machine-global Codex skill mirror refreshed")
-    if re.search(r"^\s+wrote\s+\S", r.out, re.M):
-        changed += [CLAUDE / "agents", HOME / ".codex" / "agents"]
-        notes.append("machine-global persona trees re-rendered")
+    changed = [path for path in files
+               if (path.read_bytes() if path.is_file() else None) != before[path]]
+    verified = check_hooks(repo)
+    if verified.verdict is not Verdict.CONFORMS:
+        return changed, "FAILED — project hook apply did not reverify cleanly"
+    notes = ["project hooks installed"]
     return changed, "; ".join(notes)
 
 
@@ -1120,121 +809,212 @@ def check_identifier_guard(repo: Path) -> Check:
     return Check("identifier guard", Verdict.CONFORMS)
 
 
-METH_COULD_NOT_EVALUATE = "could-not-evaluate"
-METH_STALE = "stale"
-METH_UNMANAGED = "unmanaged"
-METH_DEFERRED = "deferred"
-METH_UNADOPTED = "unadopted"
-
-# THE CALLEE'S FIVE OUTPUT SHAPES, HOISTED OUT OF THE FUNCTION ON PURPOSE.
-#
-# `adoption_check` documents four states and has a fifth error path, and this table is the whole
-# of what this file knows about distinguishing them — every signature is a phrase the callee emits
-# and nothing here re-derives adoption from the filesystem. Hoisted to module level so it is
-# visible as the coupling it is, and so a test can assert that `check_methodology` contains no
-# comparison against a bare string literal of its own.
-#
-# ORDER MATTERS. `could not be evaluated` must be tested before anything else, and the unmanaged
-# sub-case before the plain stale one, because both stale sub-cases share the same first line.
-# Two of these five are CONFORMING outcomes and only one is mechanically repairable.
-METHODOLOGY_STATES = (
-    (METH_COULD_NOT_EVALUATE, "could not be evaluated"),
-    (METH_UNMANAGED, "was not generated by this script"),
-    (METH_STALE, "no longer matches the methodology source"),
-    (METH_DEFERRED, "is deliberately deferred here since"),
-    (METH_UNADOPTED, "has not been adopted by this repository"),
-)
+RUNTIME_STATES = frozenset({"current", "repairable", "legacy", "source_changed", "unadopted",
+                            "deferred", "unmanaged", "invalid"})
+RUNTIME_NON_READY_REMEDIES = {
+    "legacy": "the runtime identity needs explicit reconciliation; --fix will not upgrade it",
+    "source_changed": "restore or approve the changed source explicitly; --fix will not upgrade it",
+    "unadopted": "adoption is deliberate; invoke methodology management to approve it",
+    "deferred": "the recorded deferral remains in force; no adoption is attempted",
+    "unmanaged": "move or reconcile the unmanaged output before rendering",
+    "invalid": "repair the owning runtime inspection and run conformance again",
+}
+PERSONA_UNMANAGED_MARKER = "unmanaged_persona"
 
 
-def _methodology_state(text: str) -> str | None:
-    """Which of the callee's documented states this output is, or None when it is none of them."""
-    for name, signature in METHODOLOGY_STATES:
-        if signature in text:
-            return name
+def _runtime_status_error(payload: object) -> str | None:
+    """Validate frozen wire types and the semantic coherence consumers depend on."""
+    if not isinstance(payload, dict):
+        return "the JSON value is not an object"
+    required = {"schema_version", "state", "ready", "approved", "installed", "route", "overlay",
+                "dependencies", "findings", "repair_candidates"}
+    if set(payload) != required:
+        return f"top-level fields differ from schema_version 1 (got {sorted(payload)})"
+    if type(payload["schema_version"]) is not int or payload["schema_version"] != 1 \
+            or not isinstance(payload["state"], str) or payload["state"] not in RUNTIME_STATES:
+        return "schema_version or state is unknown"
+    state = payload["state"]
+    if type(payload["ready"]) is not bool or payload["ready"] != (state == "current"):
+        return "ready contradicts state"
+
+    identity_keys = {"version", "source_sha256", "runtime_sha256", "bundle_root"}
+
+    def identity(value: object) -> bool:
+        return (value is None or (isinstance(value, dict) and set(value) == identity_keys
+                and all(isinstance(value[key], str) for key in identity_keys)))
+
+    if not identity(payload["approved"]) or not identity(payload["installed"]):
+        return "approved or installed identity has an invalid shape"
+    route = payload["route"]
+    if not (isinstance(route, dict) and set(route) == {"valid", "detail"}
+            and type(route["valid"]) is bool and isinstance(route["detail"], str)):
+        return "route has an invalid shape"
+    overlay = payload["overlay"]
+    if not (isinstance(overlay, dict)
+            and set(overlay) == {"valid", "sha256", "expected_sha256", "detail"}
+            and type(overlay["valid"]) is bool and isinstance(overlay["detail"], str)
+            and all(overlay[key] is None or isinstance(overlay[key], str)
+                    for key in ("sha256", "expected_sha256"))):
+        return "overlay has an invalid shape"
+
+    dependencies = payload["dependencies"]
+    dependency_keys = {"path", "stage", "status", "expected_sha256", "actual_sha256"}
+    if not isinstance(dependencies, list):
+        return "dependencies is not an array"
+    for item in dependencies:
+        if not (isinstance(item, dict) and set(item) == dependency_keys
+                and isinstance(item["path"], str) and isinstance(item["stage"], str)
+                and isinstance(item["status"], str)
+                and item["status"] in {"current", "missing", "changed", "invalid"}
+                and all(item[key] is None or isinstance(item[key], str)
+                        for key in ("expected_sha256", "actual_sha256"))):
+            return "a dependency has an invalid shape"
+
+    findings = payload["findings"]
+    finding_keys = {"code", "severity", "message", "path"}
+    if not isinstance(findings, list):
+        return "findings is not an array"
+    for item in findings:
+        if not (isinstance(item, dict) and set(item) == finding_keys
+                and isinstance(item["code"], str)
+                and isinstance(item["severity"], str)
+                and item["severity"] in {"info", "warning", "error"}
+                and isinstance(item["message"], str)
+                and (item["path"] is None or isinstance(item["path"], str))):
+            return "a finding has an invalid shape"
+
+    candidates = payload["repair_candidates"]
+    if not isinstance(candidates, list):
+        return "repair_candidates is not an array"
+    for item in candidates:
+        if not (isinstance(item, dict) and set(item) == {"action", "paths"}
+                and item["action"] == "render_approved" and isinstance(item["paths"], list)
+                and item["paths"] and all(isinstance(path, str) for path in item["paths"])):
+            return "a repair candidate has an invalid shape"
+    if (state == "repairable") != bool(candidates):
+        return "repair_candidates contradict state"
+    if state in {"current", "repairable"}:
+        if payload["approved"] is None or payload["installed"] is None:
+            return f"{state} requires approved and installed identities"
+        if payload["approved"] != payload["installed"]:
+            return f"{state} approved and installed identities differ"
+    if state == "current" and (not route["valid"] or not overlay["valid"] or not dependencies
+                                or any(item["status"] != "current" for item in dependencies)):
+        return "current has an invalid route, overlay, or dependency"
+    if state == "repairable" and (not route["valid"] or not overlay["valid"] or not dependencies
+                                   or any(item["status"] != "current" for item in dependencies)):
+        return "repairable has a changed route, overlay, or dependency"
     return None
 
 
-def check_methodology(repo: Path) -> Check:
-    """Execution-methodology adoption state, read from STDOUT because the exit code is always 0.
+def _runtime_findings(payload: dict) -> list[Finding]:
+    findings = [Finding(
+        f"[{item['severity']}] {item['code']}: {item['message']}",
+        files=[item["path"]] if item["path"] is not None else [],
+        remedy=RUNTIME_NON_READY_REMEDIES.get(payload["state"], ""),
+    ) for item in payload["findings"]]
+    if not findings and payload["state"] != "current":
+        findings.append(Finding(f"execution runtime state is {payload['state']}",
+                                remedy=RUNTIME_NON_READY_REMEDIES.get(payload["state"], "")))
+    return findings
 
-    `--adoption-check` ALWAYS exits 0, by contract, so a caller reading the exit code learns
-    nothing at all — it is the clearest instance on this machine of the trap this file is built
-    against. Not adopted is reported and NEVER repaired: adoption is staggered and deliberate and
-    `sync_methodology.py`'s own docstring says nothing there ever adopts a repository on its own.
-    Adopted-but-drifted is mechanical and is repaired.
-    """
-    r = run([PY, SYNC_METHODOLOGY, "--repo", repo, "--adoption-check"])
+
+def _candidate_paths(repo: Path, payload: dict) -> tuple[list[Path], str | None]:
+    paths: list[Path] = []
+    root = repo.resolve()
+    for candidate in payload["repair_candidates"]:
+        for raw in candidate["paths"]:
+            path = Path(raw)
+            path = path if path.is_absolute() else repo / path
+            try:
+                resolved = path.resolve()
+            except OSError as exc:
+                return [], f"repair candidate could not be resolved: {exc}"
+            if resolved != root and root not in resolved.parents:
+                return [], f"repair candidate escapes the repository: {raw}"
+            if resolved not in paths:
+                paths.append(resolved)
+    return paths, None
+
+
+def check_methodology(repo: Path) -> Check:
+    """Consume the methodology owner's typed status without reclassifying adoption."""
+    r = run([PY, SYNC_METHODOLOGY, "--repo", repo, "--status-json"])
     if not r.ok:
         return Check("methodology", Verdict.NOT_RUN, why_not_run=_why(r, "sync_methodology.py"))
-    if r.rc != 0:
+    if r.rc not in (0, 2):
         return Check("methodology", Verdict.NOT_RUN,
-                     why_not_run=(f"--adoption-check exited {r.rc}; its contract is that it ALWAYS "
-                                  f"exits 0, so this run cannot be interpreted: "
-                                  f"{(r.err or r.out).strip()[:300]}"))
-    text = r.out.strip()
-    rendered = repo / "docs" / "agents" / "execution" / "methodology.md"
-
-    # State 1 of 5: adopted and current. The callee says nothing at all, by design.
-    if not text:
-        return Check("methodology", Verdict.CONFORMS)
-
-    state = _methodology_state(text)
-
-    if state is METH_COULD_NOT_EVALUATE:
-        return Check("methodology", Verdict.NOT_RUN, why_not_run=text)
-
-    if state is METH_DEFERRED:
-        # A CONFORMING OUTCOME, and the previous version got this exactly backwards. A recorded
-        # deferral is one of the two ways a repository is allowed to stand; reporting it as
-        # non-conformance told the founder to undo a decision he had deliberately written down,
-        # on every run, with no remedy that could ever clear it.
-        return Check("methodology", Verdict.CONFORMS, note=text)
-
-    if state is METH_UNMANAGED:
-        # The rendered file exists but the renderer did not write it, so a re-render REFUSES to
-        # clobber it and returns 2. Offering that repair would have made every `--fix` exit 2
-        # FAILED with the finding never clearing — the persona-drift no-op defect, rebuilt in a
-        # different subsystem by this very file. The callee states the remedy that works; it is
-        # relayed VERBATIM and in full rather than replaced with the one that does not.
-        return Check("methodology", Verdict.DOES_NOT_CONFORM,
-                     findings=[Finding(text, files=[str(rendered)], remedy=text)])
-
-    if state is METH_STALE:
-        return Check("methodology", Verdict.DOES_NOT_CONFORM,
-                     findings=[Finding(text, files=[str(rendered)],
-                                       remedy=f"sync_methodology.py --repo {repo}")],
-                     repairs=[Repair("re-render the execution methodology", [rendered],
-                                     lambda: _apply_methodology(repo))])
-
-    if state is METH_UNADOPTED:
-        return Check("methodology", Verdict.DOES_NOT_CONFORM,
-                     findings=[Finding(
-                         text,
-                         remedy=(f"adoption is deliberate and staggered — nothing adopts a "
-                                 f"repository on its own, including this tool. Adopt it on "
-                                 f"purpose with `sync_methodology.py --repo {repo}`, or record a "
-                                 f"deferral as the output above describes."))])
-
-    # THE FAIL-SAFE, and it is the point of returning a sentinel rather than falling through to a
-    # default. Output this reader does not recognise means the callee's states have changed and
-    # this classification is stale. That is `could not be checked`, never a pass and never an
-    # invented finding — the previous version's final `return DOES_NOT_CONFORM` was the default
-    # branch, so every unrecognised state (including "could not be evaluated") was reported as a
-    # confident non-conformance.
-    return Check("methodology", Verdict.NOT_RUN,
-                 why_not_run=("sync_methodology.py --adoption-check produced output matching none "
-                              f"of its documented states, so this repository's adoption state is "
-                              f"UNKNOWN:\n{text[:500]}"))
+                     why_not_run=f"--status-json exited undefined status {r.rc}: "
+                                 f"{(r.err or r.out).strip()[:300]}")
+    if not r.out.strip():
+        return Check("methodology", Verdict.NOT_RUN,
+                     why_not_run="sync_methodology.py --status-json printed no JSON object")
+    try:
+        payload = json.loads(r.out)
+    except json.JSONDecodeError as exc:
+        return Check("methodology", Verdict.NOT_RUN,
+                     why_not_run=f"sync_methodology.py --status-json printed malformed JSON: {exc}")
+    invalid = _runtime_status_error(payload)
+    try:
+        findings = (_runtime_findings(payload) if isinstance(payload, dict)
+                    and isinstance(payload.get("findings"), list) else [])
+    except (KeyError, TypeError):
+        findings = []
+    if invalid:
+        return Check("methodology", Verdict.NOT_RUN, findings=findings,
+                     why_not_run=f"runtime status contradicted schema_version 1: {invalid}")
+    if r.rc == 2:
+        if payload["state"] != "invalid":
+            return Check("methodology", Verdict.NOT_RUN, findings=findings,
+                         why_not_run="runtime status exited 2 without state=invalid")
+        if not any(item["code"] == "inspection_error" for item in payload["findings"]):
+            return Check("methodology", Verdict.NOT_RUN, findings=findings,
+                         why_not_run="invalid runtime status lacks inspection_error")
+        return Check("methodology", Verdict.NOT_RUN, findings=findings,
+                     why_not_run="the owning runtime inspection failed")
+    if payload["state"] == "invalid":
+        return Check("methodology", Verdict.NOT_RUN, findings=findings,
+                     why_not_run="runtime status reported invalid with exit 0")
+    if payload["state"] == "current":
+        return Check("methodology", Verdict.CONFORMS, note="execution runtime is current")
+    repairs: list[Repair] = []
+    if payload["state"] == "repairable":
+        paths, unsafe = _candidate_paths(repo, payload)
+        if unsafe:
+            return Check("methodology", Verdict.NOT_RUN, findings=findings, why_not_run=unsafe)
+        approved = dict(payload["approved"])
+        planned_overlay = payload["overlay"]["expected_sha256"]
+        repairs.append(Repair("render the exact approved execution runtime", paths,
+                              lambda approved=approved, planned_overlay=planned_overlay,
+                              paths=tuple(paths):
+                              _apply_methodology(repo, approved, planned_overlay, list(paths))))
+    return Check("methodology", Verdict.DOES_NOT_CONFORM, findings=findings, repairs=repairs,
+                 note=("recorded exclusion: deferred" if payload["state"] == "deferred" else ""))
 
 
-def _apply_methodology(repo: Path) -> tuple[list[Path], str]:
-    target = repo / "docs" / "agents" / "execution" / "methodology.md"
-    before = target.read_bytes() if target.is_file() else None
-    r = run([PY, SYNC_METHODOLOGY, "--repo", repo])
+def _apply_methodology(repo: Path, approved: dict, planned_overlay: str | None,
+                       candidates: list[Path]) -> tuple[list[Path], str]:
+    """Carry the plan's exact approved identity through owner repair and postcondition."""
+    before = {path: path.read_bytes() if path.is_file() else None for path in candidates}
+    authorization = {"identity": approved, "overlay_expected_sha256": planned_overlay}
+    frozen = json.dumps(authorization, sort_keys=True, separators=(",", ":"))
+    r = run([PY, SYNC_METHODOLOGY, "--repo", repo, "--repair-approved", frozen])
     if not r.ok or r.rc != 0:
         return [], f"FAILED — {r.why or (r.err or r.out).strip()[:300]}"
-    after = target.read_bytes() if target.is_file() else None
-    return ([target], "re-rendered") if after != before else ([], "already up to date")
+    changed = [path for path in candidates
+               if (path.read_bytes() if path.is_file() else None) != before[path]]
+    verified = run([PY, SYNC_METHODOLOGY, "--repo", repo, "--status-json"])
+    try:
+        payload = json.loads(verified.out)
+    except (json.JSONDecodeError, TypeError):
+        payload = None
+    invalid = _runtime_status_error(payload)
+    if (not verified.ok or verified.rc != 0 or invalid or payload["state"] != "current"
+            or payload["approved"] != approved or payload["installed"] != approved
+            or payload["overlay"]["expected_sha256"] != planned_overlay
+            or payload["overlay"]["sha256"] != planned_overlay):
+        return changed, "FAILED — repair completed but the frozen approved identity did not reverify"
+    return (changed, "re-rendered approved runtime") if changed else ([], "already up to date")
 
 
 def check_github(repo: Path) -> Check:

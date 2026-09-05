@@ -1,0 +1,5 @@
+interface:
+  display_name: Methodology Management
+  short_description: Assess, set up, repair, and upgrade execution methodology
+policy:
+  allow_implicit_invocation: false

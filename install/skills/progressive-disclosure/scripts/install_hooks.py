@@ -175,10 +175,15 @@ import argparse
 import ast
 import importlib.util
 import json
+import os
 import re
+import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 BEGIN = "# >>> progressive-disclosure >>>"
@@ -1056,6 +1061,455 @@ def install_graph_hook(root: Path, *, no_graph: bool) -> bool:
     return True
 
 
+# Explicit management scopes use one inspectable plan. The historical no-scope path below remains
+# intact for callers that have not migrated yet; management callers never enter it.
+@dataclass(frozen=True)
+class PlannedFile:
+    action: str
+    path: Path
+    content: str | None
+    executable: bool = False
+
+    def public(self) -> dict[str, str]:
+        return {"action": self.action, "path": str(self.path)}
+
+
+@dataclass(frozen=True)
+class FileAuthority:
+    lexical: Path
+    canonical: Path
+
+
+def _scope_file_roots(root: Path, scope: str) -> tuple[FileAuthority, ...]:
+    """Freeze lexical and canonical filesystem authorities once for plan and commit."""
+    roots: list[Path] = []
+    if scope in ("project", "all"):
+        roots.append(root)
+    if scope in ("global", "all"):
+        roots.extend((Path.home(),
+                      Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))))
+    lexical_roots = tuple(dict.fromkeys(path.absolute() for path in roots))
+    return tuple(FileAuthority(path, path.resolve(strict=False)) for path in lexical_roots)
+
+
+def _destination_error(path: Path, roots: tuple[FileAuthority, ...]) -> str | None:
+    """Reject escape paths and every symlink from an authorized root through the leaf."""
+    if not path.is_absolute():
+        return "destination is not absolute"
+    selected: FileAuthority | None = None
+    relative: Path | None = None
+    for authority in sorted(roots, key=lambda item: len(item.lexical.parts), reverse=True):
+        try:
+            candidate = path.relative_to(authority.lexical)
+        except ValueError:
+            continue
+        selected, relative = authority, candidate
+        break
+    if selected is None or relative is None:
+        return "destination is outside the authorized roots"
+    resolved_path = path.resolve(strict=False)
+    if resolved_path != selected.canonical and selected.canonical not in resolved_path.parents:
+        return "destination resolves outside its authorized root"
+    current = selected.lexical
+    if current.is_symlink():
+        return f"authorized root is a symlink: {current}"
+    for component in relative.parts:
+        current = current / component
+        if current.is_symlink():
+            return f"destination contains a symlink: {current}"
+    return None
+
+
+def _open_directory_nofollow(path: Path, *, create: bool) -> int:
+    """Open an absolute directory by descriptor, refusing symlinks at every component."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open("/", flags)
+    try:
+        for component in path.parts[1:]:
+            try:
+                child = os.open(component, flags | nofollow, dir_fd=descriptor)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(component, mode=0o777, dir_fd=descriptor)
+                child = os.open(component, flags | nofollow, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _authorized_relative(path: Path, roots: tuple[FileAuthority, ...]) -> tuple[FileAuthority, Path]:
+    for authority in sorted(roots, key=lambda item: len(item.lexical.parts), reverse=True):
+        try:
+            return authority, path.relative_to(authority.lexical)
+        except ValueError:
+            continue
+    raise OSError(f"unsafe destination outside authorized roots: {path}")
+
+
+def _commit_file(operation: PlannedFile, roots: tuple[FileAuthority, ...]) -> None:
+    """Commit one operation relative to pinned no-follow directory descriptors."""
+    if operation.action not in ("create", "update", "delete"):
+        raise OSError(f"unsupported planned file action: {operation.action}")
+    authority, relative = _authorized_relative(operation.path, roots)
+    if not relative.parts:
+        raise OSError(f"refusing to mutate authorized root itself: {operation.path}")
+    # The canonical spelling was frozen before planning. Re-resolving here would let an authority
+    # replacement redirect the commit between preview and apply.
+    root_fd = _open_directory_nofollow(authority.canonical, create=True)
+    parent_fd = root_fd
+    try:
+        flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0) \
+                | getattr(os, "O_NOFOLLOW", 0)
+        for component in relative.parts[:-1]:
+            try:
+                child = os.open(component, flags, dir_fd=parent_fd)
+            except FileNotFoundError:
+                os.mkdir(component, mode=0o777, dir_fd=parent_fd)
+                child = os.open(component, flags, dir_fd=parent_fd)
+            if parent_fd != root_fd:
+                os.close(parent_fd)
+            parent_fd = child
+        leaf = relative.parts[-1]
+        try:
+            existing = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None and stat.S_ISLNK(existing.st_mode):
+            raise OSError(f"unsafe symlink destination at commit: {operation.path}")
+        if operation.action == "delete":
+            os.unlink(leaf, dir_fd=parent_fd)
+            return
+        temporary = f".{leaf}.install-hooks-{os.getpid()}-{time.time_ns()}"
+        write_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0) \
+                      | getattr(os, "O_NOFOLLOW", 0)
+        file_fd = os.open(temporary, write_flags, 0o666, dir_fd=parent_fd)
+        try:
+            data = (operation.content or "").encode("utf-8")
+            view = memoryview(data)
+            while view:
+                written = os.write(file_fd, view)
+                view = view[written:]
+            if operation.executable:
+                os.fchmod(file_fd, 0o755)
+            elif existing is not None:
+                os.fchmod(file_fd, existing.st_mode & 0o777)
+        finally:
+            os.close(file_fd)
+        try:
+            os.replace(temporary, leaf, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+        except BaseException:
+            try:
+                os.unlink(temporary, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+            raise
+    finally:
+        if parent_fd != root_fd:
+            os.close(parent_fd)
+        os.close(root_fd)
+
+
+def _desired_hook(path: Path, block: str) -> str:
+    current = read(path)
+    if BEGIN in current and END in current:
+        installed = current[current.index(BEGIN):current.index(END) + len(END)]
+        if installed == block.strip("\n"):
+            return current
+    existing = strip_block(current)
+    if not existing.strip():
+        return "#!/bin/sh\n" + block
+    lines = existing.splitlines()
+    if lines and lines[0].startswith("#!"):
+        return lines[0] + "\n" + "\n".join(lines[1:]).strip("\n") + "\n\n" + block
+    return "#!/bin/sh\n" + existing + "\n\n" + block
+
+
+def _desired_removed_hook(path: Path) -> str | None:
+    cleaned = strip_block(read(path))
+    return None if cleaned.strip() in ("", "#!/bin/sh") else cleaned + "\n"
+
+
+def _file_operation(path: Path, content: str | None, *, executable: bool = False) -> PlannedFile | None:
+    if content is None:
+        return PlannedFile("delete", path, None) if path.is_file() else None
+    if not path.exists():
+        return PlannedFile("create", path, content, executable)
+    current = read(path)
+    mode_wrong = executable and not bool(path.stat().st_mode & 0o111)
+    return PlannedFile("update", path, content, executable) if current != content or mode_wrong else None
+
+
+def _persona_script(*, legacy: bool = False) -> Path:
+    if legacy:
+        return Path.home() / ".claude" / "skills" / "agent-personas" / "scripts" / "sync_personas.py"
+    return Path(__file__).resolve().parents[2] / "agent-personas" / "scripts" / "sync_personas.py"
+
+
+def _inside(path: Path, roots: tuple[Path, ...]) -> bool:
+    resolved = path.resolve()
+    return any(resolved == root.resolve() or root.resolve() in resolved.parents for root in roots)
+
+
+def _persona_preview(root: Path, scope: str) -> tuple[list[dict], list[dict]]:
+    script = _persona_script()
+    if not script.is_file():
+        return [], [{"code": "persona-owner-missing", "message": f"persona owner missing: {script}"}]
+    command = [sys.executable, str(script), "--scope", scope]
+    if scope == "project":
+        command += ["--repo", str(root)]
+    command += ["--preview", "--json"]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        return [], [{"code": "persona-preview-failed",
+                     "message": (result.stderr or result.stdout or "no output").strip()[:1000]}]
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError):
+        return [], [{"code": "persona-preview-malformed", "message": "persona preview was not JSON"}]
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1 \
+            or payload.get("scope") != scope or not isinstance(payload.get("operations"), list) \
+            or not isinstance(payload.get("findings"), list):
+        return [], [{"code": "persona-preview-malformed", "message": "persona preview schema is invalid"}]
+    allowed = ((root / ".claude" / "agents", root / ".codex" / "agents") if scope == "project"
+               else (Path.home() / ".claude" / "agents",
+                     Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "agents"))
+    operations: list[dict] = []
+    for operation in payload["operations"]:
+        if not isinstance(operation, dict) or operation.get("action") not in ("create", "update", "delete"):
+            return [], [{"code": "persona-preview-malformed", "message": "persona operation is invalid"}]
+        try:
+            path = Path(operation["path"])
+        except (KeyError, TypeError):
+            return [], [{"code": "persona-preview-malformed", "message": "persona path is invalid"}]
+        if not path.is_absolute() or not _inside(path, allowed):
+            return [], [{"code": "persona-preview-unsafe-path", "message": f"unsafe persona path: {path}"}]
+        operations.append({"action": operation["action"], "path": str(path)})
+    return operations, list(payload["findings"])
+
+
+def _session_file_operation(remove: bool) -> PlannedFile | None:
+    if not SESSION_HOOK.is_file():
+        return None
+    text = read(SESSION_HOOK)
+    if SESSION_BEGIN in text and SESSION_END in text:
+        head, _, rest = text.partition(SESSION_BEGIN)
+        _, _, tail = rest.partition(SESSION_END)
+        stripped = head + tail.lstrip("\n")
+    else:
+        stripped = text
+    if remove:
+        desired = stripped
+    elif SESSION_ANCHOR not in stripped:
+        return None
+    else:
+        block = SESSION_BLOCK.format(begin=SESSION_BEGIN, end=SESSION_END)
+        desired = stripped.replace(SESSION_ANCHOR, block + "\n" + SESSION_ANCHOR, 1)
+    return _file_operation(SESSION_HOOK, desired, executable=True)
+
+
+def _mirror_operations() -> list[PlannedFile]:
+    """Overlay maintained bundle files into CODEX_HOME without deleting unknown content."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from check_toolchain import CLAUDE_ONLY_IN_MIRROR, MIRRORED_SKILLS
+    skills_root = Path(__file__).resolve().parents[2]
+    dest_root = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "skills"
+    operations: list[PlannedFile] = []
+    excluded = set(CLAUDE_ONLY_IN_MIRROR)
+    for name in MIRRORED_SKILLS:
+        source = skills_root / name
+        if not source.is_dir():
+            continue
+        for path in sorted(p for p in source.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
+            rel = path.relative_to(source).as_posix()
+            skill_rel = f"{name}/{rel}"
+            if any(skill_rel == item or skill_rel.startswith(item + "/") for item in excluded):
+                continue
+            op = _file_operation(dest_root / name / rel,
+                                 path.read_text(encoding="utf-8", errors="replace"),
+                                 executable=bool(path.stat().st_mode & 0o111))
+            if op:
+                operations.append(op)
+    return operations
+
+
+def _planned_declaration(root: Path, decl: dict) -> tuple[PlannedFile | None, dict | None]:
+    """Preview --public through the owning parser in an isolated replica, without touching ROOT."""
+    if decl["state"] == "active":
+        return None, None
+    if decl["state"] == "unknown" or decl["state"] == "invalid" or decl.get("detail"):
+        return None, {"code": "public-declaration-unresolved", "message": decl.get("detail", "")}
+    try:
+        checker = _check_github()
+    except Exception as exc:  # noqa: BLE001
+        return None, {"code": "public-declaration-owner-missing",
+                      "message": f"check_github.py could not be imported ({type(exc).__name__})"}
+    target = next((rel for rel in checker.MARKER_FILES
+                   if (root / rel).is_file() and checker.resolves_inside(root / rel, root)), None)
+    if target is None:
+        return None, {"code": "public-declaration-route-missing",
+                      "message": "no routed marker file exists"}
+    path = root / target
+    before = path.read_text(encoding="utf-8")
+    payload = json.dumps({"reason": DECLARATION_REASON, "date": time.strftime("%Y-%m-%d")},
+                         ensure_ascii=False, separators=(",", ":"))
+    desired = before.rstrip("\n") + "\n\n" + DECLARATION_TEMPLATE.format(payload=payload) + "\n"
+    with tempfile.TemporaryDirectory(prefix="hooks-public-preview-") as tmp:
+        replica = Path(tmp)
+        for rel in checker.MARKER_FILES:
+            source = root / rel
+            if source.is_file() and checker.resolves_inside(source, root):
+                destination = replica / rel
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(desired if rel == target else source.read_text(encoding="utf-8"),
+                                       encoding="utf-8")
+        parsed = checker.public_exception(replica)
+    if parsed.get("state") != "active" or parsed.get("where") != target:
+        return None, {"code": "public-declaration-unpreviewable",
+                      "message": "the proposed marker is not honoured by the shared parser"}
+    return _file_operation(path, desired), None
+
+
+def _scoped_plan(root: Path, *, scope: str, uninstall: bool, standard: bool,
+                 public_flag: bool, no_graph: bool,
+                 roots: tuple[FileAuthority, ...] | None = None
+                 ) -> tuple[list[PlannedFile], list[dict], list[dict]]:
+    files: list[PlannedFile] = []
+    findings: list[dict] = []
+    persona_operations: list[dict] = []
+    if scope in ("project", "all"):
+        if not (root / ".git").is_dir():
+            findings.append({"code": "not-git-repository", "message": f"not a git repository: {root}"})
+        elif unsafe_hooks := [
+            (path, error)
+            for path in (hook_path(root, name)
+                         for name in ("pre-commit", "commit-msg", "pre-push", "post-commit"))
+            if (error := _destination_error(
+                path, roots or _scope_file_roots(root, scope))) is not None
+        ]:
+            for path, error in unsafe_hooks:
+                findings.append({"code": "unsafe-file-destination",
+                                 "message": f"unsafe hook destination {path}: {error}"})
+        else:
+            decl = public_declaration(root)
+            planned_declaration = None
+            if public_flag:
+                planned_declaration, declaration_finding = _planned_declaration(root, decl)
+                if declaration_finding:
+                    findings.append(declaration_finding)
+                if planned_declaration:
+                    files.append(planned_declaration)
+            unresolved = decl["state"] in ("invalid", "unknown") or (
+                decl["state"] == "none" and bool(decl["detail"]))
+            if unresolved:
+                findings.append({"code": "public-declaration-unresolved", "message": decl["detail"]})
+            elif uninstall:
+                for name in ("pre-commit", "commit-msg", "pre-push", "post-commit"):
+                    path = hook_path(root, name)
+                    op = _file_operation(path, _desired_removed_hook(path), executable=True)
+                    if op:
+                        files.append(op)
+            else:
+                public = decl["state"] == "active" or planned_declaration is not None
+                blocks = {
+                    "pre-commit": render_pre_commit(standard=standard, public=public),
+                    "pre-push": PRE_PUSH.format(begin=BEGIN, end=END),
+                }
+                if public:
+                    blocks["commit-msg"] = COMMIT_MSG.format(begin=BEGIN, end=END)
+                for name, block in blocks.items():
+                    missing = missing_dependencies(block)
+                    if missing:
+                        findings.append({"code": "hook-dependency-missing",
+                                         "message": f"{name}: " + ", ".join(str(p) for p in missing)})
+                        continue
+                    path = hook_path(root, name)
+                    op = _file_operation(path, _desired_hook(path, block), executable=True)
+                    if op:
+                        files.append(op)
+                if not public:
+                    msg = hook_path(root, "commit-msg")
+                    op = _file_operation(msg, _desired_removed_hook(msg), executable=True)
+                    if op:
+                        files.append(op)
+            if not uninstall:
+                persona_operations, persona_findings = _persona_preview(root, "project")
+                findings.extend(persona_findings)
+            if not no_graph and graphify_root(root) is not None and graphify_available():
+                findings.append({"code": "graph-operation-unpreviewable",
+                                 "message": "graphify hook install has no write-equivalent preview"})
+    if scope in ("global", "all"):
+        session = _session_file_operation(uninstall)
+        if session:
+            files.append(session)
+        if not uninstall:
+            files.extend(_mirror_operations())
+            global_personas, persona_findings = _persona_preview(root, "global")
+            persona_operations.extend(global_personas)
+            findings.extend(persona_findings)
+    roots = roots or _scope_file_roots(root, scope)
+    safe_files: list[PlannedFile] = []
+    for operation in files:
+        if error := _destination_error(operation.path, roots):
+            findings.append({"code": "unsafe-file-destination",
+                             "message": f"unsafe destination {operation.path}: {error}"})
+        else:
+            safe_files.append(operation)
+    return safe_files, persona_operations, findings
+
+
+def _apply_files(operations: list[PlannedFile], roots: tuple[FileAuthority, ...]) -> None:
+    for operation in operations:
+        _commit_file(operation, roots)
+
+
+def _run_persona_apply(root: Path, scope: str) -> subprocess.CompletedProcess[str]:
+    command = [sys.executable, str(_persona_script()), "--scope", scope]
+    if scope == "project":
+        command += ["--repo", str(root)]
+    return subprocess.run(command, capture_output=True, text=True, timeout=60)
+
+
+def _explicit_scope(root: Path, args) -> int:
+    roots = _scope_file_roots(root, args.scope)
+    files, persona_operations, findings = _scoped_plan(
+        root, scope=args.scope, uninstall=args.uninstall, standard=args.standard,
+        public_flag=args.public, no_graph=args.no_graph, roots=roots)
+    operations = [item.public() for item in files] + persona_operations
+    payload = {"schema_version": 1, "scope": args.scope,
+               "operations": operations, "findings": findings}
+    if args.preview:
+        if args.json:
+            print(json.dumps(payload, sort_keys=True))
+        else:
+            for operation in operations:
+                print(f"{operation['action']}: {operation['path']}")
+            for finding in findings:
+                print(f"FINDING {finding['code']}: {finding['message']}")
+        return 2 if findings else 0
+    if findings:
+        for finding in findings:
+            print(f"FINDING {finding['code']}: {finding['message']}")
+        return 2
+    if args.check:
+        return 1 if operations else 0
+    if not args.uninstall:
+        for persona_scope in (("project",) if args.scope == "project" else
+                              ("global",) if args.scope == "global" else ("project", "global")):
+            result = _run_persona_apply(root, persona_scope)
+            if result.returncode != 0:
+                print((result.stderr or result.stdout or "persona apply failed").strip())
+                return 2
+    _apply_files(files, roots)
+    for operation in operations:
+        print(f"  {operation['action']}: {operation['path']}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("root", nargs="?", default=".")
@@ -1070,9 +1524,22 @@ def main() -> int:
                          "without this flag; dropping the flag does NOT remove it. DELIBERATELY "
                          "PUBLIC repositories only — see the module docstring")
     ap.add_argument("--no-graph", action="store_true", help="skip the Graphify post-commit hook")
+    ap.add_argument("--scope", choices=("project", "global", "all"),
+                    help="explicitly limit effects; omitted preserves historical behavior")
+    ap.add_argument("--preview", action="store_true",
+                    help="show the complete scoped operation plan and write nothing")
+    ap.add_argument("--json", action="store_true", help="emit preview as one JSON object")
     args = ap.parse_args()
 
     root = Path(args.root).resolve()
+    if args.json and not args.preview:
+        ap.error("--json requires --preview")
+    if args.preview and not args.scope:
+        ap.error("--preview requires explicit --scope")
+    if args.check and args.uninstall:
+        ap.error("--check and --uninstall are mutually exclusive")
+    if args.scope:
+        return _explicit_scope(root, args)
     print(f"hooks: {root}")
 
     if not (root / ".git").is_dir():

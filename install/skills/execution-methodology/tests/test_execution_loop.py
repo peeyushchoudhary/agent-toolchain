@@ -289,41 +289,17 @@ class DocumentedInterfaceTest(unittest.TestCase):
             self.assertNotIn(detail, paragraph,
                              f"{detail} belongs in the reference, not in two places")
 
-    def test_the_two_documents_do_not_contradict_each_other_on_review_width(self) -> None:
-        """The rule lives in SKILL.md; this document was written against the OLD one.
-
-        MEASURED, and this is why a prose pin is here rather than a checker. Across 1,051
-        round-marked review artifacts the decisive cut is STAGE: design/plan blocks at 0.74 per
-        artifact, implementation at 0.09. The old rule -- "at most one, plus `security-validator`
-        on safety surfaces; never a panel" -- was written once in SKILL.md and then ASSUMED by
-        section 4 of this document, which routes exactly one model reviewer. When the rule became
-        stage-scoped, section 4 stopped being a consequence of it and became a contradiction of it
-        unless it says which stage it governs.
-
-        Nothing executable can catch that. The contradiction is not a flag, a path, or an exit
-        code; it is two English sentences that disagree, in two files, one of which a reader
-        reaches without the other. This session has now found NINE checkers that passed their own
-        tests and were inert against the real corpus, every one of them a WORD test standing in
-        for a STRUCTURE that was not there. There is no structure here to test. So the honest
-        enforcement is the smallest one that cannot go inert: assert the falsified clause is in
-        NEITHER file, and that BOTH carry the stage word that replaced it. This test reads the two
-        shipped documents, so it has no fixture to pass against and no corpus to miss.
-        """
+    def test_the_two_documents_publish_one_reviewer_and_conditional_specialists(self) -> None:
+        """The route and loop must carry the same current review ownership."""
         skill = read(SKILL_MD)
         for name, text in (("the skill", skill), ("the loop", self.text)):
             with self.subTest(document=name):
-                self.assertNotIn(
-                    "never a panel", text,
-                    f"{name} still carries the falsified rule; design/plan blocks at 0.74")
-                self.assertIn(
-                    "stage", text.lower(),
-                    f"{name} does not say which stage its review width applies to")
-        self.assertIn("PANEL", self.text.upper(),
-                      "section 4 must say a panel belongs at design, not here")
-        self.assertIn("IMPLEMENTATION STAGE ONLY", self.text.upper(),
-                      "section 4 must declare the stage it governs")
-        self.assertIn("test-judge", self.text,
-                      "the implementation width is one reviewer plus test-judge")
+                normalized = text.lower()
+                self.assertNotIn("review panel", normalized)
+                self.assertIn("one semantic `reviewer`", normalized)
+                self.assertIn("at most one relevant specialist", normalized)
+                self.assertIn("`security-validator`", normalized)
+                self.assertIn("`test-judge`", normalized)
 
     def test_the_public_repository_rule_still_holds_for_this_document(self) -> None:
         """Assembled from parts on purpose: the repository's own identifier guard reads this file

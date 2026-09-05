@@ -29,8 +29,11 @@ is a judgement, and a binding a script guessed is a binding nobody holds.
 
 Usage:
   sync_methodology.py --repo PATH                    # render into that repository, report personas
+  sync_methodology.py --repo PATH --repair-approved AUTHORIZATION_JSON
+                                                    # repair output iff identity is unchanged
   sync_methodology.py --repo PATH --check            # exit 1 if the rendered copy is stale (gates)
   sync_methodology.py --repo PATH --adoption-check   # report adoption state; ALWAYS exits 0
+  sync_methodology.py --repo PATH --status-json      # structured runtime readiness; 0 inspected/2 error
   sync_methodology.py --list                         # show the source, version, and source digest
   sync_methodology.py --repo PATH --list             # ... plus that repo's target and overlay state
 """
@@ -38,21 +41,29 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
+import os
 import re
+import subprocess
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
-# The persona pool, the `## Horizontals` carrier and the concern matcher are spec_check's, and are
-# imported rather than restated. Rule F reads them to decide whether a validator has READ a
-# document; this reads them to decide whether a validator has been GIVEN anything to read. Two
-# parsers for one carrier drift apart, and a drifted copy is how the defective Verify block in the
-# onboarding guide survived a repair to the skill.
-from spec_check import (Doc, Findings, SpecError, concern_match, horizontals,  # noqa: E402
-                        persona_pool)
+# The persona report lazily imports spec_check so --status-json can still report that spec_check or
+# one of its direct helpers is missing. Eager import made the status owner itself disappear at the
+# exact moment it was needed to classify a declared dependency.
+def _load_spec_check() -> None:
+    global Doc, Findings, SpecError, concern_match, horizontals, persona_pool
+    if "Doc" in globals():
+        return
+    from spec_check import (Doc as _Doc, Findings as _Findings, SpecError as _SpecError,
+                            concern_match as _concern_match, horizontals as _horizontals,
+                            persona_pool as _persona_pool)
+    Doc, Findings, SpecError = _Doc, _Findings, _SpecError
+    concern_match, horizontals, persona_pool = _concern_match, _horizontals, _persona_pool
 
 SKILL = Path(__file__).resolve().parent.parent
 SOURCE = SKILL / "methodology.md"
@@ -66,6 +77,49 @@ METHODOLOGY_VERSION = "5.1"
 TARGET_REL = Path("docs") / "agents" / "execution" / "methodology.md"
 OVERLAY_REL = Path("docs") / "agents" / "execution" / "overlay.md"
 OVERLAY_HEADING = "## Repository-specific execution rules"
+RUNTIME_REL = Path("docs") / "agents" / "execution" / "runtime.json"
+RUNTIME_SCHEMA_VERSION = 1
+RUNTIME_GENERATOR = "execution-methodology/scripts/sync_methodology.py"
+
+# One explicit declaration is used by rendering and status inspection. Paths are relative to the
+# skills bundle root (the parent of execution-methodology), so references can be resolved without
+# assuming they live beside the rendered project guide. History and maintenance material are
+# deliberately absent: they are not runtime inputs to ordinary governed execution.
+RUNTIME_FILES = (
+    ("common", "execution-methodology/methodology.md"),
+    ("runtime-owner", "execution-methodology/scripts/sync_methodology.py"),
+    ("runtime-owner", "execution-methodology/scripts/runtime-status.schema.json"),
+    ("controller", "execution-methodology/references/execution-loop.md"),
+    ("product-definition", "execution-methodology/references/specs.md"),
+    ("full-task", "execution-methodology/references/task-card.md"),
+    ("evidence", "execution-methodology/references/junit-evidence.md"),
+    ("gate", "execution-methodology/references/codex-gate-sandbox.md"),
+    ("command", "execution-methodology/scripts/plan_waves.py"),
+    ("command", "execution-methodology/scripts/validate_card.py"),
+    ("command", "execution-methodology/scripts/check_review_budget.py"),
+    ("command", "execution-methodology/scripts/trace_check.py"),
+    ("command", "execution-methodology/scripts/start_junit_run.py"),
+    ("command", "execution-methodology/scripts/verify_junit.py"),
+    ("command", "execution-methodology/scripts/spec_check.py"),
+    ("command", "execution-methodology/scripts/milestone_seal.py"),
+    ("command", "execution-methodology/scripts/weekly_review.py"),
+    ("helper", "execution-methodology/scripts/ratio_meter.py"),
+    ("persona-command", "agent-personas/scripts/sync_personas.py"),
+    ("persona-policy", "agent-personas/SKILL.md"),
+    ("persona-policy", "agent-personas/ROSTER"),
+    ("persona-policy", "agent-personas/references/roster.md"),
+    *(("persona-policy", f"agent-personas/personas/{name}.md") for name in (
+        "acceptance", "architect", "chief-of-staff", "contract-architect", "developer",
+        "docs-steward", "migration-validator", "planner", "product-steward", "reviewer",
+        "scout", "security-validator", "senior-developer", "test-judge",
+    )),
+    ("gate", "gate-sandbox/SKILL.md"),
+    ("gate-command", "gate-sandbox/scripts/gate.sh"),
+    ("gate-command", "gate-sandbox/scripts/readiness.sh"),
+    ("gate-helper", "gate-sandbox/scripts/gate_lib.sh"),
+    ("gate-helper", "gate-sandbox/scripts/gate_config.sh"),
+    ("gate-helper", "gate-sandbox/scripts/evidence_supervisor.py"),
+)
 
 # The repository's own authored route index. Rendering into docs/agents/execution/methodology.md
 # without a route pointing at it produces a file nothing reaches — invisible, and invisibly so.
@@ -156,16 +210,224 @@ def source_sha256(body: str) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
-def marker(body: str) -> str:
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _safe_declared_path(bundle_root: Path, relative: str) -> Path:
+    rel = Path(relative)
+    if rel.is_absolute() or ".." in rel.parts:
+        raise MethodologyError(f"runtime dependency escapes bundle root: {relative}")
+    candidate = bundle_root / rel
+    resolved_root = bundle_root.resolve(strict=True)
+    resolved = candidate.resolve(strict=True)
+    if not _within(resolved, resolved_root):
+        raise MethodologyError(f"runtime dependency escapes bundle root: {relative}")
+    cursor = resolved_root
+    for part in rel.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise MethodologyError(f"runtime dependency is a symlink: {relative}")
+    if not resolved.is_file():
+        raise MethodologyError(f"runtime dependency is not a file: {relative}")
+    return resolved
+
+
+def runtime_declaration(bundle_root: Path | None = None) -> dict:
+    """Build the single runtime declaration used by render and inspection."""
+    root = (bundle_root or SKILL.parent).resolve(strict=True)
+    files = []
+    for stage, relative in RUNTIME_FILES:
+        path = _safe_declared_path(root, relative)
+        files.append({"path": relative, "stage": stage, "sha256": file_sha256(path)})
+    digest_input = json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    methodology = (root / "execution-methodology" / "methodology.md").read_text(
+        encoding="utf-8").strip()
+    if not methodology:
+        raise MethodologyError("runtime methodology source is empty")
+    return {
+        "schema_version": RUNTIME_SCHEMA_VERSION,
+        "methodology_version": METHODOLOGY_VERSION,
+        "source_sha256": source_sha256(methodology),
+        "runtime_sha256": hashlib.sha256(digest_input).hexdigest(),
+        "bundle_root": str(root),
+        "source_revision": source_revision(root),
+        "files": files,
+    }
+
+
+def source_revision(bundle_root: Path) -> str | None:
+    """Return the local Git revision plus declared-runtime dirty state, when available.
+
+    Dirty scope is deliberately the explicit declaration, not the surrounding checkout. An
+    unrelated documentation edit must not change runtime provenance or cause a rewrite.
+    """
+    top = subprocess.run(["git", "-C", str(bundle_root), "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True)
+    head = subprocess.run(["git", "-C", str(bundle_root), "rev-parse", "HEAD"],
+                          capture_output=True, text=True)
+    if top.returncode or head.returncode:
+        return None
+    top_path = Path(top.stdout.strip()).resolve()
+    declared = []
+    for _, relative in RUNTIME_FILES:
+        absolute = bundle_root / relative
+        try:
+            declared.append(absolute.resolve().relative_to(top_path).as_posix())
+        except (OSError, ValueError):
+            return None
+    dirty = subprocess.run(["git", "-C", str(top_path), "status", "--porcelain", "--", *declared],
+                           capture_output=True, text=True)
+    if dirty.returncode:
+        return None
+    return head.stdout.strip() + ("+dirty" if dirty.stdout.strip() else "")
+
+
+def overlay_sha256(overlay: str | None) -> str | None:
+    if overlay is None:
+        return None
+    return hashlib.sha256(overlay.strip().encode("utf-8")).hexdigest()
+
+
+def runtime_inventory(body: str, overlay: str | None) -> dict:
+    declaration = runtime_declaration()
+    return {
+        "generated_by": RUNTIME_GENERATOR,
+        **declaration,
+        "source_sha256": source_sha256(body),
+        "overlay_sha256": overlay_sha256(overlay),
+    }
+
+
+def inventory_text(inventory: dict) -> str:
+    return json.dumps(inventory, indent=2, sort_keys=True) + "\n"
+
+
+def _finding(code: str, message: str, path: str | None = None,
+             severity: str = "error") -> dict:
+    return {"code": code, "severity": severity, "message": message, "path": path}
+
+
+def _base_status(state: str, findings: list[dict], *, route_valid: bool = False,
+                 route_detail: str = "", overlay: dict | None = None,
+                 approved: dict | None = None, installed: dict | None = None,
+                 dependencies: list[dict] | None = None,
+                 repairs: list[dict] | None = None) -> dict:
+    return {
+        "schema_version": 1,
+        "state": state,
+        "ready": state == "current",
+        "approved": approved,
+        "installed": installed,
+        "route": {"valid": route_valid, "detail": route_detail},
+        "overlay": overlay or {"valid": True, "sha256": None,
+                               "expected_sha256": None, "detail": ""},
+        "dependencies": dependencies or [],
+        "findings": findings,
+        "repair_candidates": repairs or [],
+    }
+
+
+IDENTITY_KEYS = ("version", "source_sha256", "runtime_sha256", "bundle_root")
+RUNTIME_STATES = {"current", "repairable", "legacy", "source_changed", "unadopted",
+                  "deferred", "unmanaged", "invalid"}
+
+
+def validate_status_payload(payload: object) -> None:
+    """Validate the frozen schema shape plus coherence JSON Schema cannot express."""
+    required = {"schema_version", "state", "ready", "approved", "installed", "route",
+                "overlay", "dependencies", "findings", "repair_candidates"}
+    if not isinstance(payload, dict) or set(payload) != required:
+        raise MethodologyError("runtime status has an invalid top-level shape")
+    if payload["schema_version"] != 1 or payload["state"] not in RUNTIME_STATES:
+        raise MethodologyError("runtime status has an unknown schema version or state")
+    if type(payload["ready"]) is not bool:
+        raise MethodologyError("runtime status ready must be boolean")
+    for key in ("approved", "installed"):
+        value = payload[key]
+        if value is not None and (not isinstance(value, dict) or set(value) != set(IDENTITY_KEYS)
+                                  or not all(isinstance(value[k], str) for k in IDENTITY_KEYS)):
+            raise MethodologyError(f"runtime status {key} identity is invalid")
+    route = payload["route"]
+    if (not isinstance(route, dict) or set(route) != {"valid", "detail"}
+            or type(route["valid"]) is not bool or not isinstance(route["detail"], str)):
+        raise MethodologyError("runtime status route is invalid")
+    overlay = payload["overlay"]
+    if (not isinstance(overlay, dict)
+            or set(overlay) != {"valid", "sha256", "expected_sha256", "detail"}
+            or type(overlay["valid"]) is not bool or not isinstance(overlay["detail"], str)
+            or any(overlay[k] is not None and not isinstance(overlay[k], str)
+                   for k in ("sha256", "expected_sha256"))):
+        raise MethodologyError("runtime status overlay is invalid")
+    if not isinstance(payload["dependencies"], list):
+        raise MethodologyError("runtime status dependencies must be an array")
+    for item in payload["dependencies"]:
+        if (not isinstance(item, dict)
+                or set(item) != {"path", "stage", "status", "expected_sha256", "actual_sha256"}
+                or not isinstance(item["path"], str) or not isinstance(item["stage"], str)
+                or item["status"] not in {"current", "missing", "changed", "invalid"}
+                or any(item[k] is not None and not isinstance(item[k], str)
+                       for k in ("expected_sha256", "actual_sha256"))):
+            raise MethodologyError("runtime status dependency is invalid")
+    if not isinstance(payload["findings"], list):
+        raise MethodologyError("runtime status findings must be an array")
+    for item in payload["findings"]:
+        if (not isinstance(item, dict) or set(item) != {"code", "severity", "message", "path"}
+                or not isinstance(item["code"], str)
+                or item["severity"] not in {"info", "warning", "error"}
+                or not isinstance(item["message"], str)
+                or (item["path"] is not None and not isinstance(item["path"], str))):
+            raise MethodologyError("runtime status finding is invalid")
+    if not isinstance(payload["repair_candidates"], list):
+        raise MethodologyError("runtime status repair_candidates must be an array")
+    for item in payload["repair_candidates"]:
+        if (not isinstance(item, dict) or set(item) != {"action", "paths"}
+                or item["action"] != "render_approved" or not isinstance(item["paths"], list)
+                or not item["paths"] or not all(isinstance(p, str) for p in item["paths"])):
+            raise MethodologyError("runtime status repair candidate is invalid")
+    current = payload["state"] == "current"
+    if payload["ready"] != current:
+        raise MethodologyError("runtime status ready contradicts state")
+    if current:
+        if (payload["approved"] is None or payload["installed"] is None
+                or payload["approved"] != payload["installed"] or not route["valid"]
+                or not overlay["valid"] or not payload["dependencies"]
+                or any(item["status"] != "current" for item in payload["dependencies"])
+                or payload["repair_candidates"]):
+            raise MethodologyError("current runtime status is semantically contradictory")
+    if payload["state"] == "repairable":
+        if (not payload["repair_candidates"] or payload["approved"] is None
+                or payload["installed"] is None
+                or payload["approved"] != payload["installed"]):
+            raise MethodologyError("repairable runtime status lacks an approved repair")
+    elif payload["repair_candidates"]:
+        raise MethodologyError("only repairable status may include repair candidates")
+
+
+def marker(body: str, runtime_sha256: str) -> str:
     payload = json.dumps(
-        {"v": METHODOLOGY_VERSION, "source_sha256": source_sha256(body)},
+        {"v": METHODOLOGY_VERSION, "source_sha256": source_sha256(body),
+         "runtime_sha256": runtime_sha256},
         separators=(",", ":"),
     )
     return f"<!-- execution-methodology: {payload} -->"
 
 
-def render(body: str, overlay: str | None) -> str:
-    parts = [GENERATED, marker(body), "", body.rstrip()]
+def render(body: str, overlay: str | None, runtime_sha256: str | None = None) -> str:
+    digest = runtime_sha256 or runtime_declaration()["runtime_sha256"]
+    parts = [GENERATED, marker(body, digest), "", body.rstrip()]
     if overlay is not None:
         parts += ["", OVERLAY_HEADING, "", overlay.strip()]
     return "\n".join(parts) + "\n"
@@ -189,6 +451,79 @@ def is_ours(text: str) -> bool:
     the same situation and let the check report them, rather than deleting or clobbering them.
     """
     return GENERATED in text
+
+
+@contextmanager
+def _output_directory(repo: Path, *, create: bool):
+    """Open the output directory component-by-component without following symlinks."""
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        raise MethodologyError("safe no-follow repository writes are unavailable on this platform")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.open(repo.anchor, flags)
+    try:
+        for part in repo.parts[1:] + TARGET_REL.parent.parts:
+            try:
+                child = os.open(part, flags, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(part, dir_fd=fd)
+                child = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _read_output(fd: int, name: str) -> str | None:
+    try:
+        file_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+    except FileNotFoundError:
+        return None
+    try:
+        with os.fdopen(os.dup(file_fd), "r", encoding="utf-8", errors="replace") as stream:
+            return stream.read()
+    finally:
+        os.close(file_fd)
+
+
+def _open_output_for_write(fd: int, name: str, acceptable) -> int:
+    """Bind a write to the verified file inode; a path swap cannot redirect the write."""
+    flags = os.O_RDWR | os.O_NOFOLLOW
+    try:
+        file_fd = os.open(name, flags, dir_fd=fd)
+        with os.fdopen(os.dup(file_fd), "r", encoding="utf-8", errors="replace") as stream:
+            current = stream.read()
+        if not acceptable(current):
+            os.close(file_fd)
+            raise MethodologyError(f"refusing to overwrite {name} (unmanaged output)")
+        return file_fd
+    except FileNotFoundError:
+        try:
+            return os.open(name, flags | os.O_CREAT | os.O_EXCL, 0o644, dir_fd=fd)
+        except FileExistsError as exc:
+            raise MethodologyError(
+                f"refusing to overwrite {name} after a concurrent path change") from exc
+
+
+def _write_open_output(fd: int, text: str) -> None:
+    data = text.encode("utf-8")
+    os.ftruncate(fd, 0)
+    os.lseek(fd, 0, os.SEEK_SET)
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        view = view[written:]
+    os.fsync(fd)
+
+
+def _inventory_is_ours(text: str) -> bool:
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(value, dict) and value.get("generated_by") == RUNTIME_GENERATOR
 
 
 def route_status(repo: Path) -> tuple[bool, str]:
@@ -308,6 +643,7 @@ def persona_config(repo: Path) -> PersonaConfig:
     concern matcher rather than restating them: two parsers for one carrier drift, and this
     session has already repaired one copy of a duplicated rule and left the other defective.
     """
+    _load_spec_check()
     directory = repo / PERSONA_REL
     pool = PERSONA_REL.as_posix() if directory.is_dir() else ""
     personas: tuple = ()
@@ -455,6 +791,298 @@ def print_persona_config(config: PersonaConfig) -> None:
         print("    nothing here writes that line; a binding nobody decided is a binding "
               "nobody holds")
 
+
+def _project_path(repo: Path, relative: Path, *, may_be_missing: bool = True) -> Path:
+    """Resolve a project-owned path without accepting a symlink or escape."""
+    root = repo.resolve(strict=True)
+    candidate = repo / relative
+    cursor = root
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise MethodologyError(f"project runtime path is a symlink: {relative.as_posix()}")
+        if not cursor.exists() and may_be_missing:
+            break
+    resolved_parent = candidate.parent.resolve(strict=False)
+    if not _within(resolved_parent, root):
+        raise MethodologyError(f"project runtime path escapes repository: {relative.as_posix()}")
+    return candidate
+
+
+def _identity(inventory: dict) -> dict:
+    return {
+        "version": inventory["methodology_version"],
+        "source_sha256": inventory["source_sha256"],
+        "runtime_sha256": inventory["runtime_sha256"],
+        "bundle_root": inventory["bundle_root"],
+    }
+
+
+def _load_inventory(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise MethodologyError(f"runtime inventory is unreadable: {exc}") from exc
+    required = {"generated_by", "schema_version", "methodology_version", "source_sha256",
+                "runtime_sha256", "bundle_root", "source_revision", "overlay_sha256", "files"}
+    if not isinstance(value, dict) or set(value) != required:
+        raise MethodologyError("runtime inventory has an invalid top-level shape")
+    if (value["generated_by"] != RUNTIME_GENERATOR or value["schema_version"] != 1
+            or not all(isinstance(value[k], str) for k in
+                       ("methodology_version", "source_sha256", "runtime_sha256", "bundle_root"))
+            or value["source_revision"] is not None
+            and not isinstance(value["source_revision"], str)
+            or value["overlay_sha256"] is not None
+            and not isinstance(value["overlay_sha256"], str)
+            or not isinstance(value["files"], list)):
+        raise MethodologyError("runtime inventory has invalid field types")
+    expected_pairs = list(RUNTIME_FILES)
+    actual_pairs = []
+    for item in value["files"]:
+        if (not isinstance(item, dict) or set(item) != {"path", "stage", "sha256"}
+                or not all(isinstance(item[k], str) for k in ("path", "stage", "sha256"))):
+            raise MethodologyError("runtime inventory has an invalid file entry")
+        actual_pairs.append((item["stage"], item["path"]))
+    if actual_pairs != expected_pairs:
+        raise MethodologyError("runtime inventory file declaration is incomplete or reordered")
+    digest_input = json.dumps(value["files"], sort_keys=True,
+                              separators=(",", ":")).encode("utf-8")
+    if hashlib.sha256(digest_input).hexdigest() != value["runtime_sha256"]:
+        raise MethodologyError("runtime inventory digest does not match its file declaration")
+    return value
+
+
+def runtime_status(repo: Path) -> dict:
+    """Return the repository's complete execution runtime status.
+
+    This function never discovers releases or falls back to another live installation. The
+    inventory's explicit bundle root is the approved source; the running owner's bundle is the
+    installed identity being compared with it.
+    """
+    findings: list[dict] = []
+    try:
+        repo = repo.resolve(strict=True)
+        if not repo.is_dir():
+            raise MethodologyError("repository is not a directory")
+        target = _project_path(repo, TARGET_REL)
+        inventory_path = _project_path(repo, RUNTIME_REL)
+        overlay_path = _project_path(repo, OVERLAY_REL)
+        readme_path = _project_path(repo, README_REL)
+    except (OSError, MethodologyError) as exc:
+        status = _base_status("invalid", [_finding("inspection_error", str(exc))],
+                              route_detail=str(exc))
+        validate_status_payload(status)
+        return status
+
+    current_text = None
+    try:
+        if target.is_file():
+            current_text = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        status = _base_status("invalid", [_finding("inspection_error", str(exc),
+                                                          TARGET_REL.as_posix())],
+                              route_detail="rendered methodology unreadable")
+        validate_status_payload(status)
+        return status
+
+    if current_text is None and not inventory_path.is_file():
+        decision, problem = read_deferral(repo)
+        if decision is not None:
+            findings.append(_finding("methodology_deferred",
+                                     f"deferred since {decision['date']}: {decision['reason']}",
+                                     README_REL.as_posix(), "info"))
+            status = _base_status("deferred", findings)
+        else:
+            findings.append(_finding("methodology_unadopted", problem or
+                                     "no rendered methodology or deferral decision",
+                                     TARGET_REL.as_posix(), "warning"))
+            status = _base_status("unadopted", findings)
+        validate_status_payload(status)
+        return status
+
+    if current_text is not None and not is_ours(current_text):
+        status = _base_status("unmanaged", [_finding(
+            "methodology_unmanaged", "rendered methodology is not owned by this generator",
+            TARGET_REL.as_posix())])
+        validate_status_payload(status)
+        return status
+
+    if not inventory_path.is_file():
+        status = _base_status("legacy", [_finding(
+            "runtime_identity_legacy", "rendered methodology has no complete runtime identity",
+            TARGET_REL.as_posix(), "warning")])
+        validate_status_payload(status)
+        return status
+
+    try:
+        inventory = _load_inventory(inventory_path)
+        bundle_root = Path(inventory["bundle_root"])
+        if not bundle_root.is_absolute():
+            raise MethodologyError("runtime inventory bundle_root must be absolute")
+        approved_root = bundle_root.resolve(strict=True)
+        if str(approved_root) != inventory["bundle_root"]:
+            raise MethodologyError("runtime inventory bundle_root is not canonical")
+    except (OSError, MethodologyError) as exc:
+        status = _base_status("invalid", [_finding("inspection_error", str(exc),
+                                                          RUNTIME_REL.as_posix())],
+                              route_detail="runtime inventory invalid")
+        validate_status_payload(status)
+        return status
+
+    approved = _identity(inventory)
+    dependencies = []
+    for declared in inventory["files"]:
+        actual = None
+        status_name = "missing"
+        try:
+            dependency = _safe_declared_path(approved_root, declared["path"])
+            actual = file_sha256(dependency)
+            status_name = "current" if actual == declared["sha256"] else "changed"
+        except FileNotFoundError:
+            pass
+        except (OSError, MethodologyError):
+            status_name = "invalid"
+        dependencies.append({"path": declared["path"], "stage": declared["stage"],
+                             "status": status_name, "expected_sha256": declared["sha256"],
+                             "actual_sha256": actual})
+
+    try:
+        installed_decl = runtime_declaration()
+        installed = _identity(installed_decl)
+    except (OSError, MethodologyError):
+        installed = None
+
+    actual_overlay = None
+    overlay_problem = ""
+    try:
+        actual_overlay = overlay_sha256(read_overlay(repo))
+    except MethodologyError as exc:
+        overlay_problem = str(exc)
+    expected_overlay = inventory["overlay_sha256"]
+    overlay_valid = not overlay_problem and actual_overlay == expected_overlay
+    overlay_status = {"valid": overlay_valid, "sha256": actual_overlay,
+                      "expected_sha256": expected_overlay, "detail": overlay_problem or
+                      ("" if overlay_valid else "overlay differs from approved identity")}
+
+    routed, route_detail = route_status(repo)
+    all_dependencies = bool(dependencies) and all(d["status"] == "current"
+                                                  for d in dependencies)
+    identity_current = installed == approved
+
+    if not identity_current or not all_dependencies or not overlay_valid:
+        if not identity_current:
+            findings.append(_finding("installed_identity_changed",
+                                     "installed runtime differs from the approved identity"))
+        for dependency in dependencies:
+            if dependency["status"] != "current":
+                findings.append(_finding("runtime_dependency_" + dependency["status"],
+                                         f"runtime dependency is {dependency['status']}",
+                                         dependency["path"]))
+        if not overlay_valid:
+            findings.append(_finding("overlay_changed", overlay_status["detail"],
+                                     OVERLAY_REL.as_posix()))
+        status = _base_status("source_changed", findings, route_valid=routed,
+                              route_detail=route_detail, overlay=overlay_status,
+                              approved=approved, installed=installed, dependencies=dependencies)
+    elif not routed:
+        findings.append(_finding("route_invalid", route_detail, README_REL.as_posix()))
+        # `invalid` is reserved for an inspection that could not complete (CLI exit 2). A changed
+        # project route is a completely inspected runtime-input difference, so it follows the same
+        # non-repairable classification as a changed overlay or dependency.
+        status = _base_status("source_changed", findings, route_valid=False, route_detail=route_detail,
+                              overlay=overlay_status, approved=approved, installed=installed,
+                              dependencies=dependencies)
+    else:
+        expected = render(source_text(), read_overlay(repo), inventory["runtime_sha256"])
+        if current_text != expected:
+            repairs = [{"action": "render_approved", "paths": [TARGET_REL.as_posix()]}]
+            findings.append(_finding("rendered_output_changed",
+                                     "generated methodology differs from approved inputs",
+                                     TARGET_REL.as_posix()))
+            status = _base_status("repairable", findings, route_valid=True,
+                                  overlay=overlay_status, approved=approved, installed=installed,
+                                  dependencies=dependencies, repairs=repairs)
+        else:
+            status = _base_status("current", findings, route_valid=True,
+                                  overlay=overlay_status, approved=approved, installed=installed,
+                                  dependencies=dependencies)
+    validate_status_payload(status)
+    return status
+
+
+def repair_approved_methodology(repo: Path, authorization: object) -> int:
+    """Repair only generated output for the exact identity an earlier plan approved."""
+    if (not isinstance(authorization, dict)
+            or set(authorization) != {"identity", "overlay_expected_sha256"}):
+        print("--repair-approved requires approved runtime and overlay identity JSON", file=sys.stderr)
+        return 2
+    approved = authorization["identity"]
+    planned_overlay = authorization["overlay_expected_sha256"]
+    if (not isinstance(approved, dict) or set(approved) != set(IDENTITY_KEYS)
+            or not all(isinstance(approved[key], str) for key in IDENTITY_KEYS)):
+        print("--repair-approved requires approved runtime and overlay identity JSON", file=sys.stderr)
+        return 2
+    if planned_overlay is not None and not isinstance(planned_overlay, str):
+        print("--repair-approved requires approved runtime and overlay identity JSON", file=sys.stderr)
+        return 2
+    try:
+        repo = repo.resolve(strict=True)
+        with _output_directory(repo, create=False) as output_fd:
+            status = runtime_status(repo)
+            expected_candidate = [{"action": "render_approved",
+                                   "paths": [TARGET_REL.as_posix()]}]
+            if (status["state"] != "repairable" or status["approved"] != approved
+                    or status["installed"] != approved
+                    or status["overlay"]["expected_sha256"] != planned_overlay
+                    or status["overlay"]["sha256"] != planned_overlay
+                    or status["repair_candidates"] != expected_candidate
+                    or not status["route"]["valid"] or not status["overlay"]["valid"]
+                    or not status["dependencies"]
+                    or any(row["status"] != "current" for row in status["dependencies"])):
+                raise MethodologyError("approved identity changed; refusing repair")
+
+            body = source_text()
+            overlay_raw = _read_output(output_fd, OVERLAY_REL.name)
+            if overlay_raw is not None and not overlay_raw.strip():
+                raise MethodologyError(f"{OVERLAY_REL.as_posix()} exists but is empty")
+            overlay = overlay_raw.strip() if overlay_raw is not None else None
+            declaration = runtime_declaration()
+            if (_identity(declaration) != approved
+                    or source_sha256(body) != approved["source_sha256"]
+                    or overlay_sha256(overlay) != planned_overlay):
+                raise MethodologyError("approved identity changed; refusing repair")
+            expected = render(body, overlay, approved["runtime_sha256"])
+
+            # This is deliberately adjacent to the descriptor-bound write. It guards route,
+            # overlay, dependencies, inventory and the generated target after materialization.
+            final_status = runtime_status(repo)
+            if (final_status["state"] != "repairable"
+                    or final_status["approved"] != approved
+                    or final_status["installed"] != approved
+                    or final_status["overlay"]["expected_sha256"] != planned_overlay
+                    or final_status["overlay"]["sha256"] != planned_overlay
+                    or final_status["repair_candidates"] != expected_candidate):
+                raise MethodologyError("approved identity changed; refusing repair")
+            target_fd = _open_output_for_write(output_fd, TARGET_REL.name, is_ours)
+            try:
+                _write_open_output(target_fd, expected)
+            finally:
+                os.close(target_fd)
+    except (OSError, UnicodeError, MethodologyError) as exc:
+        print(exc, file=sys.stderr)
+        return 2
+
+    verified = runtime_status(repo)
+    if (verified["state"] != "current" or verified["approved"] != approved
+            or verified["installed"] != approved
+            or verified["overlay"]["expected_sha256"] != planned_overlay
+            or verified["overlay"]["sha256"] != planned_overlay):
+        print("repair completed but the frozen approved identity did not reverify", file=sys.stderr)
+        return 2
+    print("repaired approved runtime")
+    return 0
+
+
 def sync(repo: Path, check: bool) -> int:
     """Render the methodology into a repository, then report that repository's persona configuration.
 
@@ -479,15 +1107,52 @@ def sync(repo: Path, check: bool) -> int:
 
 def render_methodology(repo: Path, check: bool) -> int:
     try:
+        repo = repo.resolve(strict=True)
         body = source_text()
         overlay = read_overlay(repo)
-    except MethodologyError as e:
+        inventory = runtime_inventory(body, overlay)
+    except (OSError, MethodologyError) as e:
         print(e, file=sys.stderr)
         return 2
 
+    try:
+        with _output_directory(repo, create=not check) as output_fd:
+            return _render_methodology_open(repo, check, body, overlay, inventory, output_fd)
+    except FileNotFoundError as e:
+        if check:
+            # A repository that has never rendered the output has no execution directory to open.
+            # That is ordinary stale state (exit 1), not an inspection failure. This branch is
+            # read-only; all mutation paths still require descriptor-bound destinations.
+            return _render_methodology_open(repo, check, body, overlay, inventory, None)
+        print(e, file=sys.stderr)
+        return 2
+    except (OSError, UnicodeError, MethodologyError) as e:
+        print(e, file=sys.stderr)
+        return 2
+
+
+def _render_methodology_open(repo: Path, check: bool, body: str, overlay: str | None,
+                             inventory: dict, output_fd: int | None) -> int:
+
     target = repo / TARGET_REL
-    expected = render(body, overlay)
-    current = target.read_text(encoding="utf-8", errors="replace") if target.is_file() else None
+    inventory_path = repo / RUNTIME_REL
+    expected = render(body, overlay, inventory["runtime_sha256"])
+    current = _read_output(output_fd, TARGET_REL.name) if output_fd is not None else None
+    current_inventory = (_read_output(output_fd, RUNTIME_REL.name)
+                         if output_fd is not None else None)
+    if current_inventory is not None:
+        try:
+            previous = json.loads(current_inventory)
+        except json.JSONDecodeError:
+            previous = None
+        if isinstance(previous, dict):
+            previous_identity = {k: v for k, v in previous.items() if k != "source_revision"}
+            current_identity = {k: v for k, v in inventory.items() if k != "source_revision"}
+            if previous_identity == current_identity:
+                # The recorded revision describes the approved content. A later unrelated commit
+                # or dirty path cannot rewrite an otherwise identical adopted inventory.
+                inventory["source_revision"] = previous.get("source_revision")
+    expected_inventory = inventory_text(inventory)
 
     print(f"execution methodology v{METHODOLOGY_VERSION} "
           f"(source sha256 {source_sha256(body)})"
@@ -505,7 +1170,7 @@ def render_methodology(repo: Path, check: bool) -> int:
         print("  move it aside, then re-run", file=sys.stderr)
         return 2
 
-    if current == expected:
+    if current == expected and current_inventory == expected_inventory:
         if check:
             routed, detail = route_status(repo)
             if not routed:
@@ -522,15 +1187,41 @@ def render_methodology(repo: Path, check: bool) -> int:
         return 0
 
     if check:
-        reason = "missing" if current is None else "stale or hand-edited"
+        if current is None:
+            reason = "missing"
+        elif current != expected:
+            reason = "stale or hand-edited"
+        else:
+            reason = f"{RUNTIME_REL.as_posix()} missing or stale"
         print("  STALE — the rendered methodology does not match its source:")
         print(f"    {target} ({reason})")
         print(f"  run: sync_methodology.py --repo {repo}")
         return 1
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(expected, encoding="utf-8")
+    if current_inventory is not None:
+        try:
+            parsed_inventory = json.loads(current_inventory)
+        except json.JSONDecodeError:
+            parsed_inventory = None
+        if not isinstance(parsed_inventory, dict) or parsed_inventory.get("generated_by") != RUNTIME_GENERATOR:
+            print(f"  refusing to overwrite {inventory_path} (unmanaged — not generated by this script)",
+                  file=sys.stderr)
+            return 2
+    target_fd = inventory_fd = None
+    try:
+        inventory_fd = _open_output_for_write(
+            output_fd, RUNTIME_REL.name, _inventory_is_ours,
+        )
+        target_fd = _open_output_for_write(output_fd, TARGET_REL.name, is_ours)
+        _write_open_output(target_fd, expected)
+        _write_open_output(inventory_fd, expected_inventory)
+    finally:
+        if inventory_fd is not None:
+            os.close(inventory_fd)
+        if target_fd is not None:
+            os.close(target_fd)
     print(f"  wrote   {target}")
+    print(f"  wrote   {inventory_path}")
     routed, detail = route_status(repo)
     if not routed:
         print("  WARNING — rendered, but nothing routes to it:")
@@ -588,44 +1279,22 @@ def read_deferral(repo: Path) -> tuple[dict | None, str | None]:
 
 
 def adoption_check(repo: Path) -> int:
-    """Report one repository's adoption state at session start. ALWAYS returns 0.
-
-    This informs; it never blocks and it never writes. `--check` is the mode that fails a gate, and
-    its behaviour is deliberately untouched. Four states, and only three of them say anything:
-
-      adopted and current   silence, UNLESS the persona configuration has something to say
-      adopted but stale     a warning naming the file and the re-render command
-      deliberately deferred one quiet line, with the reason and how long it has been deferred
-      unadopted             a warning naming both ways out — adopt, or record a deferral
-
-    THE PERSONA CONFIGURATION IS PART OF THE STATE, because adoption is not finished when the file
-    is rendered. A repository can be perfectly current on the methodology and still have every
-    horizontal invariant in its product definition owned by nobody, which is the state all four
-    measured repositories are in. So the persona notes are appended to whichever of the four states
-    applies, and they can break the silence of the first — but only where there is something to
-    configure. A repository with no `docs/agents/personas/` says nothing here: it has not adopted
-    overlays, that is a legitimate state, and a line repeated at every session start in every
-    repository it does not apply to is a line somebody mutes.
-
-    Output follows the `AGENT CONTEXT:` head-plus-bullets convention that check_github.py and
-    check_toolchain.py already emit into this same session hook, so the lines read as one voice.
-    """
+    """Translate the owning structured runtime status into compact session-hook text; always 0."""
     head = f"AGENT CONTEXT: execution methodology v{METHODOLOGY_VERSION}"
     adopt_cmd = f"python3 {Path(__file__).resolve()} --repo {repo}"
-
     try:
-        body = source_text()
-        overlay = read_overlay(repo)
-    except MethodologyError as e:
-        # A broken toolchain is worth one line, but never a failed session.
+        status = runtime_status(repo)
+    except Exception as e:  # noqa: BLE001 -- a session hook must never fail the session
         print(f"{head} could not be evaluated for this repository.")
         print(f"  - [warn] {e}")
+        print(f"  Invoke methodology-management for {repo} to assess the runtime gap.")
         return 0
 
-    target = repo / TARGET_REL
     rel = TARGET_REL.as_posix()
-    current = target.read_text(encoding="utf-8", errors="replace") if target.is_file() else None
-    notes = persona_notes(persona_config(repo))
+    try:
+        notes = persona_notes(persona_config(repo))
+    except Exception as exc:  # noqa: BLE001 -- status remains useful when persona reporting cannot load
+        notes = [f"persona configuration could not be evaluated: {exc}"]
     configure = (f"python3 {Path(__file__).resolve().parent / 'spec_check.py'} --root {repo} "
                  "--personas")
 
@@ -637,47 +1306,61 @@ def adoption_check(repo: Path) -> int:
             print(f"  Decide the owners, then add one `covers:` line per validator — "
                   f"`{configure}` lists the pool and the concerns. Nothing writes it for you.")
 
-    # 1. adopted and current — say nothing at all, unless the validators are unconfigured.
-    if current is not None and is_ours(current) and current == render(body, overlay):
+    def finding_block() -> None:
+        for finding in status["findings"][:3]:
+            location = f" ({finding['path']})" if finding["path"] else ""
+            print(f"  - [warn] {finding['message']}{location}")
+        if len(status["findings"]) > 3:
+            print(f"  - [warn] ... and {len(status['findings']) - 3} more runtime finding(s)")
+
+    state = status["state"]
+    if state == "current":
         if not notes:
             return 0
         print(f"{head} is adopted here, but its persona configuration is incomplete.")
         persona_block()
         return 0
 
-    # 2. adopted but stale. An unmanaged hand-written file is also "exists but does not match", and
-    #    the re-render refuses to clobber it, so it gets the instruction that actually works.
-    if current is not None:
+    if state == "repairable":
         print(f"{head} is rendered into this repository but out of date.")
-        if not is_ours(current):
-            print(f"  - [warn] {rel} was not generated by this script and does not match the source")
-            print(f"  Move it aside, then re-render: `{adopt_cmd}`")
+        finding_block()
+        print(f"  Re-render: exact approved runtime with `{adopt_cmd}`")
+        persona_block()
+        return 0
+
+    if state == "deferred":
+        message = status["findings"][0]["message"] if status["findings"] else "deferred"
+        match = re.fullmatch(r"deferred since (\d{4}-\d{2}-\d{2}): (.*)", message)
+        if match:
+            stamp, reason = match.groups()
+            age = (datetime.now(timezone.utc).date() - date.fromisoformat(stamp)).days
+            print(f"{head} is deliberately deferred here since {stamp} "
+                  f"({age} day{'' if age == 1 else 's'}) — {reason}")
         else:
-            print(f"  - [warn] {rel} no longer matches the methodology source")
-            print(f"  Re-render: `{adopt_cmd}`")
+            print(f"{head} is deliberately deferred here — {message}")
         persona_block()
         return 0
 
-    decision, problem = read_deferral(repo)
-
-    # 3. deliberately deferred — one quiet line, carrying its own age.
-    if decision is not None:
-        age = (datetime.now(timezone.utc).date() - date.fromisoformat(decision["date"])).days
-        print(f"{head} is deliberately deferred here since {decision['date']} "
-              f"({age} day{'' if age == 1 else 's'}) — {decision['reason']}")
-        # A deferral defers the METHODOLOGY. It does not decide who owns this repository's
-        # invariants, and the validators it already ships are reading its changes either way.
+    if state == "unadopted":
+        print(f"{head} has not been adopted by this repository.")
+        finding_block()
+        print(f"  Invoke methodology-management for {repo} to assess adoption or deferral.")
+        print(f"  A deferral is recorded in {README_REL.as_posix()} as:")
+        print(f"    {DEFERRAL_EXAMPLE}")
+        print("  Adoption is never automatic: nothing here will render into this repository for you.")
         persona_block()
         return 0
 
-    # 4. unadopted, including a marker that does not qualify as a decision.
-    print(f"{head} has not been adopted by this repository.")
-    print(f"  - [warn] {problem}" if problem
-          else f"  - [warn] no {rel}, and no deferral decision recorded")
-    print(f"  Adopt it deliberately — `{adopt_cmd}` renders it and prints the route row to paste.")
-    print(f"  Or record a deferral in {README_REL.as_posix()}:")
-    print(f"    {DEFERRAL_EXAMPLE}")
-    print("  Adoption is never automatic: nothing here will render into this repository for you.")
+    if state == "invalid":
+        print(f"{head} could not be evaluated for this repository.")
+    elif state == "legacy":
+        print(f"{head} is rendered here with a legacy runtime identity.")
+    elif state == "unmanaged":
+        print(f"{head} is rendered into this repository but out of date and unmanaged.")
+    else:  # source_changed
+        print(f"{head} is rendered here, but its approved runtime inputs are out of date.")
+    finding_block()
+    print(f"  Invoke methodology-management for {repo} to assess the runtime gap.")
     persona_block()
     return 0
 
@@ -728,9 +1411,26 @@ def main() -> int:
                     help="report this repo's adoption state for a session hook; always exits 0")
     ap.add_argument("--list", action="store_true", dest="show",
                     help="print the source, version and source digest")
+    ap.add_argument("--status-json", action="store_true",
+                    help="print exactly one structured runtime status object")
+    ap.add_argument("--repair-approved", metavar="AUTHORIZATION_JSON",
+                    help=("repair generated output only when route, overlay, inventory and source "
+                          "still match this exact approved identity"))
     args = ap.parse_args()
 
-    repo = Path(args.repo).resolve() if args.repo else None
+    repo = Path(args.repo).resolve(strict=False) if args.repo else None
+    if args.status_json:
+        if repo is None or args.adoption or args.show or args.check or args.repair_approved:
+            print("--status-json requires only --repo PATH", file=sys.stderr)
+            return 2
+        try:
+            status = runtime_status(repo)
+            validate_status_payload(status)
+        except Exception as exc:  # noqa: BLE001 -- status must fail closed as structured JSON
+            status = _base_status("invalid", [_finding("inspection_error", str(exc))],
+                                  route_detail=str(exc))
+        print(json.dumps(status, separators=(",", ":")))
+        return 2 if any(f["code"] == "inspection_error" for f in status["findings"]) else 0
     if repo and not repo.is_dir():
         # Silent for the session-hook mode: a path that is not there is not a finding to shout at
         # the start of every session, and this mode's contract is that it never fails anything.
@@ -738,6 +1438,16 @@ def main() -> int:
             return 0
         print(f"not a directory: {repo}", file=sys.stderr)
         return 2
+    if args.repair_approved is not None:
+        if repo is None or args.adoption or args.show or args.check:
+            print("--repair-approved requires only --repo PATH", file=sys.stderr)
+            return 2
+        try:
+            approved = json.loads(args.repair_approved)
+        except json.JSONDecodeError as exc:
+            print(f"--repair-approved identity is not valid JSON: {exc.msg}", file=sys.stderr)
+            return 2
+        return repair_approved_methodology(repo, approved)
     if args.adoption:
         if repo is None:
             print("--repo is required for --adoption-check", file=sys.stderr)

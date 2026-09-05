@@ -31,8 +31,9 @@ document by adding its row here in the same commit.
 | Decisions, each against its rejected alternative | [decisions/decisions.md](decisions/decisions.md) | Current — a record: entries accrete |
 | Measurements the decisions rest on | [product/measurements.md](product/measurements.md) | **Dated** — re-derive when prices move |
 | The weekly improvement record, newest first | [product/improvements-weekly.md](product/improvements-weekly.md) | Current — a record: entries accrete, never rewritten |
-| Five steps to onboard a project | [runbooks/onboarding-a-project.md](runbooks/onboarding-a-project.md) | Current |
-| The long-form adoption walkthrough | [runbooks/full-adoption.md](runbooks/full-adoption.md) | Current |
+| Methodology maintenance entry and compatibility map | [runbooks/methodology-management.md](runbooks/methodology-management.md) | Current |
+| Public interface for the management setup procedure | [runbooks/onboarding-a-project.md](runbooks/onboarding-a-project.md) | Current |
+| Compatibility route for older adoption links | [runbooks/full-adoption.md](runbooks/full-adoption.md) | Current |
 | The Codex side, and what it does not get | [runbooks/codex.md](runbooks/codex.md) | Current |
 | Every file the installer places, and why | [agents/what-gets-installed.md](agents/what-gets-installed.md) | Current |
 
@@ -44,11 +45,11 @@ Installation lives in [../install/README.md](../install/README.md).
 everything that layer contains — each skill is a decision, and the decisions are recorded here
 because a skill that is silently absent is indistinguishable from one that was forgotten.
 
-Nine skills are published: `progressive-disclosure`, `agent-personas`, `agent-persona-factory`,
-`execution-methodology`, `graph-navigation`, `project-onboarding`, `project-conformance`,
-`project-migration`, and `gate-sandbox`. The list is enforced by `install/skills/.gitignore`,
-which ignores its own directory and then re-includes those nine by name, so adding a tenth is a
-deliberate line in a file rather than a side effect of a copy.
+Ten skills are published: `progressive-disclosure`, `agent-personas`, `agent-persona-factory`,
+`execution-methodology`, `methodology-management`, `graph-navigation`, `project-onboarding`,
+`project-conformance`, `project-migration`, and `gate-sandbox`. The list is enforced by
+`install/skills/.gitignore`, which ignores its own directory and then re-includes those ten by name,
+so adding another is a deliberate line in a file rather than a side effect of a copy.
 
 **`execution-methodology` is published.** It is the pipeline this repository describes — the
 three human gates, light and full task lanes, independent evidence, and milestone seal — and until now it was the one
@@ -59,36 +60,12 @@ applied to, and it names no project, path, or person. Weighed together, the reco
 uncontested, because the objection it had to beat turned out to be empty rather than merely
 smaller.
 
-**`project-conformance` is published.** It reports whether an onboarded repository still meets the
-standard, and repairs the part of that answer that is mechanical. The disaster-recovery argument
-that carried `execution-methodology` applied to it unchanged and no counter-argument was ever made:
-it was unpublished only because publishing it is a set of coordinated edits and no task had owned
-them all at once. One now has: the skill tree, the `.gitignore` allowlist line, the
-`install/skills/README.md` row, the tables in `what-gets-installed.md` — and a FIFTH this paragraph
-did not name, `MIRRORED_SKILLS` in `check_toolchain.py`, which governs the Codex mirror. The
-installer began mirroring the seventh skill while that list still watched six, so it was installed
-on the Codex side and guarded by nothing there for exactly as long as it took to notice. A roster
-that lives in five places is repaired in five commits or not at all, and a document that counts
-four is how the fifth gets missed. Those four edits
-were the whole content of the two top-level entries in the vendored-drift baseline, so that
-baseline is now three findings and not five; the three that remain are the `agent-personas` test
-files, which are a different decision entirely. See
-[agents/what-gets-installed.md](agents/what-gets-installed.md), "Re-vendoring: what is left behind
-on purpose".
-
-Two things about it are worth stating here, because both are consequences of what it is rather than
-defects. It **orchestrates and reimplements nothing** — every judgement comes from the installed
-checker that already owns it — so its vendored suite drives the real tools under `~/.claude` and is
-green only on a machine that has the layer installed. And it is **not in `MIRRORED_SKILLS`**: that
-list is machine state held in a file this repository only mirrors, so it is changed on the machine
-first. Publishing a skill and mirroring it to Codex are separate acts, and this is the first skill
-where they have come apart.
-
-**`project-migration` is published**, and the count below was tested rather than trusted. It moves
-an already-onboarded repository's product documents onto the bound schema — the opposite
-precondition to `project-onboarding`, which is for a repository that has nothing yet. It is its own
-skill for that reason: one description cannot honestly name both states, and a reader holding a
-conforming repository does not open a page that says the repository is not set up.
+**`methodology-management` is published.** It owns assessment, setup, repair, product-document
+migration and upgrade coordination without copying the underlying procedures. `project-onboarding`
+and `project-migration` remain explicit compatibility entries; `project-conformance` remains an
+implicitly selectable read-only assessment. Requested repair returns to management. Publishing,
+global installation, project adoption and model activation remain separate operations. See the
+[route map](runbooks/methodology-management.md).
 
 **`gate-sandbox` is published.** It is machinery for running a write-producing gate against a
 manifest-equal standalone copy — the executable form of a protocol this repository already

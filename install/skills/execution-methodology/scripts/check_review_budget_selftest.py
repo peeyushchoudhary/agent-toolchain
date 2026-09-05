@@ -44,10 +44,10 @@ author to rename a file which already follows the other shape this module docume
 WRITTEN FOR IT because the defect is live: a case asserting the right answer would fail today.
 The reproduction above is the case, ready to switch on with the fix.
 
-WHAT THIS DOES NOT COVER. Every case drives the INSTALLED sibling as a process over a workspace
-directory in a temporary location. The ledger rules, the terminal pass and the workspace size
-budget are covered by the vendored suite and are not duplicated here. Nothing here writes inside
-the repository.
+WHAT THIS DOES NOT COVER. Every case drives a byte copy of the INSTALLED sibling as a process over
+a workspace directory in a temporary location, with an explicit empty fixture ledger beside it.
+The real operator-ledger audit, ledger rules, terminal pass and workspace size budget are covered
+by the vendored suite and are not duplicated here. Nothing here writes inside the repository.
 
 Run:  python3 check_review_budget_selftest.py      (exit 0 = every case passes)
 """
@@ -62,6 +62,8 @@ import tempfile
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent / "check_review_budget.py"
+_FIXTURE_HOME = None
+_FIXTURE_SCRIPT = None
 # The documented verdict cap, written here as a LITERAL rather than imported. This file drives the
 # installed sibling as a process and asserts on its receipt, so importing the constant would let
 # both halves move together and agree about a number the methodology fixed at thirty. Case 4o
@@ -69,6 +71,20 @@ SCRIPT = Path(__file__).resolve().parent / "check_review_budget.py"
 VERDICT_LINE_CAP = 30
 
 failures: list[str] = []
+
+
+def fixture_script() -> Path:
+    """Copy the production script beside an explicit empty ledger for synthetic cases."""
+    global _FIXTURE_HOME, _FIXTURE_SCRIPT
+    if _FIXTURE_SCRIPT is None:
+        _FIXTURE_HOME = tempfile.TemporaryDirectory()
+        skill = Path(_FIXTURE_HOME.name) / "execution-methodology"
+        _FIXTURE_SCRIPT = skill / "scripts" / "check_review_budget.py"
+        _FIXTURE_SCRIPT.parent.mkdir(parents=True)
+        _FIXTURE_SCRIPT.write_bytes(SCRIPT.read_bytes())
+        (skill / "ROUND-GRANTS.tsv").write_text(
+            "# SUBJECT\tROUND\tCOMMIT\tDATE\tREASON\n", encoding="utf-8")
+    return _FIXTURE_SCRIPT
 
 
 def check(name: str, condition: bool, detail: str = "") -> None:
@@ -102,7 +118,7 @@ def sized(tmp: Path, lines: int, *names: str) -> Path:
 
 
 def run(root: Path, *extra: str) -> tuple[int, dict]:
-    proc = subprocess.run([sys.executable, str(SCRIPT), str(root), "--json", *extra],
+    proc = subprocess.run([sys.executable, str(fixture_script()), str(root), "--json", *extra],
                           capture_output=True, text=True,
                           env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
     try:
