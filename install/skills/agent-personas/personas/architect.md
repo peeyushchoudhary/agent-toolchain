@@ -2,9 +2,9 @@
 name: architect
 description: Use to judge whether a design is structurally sound — before it is built, or after, when checking that an implementation kept its shape. Covers layering, module boundaries, dependency direction, and whether a change adds a second way of doing something that already exists.
 writes: yes
-claude.model: opus
+claude.model: claude-fable-5-1
 claude.effort: high
-codex.model: gpt-5.6-sol
+codex.model: gpt-6-astra
 codex.effort: high
 codex.sandbox: workspace-write
 ---

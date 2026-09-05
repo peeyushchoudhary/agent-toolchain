@@ -13,22 +13,20 @@ the `execution-methodology` skill.
 
 ## The roster
 
-| Persona | Writes | ~Runs/milestone | Claude | Codex | Effort |
-|---|---|---|---|---|---|
-| `scout` locate code, return paths not opinions | no | ~60 | `haiku` | `gpt-5.4-mini` | low |
-| `test-judge` run the gate, report verbatim | no | ~40 | `haiku` | `gpt-5.6-luna` | low |
-| `docs-steward` route, README, lessons | yes | ~10 | `sonnet` | `gpt-5.6-terra` | medium |
-| `developer` bounded work in one module | yes | ~14 | `sonnet` | `gpt-5.6-terra` | medium |
-| `senior-developer` judgement, cross-cutting, security | yes | ~6 | `opus` | `gpt-5.6-sol` | medium |
-| `planner` what to build, in what order | no | ~3 | `fable` | `gpt-5.6-sol` | high |
-| `product-steward` the WHY, scope, acceptance criteria | product specs only | ~2 | `opus` | `gpt-5.6-sol` | high |
-| `chief-of-staff` holds the loop, dispatches, keeps the ledger | ledger and cards only | ~3 | `opus` | `gpt-5.6-sol` | high |
-| `architect` is this the right shape | design docs only | ~4 | `opus` | `gpt-5.6-sol` | high |
-| `contract-architect` API, schema, migrations | yes | ~3 | `opus` | `gpt-5.6-sol` | high |
-| `reviewer` independently falsifies design, plan, or implementation; cannot edit | no | ~20 | `opus` | `gpt-5.6-sol` | high |
-| `security-validator` consent, authz, PHI | no | ~5 | `opus` | `gpt-5.6-sol` | high |
-| `migration-validator` schema, migration, backfill — cast at DESIGN | no | ~3 | `opus` | `gpt-5.6-sol` | high |
-| `acceptance` milestone judge, cannot edit | no | 1 | `opus` | `gpt-5.6-sol` | xhigh |
+The source pool contains fourteen compatibility definitions. Ordinary selection shows only active
+roles; `docs-steward`, `planner`, and `contract-architect` remain renderable so old references keep
+working, but their existing `SUPERSEDED` or `RETIRED` description prefixes exclude them from the
+default list. No separate status registry exists.
+
+Generate the current roster from those sources rather than maintaining another table here:
+
+```bash
+sync_personas.py --list
+sync_personas.py --list --include-retired
+sync_personas.py --list --include-retired --format markdown
+```
+
+The Markdown form includes status, writes, and the model and effort for both harnesses.
 
 **`migration-validator` is the newest seat and it is cast EARLY.** It was added because the pool had
 no owner for the data plane, and the gap was measured rather than felt: across four repositories,
@@ -49,8 +47,8 @@ anything about interfaces, migrations, contracts, security, concurrency, or wher
 `senior-developer` takes everything else. A cheap tier is only safe because it refuses to improvise.
 
 **Three personas have a write boundary that is an instruction, not a guarantee.** `architect` writes
-only under `docs/architecture/` and `docs/decisions/`; `product-steward` only under the product spec
-directory; `chief-of-staff` only the ledger, task cards, and reports. Tool restriction cannot be
+only under `docs/architecture/` and `docs/decisions/`; `product-steward` owns product definition and
+routine documentation custody; `chief-of-staff` owns plans and bounded workspace state. Tool restriction cannot be
 scoped to a path, so each limit lives in the persona's body.
 
 `chief-of-staff` is the one to watch. Its boundary erodes in a predictable way: a review returns a
@@ -58,28 +56,21 @@ one-line fix, dispatching feels like overhead, and the orchestrator patches it d
 a change nobody reviewed, recorded nowhere but its own context. Its body says this explicitly
 because saying it is the only enforcement available.
 
-## Why these models and efforts
+## Model and effort defaults
 
-**Effort tracks reasoning depth, not importance.** Importance is already handled by model choice and
-by tool restriction. `test-judge` runs a command and repeats the output — that is `low` however much
-the result matters. `acceptance` runs once per milestone, so `xhigh` costs nothing in aggregate.
+The frontmatter values are pilot defaults, not evidence that one model produces better work or
+costs less. Permissions, frozen criteria, independent review, and executable gates carry the safety
+guarantees regardless of model.
 
-**Frequency drives the cheap end.** `scout` runs ~60 times per milestone; it is the one place a
-cheap model pays for itself. `acceptance` runs once.
+When the active harness supports native per-dispatch overrides, a controller may use high effort for
+planning; product-steward may use medium effort for routine documentation custody; difficult
+senior-developer work may use Fable 5.1 or Astra at medium or high; and difficult design or plan
+review may use Fable 5.1 or Astra at high. A warm controller trial on flagship medium is separate.
+Record the resolved model and effort in the dispatch. Keep the fixed source values when the harness
+cannot express the override. Do not add phase keys to persona frontmatter.
 
-**Splitting implementation by tier is where the money is.** Routing the ~70% of tasks that are
-genuinely bounded to `developer` (sonnet/terra) instead of opus cuts implementation cost by about
-40% — roughly $8.00 to $4.64 per milestone at ~20 runs.
-
-**Measured anchor:** an in-harness `opus` review of a small class, grounded in real repo files, cost
-about $0.21 (27K input, 3K output, 7 tool calls, 80s). Reviews dominate the persona budget at ~20
-runs; a milestone lands around $4–5 total.
-
-Model choices follow published benchmarks: Opus 5 scores 79.2 on SWE-bench Pro against Sonnet 5's
-63.2 for 2.5× the price, and Anthropic's own cost-per-task data puts Opus ahead on accuracy per
-dollar above medium effort — so `senior-developer` is Opus and `developer` is Sonnet. Fable 5 buys +0.8 over Opus 5 for double the
-input price, which is why it appears only in `planner`. Full rationale in
-[references/roster.md](references/roster.md).
+The dated rationale and earlier measurements are retained as history in
+[references/roster.md](references/roster.md); they are not current model evidence.
 
 ## Judges cannot edit
 
@@ -159,14 +150,10 @@ rejected. The deny-list's derived core comes from roster membership alone, never
 source may still add a local extra to it (`claude.disallowedTools`, merged rather than replaced —
 see "Judges cannot edit").
 
-`reviewer` is cast in design mode before Gate 1, plan mode before Gate 2, and implementation mode
-after code is written. The two pre-gate modes receive only named artifact paths in fresh context;
-existing domain specialists are additive, and the implementation review remains unchanged.
-Freshness is established by dispatching Codex with `fork_turns: "none"`, or by another harness's
-equivalent fresh-thread primitive. Prompt wording alone does not establish isolation. Post-code
-review defaults to Implementation unless Design or Plan is explicitly named. A scoped rereview
-receives the persisted original finding or report path, correction or diff path, corrected artifact
-path, and governing frozen artifact paths—never author conversation or rationale.
+Persona bodies define responsibilities and permissions. The `execution-methodology` skill owns
+stage order, lane admission, review packets and rounds, gates, and terminal states. Review mode
+defaults to Implementation unless Design or Plan is explicitly named; the reviewer body preserves
+the mode-specific examination and no-edit rules.
 
 `reviewer`'s own source is the worked example, copied verbatim rather than reconstructed from
 memory — when authoring a new persona, copy an existing source file, not a prose rendering of one:
@@ -204,7 +191,9 @@ predates this template and, as written, does not describe it (a correction is tr
 sync_personas.py                      # render the pool to ~/.claude/agents and ~/.codex/agents
 sync_personas.py --repo PATH          # also merge that repo's overlays
 sync_personas.py --repo PATH --check  # exit 1 when generated output is stale
-sync_personas.py --list               # the roster
+sync_personas.py --list               # active selection roster
+sync_personas.py --list --include-retired
+sync_personas.py --list --format markdown
 ```
 
 **Never edit `~/.claude/agents/` or `~/.codex/agents/` directly.** They are generated and carry a
@@ -271,8 +260,6 @@ To derive specialists from a project's own documents, use the `agent-persona-fac
 
 ## No cross-harness dispatch
 
-A persona runs in whichever harness you are driving. Nothing shells out to the other family.
-
-That was measured and rejected: a quality-matched cross-harness review cost $0.367 against $0.212
-in-harness — about 1.7× — because a cold subprocess shares no context with the parent and re-reads
-source it already has, on top of a ~23K-token system-prompt floor per invocation.
+A persona runs in whichever harness you are driving. Nothing shells out to the other family. The
+dated comparison that led to this rule remains in the historical roster reference; it is not a
+current cost or quality claim.

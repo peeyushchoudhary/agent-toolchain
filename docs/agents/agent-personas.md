@@ -1,72 +1,75 @@
 # Agent personas
 
-Fourteen roles, authored once, rendered into whichever harness is being driven. A session should not
-re-derive "what is a reviewer and which model should it use" every time.
+Fourteen compatibility definitions are authored once and rendered into whichever harness is being
+driven. Eleven are active choices. Three remain generated so old references resolve; their
+descriptions reject new dispatch, while the renderer excludes them from ordinary `--list`
+selection. They remain callable by explicit name. A session should not re-derive role, model,
+effort or lifecycle status.
 
 Implementation: `~/.claude/skills/agent-personas/`. Specialists:
 `~/.claude/skills/agent-persona-factory/`.
 
-## The roster
+## The active roster
 
-| Persona | Writes | ~Runs/milestone | Claude | Codex | Effort |
-|---|---|---|---|---|---|
-| `scout` locate code, return paths not opinions | no | ~60 | `haiku` | `gpt-5.4-mini` | low |
-| `test-judge` run the gate, report verbatim | no | ~40 | `haiku` | `gpt-5.6-luna` | low |
-| `docs-steward` route, README, lessons | yes | ~10 | `sonnet` | `gpt-5.6-terra` | medium |
-| `developer` bounded work in one module | yes | ~14 | `sonnet` | `gpt-5.6-terra` | medium |
-| `senior-developer` judgement, cross-cutting, security | yes | ~6 | `opus` | `gpt-5.6-sol` | medium |
-| `planner` what to build, in what order | no | ~3 | `fable` | `gpt-5.6-sol` | high |
-| `product-steward` the WHY, scope, acceptance criteria | product specs only | not measured | `opus` | `gpt-5.6-sol` | high |
-| `chief-of-staff` holds the loop, dispatches, keeps the ledger | ledger, task cards, and reports only | not measured | `opus` | `gpt-5.6-sol` | high |
-| `architect` is this the right shape | design docs only | ~4 | `opus` | `gpt-5.6-sol` | high |
-| `contract-architect` API, schema, migrations | yes | ~3 | `opus` | `gpt-5.6-sol` | high |
-| `reviewer` independently falsifies design, plan, or implementation; cannot edit | no | ~20 | `opus` | `gpt-5.6-sol` | high |
-| `security-validator` consent, authz, PHI | no | ~5 | `opus` | `gpt-5.6-sol` | high |
-| `acceptance` milestone judge, cannot edit | no | 1 | `opus` | `gpt-5.6-sol` | xhigh |
+The table is generated from the same persona frontmatter used by both harnesses. Normal `--list`
+output excludes compatibility definitions; `--include-retired` shows them with explicit status.
 
-No reproducible run count is recorded for `product-steward` or `chief-of-staff`.
+| Persona | Status | Writes | Claude model | Claude effort | Codex model | Codex effort |
+|---|---|---|---|---|---|---|
+| acceptance | active | no | claude-fable-5-1 | xhigh | gpt-6-astra | xhigh |
+| architect | active | yes | claude-fable-5-1 | high | gpt-6-astra | high |
+| chief-of-staff | active | plans and bounded workspace state only | opus | medium | gpt-5.6-sol | medium |
+| developer | active | yes | sonnet | medium | gpt-5.6-terra | medium |
+| migration-validator | active | no | claude-fable-5-1 | high | gpt-6-astra | high |
+| product-steward | active | product definition and documentation only | opus | high | gpt-5.6-sol | high |
+| reviewer | active | no | opus | high | gpt-5.6-sol | high |
+| scout | active | no | haiku | low | gpt-5.6-luna | low |
+| security-validator | active | no | claude-fable-5-1 | high | gpt-6-astra | high |
+| senior-developer | active | yes | opus | medium | gpt-5.6-sol | medium |
+| test-judge | active | no | haiku | low | gpt-5.6-luna | low |
 
 ## Three principles
 
-**Effort tracks reasoning depth. Model tracks stakes. Frequency decides where saving matters.**
+**Permissions and evidence carry safety. Model and effort are workload choices.**
 
-Conflating importance with effort is the common mistake. `test-judge` reports whether the release
-gate passed — as important as anything — but the task is "run a command and repeat the output",
-which needs `low`. Its importance is handled by making it unable to edit, not by making it think
-harder.
+The current assignments are a selective, unmeasured pilot. Scout and test execution use the least
+expensive factual tier. Ordinary builders and implementation review retain their established tiers.
+Architecture, security, migration and acceptance start on the flagship candidates because their
+decisions propagate or are costly to reverse. Acceptance retains `xhigh`; no ordinary default uses
+`max` or `ultra`.
 
-`scout` runs ~60 times per milestone and is the one place a cheap model pays for itself.
-`acceptance` runs once, so `xhigh` costs nothing in aggregate.
+Where a harness supports native per-dispatch overrides, the controller may use `high` for planning,
+`medium` for routine product custody, and Fable 5.1/Astra at `medium` or `high` for difficult causal
+work. Record the resolved model and effort. These phase choices are not extra persona definitions
+or unsupported frontmatter keys. Fable 5.1 evaluation requires Claude Code 2.1.255 or newer; an
+older harness is an unmet local prerequisite, not a failed model result.
 
 ## Judges cannot edit
 
-`reviewer`, `security-validator`, `acceptance`, `scout`, `test-judge`, `planner` carry
-`disallowedTools: Write, Edit, NotebookEdit` on Claude and `sandbox_mode = "read-only"` on Codex.
+The six active judging roles — `reviewer`, `security-validator`, `migration-validator`,
+`acceptance`, `scout`, and `test-judge` — use `codex.sandbox: read-only`. On Claude, all six use the
+`Read, Grep, Glob, TodoWrite` allowlist; five also disallow `Bash`. `test-judge` alone adds `Bash` so
+it can run the gate. The superseded `planner` retains the read-only judge restriction for compatibility.
 
 A judge that **cannot** edit is a stronger guarantee than one instructed not to, and it removes the
 failure where a reviewer finds a defect and quietly patches it so the defect is never recorded.
 
-The `reviewer` handles design before Gate 1, plan before Gate 2, and post-code implementation.
-Post-code review defaults to Implementation unless Design or Plan is named, preserving existing
-dispatches. Pre-gate review uses the harness's fresh-thread primitive—`fork_turns: "none"` in
-Codex—and artifact paths, not author rationale. `PASS` is valid; blockers need a concrete
-counterexample tied to frozen authority. Scoped rereview adds the persisted finding, correction or
-diff, corrected artifact, and governing frozen artifacts. One read-only role preserves the finding
-contract without a fourteenth overlapping persona.
+The `reviewer` handles design, plan and implementation review. The canonical
+[execution methodology](../../install/skills/execution-methodology/methodology.md) owns review
+inputs, finding classification, correction, scoped rereview and terminal states. Persona files
+define responsibility and restrictions rather than repeating that state machine.
 
-`test-judge` is still able to verify a gate that writes. The controller freezes writers, binds the
-referent to a canonical manifest, and supplies a manifest-equal standalone copy plus a custom inner
-profile. The judge's source access remains read-only and it requests approval for the **exact
-sandbox-launch** only. The approved nested launch is
+`test-judge` can verify a gate that writes against a controller-supplied manifest-equal copy and
+custom inner profile. Source remains read-only, copy writes are allowed, and network is disabled.
+The judge requests approval only for the exact nested launch:
 `env CODEX_HOME=<temporary-home> codex sandbox -p gate -P copy-write -C <copy> -- <exact gate argv>`.
-Approval moves only the launcher outside the outer boundary; it immediately enters the inner
-profile granting source read, copy write, and network disabled. The gate never runs unsandboxed. A
-mismatch, ambiguous input, sandbox failure, cached/zero/skipped run, or failed cleanup blocks the
-result. For Gradle, only exact `--rerun-tasks` establishes freshness; `cleanTest` does not.
+A mismatch, sandbox failure, cached/zero/skipped run, or failed cleanup blocks the result. For
+Gradle, only exact `--rerun-tasks` establishes freshness.
 
-**`architect` is the exception.** It may write so it can author ADRs, limited to
-`docs/architecture/` and `docs/decisions/` — but tool restriction cannot be scoped to a path, so
-that limit is an instruction, not a guarantee. It is the one persona whose boundary is soft.
+**Writer path boundaries are instructions.** Harness tool restrictions cannot scope a write tool to
+a directory. `architect` is limited to architecture and decision documents, `chief-of-staff` to
+plans and bounded workspace state, and `product-steward` to product definition and documentation.
+Their path boundaries are therefore softer than the judges' structural no-write boundary.
 
 ## Choosing an implementation tier
 
@@ -74,13 +77,10 @@ that limit is an instruction, not a guarantee. It is the one persona whose bound
 and escalates** rather than inferring anything about interfaces, migrations, contracts, security,
 concurrency, or where code should live. `senior-developer` takes everything else.
 
-The escalation rule is what makes the cheap tier legitimate rather than a gamble. Routing the ~70%
-of genuinely bounded work to Sonnet cuts implementation from roughly **$8.00 to $4.64** per
-milestone at ~20 runs.
-
-`senior-developer` is Opus at **medium**, not high: Opus at medium is already strong, and the tier
-difference is carried by the model. Raising both would double-charge for one increment of
-difficulty.
+The escalation rule keeps a bounded task from silently becoming an interface, migration,
+concurrency or safety decision. `product-steward` owns product definition and current documentation
+custody. `chief-of-staff` owns approved plans and execution state. The compatibility definitions
+for `docs-steward`, `planner` and `contract-architect` name the active role that absorbed their work.
 
 ## Authoring and generation
 
@@ -93,7 +93,8 @@ description: Use before design and plan gates or after implementation…
 writes: no
 claude.model: opus
 claude.effort: high
-claude.disallowedTools: Write, Edit, NotebookEdit
+claude.tools: Read, Grep, Glob, TodoWrite
+claude.disallowedTools: Bash
 codex.model: gpt-5.6-sol
 codex.effort: high
 codex.sandbox: read-only
@@ -105,7 +106,9 @@ The body becomes the system prompt on Claude and developer_instructions on Codex
 sync_personas.py                      # render to ~/.claude/agents and ~/.codex/agents
 sync_personas.py --repo PATH          # also merge that repo's overlays
 sync_personas.py --repo PATH --check  # exit 1 when generated output is stale
-sync_personas.py --list               # the roster
+sync_personas.py --list               # active roster
+sync_personas.py --list --format markdown
+sync_personas.py --list --include-retired
 ```
 
 **Generation is required, not cosmetic.** Claude Code's project-level agents *override* a same-named
@@ -138,11 +141,13 @@ overlap, and an overlapping persona is worse than a missing one because dispatch
 ## No cross-harness dispatch
 
 A persona runs in whichever harness is being driven. Nothing shells out to the other family.
-Measured and rejected — see [decisions.md](../decisions/decisions.md) and
-[evidence/measurements.md](../product/measurements.md).
+One dated experiment measured it at 1.7 times the in-harness cost. See
+[decisions.md](../decisions/decisions.md) and [measurements.md](../product/measurements.md).
 
 ## Reload behaviour
 
-Agent definitions are picked up without restarting a session — verified when `implementer`
-disappeared and `developer`/`senior-developer`/`architect` became dispatchable immediately after a
-sync. Git hooks, by contrast, do need `/hooks` or a restart.
+One historical sync observed `implementer` disappear and
+`developer`/`senior-developer`/`architect` become dispatchable without restarting that session.
+That observation does not prove a newly introduced model ID resolves in the current harness. Verify
+the generated file and actual dispatch before treating the configured model as active. Git hooks,
+by contrast, need `/hooks` or a restart.

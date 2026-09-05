@@ -51,7 +51,7 @@ which ignores its own directory and then re-includes those nine by name, so addi
 deliberate line in a file rather than a side effect of a copy.
 
 **`execution-methodology` is published.** It is the pipeline this repository describes — the
-artifacts, the three human gates, the task card, the ledger contract — and until now it was the one
+three human gates, light and full task lanes, independent evidence, and milestone seal — and until now it was the one
 part of the process that existed only on a single machine. The vendored copy is the only disaster
 recovery this toolchain has; an unpublished skill is one disk failure from gone. Against that, the
 public-repo invariant costs nothing here: the skill describes a process, not the work it was

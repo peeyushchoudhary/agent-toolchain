@@ -1,34 +1,46 @@
 # Measurements
 
-Measured 2026-07-26 on this workstation. Re-derive when prices or benchmarks move — several
-decisions in [../decisions.md](../decisions/decisions.md) depend on these numbers, not on intuition.
+Current model and verification evidence updated 2026-09-05. Older measurements retain their own
+dates and describe the system that existed then. Re-derive current prices and model comparisons
+when vendor terms or locally observed results move.
 
-## Prices and benchmarks
+## Current model economics and pilot status — 2026-09-05
 
-| Model | $/M in | $/M out | Score |
-|---|---|---|---|
-| Haiku 4.5 | 1 | 5 | — |
-| Sonnet 5 | 2 (intro, →3 Sep 2026) | 10 (→15) | 63.2 SWE-bench Pro |
-| Opus 5 | 5 | 25 | 79.2 SWE-bench Pro, 96.0 Verified |
-| Fable 5 | 10 | 50 | 80.0 SWE-bench Pro |
-| GPT-5.6 Luna | 1 | 6 | 82.5 coding index |
-| GPT-5.6 Terra | 2.50 | 15 | 84.3 coding index |
-| GPT-5.6 Sol | 5 | 30 | 88.8 coding index, 64.6 SWE-bench Pro |
+Standard API prices per million tokens:
 
-**The Anthropic and OpenAI numbers come from different suites.** Compare within a vendor only.
-Nothing in the routing ranks Opus against Sol.
+| Model | Uncached input | Cached input | Output |
+|---|---:|---:|---:|
+| GPT-6 Astra | $10 | $1 | $50 |
+| GPT-5.6 Sol | $4 | $0.40 | $20 |
+| GPT-5.6 Terra | $2 | $0.20 | $12 |
+| GPT-5.6 Luna | $0.20 | $0.02 | $1.20 |
+| GPT-5.4 mini | $0.75 | $0.075 | $4.50 |
+| Claude Fable 5.1 | $10 | $0.25 | $50 |
+| Claude Opus 5 | $5 | $0.50 | $25 |
+| Claude Sonnet 5 | $2 | $0.20 | $10 |
+| Claude Haiku 4.5 | $1 | $0.10 | $5 |
 
-Two vendor claims that shaped decisions:
+OpenAI rows use short-context Standard rates; prompts over 272K tokens have different prices.
+Cache creation, optional service tiers and subscription allowances are separate. Sol's promotional
+price is documented through at least 2026-11-21. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing),
+[Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing).
 
-- Anthropic's cost-per-task data: **above medium effort, Opus delivers more accuracy per dollar than
-  Sonnet.** This is why `senior-developer` is Opus.
-- OpenAI ships Sol at default reasoning `low`, advising to start low and turn up. Effort defaults
-  were lowered across the roster partly on this.
+The selective persona assignments are an **unmeasured pilot**, not a model ranking. No matched
+Astra/Fable task comparison has run on this workload. Fable 5.1 requires Claude Code 2.1.255 or
+newer before local evaluation; unsupported environments remain unmeasured. Native per-dispatch
+effort overrides may be used only where the harness exposes them, with the resolved model and
+effort recorded. Acceptance remains at `xhigh`. No persona defaults to `max` or `ultra`.
 
-Opus 5 released 2026-07-24 at unchanged Opus pricing. Against Opus 4.8 (69.2 SWE-bench Pro) the gap
-over Sonnet 5 widened from 6 points to **16** — which is what settled the implementer question.
+Illustrative arithmetic, not observed workload cost: 40K uncached input plus 8K output is $0.80
+on Astra and $0.32 on Sol. At that mix, Astra costs 2.5 times as much and must earn the difference
+through better outcomes, fewer tokens, less rework or saved founder time. A call with 200K cached
+input and 2K output is $0.15 on either Fable 5.1 or Opus 5, excluding cache creation.
 
-## Cross-harness review experiment
+Subscription economics need their own evidence. Record accepted tasks per weekly allowance and
+quota delay rather than projecting subscription value from API prices. Sources: [Claude plan guidance](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan),
+[Codex usage and pricing](https://learn.chatgpt.com/docs/pricing).
+
+## Historical cross-harness review experiment — 2026-07-26
 
 One task: a 34-line Java class with two planted authorization bugs — `familyId` trusted
 unchecked, and a `get()` with no authorization.
@@ -51,9 +63,9 @@ unchecked, and a `get()` with no authorization.
   caught that `ConsentLedger.hasActiveConsent()` **does not exist** — an API-existence error the
   Claude subagent reasoned right past.
 
-## Per-milestone cost model
+## Historical per-milestone cost model — 2026-07-26
 
-Derived from the two measured anchors ($0.212 in-harness review) and the run counts in
+This historical estimate was derived from the two measured anchors ($0.212 in-harness review) and the run counts in
 [../agent-personas.md](../agents/agent-personas.md). Implementation assumed at ~40K in / 8K out per run.
 
 | Line | Before the tier split | After |
@@ -64,6 +76,46 @@ Derived from the two measured anchors ($0.212 in-harness review) and the run cou
 
 The tier split takes ~40% off the largest write-side line. Cross-harness review on all 20 reviews
 would have added ~$3/milestone.
+
+These estimates use the July roster and July prices. They remain as decision history and must not
+be used as current pilot economics.
+
+## What the current process counters actually measure
+
+`ratio_meter.py` classifies **committed line churn** by repository path. Its 15% warning, 30%
+failure threshold and 500-line floor are policy thresholds; they do not measure reasoning tokens,
+elapsed time, founder attention, ignored workspace work, test adequacy or accepted outcomes.
+
+`check_review_budget.py` reports **workspace files and bytes** for the artifact classes it checks.
+It does not report workspace process lines. Receipts must keep these units separate instead of
+combining them into a single process ratio.
+
+### Bounded Codex reasoning smoke test — 2026-09-05
+
+Twelve frozen public-toolchain cases were answered in the active Codex harness with identical
+supplied inputs. An independent read-only reviewer scored blinded outputs.
+
+| Requested model and effort | Semantic outcomes | Raw decision labels |
+|---|---:|---:|
+| GPT-5.6 Sol, high | 12/12 | 12/12 |
+| GPT-6 Astra, medium | 12/12 | 11/12 |
+| GPT-6 Astra, high | 12/12 | 11/12 |
+
+One case was ambiguous about whether the judged object was a help-string change or a review that
+invented requirements. All three candidates rejected the invented blocker; the two raw label
+mismatches remain recorded. The test did not separate the candidates on semantic quality.
+
+These were evaluation workers, not generated production personas. The test did not exercise an
+implementation workflow, full permission resolution, long-context control, velocity, token or
+subscription efficiency, or rare defects. Runtime token, cache and cost telemetry were unavailable,
+and parallel receipt times are not comparable model latencies. Fable 5.1 was not run. Real-task
+outcomes and usage remain prerequisites to any model ranking or broader adoption.
+
+The pre-revision 2026-09-05 assessment observed a repository verdict of PASS with skipped checks
+and a machine verdict of FAIL. Focused reruns attributed failures to sandbox execution being denied
+and fixtures attempting machine-global mirror writes outside the assessment boundary. That is a
+baseline limitation, not final evidence for this revision. Final suite counts belong here only
+after the integrated candidate is run.
 
 ## Graph rebuild
 

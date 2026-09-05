@@ -1,6 +1,9 @@
-# Why each persona is routed the way it is
+# Historical model-routing record (2026-07-26)
 
-Measured on 2026-07-26. Re-derive when model prices or benchmarks move.
+This file preserves the measurements and reasoning used for the previous roster. It is dated
+history, not current model authority and not evidence for the current pilot defaults. Generate the
+current source-derived roster with `sync_personas.py --list --include-retired --format markdown`.
+Re-measure before using any price, benchmark, quality, frequency, or savings claim below.
 
 ## The two principles
 

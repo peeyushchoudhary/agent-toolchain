@@ -6,8 +6,8 @@ framework, or hosted service.**
 
 |  |  |
 |---|---|
-| **What it is** | Markdown conventions, six installable skills, session and Git hooks, and Python scripts with no dependencies outside the standard library. |
-| **What you get** | A validated task route, fourteen personas with fixed write boundaries, a bounded review loop, and local proof you can re-run. |
+| **What it is** | Markdown conventions, installable skills, session and Git hooks, and Python scripts with no dependencies outside the standard library. |
+| **What you get** | A validated task route, eleven active personas plus three compatibility definitions, declared writer scopes, structural no-write restrictions for judges, a bounded review loop, and local proof you can re-run. |
 | **How to start** | One command, then the `project-onboarding` skill in your project. See [Quickstart](#quickstart). |
 | **What it is not** | A runtime, a package, an API, or a hosted service. See [What this is not](#what-this-is-not). |
 
@@ -22,7 +22,7 @@ flowchart LR
     S3 --> S4["4. Controlled work loop"]
     S4 --> S5["5. Local proof"]
     S5 --> S6["6. PR and audit trail"]
-    S5 -- "a failed gate returns the card" --> S4
+    S5 -- "a failed gate returns the task" --> S4
     S6 -. "lessons and session signals" .-> S1
 ```
 
@@ -34,7 +34,7 @@ session signals are Claude-specific. Neither replaces repository knowledge.
 | 1. Repository route | A repository declares its contract and task routes in `AGENTS.md` and `docs/agents/`; the repository standard supplies the common taxonomy and a migrator. Entry points: `AGENTS.md`, `docs/agents/`, [`validate_disclosure.py`](install/skills/progressive-disclosure/scripts/validate_disclosure.py), [repository standard](docs/architecture/repository-standard.md). | Durable, shared context reduces rediscovery and makes stale links visible. |
 | 2. Shared capabilities | The published vendored layer provides reusable skills; the persona pool defines role, model, effort, and write boundaries. Session signals remain Claude-only. Entry points: [published skill declaration](docs/README.md), [persona sources and generator](docs/agents/agent-personas.md), [`verify.sh`](install/verify.sh). | Repeatable work patterns and consistent role routing; the verifier can compare this repository's published layer with installed state. |
 | 3. Harness layer | Claude Code and Codex consume the same repository knowledge; skills are mirrored and personas are rendered for each harness. A persona stays in the harness being driven. Entry points: [installation inventory](docs/agents/what-gets-installed.md), [`install_hooks.py`](install/skills/progressive-disclosure/scripts/install_hooks.py), [no cross-harness dispatch](docs/agents/agent-personas.md#no-cross-harness-dispatch). | One repository route works across both harnesses without cross-harness dispatch. |
-| 4. Controlled work loop | Fresh, read-only review tries to falsify design and plan before their human gates; approved work then moves through scope → build → review → test using task cards. Judges are independent; a builder does not approve their own work. Entry points: [operating model](docs/architecture/operating-model.md), [full adoption walkthrough](docs/runbooks/full-adoption.md). | Expensive mistakes surface before implementation, while evidence thresholds and one bounded rereview prevent review-driven scope drift. |
+| 4. Controlled work loop | Fresh, read-only review tries to falsify design and plan before their human gates; approved work then moves through scope → build → review → test in a light or full lane. Judges are independent; a builder does not approve their own work. Entry points: [operating model](docs/architecture/operating-model.md), [full adoption walkthrough](docs/runbooks/full-adoption.md). | Expensive mistakes surface before implementation, while evidence thresholds and one bounded rereview prevent review-driven scope drift. |
 | 5. Local proof | Focused and adjacent tests lead to a project's area gate, then full local E2E with real services. Environment preflight and Git hooks protect commit and push; this repository's `verify.sh` proves only its published tooling and installation. Entry points: [`preflight.sh`](install/hooks/preflight.sh), [`identifier_guard.py`](install/skills/progressive-disclosure/scripts/identifier_guard.py), [`push_guard.py`](install/skills/progressive-disclosure/scripts/push_guard.py). | Local gates decide readiness; failures and unknowns are reported honestly without mistaking toolchain verification for a project's production-path proof. |
 | 6. PR and audit trail | GitHub stores code and configuration; milestone PRs and merge commits preserve the audit trail after local proof. It does not run hosted CI or deploy work. Entry point: [GitHub policy](docs/runbooks/github.md). | Durable backup and history without mistaking a push for validation. |
 
@@ -60,8 +60,8 @@ If this setup helps, use GitHub's **Star** button to help other builders discove
 | Route, repository taxonomy, and migration | A short, validated task route plus a common repository layout; the migrator plans or applies a link-preserving move into that layout. | [Progressive disclosure](docs/agents/progressive-disclosure.md) · [Repository standard](docs/architecture/repository-standard.md) |
 | Codebase navigation | A queryable graph of the repository, so a task finds the file that matters instead of grepping for it. | [`graph-navigation`](install/skills/graph-navigation/SKILL.md) |
 | Onboarding and shared skills | A repeatable way to add the route, per-clone hooks, and published workflows to a project; the installer mirrors shared skills to both harnesses. | [Install](install/README.md) · [Onboarding](docs/runbooks/onboarding-a-project.md) · [`project-onboarding`](install/skills/project-onboarding/SKILL.md) |
-| Personas and specialists | Fourteen base personas with deliberate role, model, effort, and write boundaries, generated by `agent-personas`; `agent-persona-factory` derives project specialists from the repository's guardrails, architecture, and product requirements. | [Agent personas](docs/agents/agent-personas.md) |
-| Controlled execution and independent judges | Fresh review falsifies design and plan before approval; a bounded scope → build → review → test loop then uses task cards and a builder who never approves their own work. | [Operating model](docs/architecture/operating-model.md) |
+| Personas and specialists | Eleven active base personas and three retained compatibility definitions with deliberate role, model, effort, and write boundaries, generated by `agent-personas`; `agent-persona-factory` derives project specialists from the repository's guardrails, architecture, and product requirements. | [Agent personas](docs/agents/agent-personas.md) |
+| Controlled execution and independent judges | Fresh review falsifies design and plan before approval; a bounded scope → build → review → test loop uses a card-free light lane or a full card, with independent approval of builder work. | [Operating model](docs/architecture/operating-model.md) |
 | Conformance after onboarding | Whether a repository that was onboarded still meets the standard — personas, route, hooks, identifier guard, methodology, GitHub posture, plugin surface, preflight, and product definition — reported before anything is repaired. Run by hand, never by a hook. | [`project-conformance`](install/skills/project-conformance/SKILL.md) |
 | Migration of an onboarded repository | Moving product documents written before the product-definition layer onto the bound schema: triage, a plan that writes nothing, an apply that moves with `git mv` and rewrites links, adoption, and confirmation. `status:` and `reviewed_by:` are left for a person. | [`project-migration`](install/skills/project-migration/SKILL.md) |
 | Sandboxed gates | Running a write-producing gate against a manifest-equal standalone copy inside an enforced macOS profile, with a readiness phase that refuses to spend an attempt on a machine that is not ready — both what provisioning must supply and the runtime behaviours the profile must permit, which is the class a provisioning check cannot see. The profile is asserted in both directions by break-tests, and a separate Darwin-only capture primitive owns the child process and its output so a receipt survives a descendant that outlives the command. | [`gate-sandbox`](install/skills/gate-sandbox/SKILL.md) |
@@ -73,108 +73,66 @@ route, installer, or local checks.
 
 ## Current state
 
-The execution methodology is at **v5.0**.
+The execution methodology is at **v5.1**. Model assignments are a selective pilot policy;
+comparative quality, velocity and subscription efficiency are not yet established.
 
 ### What ships today
 
 | Ships | Detail |
 |---|---|
-| Six published skills | Named and enforced in [docs/README.md](docs/README.md), "What is published, and what is not". |
-| Fourteen generated personas | Role, model, effort, and write boundaries per persona. |
+| Published skills | Named and enforced in [docs/README.md](docs/README.md), “What is published, and what is not”. |
+| Generated personas | Eleven active roles; three superseded or retired definitions retained for compatibility. The roster includes each harness's model and effort. |
 | Local session and Git guards | Session hooks, plus the identifier and push guards on commit and push. |
-| A cross-harness installer | One install run mirrors the shared skills to Claude Code and Codex. |
-| Executable verification | `verify.sh` runs the published toolchain's own suites and reports what each proved. |
+| A cross-harness installer | An explicitly invoked install mirrors shared skills to Claude Code and Codex. |
+| Executable verification | `verify.sh` runs the published toolchain's suites and reports what each proved or could not run. |
 
-### What the process costs is bounded
+### The execution procedure has one owner
 
-`ratio_meter.py` splits committed churn three ways — product, product thinking, and process. It
-warns at a 15% process share and fails a merge at 30%, with a volume floor below which a quiet week
-cannot fail at all. `weekly_review.py` reports the trend across repositories.
+The [methodology](install/skills/execution-methodology/methodology.md) defines the gates,
+lanes and review outcomes. The [execution loop](install/skills/execution-methodology/references/execution-loop.md)
+provides the operational commands. Persona definitions assign responsibility and permissions.
 
-Product definition is never capped. A repository writing its PRD and feature specs has a low product
-share by design; only bookkeeping is bounded.
+Every task declares a plan ID, lane, writes and criteria. The light lane dispatches those fields
+without a card; boundary or safety work uses a strict full card. Both receive independent review
+and an area check. The controller plans and maintains bounded workspace state; product edits go
+to writers. Readiness comes from the existing dependency graph and git, with continuous dispatch
+of independent tasks.
 
-### What the process protects is checkable
+One initial review covers the complete task diff. Corrections receive a scoped rereview under
+the two-round budget. An unresolved semantic defect remains incomplete; a final mechanical
+application needs independent executable confirmation. Budgets never change safety, review,
+test or acceptance verdicts. Specialist involvement follows a named invariant at the stage where
+the decision is still changeable.
 
-| Script | What it binds |
-|---|---|
-| `spec_check.py` | One PRD, its feature specs, and the milestone that states the goal no single feature owns. Each states what is true now rather than accumulating what it used to say. A newly exposed route must appear in the Surface section of an approved feature spec, so a module the PRD excluded cannot ship unnoticed. A milestone holds features and defects together: a bug is a spec whose `Why` is a defect, because its reproduction is already an acceptance criterion. Criteria may carry an optional `[P1]`–`[P3]`, so what mattered is recorded where the spec is rather than where the schedule is. Deferred findings live in a register that can also say **no** — a dismissal states its reason and stops counting as open, because a queue that only grows is a queue nobody reads. |
-| `plan_waves.py` | Derives the dispatch schedule from a feature plan instead of asking anyone to write one down. Refuses a wave whose tasks would write the same file, and compares a commit against the write set its task declared. |
-| `trace_check.py` | Closes the loop from a criterion to a test that actually ran, reading verified JUnit evidence rather than grepping for a string. It says in every run what it does not prove. |
+### Evidence and overhead are separate measurements
 
-### Execution is a written procedure
+`spec_check.py` binds product definition, `plan_waves.py` validates task admission, dependencies
+and write ownership, and `trace_check.py` connects criteria to verified test execution.
+Direct validation commands, exact Gradle `--rerun-tasks`, and single-use JUnit receipts retain
+their existing contracts and documented trust limits.
 
-[The execution loop](install/skills/execution-methodology/references/execution-loop.md) states ten
-steps against the real commands.
+`ratio_meter.py` measures committed line churn. `check_review_budget.py` measures workspace
+files and bytes. Neither measures total model effort or founder time. The
+[measurement record](docs/product/measurements.md) distinguishes those units and the outcomes
+needed to judge the pilot. Historical block rates motivate early review; they do not establish
+that a wider panel causes higher quality or faster completion.
 
-- `plan_waves.py --since <rev>` derives what is done from git instead of from a ledger.
-- `--ready` hands back the tasks that may start now.
-- `validate_card.py --phase mid` catches a task writing outside its declared set before the commit
-  rather than after.
-- An issue found but not owned goes to a deferral register the milestone can be held against.
-- A repository's own domain validators are bound to the horizontal concerns they declare they own,
-  so an invariant is read while the product is being defined rather than after it is built.
+### Adoption and limits
 
-### Scope is bound, and review is bounded
+The published candidate selects Fable 5.1/Astra for architecture, security, migration and acceptance;
+ordinary builders and implementation review retain their existing tiers. The controller starts at
+medium effort during execution. See the [persona guide](docs/agents/agent-personas.md) for the
+complete generated roster, planning overrides and model prerequisites.
 
-Work is bound to one approved outcome and capped at what the spec requires. A finding demanding more
-is over-engineering and non-blocking. Tasks default to a card-free light lane and earn a validated
-card only when they cross a durable boundary or safety surface.
+Global installation changes defaults inherited by other projects. Prepare and verify locally,
+then activate deliberately. Updating a repository's rendered methodology is also an explicit
+adoption step. Neither a passing unit suite nor a green push establishes release readiness.
 
-Review width is scoped by stage rather than capped by count.
-
-| Stage | Review width | Measured basis |
-|---|---|---|
-| Design and plan | A panel of different lenses | Block rates are highest here. |
-| Implementation | One reviewer plus the test judge | A round four or more wide blocked in 8 of 78 real cases. |
-
-Review runs under a budget: two rounds, then apply-and-close. The orchestrator applies the final
-verdict's named smallest correction. Only safety-class findings and scope changes escalate, and each
-brief names a default action taken after a short founder wait.
-
-The output is capped as well as the input. A card is 150 lines and a verdict is 30, and the verdict
-cap now binds at the push: judge output ran 7.4 times the bytes of the cards it answered, so the
-budget was protecting the wrong half. **The cap binds a verdict and never the evidence** — charging
-a round fails closed, capping one fails open, because a wrong charge costs a round and a wrong cap
-costs a judge deleting a finding to fit.
-
-A workspace whose milestone has sealed is history, and no cap is applied to it. A closed loop cannot
-spend a round it has already spent.
-
-The round count itself stays advisory, because a checker run by the party it binds cannot bind that
-party. The banned-artifact scan beside it still binds, because what is on disk is a fact about a
-directory rather than a claim by its author.
-
-### The shape of a milestone
-
-The orchestrator is one long-lived session per milestone, and main moves with every green wave.
-Cards are capped at 150 lines with large frozen payloads held by reference. Reports are not an
-artifact class. The ledger rotates at 500 lines. Every milestone receipt records what the process
-cost next to what it shipped.
-
-### What counts as evidence
-
-Validation commands remain direct processes. Gradle evidence must use exact `--rerun-tasks`.
-Single-use JUnit receipts verify that post-boundary XML records the expected classes and counts
-without failures, errors, or skips.
-
-Receipts are **not** tamper-resistant against a deliberate local writer. The full trust boundary is
-stated in the skill's JUnit-evidence reference.
-
-### What is not shipped
-
-- There is no remaining publication gap: all nine skills the allowlist declares are vendored here.
-  `project-conformance` closed the last one and this line described it as open for as long as it
-  took to notice — `check_prose_agrees` asserts that a declared skill is NAMED on this page, never
-  that a sentence about it is still true. **It then said "eight" through the publication of
-  `gate-sandbox`, for the same reason, in the same sentence.** A number in prose is unguarded here
-  by construction; `docs/README.md` said nine throughout. Which skills are published, and which are
-  deliberately not, is recorded in [What is published, and what is not](docs/README.md#what-is-published-and-what-is-not).
-- There is no application release, production deployment, or application roadmap behind this
-  repository.
-
-Completed material changes are in the [weekly improvement record](docs/product/improvements-weekly.md), with
-settled choices and rejected alternatives preserved in [decisions.md](docs/decisions/decisions.md).
+There is no application release, deployment, or application roadmap behind this repository.
+Changes still require real local gate evidence, an independent verdict, and separately authorized
+commit, push and merge actions. Current verification limitations belong in the measurement record.
+Historical decisions and results remain in [decisions.md](docs/decisions/decisions.md) and the
+[weekly improvement record](docs/product/improvements-weekly.md).
 
 ## The problem
 
@@ -245,9 +203,14 @@ for behaviour; each entry points to the implementation it describes.
 
 | Week | Entry |
 |---|---|
+| 5 September 2026 | [v5.1: one task procedure and a selective model pilot](docs/product/improvements-weekly.md#week-of-5-september-2026--v51-one-task-procedure-and-a-selective-model-pilot) |
 | 21 August 2026 | [v5.0: the milestone runs itself, and a review rule was falsified](docs/product/improvements-weekly.md#week-of-21-august-2026--v50-the-milestone-runs-itself-and-a-review-rule-was-falsified) |
 | 21 August 2026 | [The product-definition checks reach a boundary that fires](docs/product/improvements-weekly.md#week-of-21-august-2026--the-product-definition-checks-reach-a-boundary-that-fires) |
-| 21 August 2026 | [v4.2: the plan is scheduled, not described](docs/product/improvements-weekly.md#week-of-21-august-2026--v42-the-plan-is-scheduled-not-described) |
+
+**v5.1 — one task procedure and a selective model pilot.** Lane admission, review transitions and
+terminal states have one canonical owner. The persona roster derives active and compatibility
+status from maintained definitions. The model assignments are a local, unmeasured pilot; global
+installation remains a separate adoption step.
 
 **v5.0 — the milestone runs itself, and a review rule was falsified.** Execution became a written
 procedure of ten steps checked against the real commands, and state is derived from git rather than
@@ -262,11 +225,6 @@ product documents. A repository with no `docs/product/` gets silence, because a 
 push in a repository that never opted in gets uninstalled. `milestone_seal.py --record M<n>`
 receipts a cross-feature validation run against HEAD's tree object.
 
-**v4.2 — the plan is scheduled, not described.** The implementation plan and the validation plan sit
-in one file, and `plan_waves.py` derives the waves. What it refuses is worth more than what it
-derives: on a real 51-task graph, 37 pairs inside the derived waves declared overlapping write sets,
-and a 5-feature corpus reported zero findings per plan while six cross-feature pairs collided.
-
 ## What this is not
 
 **Not a framework.** There is no runtime, no package, no API. It is a set of markdown conventions,
@@ -276,10 +234,10 @@ library. Every file the installer places is enumerated in
 prose is the first thing to go stale, and the published skills are named and enforced in one place:
 [docs/README.md](docs/README.md), "What is published, and what is not".
 
-**Not model-agnostic in its details.** The persona roster names specific models at specific effort
-levels. Those were chosen from measurements taken in one week of 2026 and will age. The *principles*
-— effort tracks reasoning depth, model tracks stakes, frequency decides where saving matters — are
-the durable part. Retune the table.
+**Not model-agnostic in its details.** The generated persona roster names specific models and effort
+levels. The current changes are candidate settings for a selective pilot, not evidence that one
+model is generally better. Retune them only from dated prices, harness support and matched local
+outcome evidence.
 
 **Not team-tested.** Several decisions are correct *because* this is a one-person, one-laptop
 operation and would be wrong with more people: no hosted CI, merge commits over squash, and local

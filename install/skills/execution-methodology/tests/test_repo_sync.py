@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -62,7 +64,7 @@ class MethodologySyncTest(unittest.TestCase):
         )
         return repo
 
-    def test_process_budget_contract_is_version_4_0(self) -> None:
+    def test_process_budget_contract_is_version_5_1(self) -> None:
         """The stamp and the rules it stamps move together.
 
         A version pin on its own only proves someone edited a constant. v4.0's substance is the
@@ -70,11 +72,12 @@ class MethodologySyncTest(unittest.TestCase):
         reach — the skill entry point and the rendered methodology. The version left behind at
         1.4 while its rules shipped is the recorded reason this asserts more than the number.
 
-        The pin moves to 5.0 with the execution stage. The BUDGET assertions below do not move:
-        v5.0 changed how work is dispatched and reviewed, not what process is allowed to cost, and
-        a version bump that quietly relaxed the ceiling is exactly what this test exists to catch.
+        The pin moves to 5.1 with the 5 September 2026 lane and review reconciliation. The BUDGET
+        assertions below do not move: v5.1 changes lane admission and where the review contract is
+        owned, not what process is allowed to cost, and a version bump that quietly relaxed the
+        ceiling is exactly what this test exists to catch.
         """
-        self.assertEqual(installed_version(), "5.0")
+        self.assertEqual(installed_version(), "5.1")
         for relative in ("SKILL.md", "methodology.md"):
             with self.subTest(relative=relative):
                 body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
@@ -83,32 +86,39 @@ class MethodologySyncTest(unittest.TestCase):
                 self.assertIn("10%", body)
 
     def test_pre_gate_adversarial_review_contract_is_published(self) -> None:
-        for relative in ("SKILL.md", "methodology.md"):
-            with self.subTest(relative=relative):
-                body = " ".join((SKILL / relative).read_text(encoding="utf-8").split())
-                self.assertIn("fresh, isolated, read-only `reviewer`", body)
-                self.assertIn("only named artifact paths, never the author conversation", body)
-                self.assertIn("`PASS` is valid; there is no finding quota", body)
-                self.assertIn(
-                    "criterion or invariant, a reachable trigger or state sequence, the observable "
-                    "consequence, artifact evidence, severity, and the smallest correction or human "
-                    "decision",
-                    body,
-                )
-                self.assertIn("one correction and one scoped rereview", body)
-                self.assertIn("Design recurrence returns to Gate 1", body)
-                self.assertIn("plan recurrence returns to Gate 2", body)
-                self.assertIn('`fork_turns: "none"`', body)
-                self.assertIn("equivalent fresh-thread primitive", body)
-                self.assertIn("Prompt wording alone does not establish isolation", body)
-                self.assertIn("persisted original finding or report path", body)
-                self.assertIn("correction or diff path", body)
-                self.assertIn("corrected artifact path", body)
-                self.assertIn("governing frozen artifact paths", body)
-                self.assertIn(
-                    "defaults to Implementation unless Design or Plan is explicitly named",
-                    body,
-                )
+        body = " ".join(SOURCE.read_text(encoding="utf-8").split())
+        self.assertIn("fresh, isolated, read-only `reviewer`", body)
+        self.assertIn("only named artifact paths, never the author conversation", body)
+        self.assertIn("`PASS` is valid; there is no finding quota", body)
+        self.assertIn(
+            "criterion or invariant, a reachable trigger or state sequence, the observable "
+            "consequence, artifact evidence, severity, and the smallest correction or human "
+            "decision",
+            body,
+        )
+        self.assertIn("one correction and one scoped rereview", body)
+        self.assertIn("Design recurrence returns to Gate 1", body)
+        self.assertIn("plan recurrence returns to Gate 2", body)
+        self.assertIn('`fork_turns: "none"`', body)
+        self.assertIn("equivalent fresh-thread primitive", body)
+        self.assertIn("Prompt wording alone does not establish isolation", body)
+        self.assertIn("persisted original finding or report path", body)
+        self.assertIn("correction or diff path", body)
+        self.assertIn("corrected artifact path", body)
+        self.assertIn("governing frozen artifact paths", body)
+        self.assertIn(
+            "defaults to Implementation unless Design or Plan is explicitly named",
+            body,
+        )
+
+        execution_route = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("[methodology.md](methodology.md)", execution_route)
+        persona_route = " ".join(PERSONA_GUIDE.read_text(encoding="utf-8").split())
+        self.assertIn(
+            "The `execution-methodology` skill owns stage order, lane admission, review packets "
+            "and rounds, gates, and terminal states",
+            persona_route,
+        )
 
         reviewer = " ".join(REVIEWER.read_text(encoding="utf-8").split())
         self.assertIn("**Design** — before Gate 1", reviewer)
@@ -140,19 +150,6 @@ class MethodologySyncTest(unittest.TestCase):
         self.assertIn(
             "defaults to Implementation unless Design or Plan is explicitly named",
             reviewer,
-        )
-
-        persona_guide = " ".join(PERSONA_GUIDE.read_text(encoding="utf-8").split())
-        self.assertIn('`fork_turns: "none"`', persona_guide)
-        self.assertIn("equivalent fresh-thread primitive", persona_guide)
-        self.assertIn("Prompt wording alone does not establish isolation", persona_guide)
-        self.assertIn("persisted original finding or report path", persona_guide)
-        self.assertIn("correction or diff path", persona_guide)
-        self.assertIn("corrected artifact path", persona_guide)
-        self.assertIn("governing frozen artifact paths", persona_guide)
-        self.assertIn(
-            "defaults to Implementation unless Design or Plan is explicitly named",
-            persona_guide,
         )
 
     def test_render_then_check_is_clean(self) -> None:
@@ -319,19 +316,68 @@ class MethodologySyncTest(unittest.TestCase):
                              "# My own execution notes\n")
             self.assertEqual(self.run_sync(repo, "--check").returncode, 1)
 
-    def test_marker_spelling_and_date_come_from_the_source_mtime(self) -> None:
-        """The date must not be `today`, or --check reports drift every morning."""
+    def test_render_identity_depends_on_normalized_source_bytes_not_mtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            repo = self.make_repo(Path(tmp))
-            self.run_sync(repo)
+            root = Path(tmp)
+            skill = root / "execution-methodology"
+            shutil.copytree(SKILL, skill)
+            script = skill / "scripts" / "sync_methodology.py"
+            source = skill / "methodology.md"
 
-            rendered = (repo / TARGET_REL).read_text(encoding="utf-8")
-            m = re.search(r"<!-- execution-methodology: (\{[^\r\n]*\}) -->", rendered)
-            self.assertIsNotNone(m, rendered[:400])
-            payload = json.loads(m.group(1))
-            expected = datetime.fromtimestamp(SOURCE.stat().st_mtime,
-                                              tz=timezone.utc).date().isoformat()
-            self.assertEqual(payload, {"v": installed_version(), "rendered": expected})
+            def copied_sync(repo: Path, *extra: str) -> subprocess.CompletedProcess:
+                return subprocess.run(
+                    [sys.executable, str(script), "--repo", str(repo), *extra],
+                    capture_output=True,
+                    text=True,
+                )
+
+            first_repo = self.make_repo(root / "first")
+            second_repo = self.make_repo(root / "second")
+            first_mtime = datetime(2026, 8, 24, 12, tzinfo=timezone.utc).timestamp()
+            second_mtime = datetime(2026, 8, 25, 12, tzinfo=timezone.utc).timestamp()
+
+            os.utime(source, (first_mtime, first_mtime))
+            first = copied_sync(first_repo)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            first_render = (first_repo / TARGET_REL).read_bytes()
+
+            os.utime(source, (second_mtime, second_mtime))
+            second = copied_sync(second_repo)
+            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+            second_render = (second_repo / TARGET_REL).read_bytes()
+
+            self.assertEqual(first_render, second_render)
+            checked = copied_sync(first_repo, "--check")
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+            rendered = first_render.decode("utf-8")
+            match = re.search(r"<!-- execution-methodology: (\{[^\r\n]*\}) -->", rendered)
+            self.assertIsNotNone(match, rendered[:400])
+            normalized = source.read_text(encoding="utf-8").strip()
+            expected_digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+            self.assertEqual(
+                json.loads(match.group(1)),
+                {"v": installed_version(), "source_sha256": expected_digest},
+            )
+
+            source.write_text(normalized + "\n\nA changed rule.\n", encoding="utf-8")
+            stale = copied_sync(first_repo, "--check")
+            self.assertEqual(stale.returncode, 1, stale.stdout + stale.stderr)
+            self.assertIn("STALE", stale.stdout)
+
+            changed = copied_sync(second_repo)
+            self.assertEqual(changed.returncode, 0, changed.stdout + changed.stderr)
+            changed_render = (second_repo / TARGET_REL).read_text(encoding="utf-8")
+            changed_match = re.search(
+                r"<!-- execution-methodology: (\{[^\r\n]*\}) -->", changed_render
+            )
+            self.assertIsNotNone(changed_match, changed_render[:400])
+            changed_digest = json.loads(changed_match.group(1))["source_sha256"]
+            self.assertNotEqual(changed_digest, expected_digest)
+
+            overridden = copied_sync(first_repo, "--rendered", "2026-08-24")
+            self.assertEqual(overridden.returncode, 2)
+            self.assertIn("unrecognized arguments: --rendered 2026-08-24", overridden.stderr)
 
     def test_generated_banner_names_the_source_and_forbids_hand_editing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

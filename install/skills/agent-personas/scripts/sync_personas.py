@@ -20,7 +20,9 @@ Usage:
   sync_personas.py                       # render the pool to user level
   sync_personas.py --repo PATH           # also render that repo's overlays
   sync_personas.py --repo PATH --check   # exit 1 if generated output is stale (for gates)
-  sync_personas.py --list                # show the roster with model and effort
+  sync_personas.py --list                # show active personas with both harness settings
+  sync_personas.py --list --include-retired
+  sync_personas.py --list --format markdown
 """
 
 from __future__ import annotations
@@ -170,16 +172,13 @@ KNOWN_JUDGE_TOOLS = frozenset({"Read", "Grep", "Glob", "TodoWrite", "Bash"})
 KNOWN_WRITES_VALUES = frozenset({
     "no",
     "yes",
+    # Compatibility values may still exist in project overlays generated before the current role
+    # boundaries. They remain explicit writer admissions, never fail-closed judge claims.
     "ledger, task cards, and reports only",
+    "plans and bounded workspace state only",
     "product specs only",
-    # The product-definition layer renamed what this persona owns: it writes the PRD and the
-    # feature specs, not "product specs". The persona file was updated and this closed vocabulary
-    # was not, so its declaration fell outside the set and `claims_no_writes` read it — correctly,
-    # by its own fail-closed rule — as a claim NOT to write. The result was a persona that writes
-    # the most upstream artifact in the methodology being reported as an unprotected judge, and
-    # `sync_personas.py` refusing to render ANYTHING machine-wide until it was resolved.
-    # Adding a value here is deliberate by design; this one is the deliberate act.
     "product definition only — the PRD and feature specs",
+    "product definition and documentation only",
 })
 
 
@@ -1180,21 +1179,45 @@ def sync(repo: Path | None, check: bool) -> int:
     return 0
 
 
-def show_roster() -> int:
+def persona_status(description: str) -> str:
+    """Derive compatibility status from the source's existing authority prefix."""
+    if description.startswith("SUPERSEDED "):
+        return "superseded"
+    if description.startswith("RETIRED "):
+        return "retired"
+    return "active"
+
+
+def show_roster(include_retired: bool = False, output_format: str = "text") -> int:
     rows = []
     try:
         sources = pool_sources()
         for src in sources:
             m, _ = parse(src)
-            rows.append((m["name"], m.get("writes", "?"), m.get("claude.model", "-"),
-                         m.get("claude.effort", "-"), m.get("codex.model", "-")))
+            status = persona_status(m["description"])
+            if status != "active" and not include_retired:
+                continue
+            rows.append((m["name"], status, m.get("writes", "?"),
+                         m.get("claude.model", "-"), m.get("claude.effort", "-"),
+                         m.get("codex.model", "-"), m.get("codex.effort", "-")))
     except PersonaError as e:
         print(e, file=sys.stderr)
         return 2
-    w = max((len(r[0]) for r in rows), default=4)
-    print(f"{'persona':<{w}}  {'writes':<6} {'claude':<10} {'effort':<7} codex")
-    for n, wr, cm, ce, xm in rows:
-        print(f"{n:<{w}}  {wr:<6} {cm:<10} {ce:<7} {xm}")
+    if output_format == "markdown":
+        print("| Persona | Status | Writes | Claude model | Claude effort | Codex model | "
+              "Codex effort |")
+        print("|---|---|---|---|---|---|---|")
+        for row in rows:
+            print("| " + " | ".join(row) + " |")
+        return 0
+
+    widths = [max(len(label), *(len(row[i]) for row in rows))
+              for i, label in enumerate(("persona", "status", "writes", "claude", "effort",
+                                         "codex", "effort"))]
+    headings = ("persona", "status", "writes", "claude", "effort", "codex", "effort")
+    print("  ".join(f"{heading:<{widths[i]}}" for i, heading in enumerate(headings)))
+    for row in rows:
+        print("  ".join(f"{value:<{widths[i]}}" for i, value in enumerate(row)))
     return 0
 
 
@@ -1204,10 +1227,16 @@ def main() -> int:
     ap.add_argument("--repo", default=None, help="also render this repository's overlays")
     ap.add_argument("--check", action="store_true", help="exit 1 when generated output is stale")
     ap.add_argument("--list", action="store_true", dest="show", help="print the roster")
+    ap.add_argument("--include-retired", action="store_true",
+                    help="include superseded and retired compatibility definitions in --list")
+    ap.add_argument("--format", choices=("text", "markdown"), default=None,
+                    help="select --list output format (default: text)")
     args = ap.parse_args()
 
+    if not args.show and (args.include_retired or args.format is not None):
+        ap.error("--include-retired and --format require --list")
     if args.show:
-        return show_roster()
+        return show_roster(args.include_retired, args.format or "text")
     repo = Path(args.repo).resolve() if args.repo else None
     if repo and not repo.is_dir():
         print(f"not a directory: {repo}", file=sys.stderr)

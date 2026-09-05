@@ -3,7 +3,9 @@
 Solo founder, several ideas in parallel, one laptop, no team, no hosted CI. Every other decision in
 this documentation set follows from those four facts.
 
-Canonical copy: `~/.claude/CLAUDE.md`, mirrored verbatim in `~/.codex/AGENTS.md`.
+Shared machine entry instructions route both harnesses to the adopted repository guide.
+The procedure is owned by the [execution methodology](../../install/skills/execution-methodology/methodology.md);
+this page explains the operating priorities and does not restate its repair state machine.
 
 ## The three stages, in order
 
@@ -29,19 +31,10 @@ paraphrasing a failure.
 assumed. That is the entire reason the persona pool exists, and why its judging roles are
 structurally unable to edit — see [agent-personas.md](../agents/agent-personas.md).
 
-**Design and plan are independently falsified before approval.** A fresh, read-only `reviewer`
-receives named artifact paths without the author's conversation or rationale and tries to construct
-a counterexample against frozen criteria and invariants. `PASS` is valid; blockers require a
-reachable trigger, observable consequence, and artifact evidence. The author gets one correction
-and one scoped rereview; recurrence returns the design to Gate 1 or the plan to Gate 2. This catches
-expensive mistakes before implementation without creating a flaw quota or an open-ended consensus
-loop.
-
-Freshness is operational: Codex uses `fork_turns: "none"`, and another harness uses its equivalent
-fresh-thread primitive; telling an inherited context to ignore its history is not isolation. A
-scoped rereview receives paths to the persisted original finding, correction or diff, corrected
-artifact, and governing frozen artifacts. Post-code review remains backward-compatible by
-defaulting to Implementation unless Design or Plan is explicitly named.
+**Design and plan receive independent review before approval.** Use the fresh read-only reviewer
+and the frozen criteria required by the execution methodology. Budgets bound the review process;
+they do not turn an unresolved defect into a passing verdict. The same authority defines review
+width, finding classification, correction, scoped rereview and terminal states.
 
 **Context switches across projects are constant.** Assume no memory of another project. This is why
 every repo carries its own route (`docs/agents/README.md`) and its own `docs/agents/lessons.md`,
@@ -53,8 +46,7 @@ harness.
 **Execution is goal-bound.** The approved plan owns one Goal Capsule: the actor outcome, one primary
 externally observable outcome, the named safety and regression invariants that make it trustworthy,
 non-goals and prohibited claims, the allowed interface/write boundary, known and unknown external
-facts, and the stop condition. Cards reference its criteria through the existing card fields; they
-do not copy it or invent another authority.
+facts, and the stop condition. Both lanes reference its criteria; full-lane cards use their existing fields and do not copy it or invent another authority.
 
 Before implementation or a review repair, classify the finding and name the capsule criterion or
 invariant advanced plus the expected observable delta. A vague request produces a proposed capsule
@@ -72,8 +64,8 @@ These look like gaps and are not. Do not "fix" them.
 | Hosted CI / GitHub Actions | The founder laptop is the only release runner. A push is not evidence |
 | Committed `.claude/settings.json` | Sole-founder mode; machine-local config stays machine-local |
 | Committed graph (`graphify-out/`) | 22 MB rewritten wholesale each rebuild; regenerate instead |
-| Bulk migration of the other 12 projects | Done per project, when that project is next opened |
-| Cross-harness agent dispatch | Measured at 1.7× in-harness cost — [decisions.md](../decisions/decisions.md) |
+| Bulk migration of other projects | Deliberate adoption at a project boundary |
+| Cross-harness agent dispatch | One dated experiment measured 1.7× in-harness cost — [decisions.md](../decisions/decisions.md) |
 
 ## Delegation posture
 
@@ -85,3 +77,8 @@ A builder never approves its own work.
 
 Direct single-agent implementation is correct only for genuinely trivial, low-risk changes where
 delegation would add no isolation, parallelism, or independent verification.
+
+The light lane retains a plan task ID, explicit lane, write boundary, criteria, independent
+review and area check. A full card adds boundary and safety context only when needed. The
+controller owns planning and bounded resume state; product changes stay with writers. Committed
+decisions and distillations remain append-only. Detailed commands stay in the execution loop.

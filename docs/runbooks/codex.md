@@ -77,7 +77,7 @@ for f in sorted((pathlib.Path.home()/".codex"/"agents").glob("*.toml")):
 PY
 ```
 
-Expect 13 generated personas. A hand-written `grok_worker.toml` may also be present — the sync
+Expect 14 generated personas. A hand-written `grok_worker.toml` may also be present — the sync
 leaves it alone because it lacks the generated banner.
 
 ### 3. Mirror the skills

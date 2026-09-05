@@ -31,13 +31,14 @@ Usage:
   sync_methodology.py --repo PATH                    # render into that repository, report personas
   sync_methodology.py --repo PATH --check            # exit 1 if the rendered copy is stale (gates)
   sync_methodology.py --repo PATH --adoption-check   # report adoption state; ALWAYS exits 0
-  sync_methodology.py --list                         # show the source, version, and rendered date
+  sync_methodology.py --list                         # show the source, version, and source digest
   sync_methodology.py --repo PATH --list             # ... plus that repo's target and overlay state
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -60,7 +61,7 @@ SOURCE = SKILL / "methodology.md"
 # works — a stage removed, a gate moved, an artifact renamed. MINOR for additive clarification.
 # Rendered copies carry this stamp so a repo running an older methodology can be detected instead of
 # silently drifting. validate_disclosure.py reads this constant to decide WARN versus ERROR.
-METHODOLOGY_VERSION = "5.0"
+METHODOLOGY_VERSION = "5.1"
 
 TARGET_REL = Path("docs") / "agents" / "execution" / "methodology.md"
 OVERLAY_REL = Path("docs") / "agents" / "execution" / "overlay.md"
@@ -150,27 +151,21 @@ def source_text() -> str:
     return text
 
 
-def rendered_date(explicit: str | None = None) -> str:
-    """The date stamped into the marker.
-
-    Taken from the source's mtime, not from today. A date read at check time would differ from the
-    date written at render time on the very next day, and `--check` would report drift every morning
-    in every repository until someone muted it.
-    """
-    if explicit:
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", explicit):
-            raise MethodologyError(f"--rendered must be YYYY-MM-DD, got {explicit!r}")
-        return explicit
-    return datetime.fromtimestamp(SOURCE.stat().st_mtime, tz=timezone.utc).date().isoformat()
+def source_sha256(body: str) -> str:
+    """Bind a render to the normalized source bytes returned by source_text()."""
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
-def marker(date: str) -> str:
-    payload = json.dumps({"v": METHODOLOGY_VERSION, "rendered": date}, separators=(",", ":"))
+def marker(body: str) -> str:
+    payload = json.dumps(
+        {"v": METHODOLOGY_VERSION, "source_sha256": source_sha256(body)},
+        separators=(",", ":"),
+    )
     return f"<!-- execution-methodology: {payload} -->"
 
 
-def render(body: str, date: str, overlay: str | None) -> str:
-    parts = [GENERATED, marker(date), "", body.rstrip()]
+def render(body: str, overlay: str | None) -> str:
+    parts = [GENERATED, marker(body), "", body.rstrip()]
     if overlay is not None:
         parts += ["", OVERLAY_HEADING, "", overlay.strip()]
     return "\n".join(parts) + "\n"
@@ -460,7 +455,7 @@ def print_persona_config(config: PersonaConfig) -> None:
         print("    nothing here writes that line; a binding nobody decided is a binding "
               "nobody holds")
 
-def sync(repo: Path, check: bool, explicit_date: str | None) -> int:
+def sync(repo: Path, check: bool) -> int:
     """Render the methodology into a repository, then report that repository's persona configuration.
 
     Adoption is ONE act with two halves. The rendered methodology tells a repository how work
@@ -474,7 +469,7 @@ def sync(repo: Path, check: bool, explicit_date: str | None) -> int:
     drift to repair. spec_check's rule F is the checker that already owns the binding, and two
     checkers with two opinions on one file is a thing this toolchain refuses on purpose.
     """
-    code = render_methodology(repo, check, explicit_date)
+    code = render_methodology(repo, check)
     if code != 2:
         # Exit 2 means the source or the target could not be read at all. A configuration report
         # under that is noise stacked on a fault the reader must fix first.
@@ -482,20 +477,20 @@ def sync(repo: Path, check: bool, explicit_date: str | None) -> int:
     return code
 
 
-def render_methodology(repo: Path, check: bool, explicit_date: str | None) -> int:
+def render_methodology(repo: Path, check: bool) -> int:
     try:
         body = source_text()
-        date = rendered_date(explicit_date)
         overlay = read_overlay(repo)
     except MethodologyError as e:
         print(e, file=sys.stderr)
         return 2
 
     target = repo / TARGET_REL
-    expected = render(body, date, overlay)
+    expected = render(body, overlay)
     current = target.read_text(encoding="utf-8", errors="replace") if target.is_file() else None
 
-    print(f"execution methodology v{METHODOLOGY_VERSION} (source rendered {date})"
+    print(f"execution methodology v{METHODOLOGY_VERSION} "
+          f"(source sha256 {source_sha256(body)})"
           f" -> {repo.name}/{TARGET_REL.as_posix()}"
           + (f", overlay {OVERLAY_REL.as_posix()}" if overlay is not None else ""))
 
@@ -620,7 +615,6 @@ def adoption_check(repo: Path) -> int:
 
     try:
         body = source_text()
-        stamp = rendered_date(None)
         overlay = read_overlay(repo)
     except MethodologyError as e:
         # A broken toolchain is worth one line, but never a failed session.
@@ -644,7 +638,7 @@ def adoption_check(repo: Path) -> int:
                   f"`{configure}` lists the pool and the concerns. Nothing writes it for you.")
 
     # 1. adopted and current — say nothing at all, unless the validators are unconfigured.
-    if current is not None and is_ours(current) and current == render(body, stamp, overlay):
+    if current is not None and is_ours(current) and current == render(body, overlay):
         if not notes:
             return 0
         print(f"{head} is adopted here, but its persona configuration is incomplete.")
@@ -691,14 +685,13 @@ def adoption_check(repo: Path) -> int:
 def show_info(repo: Path | None) -> int:
     try:
         body = source_text()
-        date = rendered_date(None)
     except MethodologyError as e:
         print(e, file=sys.stderr)
         return 2
     headings = [ln[3:].strip() for ln in body.splitlines() if ln.startswith("## ")]
     print(f"{'source':<10}  {SOURCE}")
     print(f"{'version':<10}  {METHODOLOGY_VERSION}")
-    print(f"{'rendered':<10}  {date}  (from source mtime)")
+    print(f"{'source sha':<10}  {source_sha256(body)}")
     print(f"{'words':<10}  {len(body.split())}")
     print(f"{'stages':<10}  {', '.join(headings) if headings else '-'}")
     if repo is None:
@@ -734,9 +727,7 @@ def main() -> int:
     ap.add_argument("--adoption-check", action="store_true", dest="adoption",
                     help="report this repo's adoption state for a session hook; always exits 0")
     ap.add_argument("--list", action="store_true", dest="show",
-                    help="print the source, version and rendered date")
-    ap.add_argument("--rendered", default=None, metavar="YYYY-MM-DD",
-                    help="stamp this date instead of the source's mtime")
+                    help="print the source, version and source digest")
     args = ap.parse_args()
 
     repo = Path(args.repo).resolve() if args.repo else None
@@ -761,7 +752,7 @@ def main() -> int:
     if repo is None:
         print("--repo is required (or use --list)", file=sys.stderr)
         return 2
-    return sync(repo, args.check, args.rendered)
+    return sync(repo, args.check)
 
 
 if __name__ == "__main__":

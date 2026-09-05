@@ -41,3 +41,20 @@ against `^(measurements|benchmarks|decisions|adr|rulings|improvements|changelog|
 Moving `docs/decisions.md` to `docs/decisions/README.md` would have satisfied the directory rule and
 silently dropped the exemption from a file at 1,185 words of 1,200. Before renaming a file to
 satisfy a structural rule, check what the rest of the toolchain keys on its NAME.
+
+## 2026-09-05 — matching generated sources does not establish policy consistency
+
+The maintained and vendored `chief-of-staff` persona bodies match, but prescribe five fix rounds
+while `execution-methodology/methodology.md` prescribes two. The execution procedure also requires
+card validation despite the methodology's card-free light lane. A fresh read-only review confirmed
+both conflicts. The methodology suite reported 1,070 tests with two skip events and no failures in
+what ran; these semantic contradictions survived it. Check agreement between persona bodies and the
+stage procedure before changing models: synchronization alone preserves contradictory instructions.
+
+## 2026-09-05 — one process number cannot combine different units
+
+The maintained receipt language promised workspace process lines, but the cited tools do not
+produce that quantity. `ratio_meter.py` classifies committed line churn; `check_review_budget.py`
+reports workspace files and bytes. Combining those outputs into one process ratio would turn a
+policy claim into an invented measurement. Name each tool's unit, and evaluate delivery with
+accepted outcomes, elapsed time, defects, repairs and founder decisions alongside churn.
