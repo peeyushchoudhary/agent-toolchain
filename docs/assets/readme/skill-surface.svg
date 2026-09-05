@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="256" viewBox="0 0 1080 256" role="img" aria-labelledby="title desc">
+<title id="title">Published skill surface: two primary workflows, five helpers, three compatibility routes</title>
+<desc id="desc">A stacked bar of ten equally weighted skills: execution-methodology and methodology-management are two primary workflows; five focused helpers support them; three compatibility and read-only routes preserve existing entrypoints.</desc>
+<rect width="1080" height="256" rx="8" fill="#fbf8f1"/>
+<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif">
+<text x="40" y="38" font-size="13" font-weight="700" letter-spacing="2" fill="#576164">PUBLISHED SKILL SURFACE</text>
+<text x="40" y="76" font-size="27" font-weight="700" fill="#202526">10 skills. Two primary workflows.</text>
+<rect x="40" y="102" width="200" height="60" fill="#12616a"/>
+<rect x="240" y="102" width="500" height="60" fill="#435257"/>
+<rect x="740" y="102" width="300" height="60" fill="#ca8b2c"/>
+<g fill="#fff" font-size="22" font-weight="650" text-anchor="middle">
+<text x="140" y="140">2 primary</text>
+<text x="490" y="140">5 focused helpers</text>
+<text x="890" y="140" fill="#202526">3 compatibility</text>
+</g>
+<g font-size="15" fill="#435257">
+<text x="40" y="192">Execute + maintain</text>
+<text x="320" y="192">Shared specialist tools</text>
+<text x="740" y="192">Existing entrypoints retained</text>
+</g>
+<path d="M40 213H1040" stroke="#cecfc6"/>
+<text x="40" y="239" font-size="13" fill="#576164">Each segment counts published skills; the tables below name their responsibilities.</text>
+</g>
+</svg>

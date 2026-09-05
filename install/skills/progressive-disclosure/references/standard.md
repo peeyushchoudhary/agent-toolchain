@@ -109,7 +109,7 @@ check accepts the common synonyms — but each question must be answered somewhe
 | Overview | What is this, and what problem does it solve? |
 | Current state | What ships today, what is left, and where is the plan of record? |
 | Product requirements | Where are the PRDs? (a table with links, never the PRD text itself) |
-| Architecture | How is it built? **Must contain a ```mermaid diagram** in this section |
+| Architecture | How is it built? **Must contain a ```mermaid diagram**, unless the checked local-raster declaration below records an explicit image choice |
 | Components | One row per component: responsibility, entry point, deep-dive link |
 | Run locally | How do I start it? |
 | Working in this repository | The agent route, and how work lands |
@@ -132,7 +132,7 @@ The full shape is in the [README template](../../execution-methodology/reference
 README that inlines every component's design grows past the point where anyone updates it, and then
 it is worse than absent — it is confidently wrong.
 
-**The diagram is a ```mermaid fence, not an exported image.** This was advice — "a PNG satisfies
+**The diagram defaults to a ```mermaid fence, not an exported image.** This was advice — "a PNG satisfies
 the check but nobody will ever update it" — until the repository that ships this checker embedded
 an architecture PNG in its own README and left it there for 93 commits and a major version while
 the picture stayed wrong. Advice that the check contradicts is not a rule. An exported raster is
@@ -140,6 +140,20 @@ now `readme-raster-diagram`: it does not diff, so nothing shows it going stale, 
 guard reads a text diff, so a private name drawn as pixels walks past it. A fence renders on the
 forge, diffs line by line, and an agent can edit it. Every box in it must be named in the section
 beside it, or `readme-diagram-drift` says so.
+
+A user may explicitly choose a locally committed raster when the architecture section contains
+exactly one declaration beside the exact embedded image:
+
+```markdown
+<!-- readme-architecture-image: {"path":"docs/assets/readme/architecture.png","sha256":"<hex>","text":"docs/assets/readme/README.md"} -->
+```
+
+The exception is narrow and checked: `path` must name the embedded PNG/JPEG/GIF/WebP/BMP/TIFF/AVIF,
+the SHA-256 must match its bytes, and `text` must name a readable, nonempty local description that
+keeps the architecture accessible to readers and agents. Both paths must resolve inside the
+repository, including after following symlinks. A malformed or duplicate declaration fails, and
+every other raster in the architecture section remains `readme-raster-diagram`. The identifier
+guard is unchanged; review of the declared image is what authorizes the pixel content.
 
 **Update it with the change, not after.** The validator proves the sections exist; only a person can
 say whether they are still true. That question is asked in the PR template, at merge time.

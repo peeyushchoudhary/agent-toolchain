@@ -32,8 +32,9 @@ A reader gives the page one screen before deciding. Three things go in it, in th
 1. **One bold sentence.** What this is, for whom, and the line it does not cross.
 2. **An at-a-glance table.** Four rows, no more: what it is, what you get, how to start, what it is
    not. Each cell links onward rather than explaining.
-3. **The architecture diagram.** Not prose. A reader judges shape faster than sentences, and a
-   ```mermaid fence is the one block on the page that cannot be written without knowing the answer.
+3. **The architecture visual.** Not prose. Use Mermaid or a locally committed image, including
+   ImageGen output. Choose clarity and maintainability, honor the user's preference, and do not
+   require both. Images follow the owning progressive-disclosure declaration contract.
 
 Everything else follows. Order after the first screen is free; the questions are not.
 
@@ -63,13 +64,16 @@ Headings may be renamed to local usage; the question each one answers may not go
 
 ## Architecture
 
+<!-- Choose one visual form; do not require both. -->
 ```mermaid
 flowchart LR
     A["1. <Stage>"] --> B["2. <Stage>"]
 ```
+<!-- Image alternative: ![Accessible description](docs/assets/architecture.png) -->
 
-The boxes, the direction data moves, and the one property the design protects. Every quoted box
-label must appear verbatim in the table below it, or `readme-diagram-drift` fires.
+Show the boxes, data direction, and protected property. Mermaid labels stay aligned with the table.
+For an image, provide accessible text and provenance, and visually review semantics and private
+pixels. Its declared hash identifies the reviewed file; it does not prove the picture is correct.
 
 | Stage | What happens | What it buys |
 | --- | --- | --- |
@@ -167,5 +171,6 @@ gone. State the gate and the command that runs it instead.
 the PRD's off-repo blockers table carries the row. A README that omits the blocker is describing a
 different repository.
 
-**Nothing here is generated.** No table built by a script that must be re-run by hand. A stale
-generator is worse than no generator: it looks live.
+**No generated status surfaces.** Committed visual assets may be generated or assisted. Do not add
+a table or current-state claim built by a script that must be rerun by hand: stale output looks
+live.
