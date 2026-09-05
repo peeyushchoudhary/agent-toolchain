@@ -39,18 +39,18 @@ synonyms are accepted — but each question must be answered:
 | Overview | What is this, and what problem does it solve? |
 | Current state | What ships today, what is left, where is the plan? |
 | Product requirements | Where are the PRDs? A table of links, never the PRD text |
-| Architecture | How is it built? **Must hold a ```mermaid diagram**, never a raster |
+| Architecture | How is it built? Mermaid by default; an explicitly declared local image may use the checked text-and-hash alternative |
 | Components | One row per component: responsibility, entry point, deep-dive link |
 | Run locally | How do I start it? |
 | Working in this repository | The agent route, and how work lands |
 
-**The README indexes; it does not duplicate.** Low-level design lives in
-`docs/architecture/<component>.md`, one file per component. A README that inlines every component's
-design grows past the point anyone maintains it, and then it is worse than absent — it is
-confidently wrong.
+**The README indexes; it does not duplicate.** Component designs live in
+`docs/architecture/<component>.md`; link them from the front page.
 
-Prefer Mermaid to an exported image: GitHub renders it, it diffs line by line, and an agent can
-edit it. A PNG satisfies the check but nobody will ever update it.
+Mermaid remains the default. An explicit image choice requires local image bytes bound by SHA-256
+and a readable text description. Visual review checks meaning and private identifiers. See the
+[declaration contract](../../install/skills/progressive-disclosure/references/standard.md) and
+[visual sources](../assets/readme/README.md).
 
 ## Authoring rules
 

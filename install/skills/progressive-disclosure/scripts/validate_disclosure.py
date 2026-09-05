@@ -81,6 +81,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -126,6 +127,10 @@ MERMAID_NODE_LABEL = re.compile(r"[\[({>]{1,2}\s*\"([^\"]+)\"\s*[\])}]{1,2}")
 # still what is compared, so renaming a module still fails.
 MERMAID_LABEL_BREAK = re.compile(r"<\s*br\s*/?\s*>|\s+—\s+", re.IGNORECASE)
 RASTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".avif"}
+ARCHITECTURE_IMAGE_MARKER = re.compile(
+    r"<!--\s*readme-architecture-image:\s*(\{[^\r\n]*\})\s*-->", re.IGNORECASE)
+ARCHITECTURE_IMAGE_MARKER_ANY = re.compile(
+    r"<!--\s*readme-architecture-image:", re.IGNORECASE)
 # An @import must look like a path. Without the dot-or-slash requirement this matches a bare Java
 # annotation sitting on its own line — `@Entity`, `@RestController` — and every design document that
 # quotes Spring code reports dozens of broken "imports". Matching is also done against code-stripped
@@ -830,15 +835,87 @@ def check_readme(root: Path, files: list[Path], report: Report) -> None:
     arch_body = section_body(text, arch_pattern)
     if arch_body:
         fence = MERMAID_FENCE.search(arch_body)
-        if fence is None:
+        accepted_raster: str | None = None
+        marker_text = strip_code(text)
+        marker_starts = ARCHITECTURE_IMAGE_MARKER_ANY.findall(marker_text)
+        markers = list(ARCHITECTURE_IMAGE_MARKER.finditer(marker_text))
+        if len(marker_starts) > 1:
+            report.error("readme-architecture-image", rel_readme,
+                         "more than one readme-architecture-image declaration exists")
+        elif len(marker_starts) == 1 and len(markers) != 1:
+            report.error("readme-architecture-image", rel_readme,
+                         "the readme-architecture-image declaration is malformed")
+        elif len(markers) == 1:
+            marker = markers[0]
+            problem: str | None = None
+            try:
+                declaration = json.loads(marker.group(1))
+            except json.JSONDecodeError:
+                declaration = None
+                problem = "the readme-architecture-image declaration is not valid JSON"
+            if problem is None and (not isinstance(declaration, dict)
+                                    or set(declaration) != {"path", "sha256", "text"}
+                                    or not all(isinstance(declaration.get(key), str)
+                                               and declaration[key].strip()
+                                               for key in ("path", "sha256", "text"))):
+                problem = "the declaration must contain only nonempty path, sha256, and text strings"
+            if problem is None and marker.group(0) not in strip_code(arch_body):
+                problem = "the declaration must be inside the architecture section"
+
+            image = counterpart = None
+            if problem is None:
+                image_raw = declaration["path"]
+                text_raw = declaration["text"]
+                try:
+                    image = (root / image_raw).resolve()
+                    counterpart = (root / text_raw).resolve()
+                    repo_root = root.resolve()
+                except (OSError, ValueError):
+                    problem = "declared paths are not valid local repository paths"
+                if problem is None and (Path(image_raw).is_absolute()
+                                        or Path(text_raw).is_absolute()
+                                        or not image.is_relative_to(repo_root)
+                                        or not counterpart.is_relative_to(repo_root)):
+                    problem = "declared paths must stay inside the repository, including through symlinks"
+                elif problem is None and Path(image_raw).suffix.lower() not in RASTER_SUFFIXES:
+                    problem = f"{image_raw} is not a supported raster image"
+                elif problem is None and not image.is_file():
+                    problem = f"declared image {image_raw} is missing or not a file"
+                elif problem is None and not counterpart.is_file():
+                    problem = f"declared text counterpart {text_raw} is missing or not a file"
+                elif problem is None and not re.fullmatch(r"[0-9a-fA-F]{64}", declaration["sha256"]):
+                    problem = "declared sha256 must be exactly 64 hexadecimal characters"
+                elif problem is None:
+                    try:
+                        image_bytes = image.read_bytes()
+                        counterpart_text = counterpart.read_text(encoding="utf-8-sig")
+                    except (OSError, UnicodeDecodeError) as exc:
+                        problem = f"declared files could not be read: {type(exc).__name__}"
+                    else:
+                        actual = hashlib.sha256(image_bytes).hexdigest()
+                        if actual != declaration["sha256"].casefold():
+                            problem = f"declared sha256 does not match {image_raw}"
+                        elif not counterpart_text.strip():
+                            problem = f"declared text counterpart {text_raw} has no descriptive content"
+                        else:
+                            embedded_targets = (re.findall(r"!\[[^\]]*\]\(([^)\s]+)", arch_body)
+                                                + re.findall(r"<img[^>]+src=\"([^\"]+)\"", arch_body))
+                            if image_raw not in embedded_targets:
+                                problem = f"declared image {image_raw} is not embedded exactly in the architecture section"
+            if problem is not None:
+                report.error("readme-architecture-image", rel_readme, problem)
+            else:
+                accepted_raster = declaration["path"]
+
+        if fence is None and accepted_raster is None:
             report.error("readme-no-diagram", rel_readme,
-                         "the architecture section has no ```mermaid diagram — an image does not "
-                         "count: it cannot be diffed and the identifier guard cannot read it")
+                         "the architecture section has neither a ```mermaid diagram nor a valid "
+                         "declared architecture image")
         embedded = (re.findall(r"!\[[^\]]*\]\(([^)\s]+)", arch_body)
                     + re.findall(r"<img[^>]+src=\"([^\"]+)\"", arch_body))
         for target in embedded:
             clean = target.split("#")[0].split("?")[0]
-            if Path(clean).suffix.lower() in RASTER_SUFFIXES:
+            if Path(clean).suffix.lower() in RASTER_SUFFIXES and target != accepted_raster:
                 report.error("readme-raster-diagram", rel_readme,
                              f"{target} draws the architecture as pixels — no diff shows it going "
                              "stale, and a private name inside it is invisible to the guard")

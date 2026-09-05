@@ -82,6 +82,15 @@ task decomposition, dependencies, write boundaries, validation, lane assignment,
 Capsule. Use the smallest operationally real safe slice and existing/native primitives. A new
 durable authority returns to design.
 
+Design, architecture, and data-flow visuals may use Mermaid or locally committed images, including
+ImageGen output. Choose the form that makes the relationships clearest and remains practical to
+maintain, honor the user's stated preference, and never require both. Keep labels, arrow direction,
+and protected invariants consistent with the design; provide an accessible text description and
+record image provenance. Raster review inspects rendered semantics and private pixels. A content
+hash identifies the reviewed file; it does not prove those properties. README architecture images
+follow the owning progressive-disclosure declaration contract. Other design images are not
+automatically validator-checked merely because this rule permits them.
+
 The exact pre-gate contract is a fresh, isolated, read-only `reviewer` with only named artifact
 paths, never the author conversation. `PASS` is valid; there is no finding quota. A blocker names
 its criterion or invariant, a reachable trigger or state sequence, the observable consequence,

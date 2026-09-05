@@ -36,6 +36,7 @@ document by adding its row here in the same commit.
 | Compatibility route for older adoption links | [runbooks/full-adoption.md](runbooks/full-adoption.md) | Current |
 | The Codex side, and what it does not get | [runbooks/codex.md](runbooks/codex.md) | Current |
 | Every file the installer places, and why | [agents/what-gets-installed.md](agents/what-gets-installed.md) | Current |
+| Front-page imagery, accessible descriptions and regeneration | [assets/readme/README.md](assets/readme/README.md) | Current |
 
 Installation lives in [../install/README.md](../install/README.md).
 

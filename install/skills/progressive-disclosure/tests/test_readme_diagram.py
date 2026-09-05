@@ -22,8 +22,10 @@ Nothing here writes inside the repository: every mutation happens in a temporary
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -36,7 +38,8 @@ VALIDATOR = SKILL / "scripts" / "validate_disclosure.py"
 # Present when the skill is read from this repository, absent when it is installed under ~/.claude.
 REPO_README = SKILL.parents[2] / "README.md"
 
-DIAGRAM_RULES = ("readme-no-diagram", "readme-raster-diagram", "readme-diagram-drift")
+DIAGRAM_RULES = ("readme-no-diagram", "readme-raster-diagram", "readme-diagram-drift",
+                 "readme-architecture-image")
 
 
 def findings(root: Path) -> list[dict]:
@@ -97,6 +100,37 @@ class FixtureMixin:
             encoding="utf-8")
         return root
 
+    def declared_image(self, *, embed: str = "markdown", marker_in_architecture: bool = True,
+                       sha256: str | None = None, text: str = "The image shows intake flowing to work.",
+                       image_path: str = "docs/assets/readme/architecture.png",
+                       text_path: str = "docs/assets/readme/README.md") -> Path:
+        root = self.repo("")
+        image = root / image_path
+        image.parent.mkdir(parents=True, exist_ok=True)
+        image.write_bytes(b"reviewed architecture pixels")
+        counterpart = root / text_path
+        counterpart.parent.mkdir(parents=True, exist_ok=True)
+        counterpart.write_text(text, encoding="utf-8")
+        digest = sha256 or hashlib.sha256(image.read_bytes()).hexdigest()
+        marker = "<!-- readme-architecture-image: " + json.dumps({
+            "path": image_path, "sha256": digest, "text": text_path,
+        }, separators=(",", ":")) + " -->"
+        if embed == "markdown":
+            figure = f"![Architecture]({image_path})"
+        elif embed == "html":
+            figure = f'<img src="{image_path}" alt="Architecture">'
+        else:
+            figure = embed
+        readme = root / "README.md"
+        content = readme.read_text(encoding="utf-8")
+        if marker_in_architecture:
+            content = content.replace("## Architecture\n\n", f"## Architecture\n\n{marker}\n{figure}\n", 1)
+        else:
+            content = marker + "\n" + content.replace("## Architecture\n\n",
+                                                       f"## Architecture\n\n{figure}\n", 1)
+        readme.write_text(content, encoding="utf-8")
+        return root
+
 
 class FixtureTest(FixtureMixin, unittest.TestCase):
     """What may stand as a diagram, and what may not."""
@@ -106,6 +140,9 @@ class FixtureTest(FixtureMixin, unittest.TestCase):
     def test_a_mermaid_fence_is_a_diagram(self) -> None:
         self.assertEqual([], diagram_findings(self.repo(self.FENCE)))
 
+    def test_an_architecture_section_without_a_diagram_is_refused(self) -> None:
+        self.assertEqual(["readme-no-diagram"], diagram_findings(self.repo("")))
+
     def test_an_exported_image_is_no_longer_a_diagram(self) -> None:
         """The exact defect: this input passed for 93 commits of the repository that ships it."""
         self.assertEqual(["readme-no-diagram", "readme-raster-diagram"],
@@ -114,6 +151,86 @@ class FixtureTest(FixtureMixin, unittest.TestCase):
     def test_an_html_image_tag_does_not_get_a_second_door(self) -> None:
         self.assertEqual(["readme-no-diagram", "readme-raster-diagram"],
                          diagram_findings(self.repo('<img src="docs/assets/arch.webp" alt="a">')))
+
+    def test_a_declared_reviewed_raster_with_text_counterpart_is_a_diagram(self) -> None:
+        self.assertEqual([], diagram_findings(self.declared_image()))
+
+    def test_a_declared_html_raster_is_also_accepted(self) -> None:
+        self.assertEqual([], diagram_findings(self.declared_image(embed="html")))
+
+    def test_declaration_must_be_inside_architecture_section(self) -> None:
+        self.assertEqual(["readme-architecture-image", "readme-no-diagram", "readme-raster-diagram"],
+                         diagram_findings(self.declared_image(marker_in_architecture=False)))
+
+    def test_declared_image_must_be_embedded_exactly(self) -> None:
+        self.assertEqual(["readme-architecture-image", "readme-no-diagram", "readme-raster-diagram"],
+                         diagram_findings(self.declared_image(embed="![Other](other.png)")))
+
+    def test_bad_declared_hash_fails_closed(self) -> None:
+        self.assertEqual(["readme-architecture-image", "readme-no-diagram", "readme-raster-diagram"],
+                         diagram_findings(self.declared_image(sha256="0" * 64)))
+
+    def test_missing_declared_image_fails_closed(self) -> None:
+        root = self.declared_image()
+        (root / "docs/assets/readme/architecture.png").unlink()
+        self.assertEqual(["readme-architecture-image", "readme-no-diagram", "readme-raster-diagram"],
+                         diagram_findings(root))
+
+    def test_empty_text_counterpart_fails_closed(self) -> None:
+        self.assertEqual(["readme-architecture-image", "readme-no-diagram", "readme-raster-diagram"],
+                         diagram_findings(self.declared_image(text=" \n")))
+
+    def test_duplicate_declarations_fail_even_with_mermaid(self) -> None:
+        root = self.declared_image()
+        readme = root / "README.md"
+        marker = next(line for line in readme.read_text(encoding="utf-8").splitlines()
+                      if "readme-architecture-image:" in line)
+        content = readme.read_text(encoding="utf-8").replace(marker, marker + "\n" + marker)
+        content = content.replace("## Components", self.FENCE + "\n\n## Components", 1)
+        readme.write_text(content, encoding="utf-8")
+        self.assertEqual(["readme-architecture-image", "readme-raster-diagram"],
+                         diagram_findings(root))
+
+    def test_malformed_declaration_fails_even_with_mermaid(self) -> None:
+        root = self.repo('<!-- readme-architecture-image: {bad json} -->\n' + self.FENCE)
+        self.assertEqual(["readme-architecture-image"], diagram_findings(root))
+
+    def test_a_fenced_declaration_example_is_not_an_active_declaration(self) -> None:
+        figure = (self.FENCE + '\n\n```markdown\n'
+                  '<!-- readme-architecture-image: {bad json} -->\n```')
+        self.assertEqual([], diagram_findings(self.repo(figure)))
+
+    def test_declared_image_suffix_must_be_supported_raster(self) -> None:
+        self.assertEqual(["readme-architecture-image", "readme-no-diagram"],
+                         diagram_findings(self.declared_image(
+                             image_path="docs/assets/readme/architecture.svg")))
+
+    def test_missing_text_counterpart_fails_closed(self) -> None:
+        root = self.declared_image()
+        (root / "docs/assets/readme/README.md").unlink()
+        self.assertEqual(["readme-architecture-image", "readme-no-diagram", "readme-raster-diagram"],
+                         diagram_findings(root))
+
+    def test_undeclared_raster_beside_declared_one_is_still_refused(self) -> None:
+        root = self.declared_image()
+        readme = root / "README.md"
+        readme.write_text(readme.read_text(encoding="utf-8").replace(
+            "![Architecture](docs/assets/readme/architecture.png)",
+            "![Architecture](docs/assets/readme/architecture.png)\n![Other](other.png)", 1),
+            encoding="utf-8")
+        self.assertEqual(["readme-raster-diagram"], diagram_findings(root))
+
+    def test_declared_paths_cannot_escape_repository_through_symlinks(self) -> None:
+        root = self.declared_image()
+        outside = Path(tempfile.mkdtemp(prefix="pd-diagram-outside-"))
+        self.addCleanup(shutil.rmtree, outside, True)
+        external = outside / "architecture.png"
+        external.write_bytes(b"reviewed architecture pixels")
+        image = root / "docs/assets/readme/architecture.png"
+        image.unlink()
+        image.symlink_to(external)
+        self.assertEqual(["readme-architecture-image", "readme-no-diagram", "readme-raster-diagram"],
+                         diagram_findings(root))
 
     def test_a_raster_beside_a_real_fence_is_still_a_raster(self) -> None:
         """A fence answers `readme-no-diagram`; it does not license pixels next to it, because the
@@ -190,15 +307,23 @@ class CorpusTest(unittest.TestCase):
     def test_this_repository_satisfies_its_own_diagram_rules(self) -> None:
         self.assertEqual([], diagram_findings(self.repo_copy()))
 
-    def test_renaming_a_stage_in_the_table_is_caught_in_the_real_readme(self) -> None:
-        """The failure the deleted PNG could not produce: the prose moved and the picture did not."""
+    def test_changing_the_real_diagram_without_its_checked_counterpart_is_caught(self) -> None:
         root = self.repo_copy()
         readme = root / "README.md"
         text = readme.read_text(encoding="utf-8")
-        self.assertIn("| 3. Harness layer |", text, "the stage table no longer has this row")
-        readme.write_text(text.replace("| 3. Harness layer |", "| 3. Harness plane |"),
-                          encoding="utf-8")
-        self.assertEqual(["readme-diagram-drift"], diagram_findings(root))
+        if "readme-architecture-image:" in text:
+            match = re.search(
+                r'<!--\s*readme-architecture-image:\s*(\{[^\r\n]*\})\s*-->', text)
+            self.assertIsNotNone(match, "the real declaration is malformed")
+            image = root / json.loads(match.group(1))["path"]
+            image.write_bytes(image.read_bytes() + b"changed")
+            self.assertEqual(["readme-architecture-image", "readme-no-diagram",
+                              "readme-raster-diagram"], diagram_findings(root))
+        else:
+            self.assertIn("| 3. Harness layer |", text, "the stage table no longer has this row")
+            readme.write_text(text.replace("| 3. Harness layer |", "| 3. Harness plane |"),
+                              encoding="utf-8")
+            self.assertEqual(["readme-diagram-drift"], diagram_findings(root))
 
     def test_putting_the_exported_image_back_is_refused(self) -> None:
         root = self.repo_copy()
@@ -207,7 +332,7 @@ class CorpusTest(unittest.TestCase):
         marker = "## Architecture\n"
         self.assertIn(marker, text)
         readme.write_text(text.replace(
-            marker, marker + "\n![architecture](docs/assets/swe-agent-architecture.png)\n", 1),
+            marker, marker + "\n![architecture](docs/assets/undeclared-architecture.png)\n", 1),
             encoding="utf-8")
         self.assertEqual(["readme-raster-diagram"], diagram_findings(root))
 
