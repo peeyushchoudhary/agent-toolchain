@@ -7,7 +7,8 @@ cd install
 ./verify.sh                # prove it worked
 ```
 
-Then open Claude Code or Codex in a project and run the **`project-onboarding`** skill.
+Then open Claude Code or Codex in a project and explicitly invoke **`methodology-management`**
+to assess or adopt it. `project-onboarding` remains a compatibility entry for setup.
 
 ## Requirements
 
@@ -28,8 +29,7 @@ Optional, and genuinely optional — nothing breaks without them:
 ## What it installs
 
 ```
-~/.claude/skills/       progressive-disclosure, agent-personas, agent-persona-factory,
-                        execution-methodology, project-onboarding, graph-navigation
+~/.claude/skills/       published skills selected by skills/.gitignore
 ~/.claude/hooks/        disclosure-check.sh, preflight.sh, graphify-session-lessons.sh,
                         graphify-query-advisor.py
 ~/.claude/settings.json 4 hook entries (3 SessionStart, 1 PreToolUse), MERGED into your existing file
@@ -38,6 +38,10 @@ Optional, and genuinely optional — nothing breaks without them:
 ~/.codex/agents/        the same personas, as TOML
 ~/.codex/config.toml    an [agents] block, appended, if none exists
 ```
+
+The [published inventory](../docs/README.md#what-is-published-and-what-is-not) names the skills;
+the [management route](../docs/runbooks/methodology-management.md) explains execution,
+maintenance and compatibility entries.
 
 **Nothing is overwritten wholesale.** `settings.json` is parsed, backed up, and merged — hook
 entries already present are left alone. If it is not valid JSON the installer refuses and tells you,
@@ -57,7 +61,9 @@ rules; see [../docs/architecture/operating-model.md](../docs/architecture/operat
    [../docs/product/measurements.md](../docs/product/measurements.md) for how they were derived, and retune them.
    `sync_personas.py --list` shows the current mapping; edit a persona and re-run
    `sync_personas.py` to apply.
-3. **Run `project-onboarding` in a project.** Nothing here changes a repository until you do.
+3. **Invoke `methodology-management` in each project when ready.** Request assessment or adoption
+   explicitly; global installation does not migrate projects. See the
+   [setup procedure](skills/methodology-management/references/setup.md).
 
 ## Keeping it current
 
@@ -73,15 +79,14 @@ Re-run `./install.sh` to update after pulling a new version. It is idempotent.
 
 ## Uninstalling
 
-```bash
-rm -rf ~/.claude/skills/{progressive-disclosure,agent-personas,agent-persona-factory,execution-methodology,project-onboarding,graph-navigation}
-rm -f  ~/.claude/hooks/{disclosure-check.sh,preflight.sh,graphify-query-advisor.py,graphify-session-lessons.sh}
-rm -rf ~/.codex/skills/{progressive-disclosure,agent-personas,agent-persona-factory,execution-methodology,project-onboarding,graph-navigation}
-# then remove the hook entries from ~/.claude/settings.json by hand
-```
+Remove the published skill directories named in `skills/.gitignore` from `~/.claude/skills/` and
+`~/.codex/skills/`, preserving any separately installed skills. Remove the four hook files listed
+above and their entries in `~/.claude/settings.json` by hand. Generated agents and configuration
+are separate; preserve any custom agents and restore configuration from the installer backups
+when appropriate.
 
 Per-repository git hooks are separate. In each repo:
-`python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py . --uninstall`
+`python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py . --scope project --uninstall`
 
 ## If something fails
 

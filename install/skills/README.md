@@ -22,9 +22,10 @@ declares its own state**, and every check is evaluated against the one repositor
 | `agent-personas` | The fourteen harness-neutral roles, with model and effort already chosen, generated into `~/.claude/agents/` and `~/.codex/agents/`. |
 | `agent-persona-factory` | Deriving project-specific specialists from a repository's own guardrails, architecture, and PRD. |
 | `graph-navigation` | Navigating an existing knowledge graph without falling back to prose queries. |
-| `project-onboarding` | Bringing a new repository under all of the above, in order, proposing before writing. |
-| `project-conformance` | Whether a repository that was onboarded still meets the standard, and repairing the part of that answer that is mechanical. Reports first, writes only under `--fix`, and is run by hand — never by a hook. |
-| `project-migration` | Moving an already-onboarded repository's product documents onto the bound schema — triage, plan, apply, adopt, confirm. Two read-only steps before the one that writes; `status:` and `reviewed_by:` are left for a person. |
+| `methodology-management` | Explicit entry for assessment, setup, repair, migration and upgrade decisions; calls owning tools and loads only the relevant procedure. Ordinary execution follows its repository route. |
+| `project-onboarding` | Compatibility entry to methodology-management setup; preserves explicit invocation. |
+| `project-conformance` | Read-only assessment entry; its existing checker aggregates owning results and permits only approved mechanical repair under `--fix`. |
+| `project-migration` | Explicit compatibility entry to methodology-management product-document migration; preserves the existing executable paths and review authority. |
 | `gate-sandbox` | Running a write-producing gate against a manifest-equal standalone copy inside an enforced macOS profile, with a readiness phase that refuses to spend an attempt on an unready machine. Machinery only; every project fact arrives from configuration outside this repository. |
 
 ## The two ideas it is built on
@@ -40,16 +41,18 @@ branches — are enforced by `pre-push` instead.
 
 ## Installing
 
+Invoke [methodology-management](methodology-management/SKILL.md) for setup, repair, migration or
+upgrades. It assesses the current binding and coordinates the authorized scope through owning tools.
+These low-level examples preview an explicitly selected project scope without writing:
+
 ```bash
-python3 progressive-disclosure/scripts/install_hooks.py <repo>   # hooks, Codex mirror, session check
-python3 progressive-disclosure/scripts/check_toolchain.py        # drift between the two harnesses
-python3 agent-personas/scripts/sync_personas.py                  # regenerate the persona pool
-python3 execution-methodology/scripts/sync_methodology.py --repo <repo>
+python3 progressive-disclosure/scripts/install_hooks.py <repo> --scope project --preview --json
+python3 agent-personas/scripts/sync_personas.py --repo <repo> --scope project --preview --json
 ```
 
-Adoption is staggered and never automatic. A repository that has not adopted the execution
-methodology says so at every session start until it either adopts it or records a dated deferral
-with a reason. Nothing here will render into a repository on its own.
+Global synchronization uses an explicitly authorized `--scope global` or `--scope all` and its own
+preview. Methodology rendering adopts an identity; assessment or project hook setup does not
+implicitly authorize it. Unadopted projects retain their existing contract or recorded deferral.
 
 ## Changing it
 

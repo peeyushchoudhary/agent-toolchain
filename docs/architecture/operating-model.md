@@ -7,6 +7,13 @@ Shared machine entry instructions route both harnesses to the adopted repository
 The procedure is owned by the [execution methodology](../../install/skills/execution-methodology/methodology.md);
 this page explains the operating priorities and does not restate its repair state machine.
 
+Ordinary work resolves the project's approved runtime inventory, route and overlay before governed
+execution. A valid approved older bundle remains authoritative for that project. Global-source or
+candidate differences are reported rather than substituted. Assessment, setup, repair, migration
+and upgrade coordination belong to
+[methodology management](../../install/skills/methodology-management/SKILL.md), outside ordinary
+execution context.
+
 ## The three stages, in order
 
 1. **Local execution quality.** Get the change right on this machine — narrowest production path,
@@ -65,6 +72,7 @@ These look like gaps and are not. Do not "fix" them.
 | Committed `.claude/settings.json` | Sole-founder mode; machine-local config stays machine-local |
 | Committed graph (`graphify-out/`) | 22 MB rewritten wholesale each rebuild; regenerate instead |
 | Bulk migration of other projects | Deliberate adoption at a project boundary |
+| Automatic methodology or model upgrade | Installation, project adoption and model activation are separate decisions |
 | Cross-harness agent dispatch | One dated experiment measured 1.7× in-harness cost — [decisions.md](../decisions/decisions.md) |
 
 ## Delegation posture

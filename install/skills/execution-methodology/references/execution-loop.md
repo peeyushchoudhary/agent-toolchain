@@ -176,11 +176,12 @@ check_review_budget.py <workspace> --next <subject>
 Run this receipt before both semantic review dispatches. It enforces forbidden workspace artifacts
 and reports round use. A dispatch that produces no verdict spends no round.
 
-The **IMPLEMENTATION STAGE ONLY** uses one `reviewer` plus `test-judge`; design and plan may use a
-PANEL of distinct lenses under the canonical method. Every task, light or full, receives one initial
-full task-diff review. After a valid finding, a writer makes one correction and a fresh reviewer
-performs one scoped correction review of the persisted finding, correction, causal area, corrected
-artifact, and frozen criteria.
+Each round uses one semantic `reviewer`, with at most one relevant specialist for a distinct owned
+invariant, plus `security-validator` when a safety surface moves. `test-judge` runs commands
+and is not a semantic review lens. Every task, light or full, receives one initial full task-diff
+review. After a valid finding, a writer makes one correction and a fresh reviewer performs one
+scoped correction review of the persisted finding, correction, causal area, corrected artifact,
+and frozen criteria.
 
 No round count creates semantic success. If the scoped review leaves an unresolved semantic
 defect, record the task as **INCOMPLETE**, never READY. A mechanically specified final application

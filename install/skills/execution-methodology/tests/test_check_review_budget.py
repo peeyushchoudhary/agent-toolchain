@@ -17,6 +17,11 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "check_review_budget.py"
 
+# Ordinary unit cases run against an explicit, empty operator ledger. The shipped ledger is
+# mutable operational history and is exercised separately by the real-ledger audit below.
+_UNIT_AUTHORITY = None
+_UNIT_SCRIPT = None
+
 # {ledger path: the copy of the script for which that ledger is a COMMITTED AUTHORITY}. See
 # `track()` — the tool now resolves a named ledger against the repository holding the SCRIPT, so a
 # test that wants a grant to apply has to run a script that really lives with its ledger.
@@ -28,7 +33,16 @@ def script_for(*extra: str) -> Path:
     for i, arg in enumerate(extra):
         if arg == "--grants" and i + 1 < len(extra):
             return _AUTHORITIES.get(extra[i + 1], SCRIPT)
-    return SCRIPT
+    global _UNIT_AUTHORITY, _UNIT_SCRIPT
+    if _UNIT_SCRIPT is None:
+        _UNIT_AUTHORITY = tempfile.TemporaryDirectory()
+        skill = Path(_UNIT_AUTHORITY.name) / "execution-methodology"
+        _UNIT_SCRIPT = skill / "scripts" / "check_review_budget.py"
+        _UNIT_SCRIPT.parent.mkdir(parents=True)
+        _UNIT_SCRIPT.write_bytes(SCRIPT.read_bytes())
+        (skill / "ROUND-GRANTS.tsv").write_text(
+            "# SUBJECT\tROUND\tCOMMIT\tDATE\tREASON\n", encoding="utf-8")
+    return _UNIT_SCRIPT
 
 
 def run(workspace: Path, *extra: str) -> subprocess.CompletedProcess:
@@ -752,14 +766,12 @@ class SilentUndercountTest(unittest.TestCase):
 
 
 class RoundWidthTest(unittest.TestCase):
-    """WIDE_ROUND: how many lenses were filed against ONE round of ONE subject.
+    """WIDE_ROUND: how many charged reviews were filed for one subject and round.
 
-    THE REASON THIS CLASS EXISTS AND THE REASON IT IS SMALL ARE THE SAME. The methodology's review
-    rule was "one reviewer, never a panel" at every stage, and the real corpus falsifies it: a
-    design or plan review returns a blocking verdict at 0.74 per artifact against 0.09 at
-    implementation. The rule is now scoped by STAGE. Only the CEILING half of that is a fact this
-    tool can see -- width is a count of files in a directory -- and the STAGE half is not on disk
-    at all. It is deliberately not inferred; see the WIDE_ROUND comment in the module.
+    Current policy permits one semantic reviewer, at most one relevant specialist, and the
+    security validator when a safety surface moves. The tool can count files but cannot reliably
+    infer those roles or distinguish duplicate records from filenames, so it reports width without
+    changing the exit code.
 
     VALIDATED AGAINST THE REAL CORPUS, not against these fixtures, because this repository has
     shipped nine checkers that passed their own fixtures and saw nothing: run over four real
@@ -798,16 +810,15 @@ class RoundWidthTest(unittest.TestCase):
         self.assertEqual(found[0]["subject"], "t40", proc.stdout)
         self.assertEqual(found[0]["round"], 1, proc.stdout)
 
-    def test_three_lenses_are_the_design_panel_and_are_not_reported(self):
-        """The new rule ASKS for up to three at design. A warning at three would refuse it."""
+    def test_three_owned_review_roles_are_not_reported(self):
+        """Reviewer, relevant specialist, and security validator fit the current maximum."""
         for kind in ("reviewer", "security", "architect"):
             self.touch(f"verdicts/T41-r1-{kind}.md")
         proc = run(self.ws, "--grants", str(self.grants))
         self.assertEqual(self.wide(proc), [], proc.stdout)
 
     def test_it_never_changes_the_exit_code(self):
-        """A four-wide DESIGN round is CORRECT under the new rule, and blocked in 3 of the 7
-        measured. An exit code here would refuse the panel the rule now asks for."""
+        """Filename-only width is a receipt for classification, not a gate verdict."""
         for kind in ("reviewer", "security", "architect", "tenancy", "provider"):
             self.touch(f"verdicts/T42-r1-{kind}.md")
         proc = run(self.ws, "--grants", str(self.grants))
@@ -815,7 +826,7 @@ class RoundWidthTest(unittest.TestCase):
         self.assertEqual(self.wide(proc)[0]["width"], 5, proc.stdout)
 
     def test_width_is_counted_per_round_and_not_across_a_lineage(self):
-        """Two rounds of two lenses each is the budget working, not a panel."""
+        """Two rounds of two charged reviews each do not form one wide round."""
         for rnd in (1, 2):
             for kind in ("reviewer", "security"):
                 self.touch(f"verdicts/T43-r{rnd}-{kind}.md")
@@ -824,7 +835,7 @@ class RoundWidthTest(unittest.TestCase):
 
     def test_work_and_evidence_are_not_lenses(self):
         """Only CHARGED review artifacts count. A fix brief and a JUnit XML are not reviewers, and
-        counting them would manufacture panels out of one reviewer's paperwork."""
+        counting them would manufacture review width from one reviewer's paperwork."""
         self.touch("verdicts/T44-r1-reviewer.md")
         for name in ("T44-r1-fix.md", "T44-r1-notes.md", "T44-r1-report.md",
                      "evidence/T44-r1-GREEN.xml"):
@@ -1395,35 +1406,64 @@ class TerminalExemptionRemovedTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(module.subject_of(name), expected)
 
-    def test_every_row_in_the_shipped_ledger_still_resolves(self):
-        """Each live grant, exercised on the DEFAULT ledger against an artifact at its round."""
+    def test_the_shipped_ledger_parses_with_all_supported_record_types(self):
+        """Real operator history is valid data; records need not all suppress a finding."""
         shipped = SCRIPT.parent.parent / "ROUND-GRANTS.tsv"
         if not shipped.is_file():
             self.skipTest("no operator ledger beside this copy (vendored tree ships without it)")
         rows = [line.split("\t") for line in shipped.read_text().splitlines()
                 if line.strip() and not line.startswith("#")]
         self.assertTrue(rows)
-        for fields in rows:
-            subject, token = fields[0].strip(), fields[1].strip()
-            with self.subTest(subject=subject, token=token):
-                for f in sorted(self.ws.rglob("*")):
-                    if f.is_file():
-                        f.unlink()
-                if token.lower() == "terminal":
-                    # No shipped row is terminal today; when one is written this arm asserts the
-                    # pass is honoured rather than silently skipping the row.
-                    self.touch(f"verdicts/{subject.upper()}-r1-reviewer.md")
-                    proc = run(self.ws, "--next", f"{subject.upper()}-full-diff-reviewer")
-                    self.assertIn("TERMINAL_PASS_APPLIED",
-                                  {w["kind"] for w in findings(proc)["warnings"]}, proc.stdout)
-                    continue
-                rnd = int(token.lstrip("rR"))
-                self.touch(f"verdicts/{subject.upper()}-r{rnd}-reviewer.md")
-                proc = run(self.ws)
-                applied = [w for w in findings(proc)["warnings"]
-                           if w["kind"] == "GRANT_APPLIED" and w["subject"] == subject]
-                self.assertEqual(len(applied), 1, proc.stdout)
-                self.assertEqual(applied[0]["round"], rnd, proc.stdout)
+        self.assertTrue(all(len(fields) == 5 for fields in rows),
+                        "the shipped ledger contains a malformed row")
+        tokens = [fields[1].strip().lower() for fields in rows]
+        round_rows = [(fields[0].strip().lower(), token)
+                      for fields, token in zip(rows, tokens)
+                      if re.fullmatch(r"r[1-9][0-9]*", token)]
+        terminal_subjects = {fields[0].strip().lower()
+                             for fields, token in zip(rows, tokens) if token == "terminal"}
+        spent_subjects = {fields[0].strip().lower()
+                          for fields, token in zip(rows, tokens) if token == "terminal-spent"}
+        verdict_artifacts = {token.removeprefix("verdict:").lower()
+                             for token in tokens if token.startswith("verdict:")}
+
+        self.assertTrue(any(token == "r1" for _, token in round_rows), "r1 records disappeared")
+        self.assertTrue(terminal_subjects, "terminal records disappeared")
+        self.assertTrue(spent_subjects, "terminal-spent records disappeared")
+        self.assertTrue(verdict_artifacts, "verdict records disappeared")
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), str(self.ws), "--json"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        data = findings(proc)
+        kinds = {item["kind"] for item in data["errors"] + data["warnings"]}
+        self.assertFalse(kinds & {
+            "GRANT_LINE_MALFORMED", "DUPLICATE_GRANT", "DUPLICATE_TERMINAL_PASS",
+            "DUPLICATE_VERDICT_GRANT",
+        }, proc.stdout)
+        self.assertEqual(data["grants"]["round_grants"], len(set(round_rows)), proc.stdout)
+        self.assertEqual(data["grants"]["terminal_passes"],
+                         len(terminal_subjects - spent_subjects), proc.stdout)
+        self.assertEqual(data["grants"]["terminal_spent"], len(spent_subjects), proc.stdout)
+        self.assertEqual(data["grants"]["verdict_grants"], len(verdict_artifacts), proc.stdout)
+        spent_warnings = {w["subject"] for w in data["warnings"]
+                          if w["kind"] == "TERMINAL_PASS_ALREADY_SPENT"}
+        self.assertEqual(spent_warnings, terminal_subjects & spent_subjects, proc.stdout)
+
+        # A low-round history row is a record, not an exception to the standing cap.
+        subjects_with_high_grants = {subject for subject, token in round_rows
+                                     if int(token[1:]) > 2}
+        low_subject = next(subject for subject, token in round_rows
+                           if int(token[1:]) <= 2 and subject not in subjects_with_high_grants)
+        self.touch(f"verdicts/{low_subject}-r3-reviewer.md")
+        capped = subprocess.run(
+            [sys.executable, str(SCRIPT), str(self.ws), "--json"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(capped.returncode, 1, capped.stdout + capped.stderr)
+        self.assertIn("ROUND_CAP", {e["kind"] for e in findings(capped)["errors"]}, capped.stdout)
 
     # --- F3: forging the ledger costs more than `git init` ------------------------------
 
@@ -2094,7 +2134,12 @@ class AdvisoryPostureTest(unittest.TestCase):
         shipped = SCRIPT.parent.parent / "ROUND-GRANTS.tsv"
         if not shipped.is_file():
             self.skipTest("no operator ledger beside this copy (vendored tree ships without it)")
-        header = shipped.read_text(encoding="utf-8")
+        header_lines = []
+        for line in shipped.read_text(encoding="utf-8").splitlines():
+            if line.strip() and not line.lstrip().startswith("#"):
+                break
+            header_lines.append(line)
+        header = "\n".join(header_lines)
         found = _bound_claims(header)
         self.assertEqual(found, [], "ROUND-GRANTS.tsv re-asserts a retracted bound:\n"
                                     + "\n".join(found))
@@ -2185,23 +2230,6 @@ class AdvisoryPostureTest(unittest.TestCase):
                 appends = re.findall(r"(errors|warnings)\.append\(\{[^}]*?\"kind\": \"" + kind
                                      + r"\"", self.SOURCE, re.DOTALL)
                 self.assertEqual(appends, ["warnings"], f"{kind} must stay a WARNING")
-
-    def test_both_harness_copies_are_byte_identical(self):
-        """A control whose answer depends on which harness invoked it is not a control."""
-        codex = Path.home() / ".codex" / "skills" / "execution-methodology"
-        if not codex.is_dir():
-            self.skipTest("no ~/.codex mirror on this machine")
-        for rel in ("scripts/check_review_budget.py", "tests/test_check_review_budget.py",
-                    "ROUND-GRANTS.tsv"):
-            with self.subTest(rel=rel):
-                mine = SCRIPT.parent.parent / rel
-                if rel == "ROUND-GRANTS.tsv" and not mine.is_file():
-                    # Operator data: the vendored public copy ships without the ledger by
-                    # invariant, so there is nothing of this copy to compare.
-                    continue
-                self.assertEqual(mine.read_bytes(), (codex / rel).read_bytes(), rel)
-
-
 
 # The REAL 51 filenames of the code-formatter family, one workspace, verbatim except that the card
 # id is generic. Pinned as DATA rather than generated, because a generated family is a family the

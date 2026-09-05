@@ -457,9 +457,9 @@ BYTE_BUDGET = 500 * 1024
 # the five that no instrument read: the 150-line card cap holds at 50 of 51 files in the author's
 # live workspace, while the verdicts beside those cards run to 388 lines.
 VERDICT_LINE_CAP = 30
-# The width at which a round stops looking like coverage. See the WIDE_ROUND block in `main` for
-# the measurement, and for why the STAGE half of the same rule is deliberately left in prose.
-PANEL_WIDTH_WARN = 4
+# The width at which a round needs human classification. See the WIDE_ROUND block in `main` for
+# the measurement and the filename-only limit that keeps this advisory.
+REVIEW_WIDTH_WARN = 4
 
 
 def trailing_kind_tokens(head: str) -> list[str]:
@@ -1256,7 +1256,7 @@ def main() -> int:
         # ORDER, and it is the rule this module has broken four times: the CAP runs after every
         # piece of bookkeeping it does not intend to skip. `charged`, `charged_files` and
         # `round_width` are all written above, so a verdict over the cap still spends its round,
-        # still widens its panel and still counts in its family. A suppression that ran first
+        # still widens its review set and still counts in its family. A suppression that ran first
         # would hand a free round to any verdict long enough to trip this check.
         #
         # `kind is None` DOES NOT REACH HERE UNCAPPED BY ACCIDENT — it reaches here charged and
@@ -1423,13 +1423,13 @@ def main() -> int:
                       if fam["next"] else ""),
         })
 
-    # THE WIDTH OF A ROUND, reported because the methodology's review rule changed under it.
+    # THE WIDTH OF A ROUND, reported because the methodology bounds semantic review ownership.
     #
-    # The rule used to be "one reviewer, never a panel" at every stage. It is now scoped by STAGE:
-    # a panel of up to three DIFFERENT LENSES at design and plan, one reviewer plus `test-judge` at
-    # implementation. The half of that rule this tool can honestly see is the CEILING, and it can
-    # see it because width is a fact about a directory — how many charged review artifacts carry
-    # one subject and one round — rather than a claim by the party filing them.
+    # Current policy uses one semantic reviewer, at most one relevant specialist, plus
+    # security-validator when a safety surface moves. The half of that rule this tool can honestly
+    # see is the CEILING, and it can see it because width is a fact about a directory — how many
+    # charged review artifacts carry one subject and one round — rather than a claim by the party
+    # filing them.
     #
     # MEASURED ON THE REAL CORPUS BEFORE THIS WAS WRITTEN, which is the only reason it is here.
     # 1,203 round-marked prose artifacts across four repositories group into 672 (subject, round)
@@ -1449,25 +1449,25 @@ def main() -> int:
     # the same 1,203 artifacts, disagreed about 31 groups and moved the design bucket by 13%. A
     # classifier that moves 13% between two honest spellings of one rule is not a foundation for an
     # exit code, so the stage rule stays PROSE — a human reading this receipt at the merge gate is
-    # what acts on it, with `test_the_two_documents_do_not_contradict_each_other_on_review_width`
-    # doing the one mechanical thing available: stopping the two documents drifting apart again.
+    # what acts on it, with the execution-loop policy regression test doing the one mechanical
+    # thing available: stopping the two current-authority documents drifting apart again.
     #
-    # A WARNING, never an error. The threshold is a yield observation and not a boundary: a
-    # four-wide DESIGN round is correct under the new rule and blocked in 3 of the 7 measured, so
-    # promoting this to an exit code would refuse the very panel the rule now asks for.
+    # A WARNING, never an error. The tool cannot tell whether multiple files are duplicate records,
+    # corrections, or distinct semantic seats from their names alone; the merge gate classifies the
+    # observed width against the current ownership rule.
     for (subj, rnd), paths in sorted(round_width.items()):
-        if len(paths) < PANEL_WIDTH_WARN:
+        if len(paths) < REVIEW_WIDTH_WARN:
             continue
         warnings.append({
             "kind": "WIDE_ROUND", "subject": subj, "round": rnd,
             "path": sorted(paths)[0], "width": len(paths), "artifacts": sorted(paths),
             "why": f"{len(paths)} charged review artifacts are filed against `{subj}` r{rnd}. "
-                   f"Measured across four repositories, a round {PANEL_WIDTH_WARN} or more wide "
+                   f"Measured across four repositories, a round {REVIEW_WIDTH_WARN} or more wide "
                    "returned a blocking verdict in 8 of 78 (0.10) against 190 of 594 (0.32) at "
-                   "three or fewer. Review WIDTH is scoped by STAGE: a panel belongs at design "
-                   "and plan, and implementation takes one reviewer plus `test-judge`. This tool "
-                   "cannot read the stage off a filename and does not try, so this is a receipt "
-                   "line for the merge gate and never an exit code",
+                   "three or fewer. Current policy is one semantic reviewer, at most one relevant "
+                   "specialist, plus security-validator on safety surfaces. This tool cannot infer "
+                   "those roles reliably from filenames, so this is a receipt line for the merge "
+                   "gate and never an exit code",
         })
 
     for subj, rnd in sorted(grants):

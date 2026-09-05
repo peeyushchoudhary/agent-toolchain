@@ -58,16 +58,10 @@ because saying it is the only enforcement available.
 
 ## Model and effort defaults
 
-The frontmatter values are pilot defaults, not evidence that one model produces better work or
-costs less. Permissions, frozen criteria, independent review, and executable gates carry the safety
-guarantees regardless of model.
-
-When the active harness supports native per-dispatch overrides, a controller may use high effort for
-planning; product-steward may use medium effort for routine documentation custody; difficult
-senior-developer work may use Fable 5.1 or Astra at medium or high; and difficult design or plan
-review may use Fable 5.1 or Astra at high. A warm controller trial on flagship medium is separate.
-Record the resolved model and effort in the dispatch. Keep the fixed source values when the harness
-cannot express the override. Do not add phase keys to persona frontmatter.
+The four model and effort values in each persona's frontmatter remain the source authority. They
+are frozen for this reconciliation; reassessment, per-dispatch overrides, and rollout are separate
+decisions. Permissions, frozen criteria, independent review, and executable gates carry the safety
+guarantees regardless of model. Do not add phase keys to persona frontmatter.
 
 The dated rationale and earlier measurements are retained as history in
 [references/roster.md](references/roster.md); they are not current model evidence.
@@ -188,13 +182,22 @@ nothing else, holding every tool the render pipeline itself doesn't drop. See
 predates this template and, as written, does not describe it (a correction is tracked separately).
 
 ```bash
-sync_personas.py                      # render the pool to ~/.claude/agents and ~/.codex/agents
-sync_personas.py --repo PATH          # also merge that repo's overlays
-sync_personas.py --repo PATH --check  # exit 1 when generated output is stale
-sync_personas.py --list               # active selection roster
+sync_personas.py --scope global --preview --json
+sync_personas.py --scope global
+sync_personas.py --repo PATH --scope project --preview --json
+sync_personas.py --repo PATH --scope project
+sync_personas.py --repo PATH --scope all --preview --json
+sync_personas.py --list
 sync_personas.py --list --include-retired
 sync_personas.py --list --format markdown
 ```
+
+Explicit `project` scope requires `--repo` and touches only that repository's Claude and Codex
+agent trees. Explicit `global` scope forbids `--repo` and never visits a project. `all` makes
+the combined impact visible. Preview, check and apply consume the same plan; `--preview --json`
+writes nothing and reports every create, update and delete before authorization. Management
+callers always select a scope. The omitted-scope CLI keeps its historical compatibility behavior
+for existing callers.
 
 **Never edit `~/.claude/agents/` or `~/.codex/agents/` directly.** They are generated and carry a
 banner saying so; the next sync overwrites them.
@@ -248,10 +251,10 @@ Every onboarded repository records the decision:
   `<!-- agent-personas: {"mode":"base-only","reason":"..."} -->` with a real reason.
 
 Missing both is warned. A `base-only` decision does not skip repository drift checking:
-`sync_personas.py --repo PATH --check` also catches generated project agents left behind after the
-last source is removed. Repository checks verify both committed harness formats without depending
-on whether Codex is installed and do not fail because the machine-global pool drifted; bare
-`sync_personas.py --check` owns global drift.
+`sync_personas.py --repo PATH --scope project --check` also catches generated project agents left
+behind after the last source is removed. Repository checks verify both committed harness formats
+without depending on whether Codex is installed and do not fail because the machine-global pool
+drifted; `sync_personas.py --scope global --check` owns global drift.
 
 Generation is required, not cosmetic: Claude Code's project-level agents **override** a same-named
 user agent wholesale, so "base plus project direction" cannot be expressed by file placement alone.

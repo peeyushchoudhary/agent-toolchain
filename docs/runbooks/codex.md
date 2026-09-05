@@ -12,11 +12,11 @@ it did not read.
 |---|---|---|
 | `~/.codex/AGENTS.md` | Global instructions — operating model, GitHub rules, persona directive | Manual mirror of `~/.claude/CLAUDE.md` |
 | `~/.codex/config.toml` | Session and `[agents]` settings | Manual |
-| `~/.codex/agents/*.toml` | Persona definitions | `sync_personas.py` |
-| `~/.codex/skills/` | Mirrored skills | `install_hooks.py` |
+| `~/.codex/agents/*.toml` | Persona definitions | `sync_personas.py --scope global` |
+| `~/.codex/skills/` | Mirrored skills | `install_hooks.py --scope global` |
 | `<repo>/AGENTS.md` | The project contract | Shared with Claude — same file |
 | `<repo>/docs/agents/**` | The route | Shared with Claude — same files |
-| `<repo>/.codex/agents/*.toml` | Project personas | `sync_personas.py --repo` |
+| `<repo>/.codex/agents/*.toml` | Project personas | `sync_personas.py --repo <repo> --scope project` |
 
 **The repository layer is genuinely shared.** `AGENTS.md`, the route, the guides, and
 `docs/agents/personas/` are read by both. That is why knowledge belongs in the repo and only
@@ -62,7 +62,8 @@ correction or diff, corrected artifact, and governing frozen artifacts.
 ### 2. Render the personas
 
 ```bash
-python3 ~/.claude/skills/agent-personas/scripts/sync_personas.py
+python3 ~/.claude/skills/agent-personas/scripts/sync_personas.py --scope global --preview --json
+python3 ~/.claude/skills/agent-personas/scripts/sync_personas.py --scope global
 ```
 
 Writes `~/.codex/agents/*.toml`. Verify:
@@ -83,14 +84,15 @@ leaves it alone because it lacks the generated banner.
 ### 3. Mirror the skills
 
 ```bash
-python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py <any-repo>
+python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py --scope global --preview --json
+python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py --scope global
 ls ~/.codex/skills/
 ```
 
-Expect the six **published** skills: `progressive-disclosure`, `agent-personas`,
-`agent-persona-factory`, `execution-methodology`, `graph-navigation`, and `project-onboarding`.
-`graphify` may also be present because its vendor installs it; this repository neither publishes nor
-manages it.
+The published declaration includes `methodology-management`; onboarding and migration remain
+explicit compatibility routes, while conformance remains available for implicit read-only
+assessment. Read the installed declaration rather than relying on a restated count. `graphify` may
+also be present because its vendor installs it; this repository neither publishes nor manages it.
 
 `install.sh` discovers the published skills from `install/skills/.gitignore` and mirrors that
 declaration to Codex. `install_hooks.py` instead mirrors the fixed `MIRRORED_SKILLS` tuple in
@@ -99,18 +101,16 @@ mirror it. Re-run the appropriate command after a change. Skills are mirrored, n
 
 ### 4. Mirror the global instructions
 
-The GitHub and persona sections must be byte-identical across `~/.claude/CLAUDE.md` and
+The shared execution/maintenance route must be byte-identical across `~/.claude/CLAUDE.md` and
 `~/.codex/AGENTS.md`. Verify:
 
 ```bash
 python3 - <<'PY'
 from pathlib import Path
-def sec(p, start, end):
-    t = Path(p).expanduser().read_text()
-    return t[t.index(start):t.index(end)]
-a = sec("~/.claude/CLAUDE.md", "# GitHub", "# Cross-project implementation strategy")
-b = sec("~/.codex/AGENTS.md",  "# GitHub", "# Cross-project implementation strategy")
-print("GitHub section identical:", a == b)
+heading = "# Execution and maintenance route\n"
+a = Path("~/.claude/CLAUDE.md").expanduser().read_text().split(heading, 1)[1]
+b = Path("~/.codex/AGENTS.md").expanduser().read_text().split(heading, 1)[1]
+print("shared route identical:", a == b)
 PY
 ```
 
@@ -161,7 +161,8 @@ ls ~/.codex/skills/
 
 # in a repo: project personas rendered
 ls <repo>/.codex/agents/ 2>/dev/null
-python3 ~/.claude/skills/agent-personas/scripts/sync_personas.py --repo <repo> --check
+python3 ~/.claude/skills/agent-personas/scripts/sync_personas.py --repo <repo> --scope project --check
+python3 ~/.claude/skills/execution-methodology/scripts/sync_methodology.py --repo <repo> --status-json
 ```
 
 Then open Codex in a migrated repo and confirm it reads `AGENTS.md` and can spawn a persona by name.

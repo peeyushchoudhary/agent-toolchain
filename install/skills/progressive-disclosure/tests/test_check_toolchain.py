@@ -5237,5 +5237,40 @@ class ReachesHomeTest(unittest.TestCase):
         self.assertEqual([k for k in hermetic.MARKED if "<locals>" in k[1]], [])
 
 
+class LeanInstructionMirrorTests(unittest.TestCase):
+    def compare(self, left, right):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            claude, codex = root / "CLAUDE.md", root / "AGENTS.md"
+            claude.write_text(left)
+            codex.write_text(right)
+            old = toolchain.CLAUDE_MD, toolchain.CODEX_MD
+            try:
+                toolchain.CLAUDE_MD, toolchain.CODEX_MD = claude, codex
+                return toolchain.check_instructions()
+            finally:
+                toolchain.CLAUDE_MD, toolchain.CODEX_MD = old
+
+    def test_lean_rules_are_compared(self):
+        text = "\n".join(start + "\nshared rule\n" + end
+                         for start, end in toolchain.ROUTED_MIRRORED)
+        self.assertEqual(self.compare(text, text), [])
+        findings = self.compare(text, text.replace("shared rule", "changed rule"))
+        self.assertTrue(any(severity == "critical" for severity, _ in findings))
+
+    def test_mixed_rollout_is_not_a_mirror_pass(self):
+        lean = "\n".join(start + "\nshared\n" + end
+                         for start, end in toolchain.ROUTED_MIRRORED)
+        legacy = "\n".join(start + "\nshared\n" + end
+                           for start, end in toolchain.MIRRORED)
+        self.assertTrue(self.compare(lean, legacy))
+        self.assertTrue(self.compare(legacy, lean))
+
+    def test_legacy_rules_remain_checkable(self):
+        text = "\n".join(start + "\nshared\n" + end
+                         for start, end in toolchain.MIRRORED)
+        self.assertEqual(self.compare(text, text), [])
+
+
 if __name__ == "__main__":
     unittest.main()

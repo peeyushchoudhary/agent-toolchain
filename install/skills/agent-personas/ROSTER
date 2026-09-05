@@ -29,6 +29,10 @@
 # human reads, because that property comes from the PIN, not from which file the renderer opens.
 #
 # One name per line. Blank lines and `#` comments ignored.
+#
+# Superseded compatibility definitions remain protected by this floor until their files and old
+# references are deliberately removed. Selection status comes from each persona's source
+# description; generate the current active list with `sync_personas.py --list`.
 acceptance
 migration-validator
 planner

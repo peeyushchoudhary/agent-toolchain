@@ -58,3 +58,11 @@ produce that quantity. `ratio_meter.py` classifies committed line churn; `check_
 reports workspace files and bytes. Combining those outputs into one process ratio would turn a
 policy claim into an invented measurement. Name each tool's unit, and evaluate delivery with
 accepted outcomes, elapsed time, defects, repairs and founder decisions alongside churn.
+
+## 2026-09-05 — a clean main checkout can hide an interrupted candidate
+
+The published checkout was clean while an approved follow-up remained in separate local source and
+public candidate checkouts. Its plan, authorization, implementation handoffs and review findings
+survived there; an assessment limited to main missed them and proposed unrelated work. Before
+choosing a continuation, recover the current candidate and its last handoff. Keep a local recovery
+pointer and backup beside the project so temporary-directory state is not the only resume path.

@@ -222,6 +222,15 @@ MIRRORED = [
     ("**The personas are defined, not improvised.**", "system-prompt floor every call."),
 ]
 
+# The lean route replaces the procedural duplication. Keep the prior markers readable during
+# deliberate rollout; a mixed pair must still report the missing/current block, never compare an
+# empty selection and call it mirrored.
+ROUTED_MIRRORED = [
+    ("# GitHub", "# Execution and maintenance route"),
+    ("# Execution and maintenance route",
+     "User authority, privacy, local verification and deployment boundaries remain in force throughout."),
+]
+
 # Skills both harnesses need. `graphify` is deliberately excluded: it is a vendor skill hidden from
 # model-initiated use on the Claude side, and its presence in Codex is not something we manage.
 #
@@ -247,7 +256,7 @@ MIRRORED_SKILLS = ("progressive-disclosure", "agent-personas", "agent-persona-fa
                    # install.sh whether or not this tuple knows about it, so an omission here does
                    # not fail loudly — it installs the skill on the Codex side and guards it with
                    # nothing.
-                   "project-migration",
+                   "project-migration", "methodology-management",
                    # Added WITH the `gate-sandbox` publication. The comment above has now been
                    # right twice and is being trusted the third time rather than re-learned.
                    "gate-sandbox")
@@ -446,7 +455,9 @@ def check_instructions() -> list[tuple[str, str]]:
                           f"~/.codex/AGENTS.md could not be read ({e}), so no shared block was "
                           f"compared")]
     out = []
-    for start, end in MIRRORED:
+    markers = (ROUTED_MIRRORED if any("# Execution and maintenance route" in text
+                                    for text in (a, b)) else MIRRORED)
+    for start, end in markers:
         sa, sb = section(a, start, end), section(b, start, end)
         if sa is None or sb is None:
             out.append((NOT_RUN,

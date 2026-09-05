@@ -103,13 +103,18 @@ The body becomes the system prompt on Claude and developer_instructions on Codex
 ```
 
 ```bash
-sync_personas.py                      # render to ~/.claude/agents and ~/.codex/agents
-sync_personas.py --repo PATH          # also merge that repo's overlays
-sync_personas.py --repo PATH --check  # exit 1 when generated output is stale
-sync_personas.py --list               # active roster
+sync_personas.py --scope global --preview --json
+sync_personas.py --scope global
+sync_personas.py --repo PATH --scope project --preview --json
+sync_personas.py --repo PATH --scope project
+sync_personas.py --repo PATH --scope all --preview --json
+sync_personas.py --list
 sync_personas.py --list --format markdown
 sync_personas.py --list --include-retired
 ```
+
+Project scope requires `--repo`; global forbids it. `all` combines both. Preview writes nothing and
+is write-equivalent. Management callers state scope.
 
 **Generation is required, not cosmetic.** Claude Code's project-level agents *override* a same-named
 user agent wholesale, so "base persona plus project direction" cannot be expressed by file placement
@@ -118,8 +123,8 @@ user agent wholesale, so "base persona plus project direction" cannot be express
 **Never edit `~/.claude/agents/` or `~/.codex/agents/` directly.** They are generated, carry a
 banner saying so, and the next sync overwrites them.
 
-`sync_personas.py` prunes: removing a persona deletes its generated files everywhere. It only
-touches files carrying the banner, so a hand-written agent in the same directory survives.
+`sync_personas.py` prunes generated orphans only within the selected scope and preserves
+hand-written files, which lack the generation banner.
 
 ## Project specialisation
 
@@ -151,3 +156,5 @@ One historical sync observed `implementer` disappear and
 That observation does not prove a newly introduced model ID resolves in the current harness. Verify
 the generated file and actual dispatch before treating the configured model as active. Git hooks,
 by contrast, need `/hooks` or a restart.
+
+Public assignments are candidates. Persona synchronization does not activate models.

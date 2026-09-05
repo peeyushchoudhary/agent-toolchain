@@ -5,7 +5,8 @@ worked.
 
 | Document | What it holds |
 | --- | --- |
-| [onboarding-a-project.md](onboarding-a-project.md) | Five steps to bring a project under the standard |
-| [full-adoption.md](full-adoption.md) | The long-form walkthrough, including guard-testing |
+| [methodology-management.md](methodology-management.md) | Maintenance entry and compatibility mapping |
+| [onboarding-a-project.md](onboarding-a-project.md) | Public interface for the management-owned setup procedure |
+| [full-adoption.md](full-adoption.md) | Compatibility route for older adoption links |
 | [codex.md](codex.md) | The Codex side, and what it does not get |
 | [github.md](github.md) | Storage-only forge rules, the push guard, zero-cost posture |

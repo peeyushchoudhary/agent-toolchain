@@ -1818,9 +1818,9 @@ def check_ignored_write_paths(repo: Repo, writes: list[PathSpec], f: Findings) -
     the fix was one line un-ignoring the path, which means declaring .gitignore in the write set is
     the whole remedy, so requiring it is the whole check.
 
-    git resolves negations itself: a re-admitted path exits 1 and is not reported here, verified on
-    git 2.50.1. And check-ignore answers for paths that DO NOT EXIST YET, which is the case that
-    matters, because a card declares a file before the task creates it.
+    With `-v`, git reports the matching rule even when it is a negation and exits 0. This check
+    filters those re-admission rules. `check-ignore` also answers for paths that DO NOT EXIST YET,
+    which is the case that matters, because a card declares a file before the task creates it.
     """
     literals = sorted({spec.pattern for spec in writes
                        if is_normalized_safe_literal(spec.pattern)})
@@ -1853,6 +1853,15 @@ def check_ignored_write_paths(repo: Repo, writes: list[PathSpec], f: Findings) -
         # guard becomes noise and gets switched off. The accident this exists to catch is a CONTENT
         # glob (`*.tsv`) swallowing a durable artifact inside an otherwise tracked tree.
         if pattern.endswith("/"):
+            continue
+        # A NEGATION rule is the opposite of an ignore: `!path` RE-ADMITS a path the wholesale ban
+        # above it excluded. `check-ignore -v` prints the matching line whatever its polarity and
+        # exits 0, so reading its output as proof of ignoring inverts the answer -- plain
+        # `check-ignore` on the same path exits 1, meaning NOT ignored. This fired on every NEW file
+        # under a re-admitted glob (git omits already-TRACKED paths from this output, which is why
+        # it looked correct against existing cards) and made a whole class of task -- every new
+        # database migration -- unschedulable behind an error that was false.
+        if pattern.startswith("!"):
             continue
         f.add(ERROR, "exclusive_writes",
               f"{path} is IGNORED by .gitignore ({pattern}), so writing it produces a file no clone "

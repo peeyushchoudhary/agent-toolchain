@@ -32,6 +32,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 from pathlib import Path
 
 SKILL = Path(__file__).resolve().parents[1]
@@ -47,6 +48,40 @@ sys.modules["check_conformance"] = cc
 _spec.loader.exec_module(cc)
 
 SYNC_PERSONAS = cc.SYNC_PERSONAS
+
+
+def runtime_status(state: str, **changes) -> dict:
+    identity = {
+        "version": "5.1",
+        "source_sha256": "a" * 64,
+        "runtime_sha256": "b" * 64,
+        "bundle_root": "/approved/skills",
+    }
+    payload = {
+        "schema_version": 1,
+        "state": state,
+        "ready": state == "current",
+        "approved": identity,
+        "installed": dict(identity),
+        "route": {"valid": state == "current", "detail": ""},
+        "overlay": {
+            "valid": True,
+            "sha256": None,
+            "expected_sha256": None,
+            "detail": "",
+        },
+        "dependencies": [{
+            "path": "execution-methodology/methodology.md",
+            "stage": "common",
+            "status": "current",
+            "expected_sha256": "c" * 64,
+            "actual_sha256": "c" * 64,
+        }],
+        "findings": [],
+        "repair_candidates": [],
+    }
+    payload.update(changes)
+    return payload
 
 
 # ---------------------------------------------------------------------------------------------
@@ -104,7 +139,7 @@ def build_repo(root: Path) -> Path:
 
 
 def render(repo: Path) -> subprocess.CompletedProcess:
-    return subprocess.run([PY, str(SYNC_PERSONAS), "--repo", str(repo)],
+    return subprocess.run([PY, str(SYNC_PERSONAS), "--scope", "project", "--repo", str(repo)],
                           capture_output=True, text=True)
 
 
@@ -143,6 +178,398 @@ class Fixture(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="pc-"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.repo = build_repo(self.tmp / "widget-lib")
+
+
+class RuntimeStatusConsumerTest(Fixture):
+    def owner_run(self, payload: dict | None, *, rc: int = 0, out: str | None = None) -> cc.Run:
+        stdout = json.dumps(payload) if out is None and payload is not None else (out or "")
+        return cc.Run([PY, str(cc.SYNC_METHODOLOGY), "--repo", str(self.repo), "--status-json"],
+                      True, rc, stdout, "")
+
+    def test_missing_runtime_status_stdout_is_not_a_pass(self):
+        with mock.patch.object(cc, "run", return_value=self.owner_run(None, out="")):
+            check = cc.check_methodology(self.repo)
+        self.assertIs(check.verdict, cc.Verdict.NOT_RUN)
+        self.assertIn("printed no JSON", check.why_not_run)
+        self.assertEqual(check.repairs, [])
+
+    def test_source_changed_status_is_reported_and_fix_cannot_upgrade_it(self):
+        status = runtime_status(
+            "source_changed",
+            ready=False,
+            route={"valid": True, "detail": ""},
+            findings=[{
+                "code": "source_changed",
+                "severity": "warning",
+                "message": "installed source differs from the approved runtime",
+                "path": None,
+            }],
+        )
+        with mock.patch.object(cc, "run", return_value=self.owner_run(status)):
+            check = cc.check_methodology(self.repo)
+        self.assertIs(check.verdict, cc.Verdict.DOES_NOT_CONFORM)
+        self.assertEqual(check.repairs, [], "--fix turned changed source into an implicit upgrade")
+        self.assertIn("installed source differs", check.findings[0].detail)
+
+    def test_all_non_current_states_are_reported_without_promotion(self):
+        for state in ("legacy", "source_changed", "unadopted", "deferred", "unmanaged"):
+            with self.subTest(state=state):
+                status = runtime_status(state, ready=False,
+                                        route={"valid": True, "detail": ""})
+                with mock.patch.object(cc, "run", return_value=self.owner_run(status)):
+                    check = cc.check_methodology(self.repo)
+                self.assertIs(check.verdict, cc.Verdict.DOES_NOT_CONFORM)
+                self.assertEqual(check.repairs, [])
+                self.assertTrue(check.findings)
+
+    def test_contradictory_current_keeps_owner_findings_and_fails_closed(self):
+        status = runtime_status(
+            "current",
+            route={"valid": False, "detail": "route missing"},
+            findings=[{"code": "route_missing", "severity": "error",
+                       "message": "execution route is absent", "path": "AGENTS.md"}],
+        )
+        with mock.patch.object(cc, "run", return_value=self.owner_run(status)):
+            check = cc.check_methodology(self.repo)
+        self.assertIs(check.verdict, cc.Verdict.NOT_RUN)
+        self.assertIn("current has an invalid route", check.why_not_run)
+        self.assertIn("execution route is absent", check.findings[0].detail)
+
+    def test_unknown_schema_and_malformed_nested_types_fail_closed(self):
+        cases = [
+            runtime_status("current", schema_version=2),
+            runtime_status("current", dependencies="not-an-array"),
+            runtime_status("current", ready=False),
+            runtime_status(
+                "repairable", ready=False, route={"valid": False, "detail": "missing"},
+                repair_candidates=[{"action": "render_approved", "paths": ["x"]}]),
+        ]
+        for status in cases:
+            with self.subTest(status=status):
+                with mock.patch.object(cc, "run", return_value=self.owner_run(status)):
+                    check = cc.check_methodology(self.repo)
+                self.assertIs(check.verdict, cc.Verdict.NOT_RUN)
+                self.assertEqual(check.repairs, [])
+
+    def test_only_repairable_accepts_repository_local_owner_candidates(self):
+        target = self.repo / "docs/agents/execution/methodology.md"
+        status = runtime_status(
+            "repairable", ready=False, route={"valid": True, "detail": ""},
+            findings=[{"code": "generated_drift", "severity": "error",
+                       "message": "generated output differs", "path": str(target)}],
+            repair_candidates=[{"action": "render_approved",
+                                "paths": ["docs/agents/execution/methodology.md"]}],
+        )
+        with mock.patch.object(cc, "run", return_value=self.owner_run(status)):
+            check = cc.check_methodology(self.repo)
+        self.assertIs(check.verdict, cc.Verdict.DOES_NOT_CONFORM)
+        self.assertEqual(check.repairs[0].files, [target.resolve()])
+
+        status["repair_candidates"][0]["paths"] = ["../outside"]
+        with mock.patch.object(cc, "run", return_value=self.owner_run(status)):
+            escaped = cc.check_methodology(self.repo)
+        self.assertIs(escaped.verdict, cc.Verdict.NOT_RUN)
+        self.assertEqual(escaped.repairs, [])
+
+    def test_current_is_the_only_conforming_runtime_state(self):
+        with mock.patch.object(cc, "run", return_value=self.owner_run(runtime_status("current"))):
+            check = cc.check_methodology(self.repo)
+        self.assertIs(check.verdict, cc.Verdict.CONFORMS)
+        self.assertEqual(check.repairs, [])
+
+    def test_inspection_error_exit_two_preserves_owner_finding(self):
+        status = runtime_status(
+            "invalid", ready=False, approved=None, installed=None,
+            route={"valid": False, "detail": "repository unreadable"}, dependencies=[],
+            findings=[{"code": "inspection_error", "severity": "error",
+                       "message": "repository unreadable", "path": None}],
+        )
+        with mock.patch.object(cc, "run", return_value=self.owner_run(status, rc=2)):
+            check = cc.check_methodology(self.repo)
+        self.assertIs(check.verdict, cc.Verdict.NOT_RUN)
+        self.assertIn("repository unreadable", check.findings[0].detail)
+
+    def test_repair_carries_planned_identity_through_owner_and_postcheck(self):
+        target = self.repo / "docs/agents/execution/methodology.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("damaged\n", encoding="utf-8")
+        repairable = runtime_status(
+            "repairable", ready=False, route={"valid": True, "detail": ""},
+            findings=[{"code": "generated_drift", "severity": "error",
+                       "message": "generated output differs", "path": str(target)}],
+            repair_candidates=[{"action": "render_approved", "paths": [str(target)]}],
+        )
+        current = runtime_status("current")
+        calls = []
+
+        def owner(argv, timeout=cc.TIMEOUT):
+            calls.append(argv)
+            if "--status-json" in argv:
+                payload = repairable if len([c for c in calls if "--status-json" in c]) == 1 else current
+                return self.owner_run(payload)
+            self.assertIn("--repair-approved", argv)
+            frozen = json.loads(argv[argv.index("--repair-approved") + 1])
+            self.assertEqual(frozen, {
+                "identity": repairable["approved"],
+                "overlay_expected_sha256": repairable["overlay"]["expected_sha256"],
+            })
+            target.write_text("approved\n", encoding="utf-8")
+            return cc.Run([str(arg) for arg in argv], True, 0, "", "")
+
+        with mock.patch.object(cc, "run", side_effect=owner):
+            repair = cc.check_methodology(self.repo).repairs[0]
+            changed, note = repair.apply()
+        self.assertEqual(changed, [target.resolve()])
+        self.assertIn("approved runtime", note)
+        self.assertEqual(sum("--status-json" in call for call in calls), 2)
+
+    def test_repair_refuses_source_swap_instead_of_promoting_new_identity(self):
+        target = self.repo / "docs/agents/execution/methodology.md"
+        runtime = self.repo / "docs/agents/execution/runtime.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("damaged\n", encoding="utf-8")
+        runtime.write_text("approved inventory X\n", encoding="utf-8")
+        repairable = runtime_status(
+            "repairable", ready=False, route={"valid": True, "detail": ""},
+            findings=[{"code": "generated_drift", "severity": "error",
+                       "message": "generated output differs", "path": str(target)}],
+            repair_candidates=[{"action": "render_approved", "paths": [str(target)]}],
+        )
+        before = (target.read_bytes(), runtime.read_bytes())
+        calls = []
+
+        def owner(argv, timeout=cc.TIMEOUT):
+            calls.append(argv)
+            if "--status-json" in argv:
+                return self.owner_run(repairable)
+            self.assertEqual(json.loads(argv[argv.index("--repair-approved") + 1]), {
+                "identity": repairable["approved"],
+                "overlay_expected_sha256": repairable["overlay"]["expected_sha256"],
+            })
+            return cc.Run([str(arg) for arg in argv], True, 2, "",
+                          "approved identity changed; refusing repair")
+
+        with mock.patch.object(cc, "run", side_effect=owner):
+            repair = cc.check_methodology(self.repo).repairs[0]
+            changed, note = repair.apply()
+
+        self.assertEqual(changed, [])
+        self.assertTrue(note.startswith("FAILED"), note)
+        self.assertEqual((target.read_bytes(), runtime.read_bytes()), before)
+        self.assertEqual(sum("--status-json" in call for call in calls), 1)
+
+    def test_repair_postcheck_rejects_current_different_identity(self):
+        target = self.repo / "docs/agents/execution/methodology.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("damaged\n", encoding="utf-8")
+        repairable = runtime_status(
+            "repairable", ready=False, route={"valid": True, "detail": ""},
+            repair_candidates=[{"action": "render_approved", "paths": [str(target)]}],
+        )
+        changed_identity = dict(repairable["approved"])
+        changed_identity["source_sha256"] = "d" * 64
+        promoted = runtime_status("current", approved=changed_identity,
+                                  installed=dict(changed_identity))
+        status_calls = 0
+
+        def owner(argv, timeout=cc.TIMEOUT):
+            nonlocal status_calls
+            if "--status-json" in argv:
+                status_calls += 1
+                return self.owner_run(repairable if status_calls == 1 else promoted)
+            target.write_text("new identity\n", encoding="utf-8")
+            return cc.Run([str(arg) for arg in argv], True, 0, "repaired\n", "")
+
+        with mock.patch.object(cc, "run", side_effect=owner):
+            repair = cc.check_methodology(self.repo).repairs[0]
+            _, note = repair.apply()
+
+        self.assertTrue(note.startswith("FAILED"), note)
+        self.assertIn("frozen approved identity", note)
+
+    def test_repair_postcheck_rejects_changed_planned_overlay_identity(self):
+        target = self.repo / "docs/agents/execution/methodology.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("damaged\n", encoding="utf-8")
+        repairable = runtime_status(
+            "repairable", ready=False, route={"valid": True, "detail": ""},
+            overlay={"valid": True, "sha256": "e" * 64,
+                     "expected_sha256": "e" * 64, "detail": ""},
+            repair_candidates=[{"action": "render_approved", "paths": [str(target)]}],
+        )
+        promoted = runtime_status(
+            "current",
+            overlay={"valid": True, "sha256": "f" * 64,
+                     "expected_sha256": "f" * 64, "detail": ""},
+        )
+        status_calls = 0
+
+        def owner(argv, timeout=cc.TIMEOUT):
+            nonlocal status_calls
+            if "--status-json" in argv:
+                status_calls += 1
+                return self.owner_run(repairable if status_calls == 1 else promoted)
+            frozen = json.loads(argv[argv.index("--repair-approved") + 1])
+            self.assertEqual(frozen["overlay_expected_sha256"], "e" * 64)
+            target.write_text("repaired\n", encoding="utf-8")
+            return cc.Run([str(arg) for arg in argv], True, 0, "repaired\n", "")
+
+        with mock.patch.object(cc, "run", side_effect=owner):
+            repair = cc.check_methodology(self.repo).repairs[0]
+            _, note = repair.apply()
+
+        self.assertTrue(note.startswith("FAILED"), note)
+        self.assertIn("frozen approved identity", note)
+
+
+class ScopedOwnerConsumerTest(Fixture):
+    def test_hook_plan_uses_sibling_owner_and_project_scope_only(self):
+        hook = (self.repo / ".git/hooks/pre-push").resolve()
+        payload = {"schema_version": 1, "scope": "project",
+                   "operations": [{"action": "create", "path": str(hook)}], "findings": []}
+        owner = cc.Run([], True, 0, json.dumps(payload), "")
+        with mock.patch.object(cc, "run", return_value=owner) as invoked:
+            check = cc.check_hooks(self.repo)
+        argv = invoked.call_args.args[0]
+        self.assertEqual(Path(argv[1]), cc.PD / "install_hooks.py")
+        self.assertIn("--scope", argv)
+        self.assertEqual(argv[argv.index("--scope") + 1], "project")
+        self.assertIn("--preview", argv)
+        self.assertEqual(check.repairs[0].files, [hook])
+        self.assertTrue(all(self.repo.resolve() in path.parents for path in check.repairs[0].files))
+
+    def test_hook_preview_rejects_a_global_path(self):
+        payload = {"schema_version": 1, "scope": "project",
+                   "operations": [{"action": "update", "path": str(Path.home() / ".codex/x")}],
+                   "findings": []}
+        with mock.patch.object(cc, "run",
+                               return_value=cc.Run([], True, 0, json.dumps(payload), "")):
+            check = cc.check_hooks(self.repo)
+        self.assertIs(check.verdict, cc.Verdict.NOT_RUN)
+        self.assertEqual(check.repairs, [])
+
+
+class RealRuntimeOwnerIntegrationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="pc-runtime-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.skills = self.tmp / "skills"
+        shutil.copytree(SKILL.parent, self.skills)
+        self.owner = self.skills / "execution-methodology/scripts/sync_methodology.py"
+        self.checker = self.skills / "project-conformance/scripts/check_conformance.py"
+        self.fake_home = self.tmp / "home"
+        (self.fake_home / ".claude/agents").mkdir(parents=True)
+        (self.fake_home / ".codex/agents").mkdir(parents=True)
+        (self.fake_home / ".claude/agents/sentinel.md").write_text("same\n", encoding="utf-8")
+        (self.fake_home / ".codex/agents/sentinel.toml").write_text("same\n", encoding="utf-8")
+        self.env = dict(os.environ, HOME=str(self.fake_home),
+                        CODEX_HOME=str(self.fake_home / ".codex"))
+
+    def repo(self, name: str) -> Path:
+        repo = self.tmp / name
+        (repo / "docs/agents").mkdir(parents=True)
+        (repo / "docs/agents/README.md").write_text(
+            "# Route\n\n[methodology](execution/methodology.md)\n", encoding="utf-8")
+        return repo
+
+    def owner_run(self, repo: Path, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([PY, str(self.owner), "--repo", str(repo), *args],
+                              capture_output=True, text=True, env=self.env)
+
+    def status(self, repo: Path) -> dict:
+        result = self.owner_run(repo, "--status-json")
+        self.assertIn(result.returncode, (0, 2), result.stdout + result.stderr)
+        return json.loads(result.stdout)
+
+    def conform(self, repo: Path, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([PY, str(self.checker), str(repo), "--only", "methodology", *args],
+                              capture_output=True, text=True, env=self.env)
+
+    def render(self, repo: Path) -> None:
+        result = self.owner_run(repo)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_real_owner_states_are_consumed_without_a_second_classifier(self):
+        unadopted = self.repo("unadopted")
+        self.assertEqual(self.status(unadopted)["state"], "unadopted")
+        self.assertEqual(self.conform(unadopted, "--json").returncode, 1)
+
+        deferred = self.repo("deferred")
+        (deferred / "docs/agents/README.md").write_text(
+            '# Route\n<!-- execution-methodology: {"mode":"deferred",'
+            '"reason":"finish current milestone","date":"2026-09-05"} -->\n', encoding="utf-8")
+        self.assertEqual(self.status(deferred)["state"], "deferred")
+        self.assertEqual(self.conform(deferred, "--json").returncode, 1)
+
+        unmanaged = self.repo("unmanaged")
+        target = unmanaged / "docs/agents/execution/methodology.md"
+        target.parent.mkdir(parents=True)
+        target.write_text("# Owner-authored rules\n", encoding="utf-8")
+        self.assertEqual(self.status(unmanaged)["state"], "unmanaged")
+        self.assertEqual(json.loads(self.conform(unmanaged, "--json").stdout)["repair_plan"], [])
+
+        legacy = self.repo("legacy")
+        legacy_target = legacy / "docs/agents/execution/methodology.md"
+        legacy_target.parent.mkdir(parents=True)
+        legacy_target.write_text(
+            '<!-- GENERATED by execution-methodology/scripts/sync_methodology.py from '
+            'execution-methodology/methodology.md — do not hand-edit this file; edit the '
+            "methodology, or this repo's docs/agents/execution/overlay.md. -->\n"
+            '<!-- execution-methodology: {"v":"5.0","source_sha256":"abc"} -->\n',
+            encoding="utf-8")
+        self.assertEqual(self.status(legacy)["state"], "legacy")
+        self.assertEqual(json.loads(self.conform(legacy, "--json").stdout)["repair_plan"], [])
+
+        adopted = self.repo("adopted")
+        self.render(adopted)
+        self.assertEqual(self.status(adopted)["state"], "current")
+        self.assertEqual(self.conform(adopted, "--json").returncode, 0)
+        adopted_target = adopted / "docs/agents/execution/methodology.md"
+        adopted_target.write_text(adopted_target.read_text() + "\ndamaged\n", encoding="utf-8")
+        self.assertEqual(self.status(adopted)["state"], "repairable")
+        self.assertTrue(json.loads(self.conform(adopted, "--json").stdout)["repair_plan"])
+
+    def test_real_missing_and_changed_runtime_never_become_repairs(self):
+        changed = self.repo("changed")
+        self.render(changed)
+        dependency = self.skills / "execution-methodology/references/execution-loop.md"
+        dependency.write_text(dependency.read_text() + "\nchanged\n", encoding="utf-8")
+        payload = self.status(changed)
+        self.assertEqual(payload["state"], "source_changed")
+        report = json.loads(self.conform(changed, "--json").stdout)
+        self.assertEqual(report["repair_plan"], [])
+
+        dependency.unlink()
+        payload = self.status(changed)
+        self.assertEqual(payload["state"], "source_changed")
+        self.assertTrue(any(row["status"] == "missing" for row in payload["dependencies"]))
+        self.assertEqual(json.loads(self.conform(changed, "--json").stdout)["repair_plan"], [])
+
+    def test_real_corrupted_inventory_fails_closed_and_approved_fix_is_stable_and_local(self):
+        corrupt = self.repo("corrupt")
+        self.render(corrupt)
+        (corrupt / "docs/agents/execution/runtime.json").write_text("{bad json\n", encoding="utf-8")
+        result = self.conform(corrupt, "--json")
+        report = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(report["verdict"], "could not be checked")
+        self.assertIn("inspection_error", json.dumps(report["findings"]))
+
+        repair = self.repo("repair")
+        self.render(repair)
+        target = repair / "docs/agents/execution/methodology.md"
+        target.write_text(target.read_text() + "\ndamaged\n", encoding="utf-8")
+        global_before = tree_hash(self.fake_home, skip_git_internals=False)
+        first = self.conform(repair, "--fix")
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertEqual(self.status(repair)["state"], "current")
+        self.assertEqual(tree_hash(self.fake_home, skip_git_internals=False), global_before)
+        repo_before = tree_hash(repair)
+        second = self.conform(repair, "--fix")
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertIn("nothing was changed by this run", second.stdout)
+        self.assertEqual(tree_hash(repair), repo_before)
+        self.assertEqual(tree_hash(self.fake_home, skip_git_internals=False), global_before)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -348,105 +775,24 @@ class MechanicalRepairTest(Fixture):
         for a in artifacts:
             self.assertTrue(a.is_file(), f"the guard let {a} be deleted")
 
-    def test_a_removed_line_is_parsed_so_a_deletion_can_never_read_as_nothing_changed(self):
-        line = "  removed /tmp/x/.claude/agents/gone.md  (orphaned — persona no longer in the pool)"
-        self.assertEqual(cc.REMOVED.match(line).group("path"), "/tmp/x/.claude/agents/gone.md")
-        self.assertIsNone(cc.REMOVED.match("  wrote   /tmp/x/a.md"))
-
-    def test_an_orphaned_suffix_is_not_swallowed_into_the_path(self):
-        """H5. `STALE_ENTRY` knew only `unmanaged`, so `(orphaned — …)` became part of the path —
-        a filename that does not exist, describing a file about to be deleted as one about to be
-        re-rendered."""
-        parsed = cc._stale_paths(
-            "  STALE — 3 generated file(s) do not match the persona source:\n"
-            "    /a/plain.md\n"
-            "    /a/hand.md (unmanaged — no persona source)\n"
-            "    /a/gone.md (orphaned — no persona source)\n")
-        self.assertEqual(parsed.regenerable, ["/a/plain.md"])
-        self.assertEqual(parsed.unmanaged, ["/a/hand.md"])
-        self.assertEqual(parsed.orphaned, ["/a/gone.md"])
-        self.assertFalse(parsed.truncated)
-
-    def test_a_truncated_stale_list_blocks_the_repair_instead_of_repairing_part_of_it(self):
-        """H4. The callee caps its list at twelve while its header prints the true total, and
-        `prune` appends last — so on a large drift the unmanaged entry, the finding this whole
-        skill exists for, falls off the end. Repairing what could be seen would write files the
-        plan never named."""
-        listed = "\n".join(f"    /a/f{i}.md" for i in range(12))
-        parsed = cc._stale_paths(
-            f"  STALE — 40 generated file(s) do not match the persona source:\n{listed}\n")
-        self.assertTrue(parsed.truncated)
-        self.assertFalse(parsed.enumerable)
-        self.assertEqual(cc._render_blockers({"repository": parsed}) and True, True)
-        self.assertIn("truncated", " ".join(cc._render_blockers({"repository": parsed})))
-
-    def test_the_two_read_scopes_together_equal_what_the_write_touches(self):
-        """C2, MEASURED rather than reasoned: union(two checks) == the write's actual effect.
-
-        `sync_personas.sync()` computes `check_global = not (check and repo is not None)`, so
-        `--repo R --check` sees only the project trees and `--check` only the machine-global ones,
-        while `--repo R` in write mode acts on BOTH. No single read-only invocation has the write's
-        scope, so the enumeration is a union — and a union is only trustworthy if it is measured.
-
-        The write runs with `HOME` pointed at a temporary directory, so the machine-global half of
-        its effect lands in the fixture rather than on this machine. `PROJECT_CONFORMANCE_HOME`
-        still points at the real one so the tool finds the real scripts.
-        """
+    def test_persona_fix_changes_project_only_and_leaves_global_snapshot_exact(self):
         fake_home = self.tmp / "home"
-        (fake_home / ".claude" / "agents").mkdir(parents=True)
-        (fake_home / ".codex" / "agents").mkdir(parents=True)
-        env = dict(os.environ, HOME=str(fake_home))
-
-        def check(*args: str) -> str:
-            p = subprocess.run([PY, str(SYNC_PERSONAS), *args], capture_output=True, text=True,
-                               env=env)
-            self.assertIn(p.returncode, (0, 1), p.stdout + p.stderr)
-            return p.stdout
-
-        # Populate the fake machine-global trees first. An EMPTY one makes all 26 base artifacts
-        # stale, which trips the callee's own twelve-entry cap — a real demonstration of H4, but it
-        # would make this test measure the truncation instead of the scope. Found by running it.
-        seed = subprocess.run([PY, str(SYNC_PERSONAS)], capture_output=True, text=True, env=env)
-        self.assertEqual(seed.returncode, 0, seed.stdout + seed.stderr)
-
-        # One file stale in EACH scope, so both halves of the union carry weight.
-        global_artifact = fake_home / ".claude" / "agents" / "reviewer.md"
-        self.assertTrue(global_artifact.is_file(), "the seed did not populate the global tree")
-        global_artifact.write_text("drifted\n", encoding="utf-8")
-        repo_artifact = self.repo / ".claude" / "agents" / "widget-safety-validator.md"
-        repo_artifact.write_text(repo_artifact.read_text() + "\ndrifted\n", encoding="utf-8")
-
-        project = cc._stale_paths(check("--repo", str(self.repo), "--check"))
-        machine = cc._stale_paths(check("--check"))
-        self.assertTrue(project.enumerable and machine.enumerable, "an enumeration was incomplete")
-        # Positive controls: BOTH queries must be doing real work, or the union is really one query.
-        self.assertTrue(project.regenerable, "the repository scope saw nothing")
-        self.assertTrue(machine.regenerable, "the machine-global scope saw nothing")
-        union = ({cc._key(Path(p)) for p in project.regenerable + project.orphaned}
-                 | {cc._key(Path(p)) for p in machine.regenerable + machine.orphaned})
-
-        write = subprocess.run([PY, str(SYNC_PERSONAS), "--repo", str(self.repo)],
-                               capture_output=True, text=True, env=env)
-        self.assertEqual(write.returncode, 0, write.stdout + write.stderr)
-        touched = {cc._key(Path(m.group("path")))
-                   for line in write.stdout.splitlines()
-                   for m in [cc.WROTE.match(line) or cc.REMOVED.match(line)] if m}
-        self.assertEqual(touched, union,
-                         "the union of the two read scopes is NOT what the write touches, so the "
-                         "plan cannot authorise the repair")
-
-    def test_machine_global_persona_findings_are_scoped_and_not_called_repository(self):
-        """C2's reporting half: the second scope's findings must be tagged, like the plugins are."""
-        fake_home = self.tmp / "home2"
-        (fake_home / ".claude" / "agents").mkdir(parents=True)
-        r = subprocess.run([PY, str(SCRIPT), str(self.repo), "--only", "personas", "--json"],
-                           capture_output=True, text=True,
-                           env=dict(os.environ, HOME=str(fake_home),
-                                    PROJECT_CONFORMANCE_HOME=str(Path.home())))
-        data = json.loads(r.stdout)
-        scopes = {f["scope"] for f in data["findings"]}
-        self.assertIn("machine-global", scopes,
-                      "an empty machine-global tree produced no machine-global finding")
+        global_claude = fake_home / ".claude" / "agents"
+        global_codex = fake_home / ".codex" / "agents"
+        global_claude.mkdir(parents=True)
+        global_codex.mkdir(parents=True)
+        (global_claude / "sentinel.md").write_text("unchanged\n", encoding="utf-8")
+        (global_codex / "sentinel.toml").write_text("unchanged\n", encoding="utf-8")
+        artifact = self.repo / ".claude" / "agents" / "widget-safety-validator.md"
+        artifact.write_text(artifact.read_text() + "\ndrifted\n", encoding="utf-8")
+        before = tree_hash(fake_home, skip_git_internals=False)
+        result = subprocess.run(
+            [PY, str(SCRIPT), str(self.repo), "--only", "personas", "--fix"],
+            capture_output=True, text=True,
+            env=dict(os.environ, HOME=str(fake_home), CODEX_HOME=str(fake_home / ".codex")))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(tree_hash(fake_home, skip_git_internals=False), before,
+                         "project persona repair changed machine-global state")
 
     def test_absent_hooks_are_reported_and_installed(self):
         before = conformance(self.repo, "--only", "hooks", "--json")
@@ -480,7 +826,7 @@ class MechanicalRepairTest(Fixture):
         if data["verdict"] == "could not be checked":
             self.skipTest("the methodology renderer is not installed on this machine")
         self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("not been adopted", json.dumps(data["findings"]))
+        self.assertIn("methodology_unadopted", json.dumps(data["findings"]))
         self.assertEqual(data["repair_plan"], [], "--fix scheduled an adoption")
 
         snapshot = tree_hash(self.repo)
@@ -496,37 +842,23 @@ class StuckRedCheckTest(Fixture):
                      encoding="utf-8")
         return f
 
-    def test_the_advertised_persona_drift_remedy_is_still_a_no_op(self):
-        """Drive the REAL tool. This is the positive control behind the skill's central warning.
-
-        `validate_disclosure.py`'s persona-drift ERROR and `sync_personas.py`'s own `run:` line
-        both prescribe `sync_personas.py --repo .`. Against an unmanaged generated agent that
-        command exits 0, prints `already up to date`, and leaves the file — so the identical error
-        fires again next session and a maintainer concludes the CHECK is broken. If agent-personas
-        ever makes that command work, this test fails and `UNMANAGED_REMEDY` must be rewritten.
-        """
+    def test_explicit_project_preview_reports_unmanaged_and_preserves_it(self):
         planted = self.plant_unmanaged()
-        first = subprocess.run([PY, str(SYNC_PERSONAS), "--repo", str(self.repo), "--check"],
-                               capture_output=True, text=True)
-        self.assertEqual(first.returncode, 1, first.stdout + first.stderr)
-        self.assertIn("unmanaged", first.stdout)
-
-        prescribed = subprocess.run([PY, str(SYNC_PERSONAS), "--repo", str(self.repo)],
-                                    capture_output=True, text=True)
-        self.assertEqual(prescribed.returncode, 0, "the advertised remedy no longer exits 0")
-        self.assertTrue(planted.is_file(), "the advertised remedy now deletes the file")
-
-        again = subprocess.run([PY, str(SYNC_PERSONAS), "--repo", str(self.repo), "--check"],
-                               capture_output=True, text=True)
-        self.assertEqual(again.returncode, 1, "the check no longer fires again — remedy now works")
-        self.assertIn("unmanaged", again.stdout)
+        preview = subprocess.run(
+            [PY, str(SYNC_PERSONAS), "--scope", "project", "--repo", str(self.repo),
+             "--preview", "--json"], capture_output=True, text=True)
+        self.assertEqual(preview.returncode, 2, preview.stdout + preview.stderr)
+        payload = json.loads(preview.stdout)
+        self.assertEqual(payload["operations"], [])
+        self.assertIn("unmanaged_persona", json.dumps(payload["findings"]))
+        self.assertTrue(planted.is_file())
 
     def test_the_report_states_the_working_remedy_and_not_the_no_op_one(self):
         self.plant_unmanaged()
         r = conformance(self.repo, "--only", "personas")
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("rogue-judge.md", r.stdout)
-        self.assertIn("does NOT fix this", r.stdout)
+        self.assertIn("preserves unmanaged content", r.stdout)
         self.assertIn("delete the file", r.stdout)
         self.assertIn("give it a persona source", r.stdout)
 
@@ -762,7 +1094,8 @@ class CalleeContractTest(Fixture):
         that examined nothing returned CONFORMS.
         """
         declare = subprocess.run(
-            [PY, str(cc.PD / "install_hooks.py"), str(self.repo), "--public"],
+            [PY, str(cc.PD / "install_hooks.py"), str(self.repo), "--public",
+             "--scope", "project"],
             capture_output=True, text=True)
         self.assertEqual(declare.returncode, 0, declare.stdout + declare.stderr)
         states = cc._hook_states(subprocess.run(
@@ -785,45 +1118,6 @@ class CalleeContractTest(Fixture):
         self.assertFalse(f"repository declares itself PUBLIC: {rendered}".find(
             "repository declares itself PUBLIC: yes") >= 0)
         self.assertTrue(cc._declares_public({cc.PUBLIC_KEY: rendered}))
-
-    def test_a_deliberate_deferral_conforms_rather_than_demanding_it_be_undone(self):
-        """M7. A recorded deferral is one of the two conforming outcomes."""
-        self.assertIs(cc._methodology_state(
-            "AGENT CONTEXT: execution methodology v1.2 is deliberately deferred here since "
-            "2026-05-01 (93 days) — pre-product spike"), cc.METH_DEFERRED)
-
-    def test_could_not_be_evaluated_is_not_run_rather_than_a_finding(self):
-        """M7. Frozen value #3 at the leaf: a checker that could not evaluate is not a finding."""
-        self.assertIs(cc._methodology_state(
-            "AGENT CONTEXT: execution methodology v1.2 could not be evaluated for this "
-            "repository.\n  - [warn] the source is unreadable"), cc.METH_COULD_NOT_EVALUATE)
-
-    def test_an_unmanaged_methodology_file_relays_the_remedy_that_works(self):
-        """M6. The persona-drift defect, rebuilt in another subsystem, and now prevented.
-
-        A hand-written `methodology.md` makes the re-render REFUSE and return 2, so offering that
-        repair means every `--fix` exits FAILED with the finding never clearing. The callee states
-        `Move it aside, then re-render`; that is relayed instead of replaced.
-        """
-        text = ("AGENT CONTEXT: execution methodology v1.2 is rendered into this repository but "
-                "out of date.\n  - [warn] docs/agents/execution/methodology.md was not generated "
-                "by this script and does not match the source\n  Move it aside, then re-render: "
-                "`python3 sync_methodology.py --repo X`")
-        self.assertIs(cc._methodology_state(text), cc.METH_UNMANAGED)
-
-        target = self.repo / "docs" / "agents" / "execution"
-        target.mkdir(parents=True)
-        (target / "methodology.md").write_text("# hand written\n", encoding="utf-8")
-        data = json.loads(conformance(self.repo, "--only", "methodology", "--json").stdout)
-        if data["verdict"] == "could not be checked":
-            self.skipTest("the methodology renderer is not installed on this machine")
-        self.assertEqual(data["verdict"], "does not conform")
-        self.assertEqual(data["repair_plan"], [], "a repair that returns 2 was offered")
-        self.assertIn("Move it aside", json.dumps(data["findings"]),
-                      "the callee's working remedy was discarded")
-
-    def test_unrecognised_methodology_output_is_not_run_never_a_confident_finding(self):
-        self.assertIsNone(cc._methodology_state("AGENT CONTEXT: something entirely new"))
 
     def test_a_non_critical_github_severity_is_not_a_non_conformance(self):
         """M8. `exception` is an APPROVED public-exception waiver, and `exit_code` returns 0 for it.
@@ -905,15 +1199,11 @@ class StructureTest(unittest.TestCase):
         self.assertEqual(offenders, [],
                          f"a callee's output is being classified by an inline literal: {offenders}")
 
-    def test_the_methodology_states_are_a_named_table_covering_every_documented_state(self):
-        names = [n for n, _sig in cc.METHODOLOGY_STATES]
-        self.assertEqual(len(names), len(set(names)))
-        self.assertEqual(set(names), {cc.METH_COULD_NOT_EVALUATE, cc.METH_UNMANAGED,
-                                      cc.METH_STALE, cc.METH_DEFERRED, cc.METH_UNADOPTED})
-        # Order matters: the two stale sub-cases share a first line, and could-not-evaluate must
-        # be tested before anything else.
-        self.assertEqual(names[0], cc.METH_COULD_NOT_EVALUATE)
-        self.assertLess(names.index(cc.METH_UNMANAGED), names.index(cc.METH_STALE))
+    def test_runtime_states_match_the_frozen_interface(self):
+        self.assertEqual(cc.RUNTIME_STATES, {
+            "current", "repairable", "legacy", "source_changed", "unadopted", "deferred",
+            "unmanaged", "invalid",
+        })
 
     def test_no_tool_name_is_written_as_a_literal_in_this_file(self):
         """The allow-list `--fix` writes is derived from the pool, never typed here.
@@ -973,16 +1263,10 @@ class StructureTest(unittest.TestCase):
 
 
 class SkillDocTest(unittest.TestCase):
-    def test_every_check_named_in_the_skill_doc_exists_in_the_script(self):
-        """The one prose/behaviour pair that can be asserted, so it is."""
+    def test_compatibility_route_names_the_checker_and_management_repair(self):
         doc = (SKILL / "SKILL.md").read_text(encoding="utf-8")
-        for name in cc.CHECK_NAMES:
-            self.assertIn(name, doc, f"SKILL.md does not mention the `{name}` check")
-
-    def test_the_skill_doc_states_the_working_remedy_not_the_advertised_one(self):
-        doc = (SKILL / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("already up to date", doc)
-        self.assertIn("delete the file", doc)
+        self.assertIn("scripts/check_conformance.py", doc)
+        self.assertIn("methodology-management/references/assessment.md", doc)
 
 
 if __name__ == "__main__":

@@ -63,7 +63,7 @@ if [ ! -f "$index" ]; then
     missing="$missing, no git hooks"
   fi
   [ -f "$root/README.md" ] || missing="$missing, no README"
-  add "AGENT CONTEXT: this project is not initialised for agent work — $missing. Run the \`project-onboarding\` skill, which covers the route, GitHub, hooks, and personas in order. It proposes before writing: do not scaffold a repository, create a remote, or push unasked."
+  add "AGENT CONTEXT: this project is not initialised for agent work — $missing. Report this gap. The user can invoke \`methodology-management\` (or the \`project-onboarding\` compatibility entry) for a setup proposal. Do not select setup from this notice; follow an explicit source/toolchain repository route where present. Do not scaffold a repository, create a remote, or push unasked."
 else
   # 1. Is the route actually intact? On a non-git project this is the only check that ever runs.
   # --readme included: the seven-section README contract is part of the standard, and it is checked

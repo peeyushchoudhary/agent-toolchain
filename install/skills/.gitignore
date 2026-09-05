@@ -3,7 +3,7 @@
 # This directory is also where vendor skills install themselves (graphify arrives via `uv tool`
 # and writes into both ~/.claude/skills and ~/.codex/skills on its own schedule). A denylist would
 # silently start tracking the next one that shows up. So: ignore everything at the top level, then
-# name the nine skills this repository actually owns.
+# name the skills this repository actually owns.
 #
 # Adding a skill to this repository is therefore a deliberate line here, which is the point.
 
@@ -16,6 +16,7 @@
 !/agent-personas
 !/agent-persona-factory
 !/execution-methodology
+!/methodology-management
 !/graph-navigation
 !/project-onboarding
 !/project-conformance

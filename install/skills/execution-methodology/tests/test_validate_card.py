@@ -2773,3 +2773,68 @@ class RepoPersonaPoolTest(ValidateCardTest):
             repo = self.make_repo(Path(tmp))
 
             self.assertIn("no docs/agents/personas/ here", self.cast(repo, "nobody").stdout)
+
+
+class IgnoredWritePathNegationTest(unittest.TestCase):
+    """A `.gitignore` NEGATION rule re-admits a path; it does not ignore it.
+
+    `git check-ignore -v` prints the matching line whatever its polarity and exits 0, so reading its
+    output as proof of ignoring inverts the answer for every `!pattern`. The bug was invisible against
+    existing cards because git omits already-TRACKED paths from that output entirely -- it fired only
+    on a path the card had yet to create, which is precisely the case a pre-phase card describes.
+
+    The fixture uses a broad `*.sql` ignore followed by a negation for one migration directory, so
+    the two cases exercise both the re-admitted path and a path that remains ignored.
+    """
+
+    run_validator = ValidateCardTest.run_validator
+    findings = ValidateCardTest.findings
+
+    def make_repo(self, root: Path) -> Path:
+        repo = ValidateCardTest.make_repo(self, root)
+        (repo / ".gitignore").write_text(
+            "*.sql\n"
+            "!backend/app/src/main/resources/db/migration/*.sql\n",
+            encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@example.invalid",
+                        "-c", "user.name=t", "commit", "-qm", "base"],
+                       check=True, capture_output=True)
+        return repo
+
+    def card_writing(self, path: str) -> str:
+        return CLEAN_CARD.replace(
+            "exclusive_writes:\n"
+            "  - backend/core/src/main/java/com/acme/core/**\n"
+            "  - backend/core/src/test/java/com/acme/core/**\n",
+            "exclusive_writes:\n"
+            "  - backend/core/src/main/java/com/acme/core/**\n"
+            "  - backend/core/src/test/java/com/acme/core/**\n"
+            f"  - {path}\n")
+
+    def test_a_new_file_under_a_negated_glob_is_not_reported_ignored(self) -> None:
+        """The regression. The file does not exist yet, which is what made it reachable."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = self.card_writing(
+                "backend/app/src/main/resources/db/migration/V188__grid.sql")
+
+            result = self.run_validator(card, repo)
+
+            self.assertEqual(
+                [line for line in self.findings(result, "ERROR") if "IGNORED" in line],
+                [], result.stdout)
+
+    def test_the_wholesale_ban_above_the_negation_still_reports(self) -> None:
+        """The other half: fixing the inversion must not disarm the check it lives in. A `.sql`
+        path OUTSIDE the re-admitted directory is genuinely ignored and must still be an error."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            card = self.card_writing("backend/core/src/main/resources/scratch.sql")
+
+            result = self.run_validator(card, repo)
+
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertTrue(
+                any("scratch.sql" in line and "IGNORED" in line
+                    for line in self.findings(result, "ERROR")), result.stdout)

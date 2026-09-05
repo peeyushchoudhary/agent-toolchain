@@ -12,6 +12,7 @@ METHODOLOGY = ROOT / "methodology.md"
 SKILL = ROOT / "SKILL.md"
 LOOP = ROOT / "references" / "execution-loop.md"
 HISTORY = ROOT / "references" / "history-v3-v5.md"
+SPECS = ROOT / "references" / "specs.md"
 
 
 def read(path: Path) -> str:
@@ -41,6 +42,16 @@ class CurrentPolicyTest(unittest.TestCase):
         self.assertNotIn("five rounds", self.current.lower())
         self.assertNotIn("routed by score", self.current.lower())
 
+    def test_review_width_is_one_reviewer_with_conditional_owners(self) -> None:
+        current = "\n".join((self.current, read(SPECS))).lower()
+        for phrase in ("one semantic `reviewer`", "at most one relevant specialist",
+                       "`security-validator`"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, current)
+        for stale in ("up to three reviewers", "divergent panel", "may use distinct lenses"):
+            with self.subTest(stale=stale):
+                self.assertNotIn(stale, current)
+
     def test_unresolved_semantic_findings_never_become_ready_automatically(self) -> None:
         self.assertIn("unresolved semantic", self.current)
         self.assertIn("INCOMPLETE", self.current)
@@ -62,6 +73,18 @@ class CurrentPolicyTest(unittest.TestCase):
         self.assertLessEqual(len(self.skill.splitlines()), 240)
         self.assertIn("methodology.md", self.skill)
         self.assertIn("references/execution-loop.md", self.skill)
+
+    def test_direct_common_route_preserves_approved_runtime_authority(self) -> None:
+        method = " ".join(self.methodology.split())
+        for phrase in (
+            "including an older approved bundle",
+            "A newer global source or candidate never replaces that binding",
+            "do not fall back to global source",
+            "Governed adopted execution requires `state=current` and `ready=true`",
+            "Ordinary execution does not invoke maintenance, model research or upgrades",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, method)
 
     def test_successful_gate_evidence_is_reused_until_it_is_invalidated(self) -> None:
         method = " ".join(self.methodology.split())
