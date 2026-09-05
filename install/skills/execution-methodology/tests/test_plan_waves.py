@@ -347,6 +347,33 @@ class SizeTest(PlanFixture):
 
 
 class BlockTest(PlanFixture):
+    def test_complete_light_and_full_tasks_are_admitted(self) -> None:
+        self.plan(task("T1", lane="light"), task("T2", needs="[T1]", lane="full"))
+        self.assertEqual(self.rules(), [])
+        self.assertEqual(self.waves(), [["T1"], ["T2"]])
+
+    def test_w0_rejects_a_task_with_no_explicit_lane(self) -> None:
+        self.plan("\n```task\ntask: T1\ntitle: missing lane\nwrites: [src/t1/**]\n"
+                  "covers: [AC-1]\n```\n")
+        self.assertFinds("W0")
+        self.assertIn("explicit `lane:`", self.messages("W0")[0])
+
+    def test_w0_rejects_a_task_with_no_writes(self) -> None:
+        for lane in ("light", "full"):
+            with self.subTest(lane=lane):
+                self.plan(f"\n```task\ntask: T1\ntitle: empty writes\nlane: {lane}\n"
+                          "writes: []\ncovers: [AC-1]\n```\n")
+                self.assertFinds("W0")
+                self.assertIn("non-empty `writes:`", self.messages("W0")[0])
+
+    def test_w0_rejects_quoted_blank_write_members(self) -> None:
+        for writes in ('[""]', '["   "]', '[src/t1/**, ""]'):
+            with self.subTest(writes=writes):
+                self.plan("\n```task\ntask: T1\ntitle: blank write member\nlane: light\n"
+                          f"writes: {writes}\ncovers: [AC-1]\n```\n")
+                self.assertFinds("W0")
+                self.assertIn("blank member", self.messages("W0")[0])
+
     def test_w0_flags_an_unknown_key(self) -> None:
         self.plan("\n```task\ntask: T1\nrepo: something\nwrites: [a/**]\ncovers: [AC-1]\n```\n")
         self.assertFinds("W0")
@@ -382,7 +409,8 @@ class BlockTest(PlanFixture):
         self.assertEqual(result.stdout, "")
 
     def test_a_scalar_is_read_as_the_one_element_list_it_obviously_is(self) -> None:
-        self.plan(task("T1"), "\n```task\ntask: T2\nneeds: T1\nwrites: a/**\ncovers: AC-2\n```\n")
+        self.plan(task("T1"), "\n```task\ntask: T2\nlane: light\nneeds: T1\nwrites: a/**\n"
+                  "covers: AC-2\n```\n")
         self.assertEqual(self.rules(), [])
         self.assertEqual(self.waves(), [["T1"], ["T2"]])
 
@@ -499,7 +527,7 @@ class CommitWritesTest(PlanFixture):
         self.assertEqual(self.run_cli("--commit", "HEAD").returncode, 0)
 
     def test_a_commit_naming_no_task_is_not_a_finding(self) -> None:
-        """Light-lane work has no card. Inventing a violation for it gets the check removed."""
+        """Ordinary commits need not belong to governed execution; task-shaped drift is separate."""
         self.repo(task("T1", writes="backend/a/**"))
         self.commit("chore: unrelated tidy-up", "docs/notes.md")
         self.assertEqual(self.run_cli("--commit", "HEAD").returncode, 0)
@@ -536,7 +564,7 @@ class QualifiedCommitReferenceTest(CommitWritesTest):
         self.assertIn("T9", result.stdout)
 
     def test_ordinary_prose_stays_silent(self) -> None:
-        """Light-lane work has no card. Inventing a violation for it gets the check removed."""
+        """Ordinary prose is not a claim that this commit completes a governed plan task."""
         self.repo(task("T1", writes="backend/a/**"))
         self.commit("docs: tidy the README", "backend/a/one.java")
         self.assertEqual(self.run_cli("--commit", "HEAD").returncode, 0)

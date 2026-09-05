@@ -2,11 +2,11 @@
 name: security-validator
 description: Use for any change touching consent, authorization, personal or health data, redaction, retention, erasure, audit, tokens, or a public capability route.
 writes: no
-claude.model: opus
+claude.model: claude-fable-5-1
 claude.effort: high
 claude.tools: Read, Grep, Glob, TodoWrite
 claude.disallowedTools: Bash
-codex.model: gpt-5.6-sol
+codex.model: gpt-6-astra
 codex.effort: high
 codex.sandbox: read-only
 ---

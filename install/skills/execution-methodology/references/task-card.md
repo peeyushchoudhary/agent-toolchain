@@ -1,7 +1,14 @@
-# The task card
+# The full-lane task card
 
-One card per task, generated from the approved plan. The card is the implementer's entire world: it
-does not read the plan, and it reads nothing the card does not name.
+One card per full-lane task, generated from an admitted task in the approved plan. Before generation,
+`plan_waves.py` must accept the task's existing plan id, explicit `lane: full`, non-empty `writes:`,
+and `covers:` criteria. Light-lane tasks use the inline dispatch in `execution-loop.md` and do not
+receive cards. The card is the implementer's entire world: it does not read the plan, and it reads
+nothing the card does not name.
+
+The controller keeps the selected plan task id with the dispatch and requires `commit_subject` to
+name that plan id so `plan_waves.py --commit` can apply the plan's write boundary. The card's own
+`id` remains its stable card identity; no second task registry is created.
 
 Cards live in the plan's scratch workspace. They are durable — a card and its report are what carry
 decisions to the next plan, and they survive the workspace deletion by being promoted into the
@@ -17,7 +24,7 @@ goal:                # one sentence: what is true after this task that was not b
 persona:             # developer | senior-developer — which persona implements this card,
                      # decided by the planner, not at dispatch
 
-prerequisites:       # task ids that must be complete first
+prerequisites:       # working-tree state that must already be true
 exclusive_writes:    # paths ONLY this task may write — this is the parallelism contract
 forbidden_paths:     # paths that must not change, even incidentally
 
@@ -99,10 +106,10 @@ Cards sealed before this rule have no title. Re-validating one reports a WARNING
 so history stays readable. `--strict` promotes that warning to a non-zero exit, so a caller that
 wants a titleless card refused has an invocation available that refuses it.
 
-Be precise about what that does and does not guarantee: **`--strict` is available, not automatic.**
-Nothing in this toolchain runs it for you — no hook, no gate, no conformance check — and the
-dispatch contract permits dispatching over a warning that has been read. A missing title is
-therefore a warning a controller is expected to notice, not a barrier that stops it.
+Plain validation remains useful for diagnosis and historical cards, while **strict pre-validation
+is mandatory for full-lane admission**. The controller does not dispatch a current full-lane card
+over a warning. Strict post-validation runs again after implementation so an owned new-file literal
+cannot remain absent.
 
 ### `exclusive_writes`
 
@@ -433,10 +440,9 @@ stop_conditions:
 
 Also stop when a repair cannot name the frozen criterion/invariant it advances and its observable
 delta; when proof machinery would acquire durable authority, persistence, compatibility, recovery,
-or a reusable API; when the same causal mechanism recurs after one independently reviewed repair;
-or when a third distinct ordinary repair needs human continue/replan authority. Distinct safety
-findings do not share a counter and may still block release. Budgets trigger human review only and
-never change a gate verdict.
+or a reusable API; or when the same causal mechanism recurs after one independently reviewed
+repair. Distinct safety findings do not share a counter and may still block release. Budgets trigger
+human review only and never change a gate verdict.
 
 **A stop is not the answer to an unrelated finding.** Run the fix/record rule above first: most
 findings that feel like a stop are a RECORD, and stopping the task to report one costs a dispatch
@@ -447,7 +453,9 @@ of that shape. Record when the card can proceed and something else is wrong.
 
 The implementer writes a full report to a file and returns only a verdict.
 
-**Status vocabulary** — one of `DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED`.
+**Status vocabulary** — one of `DONE`, `DONE_WITH_CONCERNS`, `INCOMPLETE`, `NEEDS_CONTEXT`,
+`BLOCKED`. An unresolved semantic defect after the scoped correction review is `INCOMPLETE`; no
+round cap promotes it to `DONE` or READY.
 
 **The verdict returned** is status, commit shas, a one-line test summary, and concerns. Nothing
 else. It is short because the orchestrator re-reads it on every subsequent turn.

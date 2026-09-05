@@ -6,7 +6,7 @@ claude.model: haiku
 claude.effort: low
 claude.tools: Read, Grep, Glob, TodoWrite
 claude.disallowedTools: Bash
-codex.model: gpt-5.4-mini
+codex.model: gpt-5.6-luna
 codex.effort: low
 codex.sandbox: read-only
 ---

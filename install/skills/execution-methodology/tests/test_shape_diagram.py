@@ -111,6 +111,12 @@ class ShapeDiagramTest(unittest.TestCase):
                              f"the pipeline redraws {step}; that belongs to execution-loop.md")
         self.assertIn("references/execution-loop.md", self.text)
 
+    def test_task_admission_edge_is_lane_neutral(self) -> None:
+        fence = MERMAID_FENCE.search(self.text)
+        self.assertIsNotNone(fence)
+        self.assertIn('TASKS -- "plan_waves.py" --> LOOP', fence.group(1))
+        self.assertNotIn('TASKS -- "validate_card.py" --> LOOP', fence.group(1))
+
 
 class ShapeDriftTest(unittest.TestCase):
     """Each way the pipeline can go false, applied to the shipped file, in memory."""
@@ -125,7 +131,8 @@ class ShapeDriftTest(unittest.TestCase):
 
     def test_an_instrument_that_does_not_ship_is_caught(self) -> None:
         self.assert_fires("no-such-script",
-                          self.text.replace('"validate_card.py"', '"validate_cards.py"', 1))
+                          self.text.replace('TASKS -- "plan_waves.py"',
+                                            'TASKS -- "plan_wave.py"', 1))
 
     def test_a_box_whose_words_exist_only_in_the_box_is_caught(self) -> None:
         """The exact defect measured in the ASCII pipeline this replaced."""

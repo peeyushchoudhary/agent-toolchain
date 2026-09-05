@@ -13,6 +13,38 @@ routing through it pulled `README.md`, the methodology, the execution loop, and 
 into the crawl at depth 3 and 4 — five warnings that are true of the route and caused entirely by
 history. A record of past weeks is not a route.
 
+## Week of 5 September 2026 — v5.1: one task procedure and a selective model pilot
+
+An independent assessment found that the written two-round review limit coexisted with a five-round
+controller rule, and that the default card-free light lane entered an operational path that required
+card validation. The repair gives lane admission, review transitions and terminal states one owner:
+the execution methodology and its operational loop. Personas retain responsibility, permissions
+and routing, without carrying another copy of the state machine.
+
+Every governed task now enters the plan with an ID, an explicit lane, a non-empty write boundary and
+criteria. Light work dispatches those fields directly; durable-boundary and safety work retains the
+strict full card. Both paths keep independent full task-diff review and an area gate. A correction
+gets a scoped rereview of its causal area. Exhausting the two-round budget cannot turn an unresolved
+semantic defect into READY, and safety findings do not disappear at the cap.
+
+The persona renderer now distinguishes eleven active roles from three compatibility definitions and
+can produce the human roster from the same maintained sources. The model changes are a selective,
+unmeasured pilot: flagship models start on architecture, safety, migration and acceptance, while
+ordinary builders and implementation review retain their existing tiers. Acceptance stays at
+`xhigh`; no ordinary default uses `max` or `ultra`. Phase overrides use harness-native controls and
+record the resolved model and effort.
+
+Current cost evidence is dated and sourced separately from historical workload measurements.
+Committed line churn and workspace files or bytes are reported as different units. The model pilot
+will be judged on accepted outcomes, known severe defects, false blockers, repair cycles, elapsed
+time, usage and founder decisions. One 12-case supplied-text Codex smoke test gave all three
+candidates 12/12 semantic outcomes and did not separate them on quality. It did not test an actual
+workflow, velocity, cost, full persona resolution or rare defects.
+
+This entry records the prepared local revision. Machine-global installation and adoption by other
+repositories remain separate, explicitly authorized work. Final integrated verification results
+are recorded only after the complete candidate is run.
+
 ## Week of 21 August 2026 — v5.0: the milestone runs itself, and a review rule was falsified
 
 The plan could be scheduled but nothing ran it, and the rule governing who reviews what turned out

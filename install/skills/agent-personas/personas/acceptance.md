@@ -2,11 +2,11 @@
 name: acceptance
 description: Use once per milestone, before merge or release, to judge whether the stated scope is genuinely complete. Never for writing or fixing.
 writes: no
-claude.model: opus
+claude.model: claude-fable-5-1
 claude.effort: xhigh
 claude.tools: Read, Grep, Glob, TodoWrite
 claude.disallowedTools: Bash
-codex.model: gpt-5.6-sol
+codex.model: gpt-6-astra
 codex.effort: xhigh
 codex.sandbox: read-only
 ---

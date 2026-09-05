@@ -15,7 +15,8 @@ WAVES ARE COMPUTED, NEVER WRITTEN. A wave list in the prose is a second copy of 
 two disagree the first time a task moves; an index that can only derive cannot drift. So the plan
 declares edges and write sets, and this script derives the schedule from them on every run.
 
-  W0  a task block that cannot be read: unknown key, missing or malformed `task`, unknown lane
+  W0  a task block that cannot be admitted: unknown key, missing or malformed `task`, missing or
+      unknown lane, or an empty write boundary
   W1  a `needs` edge to a task id no block in the scope declares
   W2  a cycle, named as the shortest one found
   W3  the same task id declared twice in one plan
@@ -235,8 +236,12 @@ def parse_task(doc: Doc, fence: int, block: list[str], f: Findings) -> Task | No
         f.add(doc, fence, "W0", f"task block has no readable `task:` id (got {ident!r}); every "
                                 "other task's `needs` names this id, so the block cannot be used")
         return None
-    lane = data.get("lane", "light")
-    if not isinstance(lane, str) or lane not in LANES:
+    lane = data.get("lane")
+    if lane is None:
+        f.add(doc, fence, "W0", "task block has no explicit `lane:`; every governed task must "
+                                "declare `light` or `full` before dispatch")
+        lane = "light"
+    elif not isinstance(lane, str) or lane not in LANES:
         f.add(doc, at.get("lane", fence), "W0",
               f"lane `{lane}` is not one of {' | '.join(LANES)}")
         lane = "light"
@@ -244,6 +249,14 @@ def parse_task(doc: Doc, fence: int, block: list[str], f: Findings) -> Task | No
     # obviously is rather than dropping the value, which is how a checker starts lying.
     values = {key: [data[key]] if isinstance(data.get(key), str) and data[key] else
                    list(data.get(key) or []) for key in LIST_KEYS}
+    if not values["writes"]:
+        f.add(doc, at.get("writes", fence), "W0",
+              "task block has no non-empty `writes:` boundary; light and full tasks must both "
+              "declare the paths they may change before dispatch")
+    elif any(isinstance(path, str) and not path.strip() for path in values["writes"]):
+        f.add(doc, at.get("writes", fence), "W0",
+              "task block has a blank member in `writes:`; every listed path must name part of "
+              "the task's change boundary")
     return Task(ident, at.get("task", fence), lane, values["needs"], values["writes"],
                 values["covers"], values["serialises"], at, doc)
 
@@ -826,9 +839,9 @@ def check_commit_writes(root: Path, commit: str, tasks: Sequence[Task], f: Findi
     """W7, for the task the commit subject names. Returns the number of files checked.
 
     The task is taken from the commit SUBJECT, which is where this methodology already puts the id
-    (`commit_subject` is a card field). A commit naming no known task is not a finding: light-lane
-    work has no card, and inventing a violation for it would make the check fire on ordinary commits
-    until somebody removed it.
+    (`commit_subject` is a full-card field and an inline light-dispatch field). A commit naming no
+    known task is not a finding: ordinary repository commits may sit outside governed execution,
+    and inventing a violation for them would make the check fire until somebody removed it.
 
     `subject` is passed in by `--since`, which has already read the whole log in one call; leaving
     it None reads the one commit here, which is what `--commit REV` needs.
@@ -837,8 +850,8 @@ def check_commit_writes(root: Path, commit: str, tasks: Sequence[Task], f: Findi
         subject = git(root, "log", "-1", "--format=%s", commit) or ""
     index, bare = task_index(tasks)
     named, unresolved = resolve_subject(subject, index, bare)
-    # Silence here was the second half of the same defect. A subject naming NO task is ordinary
-    # light-lane work and stays silent, but a subject that names a task-shaped id which does not
+    # Silence here was the second half of the same defect. A subject naming NO task did not claim
+    # governed work and stays silent, but a subject that names a task-shaped id which does not
     # resolve is a card that has drifted from its plan, and reporting nothing let it push clean.
     if not named and unresolved:
         doc = tasks[0].doc if tasks else None

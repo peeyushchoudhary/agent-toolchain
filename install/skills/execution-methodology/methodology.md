@@ -1,772 +1,223 @@
 # Execution methodology
 
-How work travels from a product intent to a merged milestone. Authored once, rendered into every
-repository, followed identically by Claude Code and Codex.
-
-This document is the *sequence between* roles. The personas say who; this says what must exist
-before a stage begins, what must be true before it ends — and, declared in v3 and enforced since
-v4, what the process itself is allowed to cost.
+How work travels from product intent to a merged milestone. This maintained source is rendered into
+adopted repositories and is followed by every harness. Personas say who may act; this document says
+what must exist before a stage begins and what must be true before it ends.
 
 ## Principles
 
-Eight rules. Each exists because its absence cost a measured amount of work, and each is enforced
-by a mechanism rather than by intention wherever a mechanism is possible. v3 exists because the
-review loop was the one place that standard was never applied to the methodology itself, and the
-loop diverged exactly as an unmechanized rule predicts (see the v3.0 changelog).
-
-**1. Evidence binds to a tree, and proves execution.** A passing gate that does not name a commit,
-a tree, and the stages that ran certifies nothing. A check must prove it *ran*, not merely that it
-succeeded: count what ran from machine-readable results, never from a console line.
-
-**2. There is no flag choice.** A checker has one canonical invocation with maximal strictness
-baked in, and it rejects arguments. A checker whose strictness is chosen at the call site will be
-invoked at its weakest setting eventually.
-
-**3. A builder never approves its own work, and a judge never authorizes a merge.** Judging roles
-cannot edit — by tool restriction, not instruction. Their verdict is a finding to triage, never an
-authorization; deterministic gates are the only gates. `test-judge` keeps a shell as the stated
-exception, because a judge that must take someone else's word for what the gate printed is not a
-judge. No other judging persona gets a shell, and none gets an editor.
-
-**4. Context is acquired by recipe, and verdicts are returned compact.** Every dispatched agent
-receives paths and commands, not file contents. Writers put reports in files and return a short
-verdict. Judges cannot write, so they return their verdict — and *only* a verdict: the structured
-form below, thirty lines or fewer, which the orchestrator persists. A judge that returns a
-report-shaped essay forces the orchestrator to carry it forever; the essay form is what turned the
-persist-one-read exception of v1 into the dominant cost of v2.
-
-**5. Every stop is a resumable boundary.** A quota pause, a crash, and a context limit are
-operating conditions, not incidents. Work is checkpointed at each completed step, and nothing
-partial survives unlabelled.
-
-**6. Scope is drained, not deferred.** A parked item without an owning milestone is scope loss
-wearing a hat. Deferrals live in a register that a milestone can fail against.
-
-**7. Execution is bound to one approved outcome.** The approved plan owns one Goal Capsule. Before
-implementation or repair, a dispatch names the capsule criterion or invariant it advances and the
-observable delta expected. Review discovers evidence; it does not redefine the product. A
-"correction" that adds mechanism the plan's primitives do not contain is not a correction — it is a
-scope change, and it routes to a human gate instead of blocking a round. The spec is the ceiling as
-well as the floor: build what the PRD, the spec, and the plan say, and stop. A finding that demands
-more than the spec requires — extra hardening, extra generality, extra polish — is over-engineering
-and non-blocking by definition. The deliverable is the outcome, not its perfection.
-
-**8. The process is measured by a script that can fail the gate.** `scripts/ratio_meter.py`
-classifies committed churn into product, product thinking, and process, and exits non-zero when
-process exceeds its band. The budget is **10%** of classified churn; the gate warns above **15%**
-and fails a merge above **30%**, and nothing fails below 500 classified lines. The target and the
-enforcement bands are different numbers on purpose: 10% is what the process is worth, and 30% is
-the point past which a merge is not worth arguing about. It runs at the merge gate and in the
-weekly review. A subject that hits the review budget, a process-only commit outside a milestone seal, and
-a 48-hour zero-commit stall on an active milestone remain process regressions, triaged at the
-merge gate with the same seriousness.
-
-This principle is new in substance, not in wording. v3 stated the budget as a ratio and left it to
-intention, and the measured consequence in one repository was a process share that climbed from 4%
-to 75% over eight weeks while product output fell 97% — with no rule firing, because the rule had
-no mechanism. Principle 1 says a check must prove it ran. Principle 8 is now the same kind of
-claim: a number a script produced, or nothing. The meter binds where a round-counter could not,
-because it reads git's own numstat and nobody can inflate the product side without writing
-product.
-
-## The budget
-
-Every methodology spends someone's attention. This one declares the split it is allowed to spend,
-and `ratio_meter.py` enforces it:
-
-| Bucket | What it is | Share |
-|---|---|---|
-| **Product** | Source, tests, migrations, build and infrastructure files | **at least 70%** |
-| **Product thinking** | PRD, feature specs, design, decision records, architecture, runbooks | about 20% |
-| **Process** | Workspace, ledger, cards, verdicts, receipts, deferrals, agent docs | **10% target · 15% warns · 30% fails** |
-
-The product floor is advisory. The process band is binding: above 15% the gate warns, above 30% it
-fails. Only committed churn is measured, so the git-ignored workspace never reaches the meter —
-cards are bounded by their own 150-line cap and the workspace's 50-file / 500 KB limit instead. Removing
-bookkeeping is never a breach: a commit that only deletes process files is classified `cleanup` and
-is exempt, because a budget that punishes cleanup guarantees the corpus only grows.
-
-Two consequences follow, and they are the whole of v4:
-
-- **A process artifact earns its place against the ceiling, not against usefulness.** Every
-  artifact in the record was arguably useful. The question is whether it is worth part of the 10%.
-- **Process is capped per week, not per artifact.** Ten percent of a week that shipped a feature is
-  a real budget. Ten percent of a week that shipped nothing is nothing — which is the correct
-  amount of bookkeeping for a week that shipped nothing.
-
-## Two lanes
-
-Not every task earns the full machinery. The lane is chosen by the plan, per task, by one test:
-
-**Does this task cross a durable boundary?** A REST contract, a database schema or migration, a
-queue message shape, a module's public interface, a generated client — or a declared safety
-surface: consent, authorization, personal or health data, redaction, retention, audit, tokens,
-money. If yes, **full lane**. If no, **light lane**.
-
-**Light lane** — the default. No card. The dispatch carries the goal, the capsule criterion, the
-paths it may write, the tests to run, and the lane's area check. One implementation review by
-`reviewer` (compact verdict), `test-judge` on the gate, commit with distillation. That is the
-whole ceremony. The measured record is unambiguous: this shape shipped ten pull requests in three
-days in one repository and a same-day plan-to-merge milestone in another, with no quality incident
-attributable to the missing ceremony.
-
-**Full lane** — everything below: a validated card, contract review where a contract moves,
-`security-validator` where a safety surface moves, the full-diff pass, the sealed evidence.
-
-A light-lane task that turns out to touch a durable boundary stops and returns to the plan — the
-lane was mis-assigned, and the plan owns lane assignment.
-
-## The chain
-
-Seven artifacts, three human gates. Nothing downstream begins until its input exists.
-
-**Where founder attention goes** — the shape measured in the repository that out-shipped the fleet
-(46 commits, seven same-day pull requests, bookkeeping at 3% of product lines):
-
-1. **Specs, reviewed with the founder.** `product-steward` writes the PRD and feature specs; the
-   founder reviews them with a disposable interactive HTML explainer — one file, rendered from the
-   specs, deleted at approval. Decisions land in the spec text, never in the explainer.
-2. **Task breakdown, reviewed with the founder.** `chief-of-staff` (plus `migration-validator` on durable
-   boundaries) decomposes features into lane-tagged tasks; the founder reviews the task list —
-   titles, outcomes, dependencies — never the cards.
-3. **Plans, machine-reviewed.** Implementation and validation plans at two granularities — feature
-   level (wave definition, area gate, integration order) and task level (dispatch or card) — under
-   the review budget, fresh `reviewer`, apply-and-close. No founder round here.
-4. **Autonomous execution.** The task loop, in strict adherence to the plans; a deviation is a stop
-   condition or a scope change under principle 7, never an improvisation. The founder's next
-   appearance is the merge gate.
-
-Gate 1 therefore attaches the founder to *what is being built* (specs, with the design riding under
-machine review) and Gate 2 to *what will be done* (the task list, with the plans riding under
-machine review). Front-loading founder attention this way is what empties the escalation queue: the
-decisions that stalled repositories mid-execution are made in batch, up front, where they cost
-minutes.
-
-The same chain is drawn once, in the skill's own diagram, and pinned there by a test that requires
-every drawn stage to be a stage this methodology names. It is not redrawn here: an ASCII copy of a
-pinned diagram is a second drawing nothing checks, and this one had already drifted — seven of its
-tokens appeared nowhere else in this document.
-
-Between Gate 2 and Gate 3 the loop runs unattended. It stops only for a blocker it cannot resolve,
-a material ambiguity, an exhausted review budget, or a writer-failure escalation. **A report is not
-a request**: report at milestones, then keep going. Before stopping, name the decision — if it is
-not a gate, a spend, an irreversible or outward-facing action, or a genuine fork, there is nothing
-to ask.
-
-Founder decisions are **batched**. The three gates are the three gates; an approval that is not one
-of them rides in the next gate or the next report, and a correction whose wording a review already
-specified is transcription, not a fourth gate. Six approval ceremonies in thirty-six hours for one
-migration file — one of them for a syntax fix — is the measured cost of forgetting this.
-
-### Specs, design, plan
-
-Spec skeletons live in the execution-methodology skill's `references/specs.md`; the
-acceptance-criteria form turns into test names without translation. Edge cases are acceptance
-criteria like any other — a feature whose criteria describe only the happy path is not finished,
-and `edge_cases:` in the front matter names the classes that were considered. Every horizontal is
-addressed or declared not-applicable with a reason, on its OWN LABELLED LINE — the label is what
-binds the section to this repository's domain validators.
-
-**The domain validator reads the definition, not only the diff.** A project's own invariants live
-as validator personas in `docs/agents/personas/`. Measured across four real repositories carrying
-fifteen of them: they are cited 100 times in reviews and 0 times in a PRD or a milestone, so the
-invariant arrives after the product has been defined. A validator declares `covers: [<concern>]`
-once; `reviewed_by:` on the spec, PRD or milestone records who actually read it; and `spec_check.py`
-rule F fails a document whose own horizontals move a concern its owner never read. Rule F prints
-what it matched on every run and fails a `covers:` that matches nothing, because a binding that
-silently matches nothing is worse than no binding.
-
-**The agent answers its own question first.** Before asking the founder anything at a spec gate,
-the asking agent must answer the question itself from the spec text. If it can, the question was
-never needed. If it cannot, that is a defect in the spec rather than a gap in the founder, and the
-agent fixes the spec and shows the diff. What survives that filter is a genuine product decision,
-and `spec_check.py --questions` is the queue of them — read it at the gate, one item at a time,
-each answer edited into the spec at the place the question sat. There is no transcript, no approval
-record, and no per-feature ceremony: the answer IS the artifact, and the queue emptying is the
-evidence. A comprehension check that stores its own results has become the thing it was measuring.
-
-**A spec states what is true now.** Both templates are updated in place and never appended to: no
-dated headings, no changelog section, no correction standing beside the thing it corrects. History
-is in git, *why* is in an ADR under `docs/decisions/`, and the append-only residue — a retired
-criterion number — is a front-matter key rather than a paragraph. A reader who has to date the
-sentences to find which one binds is interpreting the document at runtime, and two readers will
-interpret it differently.
-
-The design (`docs/superpowers/specs/<date>-<topic>-design.md`, owned by `architect`) carries
-structure, module boundaries, dependency direction, and the section that earns the gate: **which
-existing invariants this change puts at risk, and what fails closed if it is wrong.**
-
-The plan (`docs/superpowers/plans/<date>-<feature>.md`, owned by `chief-of-staff`) freezes file structure,
-task decomposition, **interfaces including payloads**, each task's lane, and one Goal Capsule: the
-actor outcome, one primary byte-real observable, the named safety and compatibility invariants,
-non-goals, the allowed write boundary, known facts, `UNKNOWN`s, and the stop condition. Plan the
-smallest operationally real safe slice first, on existing or native primitives; proof machinery
-with its own durable authority is a new product boundary and returns to Gate 1.
-
-## The review budget
-
-This section is the reason v3 exists. Review in v2 had a written stop-loss and no mechanism, and
-the measured result was rounds numbered to fifteen and eighteen, five-reviewer panels issuing
-blocks for free, and designs that *grew* 140% under review before ending blocked with the same
-verdict distribution they started with. The round budget binds by counting round markers on persisted verdict filenames — the
-`<subject>-r<N>-<kind>.md` convention in the workspace rules below, which is why that convention is
-mandatory. v3 spent 1,085 lines of Python on that count and then reclassified the tool advisory,
-for a correct reason: a checker run by the party it binds cannot bind that party. The count is
-cheap and the honesty is the orchestrator's either way, so **v4 stops treating that count as a
-control**. The script stays for the half of its job that is a control: the banned-artifact scan
-reads what is on disk, which is a fact about a directory rather than a claim by its author, and it
-is what found 468 raw dumps in one workspace. The reviewer count, the verdict form, and the growth
-tripwire bind at dispatch construction. What binds mechanically is the process ceiling of principle
-8, which no orchestrator can satisfy by producing more process.
-
-**Width is scoped by STAGE, not capped by a count.** A review round dispatches a
-fresh, isolated, read-only `reviewer` — handed
-only named artifact paths, never the author conversation or rationale — and how MANY such lenses it
-dispatches depends on which stage the artifact is at. v3's flat cap of one reviewer at every stage,
-with no panel ever, is **falsified** and is corrected here.
-
-- **Design and plan: up to three, with DIFFERENT lenses**, plus `security-validator` when a safety
-  surface moves and `migration-validator` when the data plane moves.
-- **Implementation: ONE `reviewer`**, plus `security-validator` when and only when the diff touches
-  a declared safety surface. `test-judge` runs the gate alongside it and spends no round, because
-  running a command and reporting an exit code is not a lens.
-
-The evidence, measured across 1,051 round-marked review artifacts in four repositories. A design or
-plan review returns a blocking verdict at **0.74** per artifact; an implementation review at
-**0.09** — an **8x** gap that holds at every width. A three-wide design panel blocked in 7 groups of
-7; a four-or-more-wide implementation round blocked in 2 groups of 65. Panel findings are **not**
-redundant: across 21 groups where two or more reviewers blocked, the median overlap between the
-anchors they cite is a Jaccard of **0.20**, and the only three pairs above 0.5 share the subject id
-and not a finding. Three reviewers on one design returned three disjoint defects.
-
-What v3 measured was real and was misdiagnosed. Five-reviewer panels re-issuing the same verdict
-distribution nine hours apart is a **round** failure and a **stage** failure — those panels sat at
-implementation, where the yield is 0.09 — and v3 retired the panel when what needed retiring was the
-panel *at implementation*. The round budget below is what binds the loop that produced R15 and R18;
-width was never the dial.
-
-**Do not import the published "two reviewers is optimal" figure**, and this is a deliberate refusal
-rather than an oversight. That result measures the same lens applied twice to a diff, where a third
-reader adds overlap and not coverage. A design panel applies different lenses to a document, and the
-overlap was measured here and is low. Where the external number and this corpus disagree, this
-corpus wins, because the two are not measuring the same thing.
-
-**Cast a repository's own domain validators at definition and design, not at implementation
-review.** Across the same repositories they returned **66 implementation reviews and ZERO blocking
-verdicts**; the same validator names, cast inside a design workspace, returned **6 blocks in 14
-reviews**. A validator is a lens on a decision, and by implementation the decision is made.
-
-**Two rounds, counted across the LINEAGE and not the filename.** Renaming a subject used to reset
-its budget, and the measurement that forced this into the text is one code-formatter prerequisite
-in a real workspace: 13 subject keys — `-contract-review`, `-contract-full`,
-`-contract-prerequisite`, `-contract`, and nine more — **51 charged review artifacts across 14
-distinct rounds, r1 to r15, ~24h of wall clock, for ONE artifact**. Every key showed a small legal
-spend. `check_review_budget.py` now reports `FAMILY_SPEND`: subject keys that extend a live subject
-key at a token boundary are one lineage, and their combined spend is stated beside the per-subject
-count. It reports; it does not refuse, and it is not a widening of the kind vocabulary. **A judge
-that runs a command does not spend a round either** — `test-judge` collects evidence and reports an
-exit code (measured 0.02 block rate against 0.16 for `reviewer`), so it is classified as work. An
-artifact that adjudicates must be named for the adjudication it made.
-
-**Two rounds.** The author gets one correction and one scoped rereview of that correction and its
-causal area. There is no round three: before dispatching, the orchestrator names the subject to
-the budget check (`--next <subject>`), which refuses when that subject has already spent its two
-rounds — the third round is refused before it exists, not discovered after. The refusal counts
-the round markers on persisted verdict filenames (the `<subject>-r<N>-<kind>.md` convention in the
-workspace rules below), which is why that convention is mandatory. On refusal the subject
-closes instead of looping: the orchestrator applies the final verdict's named smallest correction
-and closes — no third round, no rereview of the application, no escalation. Only two finding
-classes still escalate: a safety-class finding, and a scope change under principle 7 (Design
-recurrence returns to Gate 1; plan recurrence returns to Gate 2; the brief names its default).
-A dispatch that never produced a verdict — a harness refusal, a thread-limit rejection, zero
-bytes returned — spends no round of any budget; the measured alternative converted three harness
-refusals into a spent budget and a gate frozen for six days. Renaming the task, the
-attempt, the workspace, or the card does not reset the counter; the subject is the artifact, not
-its filename. The check keys on the declared subject and on filename lineage — it is protection
-against drift, not against an orchestrator that renames its subjects, and a renamed subject is
-itself a violation that shows in the receipt.
-
-**The verdict is structured and compact.** `PASS`, or a finding list. Each finding names the
-frozen criterion or invariant, a reachable trigger or state sequence, the observable consequence,
-artifact evidence, severity, and the smallest correction or human decision. Thirty lines total.
-Preferences, speculative hardening, and invented requirements are non-blocking; `PASS` is valid;
-there is no finding quota. The reviewer never authors or applies its correction.
-
-**Growth is a tripwire.** An artifact under review may not grow more than 20% in lines from the
-version frozen at first dispatch. Review that expands an artifact is review inventing scope — the
-measured endpoint of unbounded expansion was a phone-number confirmation feature whose review loop
-demanded a kernel patch. Exceeding the tripwire ends review immediately and routes to the human
-gate with the escalation brief.
-
-**Freshness is a dispatch property.** Pre-gate and rereview dispatches are fresh threads —
-`fork_turns: "none"` in Codex, the equivalent fresh-thread primitive elsewhere. Prompt wording
-alone does not establish isolation. The rereview dispatch — a message to the reviewer, never a
-workspace file — names the persisted original finding or
-report path, the correction or diff path, the corrected artifact path, and the governing frozen
-artifact paths — never author conversation or rationale. A post-code reviewer dispatch defaults
-to Implementation unless Design or Plan is explicitly named.
-
-**The escalation brief is one page, and it names a default.** The decision needed, stated as a
-question. The positions, each in two sentences. What each round found and what it cost. And the
-**default action** — the smallest safe resolution, which the orchestrator executes if the founder
-has not answered within minutes when present in the session, or by the next session start
-otherwise. A queue that hard-blocks on every question froze a repository for six days on two
-unanswered briefs while the working tree sat clean. Only a safety-class or irreversible decision
-has no default and truly waits. Nothing else goes in the brief — a founder asked to break a tie
-does not need the eighteen rounds re-narrated, and producing the narration is how one page becomes
-a workspace.
-
-**Classification survives from v2**, unchanged in substance: every finding is classified before
-repair (current-scope defect, harness defect, pre-existing defect, invalid frozen assumption, new
-outcome or claim, external fact, evidence defect), each class keeps its v2 routing, and distinct
-safety findings are never capped by any budget. What the budget bounds is *rounds*, never the
-severity or number of findings a round may raise.
-
-## The task card (full lane only)
-
-The card is the implementer's entire world: it does not read the plan, and reads nothing the card
-does not name. Schema and worked example: the skill's `references/task-card.md`. Validation
-contract: v2, extended by the size budget below — `validate_card.py --strict --phase pre` before
-dispatch, `--phase post` after. A sealed pre-v3 card over the size budget still passes a plain
-run; `--strict`, the gate mode, now fails it.
-
-Three constraints are new, and the validator enforces the first two:
-
-- **A card is 150 lines or fewer.** The measured alternative was a 2,250-line card that opened
-  with an all-caps preamble instructing readers to distrust the rest of the document. A card that
-  cannot say its task in 150 lines is describing a task the plan failed to decompose; it returns
-  to the plan, not to a bigger card.
-- **Freeze by reference.** `frozen_values` inlines only what fits in ten lines — a signature, an
-  event name, a version. Anything larger lives in a committed contract or interface file the card
-  names by path and commit. A payload shape inlined into a card can be paraphrased wrong once; the
-  same shape in a committed file is one authority every card shares.
-- **Prerequisites assert tree state, not git history.** A prerequisite is satisfied when the paths
-  and tests it names exist in the working tree at dispatch. Requiring a *commit* as a precondition
-  deadlocked a milestone's critical path for five days against its own uncommitted work.
-
-A card is generated once and dispatched once. A card found wrong is regenerated from the plan
-under a new id — never patched, never superseded in place, never versioned by filename.
-
-## The task loop
-
-Per task, unattended:
-
-1. **Acquire context** by the dispatch's recipe. Nothing else.
-2. **Implement the smallest safe slice.** Name the capsule criterion and the expected delta. Test
-   first where it gives a concrete assertion, and watch the test fail for the stated reason before
-   implementing — a test never observed red proves nothing. Native primitives; no speculative
-   recovery for unreachable states; reachable failure, concurrency, retry, privacy, and
-   authorization paths handled and tested.
-3. **Validate** with the task's commands, at the task tier.
-4. **Review** under the review budget. Full lane adds one **full-diff pass** before the commit
-   gate — scoped rereview is structurally blind to defects outside the fix delta, and the
-   full-diff pass has caught what three green scoped rounds missed. Once, not per round.
-5. **Judge the gate.** `test-judge` runs the card's or dispatch's gate and reports what it printed,
-   with the referent (tree, interpreter, command). The implementer's numbers are a claim until it
-   does. Where the figures differ, the difference is a finding, never an average.
-6. **Commit** the code and the distillation together.
-
-**Commit cadence is an invariant.** Completed work commits at each completed task. An active
-milestone branch that has produced no commit in 48 hours is a blocker escalation — not silence.
-The most expensive stall in the record was four days of intense artifact production and zero
-commits, visible to nobody.
-
-**Writer failure has a floor.** A writer persona that returns nothing twice on the same dispatch
-is not replaced a third time. The orchestrator either applies a *fully specified, mechanical*
-change itself — labelled as such in the commit, and still subject to the standard independent
-review — or escalates. Looping replacement writers while documenting each corpse is process
-producing process.
-
-**Failed dispatches are ledger lines.** A dispatch that produced no verdict, an invalid attempt, a
-replaced writer — each is one line in the workspace ledger. Never a file. The measured alternative
-was nine files whose entire content is "the review did not happen."
-
-## Validation tiers
-
-**Per task** — minutes. Red/green with the failing output quoted, the named tests, the lane's area
-check, plus the cheap verifier for each artifact named in `gate_risk` — those exist so failures
-surface in thirty seconds instead of an hour into a full gate.
-
-**Per full-lane card, at the commit boundary** — `test-judge` runs the card's gate. Gradle/JUnit
-runs prove freshness and counts with the nonce-receipt protocol in the skill's
-`references/junit-evidence.md`; exact `--rerun-tasks` is the only accepted Gradle freshness proof.
-
-**Per milestone** — once. The full gate, run by a non-editing judge reporting the gate's own
-verdict line verbatim; then acceptance against that exact commit. A read-only Codex `test-judge`
-never runs a write-producing gate against the source referent — the standalone-copy sandbox
-protocol is in the skill's `references/codex-gate-sandbox.md`.
-
-**The seal is gated at the push, and the gate wants evidence rather than a claim.** A milestone
-document declares its cross-feature command under `## Cross-feature validation`; moving it to
-`status: shipped` is the claim that the journeys no single feature's suite can prove were proved.
-`milestone_seal.py --record M<n>` runs that command from a clean tree and receipts a pass, and the
-pre-push guard refuses the seal without a receipt bound to the pushed tree. Only the transition is
-checked, so a milestone already shipped costs nothing on any later push. The receipt is written
-outside the repository: evidence that can travel in a clone lets one machine's run seal another
-machine's push.
-
-**A gate pass authorizes nothing.** Not deployment, not provider activation, not a production
-write.
-
-## Artifacts, the workspace, and the ledger
-
-**The workspace** (git-ignored, one per plan) holds the recovery ledger, cards, dispatch records,
-and persisted verdicts. It exists to survive compaction, and it is deleted at promotion. Because it
-is write-only history, what enters it is bounded:
-
-- **No diff snapshots.** A review subject is a commit range or a working-tree state named by SHA;
-  git regenerates any diff on demand. The measured cost of serializing them was sixty-eight
-  thousand lines of `.diff` files — 4.8× the product output of the stage they reviewed.
-- **No restatement packets.** A dispatch that failed is a ledger line; the re-dispatch carries the
-  same paths the original did.
-- **No raw dumps and no persisted prompts.** A `.raw` capture of a verdict duplicates the
-  structured verdict beside it; a persisted dispatch prompt duplicates the recipe that generated
-  it. Both are banned classes the budget check rejects — one workspace held 468 of them.
-- **Verdicts, not reports, from judges.** Thirty lines, structured, persisted once — and named
-  `<subject>-r<N>-<kind>.md`. The round marker on a persisted verdict is load-bearing: it is what
-  the budget check counts, so a marker-free verdict filename is a methodology violation, not a
-  style choice. This is the one deliberate exception to the retired round-numbered lineages.
-- **No reports.** A report is a verdict that outgrew thirty lines. The class is banned wherever a
-  verdict, a ledger line, or a commit message can carry the finding — which is everywhere except a
-  spec, a design, or a decision record, all of which are product thinking and live in the tracked
-  tree. The measured cost of the exception was 453 report files and 6.35 MB in one workspace, a
-  third of its entire process corpus, restating findings already recorded in the verdicts beside
-  them.
-- **The caps are gate-enforced, not advisory.** Card 150 lines, verdict 30 lines, distillation 5
-  lines, workspace 50 files or 500 KB, ledger 500 lines before rotation. v3 wrote all five as prose
-  and the author repository breached every one of them — the workspace by 28x on files and 37x on
-  bytes, the largest card by 15x, twenty artifacts past a round cap that reads "there is no round
-  three". A cap only a human notices is a preference. Twenty-one megabytes of review record
-  scheduled for deletion at merge is not an audit trail; it is heat.
-
-**The program ledger** (tracked, append-only) is the durable record. A plan may not be marked
-finished, nor its workspace deleted, until each task's **distillation** is appended and committed:
-interfaces produced that later tasks consume; deferrals, each with an owning milestone;
-verification actually run, verbatim, including what was not run; surprises and corrected
-assumptions. A distillation is five lines or fewer, and it rides in the task's own commit — never
-a batch at the end, never a process-only commit. The ledger is a record, not a narrative: the
-measured alternative grew one ledger by twelve thousand lines in a week while ninety-four of a
-hundred and fifty commits carried no product. **The ledger rotates at 500 lines** — the live file
-carries the open milestone, closed milestones move to a dated archive nothing reads by default. An
-eighteen-thousand-line ledger is not a record; it is a file every session pays to skim, and the one
-in the record held entries averaging seventy-four lines against a five-line cap.
-
-**The milestone receipt carries the process metrics** (principle 8): product lines merged, process
-lines produced (tracked and workspace, measured at seal), plan-to-merge days, maximum review
-rounds reached and by which subject, and writer-failure count. Acceptance reads them; a breach is
-recorded as a process regression against the next methodology-change window.
-
-## The weekly review
-
-Once a week, `scripts/weekly_review.py` reports each repository's three-bucket split for the last
-eight weeks, its process share against the ceiling, and a trend verdict. It takes ten minutes, and
-it is the only recurring process ceremony this methodology schedules.
-
-It exists because the failure it catches is invisible from inside a single week. Every individual
-bookkeeping commit is defensible on its own; the eighth consecutive week of them is not, and
-nothing in one session's context can see the eighth week. Read the trend, not the week — three
-weeks degrading is a signal, one week over is noise.
-
-The review has exactly two possible outputs: a decision about what to build next, and at most one
-methodology change, which is itself subject to the rule below.
-
-## Stopping and resuming
-
-Work stops in the middle; design for it. Checkpoint at each completed step. A partial state is
-labelled or discarded; an unlabelled dirty tree or unverified head blocks the next task until
-quarantined. Deleting a workspace is a completion action, permitted only after promotion.
-
-**An orchestrator cannot wait.** It cannot block on a long-running command — its turn ends, and
-nothing wakes it unless arranged. Poll, or arrange to be woken. And silence is not death: an agent
-that has not reported is not thereby finished or gone. The expensive misread is concluding a live
-writer died and dispatching a second onto the same exclusive write set.
-
-## Casting
-
-The methodology says when; the persona pool says who, on which model, with which tools. One
-orchestrator holds the loop and serializes every write to a shared interface, manifest, registry,
-or generated artifact. Parallelize reads; serialize writes — concurrent implementers are capped,
-file-disjoint by their write sets, never concurrent on a shared artifact.
-
-**The orchestrator is one long-lived session per milestone.** Cold fresh-thread dispatch is
-reserved for the roles that need isolation — the judging personas. Implementation and stewardship
-run inside the controller's session or as warm subagents that inherit its context, because every
-cold session pays its full boot — system prompt, roster, rendered methodology — before its first
-token of work. The measured week put 438 cold sessions beside two warm ones: the cold sessions
-landed four commits, the warm ones a hundred and fifty-one.
-
-| Stage | Role |
-|---|---|
-| Product and feature specs | `product-steward` |
-| Design | `architect` |
-| Pre-gate review (design / plan mode) | fresh read-only `reviewer` |
-| Plan | `chief-of-staff`, `migration-validator` on schema and migration |
-| Locating code | `scout` |
-| Implementation | `developer` or `senior-developer`, chosen by the plan |
-| Task review | `reviewer`; `security-validator` on safety surfaces; +1 specialist max |
-| Gate execution | `test-judge` |
-| Milestone judgement | `acceptance` |
-| Route, README, lessons | `product-steward` |
-| Holding the loop | `chief-of-staff` |
-
-**A divergent panel** may be cast on a frozen feature spec: two or three readers holding DIFFERENT
-QUESTIONS rather than different depths on one question — the marker's frame (`acceptance`), the
-adversary's frame (`security-validator`), and at most one domain validator chosen by `covers:`.
-`product-steward` is excluded from its own artifact and `architect` is not cast on product
-definition. Frames diverge under the isolation and growth rules of the review budget, and one
-`reviewer` converges them into a single brief with a default. Cast, receipt, cost and the PRD
-experiment: `references/specs.md`.
-
-**Prose routing** is by who still holds the judgement: a behavioural claim written by whoever
-changed the behaviour stays with the implementer; drift with no behavioural claim, and corrections
-a review has already worded, go to `product-steward`. The test: can the fix be applied without
-reading the code? An **absence claim** — what a check does *not* cover — is never transcription;
-this methodology's history is mostly wrong absence claims made confidently.
-
-## Changing this document
-**A checker ships only if it is RED today.** A new rule may be added to an instrument only after it
-has been run against the real corpus and named a violation that exists right now, and that violation
-must be fixed in the same change. The reason is measured rather than theoretical: nine checkers in
-this toolchain shipped green, passed their own fixtures, and were inert against the shape of the
-thing they claimed to check — one of them reported a clean exit on a repository whose specs it had
-never read, and was quoted as evidence of health three times before anyone noticed.
-
-The screen that decides whether a rule needs a script at all is separate and comes first. A rule can
-be held by discipline when its set is **enumerable** from one named file, its instances are
-**single-site**, every instance is **authored** by someone who read the rule, and a violation is
-**present** rather than an absence. Break any one and drift follows the one you broke: machine-
-generated output breaks *authored* and fails catastrophically, a missing section breaks *present*
-and fails slowly, a fuzzy set breaks *enumerable* and fails in proportion to the fuzziness.
-
-Those two rules point in opposite directions on purpose. A rule scoring well on that screen is cheap
-to check by eye, so a machine checking it learns little and buys a false green; red-today is what
-stops the easy checker being written. The screen decides what MAY be tested; red-today decides what
-is WORTH testing. Running only the first is how nine inert checkers were written.
-
-**Every checker carries a break-test.** A guard nobody has watched fail is not evidence of anything,
-and each case must reproduce a failure that was real in this repository rather than an invented one.
-A checker for which no real failing case can be written should be deleted rather than kept.
-
-
-**The methodology is frozen while a milestone is in flight.** Rendered versions change at
-milestone boundaries only, per repository, and adoption stays staggered and deliberate. The
-measured alternative was four versions in six days, landing mid-milestone, with the rendered copy
-hand-edited ahead of its own source — the process definition churning faster than any milestone
-completed under it.
-
-**A process change requires a week that was in budget.** A methodology edit may only be authored
-in a week whose process share read at or below the ceiling. Every self-generating loop in the
-record began as a process change made while already over budget: a stale receipt bought a staleness
-sweep, which bought a review round, which bought a process-only commit, which was itself the
-regression. A process permitted to rewrite itself while failing its own budget has no fixed point.
-
-**Every version that adds a rule retires one.** The changelog records both, and what earned each.
-A methodology whose changelog only ratchets tighter is compounding: every failure buys a rule,
-every rule buys artifacts, and the artifacts buy failures. v1.1 was the last version to remove
-anything; v3.0 is the correction.
-
-## Landing
-
-Small, single-purpose commits during the plan, landed in wave-sized pull requests as they turn
-green — main moves the same day a wave passes its gate, and nothing accumulates unmerged past the
-48-hour cadence invariant. The measured alternative was thirty commits and eight thousand product
-lines stranded on branches while main sat ten days stale. Merge commits, never squash, tagged at
-the milestone — where there is no CI, commit history is the audit trail. Agent
-work is never force-pushed. The README is updated with the change, not after it. A merge exists to
-land work: a merge whose entire content is an approval receipt is ceremony, and the receipt rides
-with the work it approves. Committing, pushing, opening a pull request, and merging are founder
-decisions; the methodology prepares them and never takes them.
-
-## What changed, and what earned it
-
-### v5.0 — execution runs itself, and the review rule was wrong
-
-The plan could be scheduled but nothing ran it. This version makes the milestone plan executable and
-corrects a rule this methodology had asserted since v3.0.
-
-**The loop is a procedure, not a persona.** `references/execution-loop.md` states ten steps against
-the real commands, and a test parses every one of them out of the document and checks it against the
-scripts' own interfaces, so the page cannot drift from the tools the way one sentence of prose did.
-State is DERIVED: `plan_waves.py --since <rev>` reads what is done from git rather than from a
-ledger, because a ledger is a claim and git is the fact — and because one real ledger costs about
-188,000 tokens to read, which the loop must never pay to learn where it is. Dispatch is a continuous
-ready set rather than a wave barrier: the collision check already compares every pair, so waiting for
-the slowest task in a wave buys nothing.
-
-**Drift is caught mid-task.** `validate_card.py --phase mid` compares the working tree to the card's
-declared write set before the commit, using the same glob intersection the post-commit check uses.
-Measured on real cards: 116 of 558 files landed outside what the card allowed, across 25 of 56 cards.
-An issue found but not owned goes to a deferral register the milestone can be held against, under a
-rule that costs no model call — fix it only if it is inside your write set, names a criterion already
-on your card, and you can show the command and its output; otherwise record it.
-
-**Review width is scoped by STAGE, not capped by count.** The old rule said one reviewer and never a
-panel, at every stage. Measured across 1,051 real review artifacts, that is falsified: panel findings
-are not redundant — 21 blocking pairs, median anchor overlap 0.20 — and the decisive cut is stage,
-not width. Design and plan block at 0.74 per artifact; implementation blocks at 0.09, and a round
-four or more wide blocks in 8 of 78. So a panel of different lenses is admitted at design, and
-implementation runs one reviewer plus the test judge. The published "two reviewers" optimum is
-deliberately NOT imported: it measures the same lens twice on a diff, and a design panel is different
-lenses on a document.
-
-**A repository's own validators are bound to its product definition.** Custom domain validators
-produced 69 implementation reviews and zero blocks while blocking 6 of 14 at design. Rule F binds a
-validator to the `## Horizontals` rows it declares it owns, so the invariant is read while the
-product is being defined rather than after it is built. Where a validator's concern is not a
-horizontal row, it stays unbound and says so, because a label that matches nothing reports as though
-it matched.
-
-**Three seats merged and one added.** `docs-steward` folds into `product-steward`, `planner` into
-`chief-of-staff`, and `contract-architect` retires as a review seat with its concern split between
-the design reviewer and a new `migration-validator` that refuses to review until a parse, a dry run
-and the contract test are attached. The merge redirects selection rather than deleting files: those
-names are cited 425 times across the fleet, and the judging roster keeps its floor.
-
-### v4.2 — the plan is scheduled, not described
-
-A feature spec says what to build; turning it into tasks was prose, and prose can neither schedule
-nor collide. A feature plan at `docs/product/plans/F-<id>-<slug>.md` carries the implementation plan
-and the validation plan together, its tasks declare `needs`, `writes` and `covers`, and the waves
-are derived rather than written. The milestone gains the goal no single feature owns, outcome-level
-success criteria, and the cross-feature journeys no feature suite can prove — which is also what
-scopes concurrency across features.
-
-Earned by measurement on a real 51-task graph: the dependency edges alone give 8 waves, and 37 pairs
-inside those waves declare overlapping write sets. Across a 5-feature milestone the per-plan view
-reported zero findings and exited green while six cross-feature pairs collided. Matching 16 sealed
-cards to their commits, 4 of 83 files landed outside the declaring task's write set, all four inside
-another task's.
-
-Added: the feature plan and validation plan; `plan_waves.py` with wave derivation, collision
-refusal, and a commit-versus-declaration check; `serialises:` for a deliberate shared write set;
-the milestone's goal, success criteria and validation gate; `trace_check.py`, which traces a
-criterion to a test that ran through verified JUnit evidence; and the pre-push boundary that runs
-the definition and plan checks, with a milestone seal that requires its cross-feature gate to have
-passed against the exact tree being pushed.
-
-Retired: `expected_red`, a fact about the tree that goes stale on the next commit — three of three
-such literals in a real plan were already false when checked; and the wave-scoped collision check,
-whose own remedy silenced it.
-
-### v4.1 — the product definition is checkable
-
-`references/specs.md` became the product-definition contract: one PRD per repository, its feature
-specs, and the rule that outranks the rest of the file — a spec states what is true now, is updated
-in place, and never says what it used to say. `spec_check.py` enforces that structurally, because a
-broad word-match for history language fired 1,057 times across 164 real documents, mostly on domain
-vocabulary. `--surfaces` binds a newly exposed route to an approved Surface section, after a PRD
-section headed "out of scope" named eight modules and all eight were built: 229 endpoints, none
-reachable.
-
-Added: the PRD, feature spec, milestone and README templates; `spec_check.py`; the decision queue;
-the agent-first readback clause.
-
-Retired: the per-area product spec, folded into one PRD; the interactive HTML explainer, replaced by
-the decision queue; the per-feature approval interview.
-
-### v4.0 — the budget binds
-
-Earned by an eight-week external audit of the whole portfolio (2026-08-21, eleven repositories),
-which found the failure v3.0's own principle 8 predicted and could not see. In the largest
-repository the process share of committed churn ran 4% in week 27 and 75% in week 34; product
-output fell from 404,312 lines to 11,129, a 97% collapse; of the last hundred commits, 73 were
-`docs` and 8 were `feat`, with 67 subjects naming process machinery and 5 naming a product noun.
-Two unrelated repositories collapsed in the same week — the week each adopted v3. The one
-repository that never adopted it, and which methodology.md already cites as its gold standard,
-carried bookkeeping at 3% of product lines and out-shipped the rest of the fleet by 3.5x.
-
-The cause was not strictness. It was that principle 8 — the one principle that measures the
-methodology itself — was the only principle with no mechanism. No script computed the ratio, and
-no receipt recorded it. Meanwhile the rule that was provably unmechanizable, the review round count,
-received 1,085 lines of Python before being reclassified advisory. Every numeric limit v3.1 set was
-breached by its own author repository, most of them by more than an order of magnitude.
-
-Added: the three-bucket budget with a 10% target, warning at 15% and failing at 30% (`ratio_meter.py`); the weekly
-review (`weekly_review.py`); gate enforcement for the five caps v3 wrote as prose; ledger rotation
-at 500 lines; the in-budget precondition on methodology changes.
-
-Retired: reports as an artifact class; the advisory framing of all five numeric caps; and the
-review-round count as a control — the script keeps its banned-artifact scan, which reads the disk
-rather than the author, and the count keeps the verdict filename convention it always used. Nothing
-here deletes a check that binds; what goes is the ceremony around the two that never did.
-
-### v3.1 — outcome focus and the unattended founder
-
-The week after v3.0 was measured the same way v2 was (2026-08-12..20, four repositories). The
-round cap held — no post-adoption subject anywhere exceeded two rounds — and that exposed the
-next constraint up the stack: every capped review failed closed onto a founder gate, and the
-founder is one person across four repositories. One repo froze six days on two unanswered briefs
-with a clean tree; another consumed five founder gates in one day; a third wrote ninety-four
-process-only commits against twenty-six product ones and grew its ledger twelve thousand lines;
-588 cold dispatch sessions landed nine commits while two warm sessions landed 151. Reviews exited
-via block-and-escalate rather than pass; harness refusals were counted as spent rounds.
-
-Added: the over-engineering guard on principle 7 (the spec is the ceiling); the default action on
-every non-safety escalation; the five-line distillation cap; the raw-dump and persisted-prompt
-banned classes; the long-lived orchestrator session; wave-sized landing; the founder-attention
-milestone shape (specs and task breakdown reviewed with the founder, plans machine-reviewed,
-execution autonomous), taken from the best-measured repository's own practice.
-
-Retired: the escalate-on-refusal exit (now apply-and-close for non-safety findings); the founder
-hard-block on non-safety escalations (now a named default after a short wait); rounds spent by
-dispatches that never ran (now zero-cost ledger lines); the single milestone-sized pull request
-(now wave-sized, main moving with every green wave); narrative ledger entries and process-only
-commits (now five lines, riding the product commit).
-
-### v3.0 — the review budget, two lanes, and the process metric
-
-Earned, all of it, by a two-week audit (2026-08-10) of the three repositories then running
-v1.4–v2.1. The measured record: process:product line ratios of 2.5:1 to 15.5:1; review rounds
-numbered to R15 and R18 against a written cap of two; five-reviewer panels re-issuing the same
-verdict distribution nine hours apart; a design grown 637→1,547 lines under review; a 2,250-line
-self-superseding card; a five-day deadlock on a commit-history precondition; a four-day zero-commit
-stall; 55% of one repository's merges shipping zero product code; and 68,000 lines of `.diff`
-snapshots serialized beside a stage that produced 14,000 lines of product. Under the same period's
-*lighter* process, one repository merged ten PRs in three days and another took a milestone from
-plan to merge in a day. The mechanism-versus-intention principle was applied everywhere except to
-the review loop itself; v3 applies it there.
-
-Added:
-
-- **The review budget** — one reviewer plus conditional specialists (max three), two rounds
-  enforced by the orchestrator's budget check, structured thirty-line verdicts, the 20% growth
-  tripwire, the one-page escalation brief.
-- **Two lanes**, light lane default; the full machinery is reserved for durable boundaries and
-  safety surfaces.
-- **Principle 8** — process metrics in every milestone receipt, with breach handled as a
-  regression.
-- **Commit-cadence invariant** (48 hours), **tree-state prerequisites**, **card size cap and
-  freeze-by-reference**, **writer-failure floor**, **workspace artifact rules** (no diff
-  snapshots, no restatement packets, failed dispatches are ledger lines), **batched founder
-  approvals**, and **the methodology freeze with a removal budget**.
-
-Retired (the removal budget, paid in advance):
-
-- **Multi-persona review panels.** Blocks were free and divergence was measured; conditional
-  specialists replace the quorum.
-- **Round-numbered artifact lineages** — except the round marker on persisted verdict filenames,
-  which the budget check counts — (`-r14`, `-r15` cards; per-round frozen packages; rereview
-  meta-files). The subject is the artifact; two rounds is the lineage.
-- **Diff snapshots and restatement packets** as artifact classes.
-- **Approval-receipt-only merges** and per-correction founder approvals.
-- **JUnit-evidence and Codex-sandbox protocol prose from this document** — moved intact to the
-  skill's `references/junit-evidence.md` and `references/codex-gate-sandbox.md`; the protocols
-  themselves are unchanged, and the tooling is identical. A per-task security protocol does not
-  need to be read by every persona in every repository at every dispatch.
-
-Kept, deliberately: the three human gates; builder/judge separation by tool restriction and the
-`test-judge` shell exception; evidence bound to a tree with forced execution; the Goal Capsule and
-finding classification of v1.6; card validation contract v2; the full-diff pass; the two-tier
-ledger with distillation-in-commit; merge-commit landing. Each of these has a failure it
-demonstrably caught in the record.
-
-Still assumed, not yet tested: that 150 lines is the right card cap rather than merely a right
-one; that the 20% growth tripwire is calibrated; that the light lane's boundary test catches every
-task that needed the full lane. The process metrics of the next two milestones are the test.
-
-### Prior versions
-
-The v1.1–v2.1 changelog is preserved verbatim in the skill's `references/changelog-v1-v2.md`. Its
-earned
-lessons — unexecuted greens, the full-diff discovery, card validation, write-set collisions, the
-orchestrator that cannot wait — remain the foundation this version stands on.
+1. **Evidence binds to a referent and proves execution.** Record the tree, command, interpreter,
+   exit status, and machine-readable results. A green console summary without executed-test counts
+   is not evidence.
+2. **Strictness is owned by the checker.** A gate has one canonical strict invocation. Callers do
+   not choose a weaker mode.
+3. **A builder never approves their own work.** Judges are structurally read-only. `test-judge`
+   retains the minimum shell needed to run a gate and reports its real output; no judge promotes or
+   merges work.
+4. **Context arrives by path and recipe.** Writers put detailed reports in files and return compact
+   handoffs. Read-only judges return a structured verdict of at most thirty lines, which the
+   controller persists.
+5. **Every stop is resumable.** Complete steps leave a named referent and receipt. Partial state is
+   labelled or discarded.
+6. **Deferrals keep an owner.** A finding may be parked only in the milestone register with its
+   trigger, consequence, and destination milestone.
+7. **Execution is goal-bound.** Every dispatch names an approved criterion or invariant and an
+   observable delta. The PRD, spec, design, and plan are both floor and ceiling; preferences,
+   speculative hardening, and invented scope do not block delivery.
+8. **The process is measured.** `ratio_meter.py` classifies committed churn as product, product
+   thinking, or process. Process targets 10%, warns above 15%, and fails above 30% once at least 500
+   classified lines exist. Deleting process files is cleanup and cannot breach the budget.
+
+## One chain and three gates
+
+The chain is PRD → feature spec → design → plan → tasks → implementation → task validation and
+review → commit → milestone validation → acceptance → merge. The skill diagram is the single
+high-level drawing; the loop reference is the single task-loop drawing.
+
+Three human gates remain compatible in name and responsibility:
+
+- **Gate 1, design:** approves the outcome, scope, invariants, and structural decisions.
+- **Gate 2, plan:** approves task decomposition, dependencies, write boundaries, validation, and
+  lane assignment.
+- **Gate 3, merge:** considers the sealed milestone, acceptance verdict, honest documentation, and
+  observed process metrics.
+
+Repeat a gate only when its referent or inputs change, a run fails, or prior evidence becomes
+invalid. Record the reason for every repeat and reuse a still-valid successful result; repeating an
+unchanged successful check adds no evidence.
+
+Related decisions may be presented together, but missing approval is never inferred from elapsed
+time. Between Gate 2 and Gate 3, the controller follows
+`references/execution-loop.md` without pausing for routine confirmations. A gate pass authorizes no
+deployment, provider activation, production write, push, PR, or merge.
+
+## Product definition, design, and plan
+
+`product-steward` owns the current-state PRD and feature specs. Acceptance criteria cover reachable
+success, failure, edge, authorization, privacy, and recovery behavior as applicable. Project domain
+validators read definition and design when their declared concern moves. `spec_check.py` verifies
+document shape, criterion coverage, horizontals, validator routing, and owned deferrals.
+
+`architect` owns system structure, module boundaries, dependency direction, and the named
+invariants put at risk. The plan, owned by `chief-of-staff`, freezes interfaces including payloads,
+task decomposition, dependencies, write boundaries, validation, lane assignment, and the Goal
+Capsule. Use the smallest operationally real safe slice and existing/native primitives. A new
+durable authority returns to design.
+
+The exact pre-gate contract is a fresh, isolated, read-only `reviewer` with only named artifact
+paths, never the author conversation. `PASS` is valid; there is no finding quota. A blocker names
+its criterion or invariant, a reachable trigger or state sequence, the observable consequence,
+artifact evidence, severity, and the smallest correction or human decision. The author receives
+one correction and one scoped rereview. Design recurrence returns to Gate 1; plan recurrence returns
+to Gate 2. Codex uses `fork_turns: "none"`; another harness uses its equivalent fresh-thread
+primitive. Prompt wording alone does not establish isolation. The scoped dispatch names the
+persisted original finding or report path, correction or diff path, corrected artifact path, and
+governing frozen artifact paths. A post-code review defaults to Implementation unless Design or Plan
+is explicitly named.
+
+## Plan admission and the two lanes
+
+Every governed task must already exist in a fenced plan task block with all of:
+
+- an existing plan task id;
+- an explicit `lane:` of `light` or `full`;
+- a non-empty `writes:` boundary;
+- non-empty acceptance criteria in `covers:`;
+- dependencies and intentional serialization where applicable.
+
+`plan_waves.py` rejects missing admission metadata before either lane dispatches. It derives waves,
+continuous readiness, write-set conflicts, and named-commit conformance from the plans and git. It
+does not create plans, state, or a second task registry.
+
+**Light lane.** Use when the task moves no durable boundary or declared safety surface. There is no
+card. Its inline dispatch carries the existing plan task id, goal, criterion/invariant, observable
+delta, exact writes, tests, area check, persona, context paths, stop conditions, and report path.
+The writer works within that boundary, `test-judge` runs the tests and area check, `reviewer`
+inspects the full task diff, and `plan_waves.py --commit` checks the named commit against plan
+`writes`. Git plus the plan provide resume state.
+
+**Full lane.** Use for REST or published contracts, database schema and migrations, queue message
+shapes, module public interfaces, generated clients, or consent, authorization, personal or health
+data, redaction, retention, erasure, audit, tokens, and money. It retains every light-lane control
+and adds a strict task-card v2 pre/mid/post check, the applicable boundary specialist, and sealed
+evidence. The complete card, validation, JUnit, trace, sandbox, and handoff contracts live in
+`references/task-card.md`, `references/junit-evidence.md`, and
+`references/codex-gate-sandbox.md`; those maintained sources override summary prose.
+
+A light task that reaches a full boundary stops and returns to the plan. The plan changes first;
+the controller does not widen the dispatch in place.
+
+## Implementation review: one procedure
+
+Every implementation task receives **one initial full task-diff review** by a fresh read-only
+`reviewer`. This review covers all task writes against the frozen criteria and invariants. A
+`security-validator` joins only for a safety surface; another named specialist may own one distinct
+invariant where the plan requires it. `test-judge` runs commands and is not a semantic review lens.
+
+Every finding is classified before repair as a current-scope defect, harness defect, pre-existing
+defect, invalid frozen assumption, new outcome or claim, external fact, evidence defect, safety
+finding, or scope change. Only a valid current-scope correction inside the existing task boundary
+returns to the writer.
+
+After that correction, perform **one scoped correction review**. The fresh reviewer receives the
+persisted original finding, correction/diff, causal area, corrected artifact, and governing frozen
+artifacts by path. It does not receive author conversation or rationale. This second review checks
+the repair without repeating the whole task diff.
+
+Two rounds are the procedure; they are not a rule that turns uncertainty into success. An
+unresolved semantic defect leaves the task **INCOMPLETE**, never READY. A mechanically specified
+final application may be performed by the controller only when it stays inside the frozen task and
+then receives **independent executable confirmation**. It does not receive a semantic promotion by
+default. A repeated causal defect returns to the relevant gate; distinct safety findings remain
+blocking regardless of count.
+
+`check_review_budget.py WORKSPACE --next SUBJECT` runs before each review dispatch. It enforces
+banned artifact classes and exposes lineage/round use; a dispatch that returns no verdict spends no
+round. Growth above 20% in the reviewed artifact returns to its gate. The review count never weakens
+a test, safety, evidence, or acceptance result.
+
+## Task execution and validation
+
+The operational sequence and exact commands are in `references/execution-loop.md`. Per task:
+
+1. Derive status and readiness from the plan and git.
+2. Admit either the light inline dispatch or the full validated card.
+3. Acquire only the named context and observe a repository-provable regression red where one
+   exists.
+4. Implement the smallest safe slice, including reachable failure, concurrency, ordering, retry,
+   privacy, and authorization cases relevant to the task.
+5. Run focused validation, the area gate, independent implementation review, and independent gate
+   execution.
+6. Commit with the plan task id and distillation; immediately check the commit's writes.
+7. Drain deferrals, verify criterion trace evidence, run the milestone gate, and seal the exact
+   tree before acceptance.
+
+Full-lane cards are at most 150 lines. Frozen material over ten lines lives in a committed contract
+file named by path. Prerequisites assert working-tree state, never git history. A wrong card is
+regenerated from the plan under a new id. `validate_card.py --strict --phase pre` admits it;
+`--phase mid` checks drift; `--strict --phase post` requires every declared output and exact test
+to exist.
+
+Every validation entry is a direct process mapping with normalized `cwd` and non-empty `argv`; the
+task-card reference defines the exact v2 schema. Java selectors, `--rerun-tasks`, JUnit nonce
+receipts, criterion trace checks, sandboxed write-producing gates, migration fencing, and seal
+receipts retain their detailed source contracts. Do not paraphrase them into a second protocol.
+`--rerun-tasks` is the only accepted Gradle freshness proof.
+
+## Controller state, records, and recovery
+
+The controller owns plans and **bounded controller state** needed to resume the active milestone.
+Current resume pointers are a replaceable snapshot derived from git and `plan_waves.py`; they may
+name the active milestone, seal revision, and current in-flight task ids. They do not claim task
+completion and are refreshed or discarded as the tree changes.
+
+The durable record contains **append-only decisions** and task distillations: interfaces produced,
+verified commands and limits, corrected assumptions, deferrals with owners, and founder rulings.
+Current resume pointers never live in that append-only record. Plans may be edited by the
+controller; product source and tests always go to a dispatched writer.
+
+The git-ignored workspace may hold full cards, dispatch records, writer reports, and persisted
+judge verdicts. It holds no raw prompt dumps, restatement packets, accumulated diff snapshots, or
+files whose only content is a failed dispatch. Judges return compact verdicts; writers return
+reports. Workspace caps and verdict naming remain enforced by the existing review-budget tooling.
+
+After compaction or restart, rerun `plan_waves.py --milestone M<n> --since <seal-rev> --json` and
+reconcile only the current in-flight ids. Unclaimed commits remain visible as commits that did not
+resolve to any declared task. They are not silently reclassified as light-lane work and cannot
+complete a governed task.
+
+## Evidence and milestone completion
+
+Per-task validation records the real command and output. Java/JUnit tasks use a single-use start
+receipt immediately before execution and verified XML afterward. `trace_check.py` compares criteria
+with ids from verified evidence and reports its limits, including which ids predate the commit
+range. A passing selector or receipt does not prove assertion quality.
+
+A milestone declares its cross-feature gate. `milestone_seal.py --record M<n>` requires a clean
+tree, runs the gate on that tree, and stores a receipt outside the repository keyed to its tree SHA.
+`acceptance` independently evaluates the same sealed referent against the frozen criteria. The
+founder alone authorizes merge.
+
+The milestone report is composed from current command output: task status and unclaimed commits,
+criterion trace, owned deferrals, seal verification, process ratio, review-budget state, and explicit
+limits or skipped checks. Measurements use their actual unit and corpus; unmeasured claims stay
+unmeasured. A model choice is never evidence of quality or safety.
+
+`weekly_review.py` reports the same `ratio_meter.py` classification over time; it is a trend report,
+while the merge-range ratio remains the gate input.
+
+## Adoption, maintenance, and history
+
+This file is the maintained source. `sync_methodology.py --repo PATH` renders it into an adopted
+repository and `--check` detects drift; adoption is deliberate per repository. Source changes are
+reviewed and tested before selective re-vendoring. Global installation is a separate action.
+
+Methodology changes follow the same design, plan, review, and verification rules. Their goal names
+an observed process defect, their plan owns an exact write set, and their acceptance requires a
+real workflow fixture where possible. Historical measurements, superseded procedures, and the
+rationale for versions 3 through 5 live in
+`references/history-v3-v5.md`. That reference is not current authority.
+
+Landing updates the repository README and route so they describe the resulting system. Run the
+repository's local gate and report its verbatim verdict. Commit, push, PR, merge, release, and
+deployment remain deliberate, separately authorized actions.
