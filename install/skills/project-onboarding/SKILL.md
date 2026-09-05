@@ -124,7 +124,7 @@ nothing adopts a repository on its own.** Skip it and the project runs no shared
 only a conformance run will ever say so.
 
 ```bash
-sync_methodology.py --list                       # source version and rendered date
+sync_methodology.py --list                       # source version and source digest
 sync_methodology.py --repo . --adoption-check    # this repo's state; ALWAYS exits 0 — read the text
 ```
 

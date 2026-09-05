@@ -409,6 +409,9 @@ class MethodologySyncTest(unittest.TestCase):
 
             self.assertEqual(listed.returncode, 0, listed.stdout + listed.stderr)
             self.assertIn(f"version     {installed_version()}", listed.stdout)
+            normalized = SOURCE.read_text(encoding="utf-8").strip()
+            expected_digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+            self.assertIn(f"source sha  {expected_digest}", listed.stdout)
             self.assertIn(f"[v{installed_version()}]", listed.stdout)
 
     def test_public_junit_guidance_says_skips_fail_evidence(self) -> None:
