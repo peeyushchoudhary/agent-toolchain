@@ -32,3 +32,30 @@ repair only what the approved status identifies as repairable and must reverify.
 preview equals the actual write set, preserve dirty and unmanaged files, run affected checks, and
 show remaining findings. A second unchanged run must make no unnecessary writes. Read-only
 assessment requires no additional approval; it does not authorize applying a repair.
+
+## Observe execution in the existing task distillation
+
+This source-home route already names `docs/LEDGER.md` as its durable record. That file requires one
+distillation per task and its real entries use the task heading, `Commit` and `Status`, then
+`Interfaces produced`, `Deferrals`, `Verification actually run`, and `Surprises`. Weekly or ad hoc
+assessment updates that existing `docs/LEDGER.md` task distillation; it does not add an assessment
+row, assessment id, parallel ledger, report, schema, or status record.
+
+Join the existing session, milestone, task, Git, trace, seal, acceptance, and validation receipt
+identifiers by citing their source artifacts in those existing sections. Keep `Commit` and `Status`
+as the task's Git and outcome summary. Put observed accepted-to-integrated delay, first-pass
+acceptance, validation receipts, and checks that did or did not run under `Verification actually
+run`. Keep produced interfaces under `Interfaces produced` and owned unfinished work under
+`Deferrals`. Put defects, escaped regressions, waits, and avoidable reruns or stops under
+`Surprises`, with links back to the existing identifiers that support them.
+
+Unknown stays unknown: absence is not zero and must not be inferred from a nearby timestamp or
+receipt. The existing TC-01 distillation is the fixture for that treatment: its `Verification
+actually run` section records missing gate output as not recorded and identifies the repository's
+existence as an inference rather than an observation. Usage and cash remain separate units; record
+each only when its existing source supplies it, and do not convert or combine them without a sourced
+conversion.
+
+This is a reading of joined source artifacts in an existing record. A qualitative assessment may
+explain the observations, but it cannot turn missing data into an outcome or approve a process
+change.

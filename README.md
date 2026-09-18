@@ -24,7 +24,9 @@ be rerun. Its local checks make stale routes and inconsistent generated files vi
 Project knowledge supplies the contract and lessons. Work then enters one of two workflows:
 ordinary delivery through **execution methodology**, or methodology maintenance through
 **methodology management**. Shared helpers serve both. Claude Code or Codex produces code or
-documentation plus evidence; lessons return to the project route. Agents stay in their harness.
+documentation plus evidence; lessons return to the project route. The execution workflow keeps its
+common policy compact and routes detailed loop and task-card procedure to focused references.
+Agents stay in their harness.
 
 <details>
 <summary>Text equivalent for the architecture image</summary>
@@ -53,7 +55,7 @@ remains at design, plan, and merge. Deployment is a separate, authorized action.
 
 | Surface | Published skills | Responsibility |
 |---|---|---|
-| Primary workflows | `execution-methodology`, `methodology-management` | Deliver approved work; manage assessment, setup, repair, migration, and upgrades. |
+| Primary workflows | `execution-methodology`, `methodology-management` | Deliver approved work through compact policy and routed procedure; manage assessment, setup, repair, migration, and upgrades. |
 | Supporting helpers | `progressive-disclosure`, `agent-personas`, `agent-persona-factory`, `graph-navigation`, `gate-sandbox` | Route context, define roles, derive specialists, navigate graphs, and isolate write-producing gates. |
 | Compatibility / read-only routes | `project-onboarding`, `project-migration`, `project-conformance` | Preserve explicit setup and migration names; expose conformance assessment without silently starting a change. |
 
@@ -76,10 +78,15 @@ remains at design, plan, and merge. Deployment is a separate, authorized action.
 
 The execution methodology is **v5.1**. After Gate 2, `chief-of-staff` is the sole scheduling owner
 and may dispatch, resume, recover, and use resources only within the approved plan's bounded
-authority. Resume state stays compact and is rebuilt from the plan and git. Weekly and ad hoc
-observations gathered during explicit methodology-management work inform later proposals; they do
-not activate policy, model assignments, runtime upgrades, or project migrations. Eleven roles are
-active; three superseded or retired persona definitions remain for compatibility.
+authority. Resume state stays compact and is rebuilt from the plan and git. The route uses compact
+file handoffs, reuses still-valid validation evidence only while its inputs match, and checks a
+representative integrated slice before the full gate. Weekly and ad hoc observations gathered
+during explicit methodology-management work map through existing joined identifiers and inform
+later proposals; they do not activate policy, model assignments, runtime upgrades, or project
+migrations. The approved
+[methodology efficiency vendoring plan](docs/product/plans/F-1-methodology-efficiency-vendoring.md)
+tracks this public bundle update. Eleven roles are active; three superseded or retired persona
+definitions remain for compatibility.
 
 Model assignments are a selective, local pilot. Current evidence does not establish comparative
 quality, velocity, subscription efficiency, rare-defect detection, or full workflow performance.

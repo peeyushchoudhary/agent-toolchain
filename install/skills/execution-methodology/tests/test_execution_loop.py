@@ -44,6 +44,18 @@ SCRIPTS = SKILL / "scripts"
 LOOP = SKILL / "references" / "execution-loop.md"
 SKILL_MD = SKILL / "SKILL.md"
 POOL = SKILL.parent / "agent-personas" / "personas"
+TASK_CARD = SKILL / "references" / "task-card.md"
+ASSESSMENT = SKILL.parent / "methodology-management" / "references" / "assessment.md"
+BUNDLE_ROOT = SKILL.parents[1]
+REPOSITORY_ROOT = BUNDLE_ROOT.parent if (BUNDLE_ROOT / "install.sh").is_file() else BUNDLE_ROOT
+README = REPOSITORY_ROOT / "README.md"
+# Portable copy of the existing private docs/LEDGER.md task-distillation headings. The public
+# vendored skill has no private ledger, so policy tests pin its established names without reading
+# that source-only record at runtime.
+LEDGER_DISTILLATION_HEADINGS = (
+    "one distillation per task", "`commit`", "`status`", "`interfaces produced`",
+    "`deferrals`", "`verification actually run`", "`surprises`",
+)
 
 # Placeholders the document is allowed to use, and what this suite substitutes for each. A token in
 # a documented command that is not a real value and not a key here fails: an unrunnable command is
@@ -281,10 +293,11 @@ class DocumentedInterfaceTest(unittest.TestCase):
     def test_the_skill_points_here_and_does_not_hold_the_loop_itself(self) -> None:
         skill = read(SKILL_MD)
         self.assertIn("references/execution-loop.md", skill)
-        paragraph = section(skill, "**Executing**")
+        paragraph = next(line for line in skill.splitlines()
+                         if line.startswith("| `chief-of-staff` |"))
         self.assertIn("execution-loop.md", paragraph)
-        self.assertLessEqual(len(paragraph.splitlines()), 8,
-                             "the pointer has grown back into a procedure")
+        self.assertEqual(len(paragraph.splitlines()), 1,
+                         "the route row has grown back into a procedure")
         for detail in ("--ready", "--phase mid", "--in-flight", "--record"):
             self.assertNotIn(detail, paragraph,
                              f"{detail} belongs in the reference, not in two places")
@@ -313,7 +326,86 @@ class DocumentedInterfaceTest(unittest.TestCase):
         self.assertIn("selects, reorders, dispatches", normalized)
         self.assertIn("only tasks in the observed ready set", normalized)
         self.assertIn("root relays founder decisions", normalized)
-        self.assertIn("does not duplicate scheduling", normalized)
+        self.assertIn("does not duplicate the delegated chief's scheduling", normalized)
+
+    def test_root_and_delegated_chief_have_one_scheduler(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        for phrase in (
+            "must not spawn a chief-of-staff child",
+            "decisions that need root action, state deltas, and artifact paths",
+            "does not duplicate the delegated chief's scheduling",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+
+    def test_light_and_full_handoffs_share_the_bounded_evidence_tail(self) -> None:
+        loop = " ".join(self.text.split()).lower()
+        card = " ".join(read(TASK_CARD).split()).lower()
+        fields = (
+            "unproved requirement", "assumption or inference", "checks actually run",
+            "plausible remaining failure", "next decisive check or action",
+        )
+        self.assertIn("writer report path", loop)
+        self.assertIn("returns only concise status and that report path", card)
+        for name, text in (("light dispatch", loop), ("full-card report", card)):
+            with self.subTest(fixture=name):
+                self.assertIn("at most five evidence bullets", text)
+                for field in fields:
+                    self.assertIn(field, text)
+                self.assertIn("not scores", text)
+                self.assertIn("not self-acceptance", text)
+
+    def test_validation_is_reused_until_a_relevant_invalidation(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        for phrase in (
+            "one independent focused-and-area run",
+            "source, command, runtime, and environment",
+            "record the invalidation reason",
+            "separate receipt for each command",
+            "one final integrated gate per valid milestone candidate",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+
+    def test_accepted_slice_is_integrated_or_checkpointed_promptly(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        for phrase in (
+            "representative integrated success journey or deny path",
+            "promptly transport the accepted slice",
+            "authorized local commit and write-set check",
+            "checkpoint and pause",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+
+    def test_assessment_joins_existing_ids_without_inventing_values(self) -> None:
+        normalized = " ".join(read(ASSESSMENT).split()).lower()
+        for phrase in (
+            "existing session, milestone, task, git, trace, seal, acceptance, and validation receipt identifiers",
+            "accepted-to-integrated delay",
+            "first-pass acceptance",
+            "escaped regressions",
+            "avoidable reruns or stops",
+            "unknown stays unknown",
+            "usage and cash remain separate units",
+            "existing `docs/ledger.md` task distillation",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+        for heading in LEDGER_DISTILLATION_HEADINGS:
+            with self.subTest(ledger_heading=heading):
+                self.assertIn(heading, normalized)
+        self.assertNotIn("example existing assessment row", normalized)
+        self.assertNotIn("session=`", normalized)
+
+    def test_readme_states_the_compact_execution_route_without_adoption_claims(self) -> None:
+        normalized = " ".join(read(README).split()).lower()
+        for phrase in (
+            "compact file handoffs", "reuses still-valid validation evidence",
+            "representative integrated slice", "existing joined identifiers",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
 
     def test_gate_two_authority_covers_bounded_execution_branches(self) -> None:
         normalized = " ".join(self.text.split()).lower()

@@ -451,19 +451,26 @@ of that shape. Record when the card can proceed and something else is wrong.
 
 ## Report contract
 
-The implementer writes a full report to a file and returns only a verdict.
+The implementer writes a full report to the path named by the dispatch and returns only concise
+status and that report path.
 
 **Status vocabulary** — one of `DONE`, `DONE_WITH_CONCERNS`, `INCOMPLETE`, `NEEDS_CONTEXT`,
 `BLOCKED`. An unresolved semantic defect after the scoped correction review is `INCOMPLETE`; no
 round cap promotes it to `DONE` or READY.
 
-**The verdict returned** is status, commit shas, a one-line test summary, and concerns. Nothing
-else. It is short because the orchestrator re-reads it on every subsequent turn.
+**The handoff returned** is status and the report path. Commit shas, the test summary, and concerns
+stay in the report so the orchestrator does not repeatedly ingest them on later turns.
 
 **The report written to file** carries: files changed; design decisions and why; interfaces produced
 that later tasks will consume; the exact commands run with their real output and PASS/FAIL;
 pass-to-pass breakage, explicitly, including "none"; surprises and assumptions that turned out
 wrong; and commit shas.
+
+End that report with at most five evidence bullets, one each for: unproved requirement; assumption
+or inference; checks actually run; plausible remaining failure; and next decisive check or action.
+Write `none` when a category has no evidence. These bullets are evidence pointers, not scores and
+not self-acceptance or readiness claims. This bounded tail is the full-card handoff summary; it does
+not replace the detailed report or add a card field.
 
 For every review finding, the report also records its capsule criterion/invariant, reachable input
 or state, observable consequence, evidence, category, causal class, disposition, and owner. The
