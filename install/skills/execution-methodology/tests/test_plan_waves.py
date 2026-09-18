@@ -526,6 +526,14 @@ class CommitWritesTest(PlanFixture):
         self.commit("feat(T1): stays home", "backend/a/one.java")
         self.assertEqual(self.run_cli("--commit", "HEAD").returncode, 0)
 
+    def test_commit_check_rejects_an_unresolved_revision_before_inspection(self) -> None:
+        """The per-plan scope must not turn an invalid commit into empty Git output."""
+        self.repo(task("T1", writes="backend/a/**"))
+        result = self.run_cli("--commit", "no-such-rev-here")
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("no-such-rev-here", result.stderr)
+
     def test_a_commit_naming_no_task_is_not_a_finding(self) -> None:
         """Ordinary commits need not belong to governed execution; task-shaped drift is separate."""
         self.repo(task("T1", writes="backend/a/**"))

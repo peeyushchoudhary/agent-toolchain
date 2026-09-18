@@ -16,9 +16,10 @@ usage/cost evidence. Verify provider support from current authoritative document
 new recommendation. Do not rerun model research on ordinary tasks or silently switch assignments.
 
 After authorization, test the reconciled candidate in an isolated binding, verify owning suites and
-real workflow fixtures, then stage the scoped installation/adoption. Obtain write-equivalent JSON
-previews from each affected owner with explicit `--scope project`, `--scope global`, or
-`--scope all`; never infer global scope from a repository argument. Preserve unmanaged
-configuration and record rollback referents. Update README/routes and publish source/private
-backups only through authorized PR actions. Global install, project adoption, model activation and
-deployment are separate outcomes and must be reported accurately.
+real workflow fixtures, then stage the scoped installation/adoption. For a project methodology
+render, obtain its write-equivalent JSON preview with
+`sync_methodology.py --repo <repo> --scope project --preview --json`. Other owners provide their
+own explicit global or all-scope previews; never infer global scope from a repository argument.
+Preserve unmanaged configuration and record rollback referents. Update README/routes and publish
+source/private backups only through authorized PR actions. Global install, project adoption, model
+activation and deployment are separate outcomes and must be reported accurately.

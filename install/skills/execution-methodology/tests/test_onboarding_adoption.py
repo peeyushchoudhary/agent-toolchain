@@ -37,6 +37,7 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parents[1]
 SYNC = SKILL / "scripts" / "sync_methodology.py"
 ONBOARDING = SKILL.parent / "project-onboarding" / "SKILL.md"
+SETUP = SKILL.parent / "methodology-management" / "references" / "setup.md"
 
 
 def first_present(*candidates: Path) -> Path:
@@ -62,9 +63,8 @@ def first_present(*candidates: Path) -> Path:
 REPO = SKILL.parents[2]
 DECISIONS = first_present(REPO / "docs" / "decisions" / "decisions.md",
                           REPO / "docs" / "decisions.md")
-# The same step, written twice for two audiences. Repairing one copy of a duplicated block and not
-# the other is exactly how the defective Verify block survived: it stayed reachable through the more
-# likely door. Both are pinned, and pinned to each other.
+# GUIDE is the public compatibility route. It and the project-onboarding compatibility skill are
+# pinned only to the canonical management setup owner, which holds the procedure and its claims.
 GUIDE = first_present(REPO / "docs" / "runbooks" / "onboarding-a-project.md",
                       REPO / "docs" / "onboarding-a-project.md")
 
@@ -145,58 +145,44 @@ class OnboardingRoutesToAdoption(unittest.TestCase):
                       "happens on its own; a procedure that omits that invites an unattended run")
 
 
-class BothCopiesOfStepSixSayTheSameThing(unittest.TestCase):
-    """The skill and the guide carry the same step for two audiences, and they have drifted once.
-
-    The failing pattern is recorded: a duplicated block was repaired in the skill and left defective
-    in the guide, which is the copy more readers reach. So the assertions here are about the CLAIMS
-    both copies have to make, never about wording — the two are deliberately written differently.
-
-    Persona configuration is the claim being pinned. Adopting the methodology in a repository has to
-    configure that repository's validators too; the measurement that made this a step is that a
-    project's own domain validators are cited 100 times at review time and 5 times on a spec.
-    """
+class CompatibilityRoutesToCanonicalSetup(unittest.TestCase):
+    """Compatibility routes point to one setup owner; that owner carries the persona decision."""
 
     def setUp(self) -> None:
-        missing = [p for p in (ONBOARDING, GUIDE) if not p.is_file()]
+        missing = [p for p in (ONBOARDING, SETUP) if not p.is_file()]
         if missing:
             self.skipTest(f"not present in this layout: {', '.join(str(p) for p in missing)}")
-        self.steps = {"skill": section(read(ONBOARDING), "6 "),
-                      "guide": section(read(GUIDE), "6 ")}
-        for where, step in self.steps.items():
-            self.assertTrue(step, f"no step 6 heading in the {where}")
+        self.onboarding = read(ONBOARDING)
+        self.setup = read(SETUP)
 
-    def test_both_bind_adoption_to_persona_configuration(self) -> None:
-        for where, step in self.steps.items():
-            with self.subTest(copy=where):
-                self.assertIn("docs/agents/personas/", step,
-                              "adoption says nothing about this repository's own validators, so a "
-                              "repository can adopt the methodology and leave every horizontal "
-                              "invariant owned by nobody")
-                self.assertIn("covers:", step,
-                              "the step never names the one key that binds a validator to a "
-                              "concern, so rule F keeps checking nothing")
+    def test_compatibility_skill_routes_to_the_canonical_setup_owner(self) -> None:
+        self.assertIn("methodology-management/references/setup.md", self.onboarding)
 
-    def test_both_say_the_unowned_concerns_are_the_output_to_act_on(self) -> None:
-        for where, step in self.steps.items():
-            with self.subTest(copy=where):
-                self.assertIn("owned by nobody", step.lower(),
-                              "the useful output is the list of invariants nothing is bound to; a "
-                              "step that does not point at it points at nothing")
+    def test_public_guide_routes_to_the_canonical_setup_owner_when_present(self) -> None:
+        if not GUIDE.is_file():
+            self.skipTest(f"public guide is not present in this layout: {GUIDE}")
+        guide = read(GUIDE)
+        self.assertIn("methodology-management/references/setup.md", guide)
+        self.assertIn("does not duplicate the setup", guide.lower())
 
-    def test_neither_claims_the_line_is_written_for_you(self) -> None:
-        for where, step in self.steps.items():
-            with self.subTest(copy=where):
-                self.assertIn("nothing writes that line", step.lower(),
-                              "every script in this skill writes nothing, and a binding a script "
-                              "guessed is a binding nobody holds")
+    def test_setup_binds_persona_configuration_to_its_source_owner(self) -> None:
+        self.assertIn("skills/agent-personas/SKILL.md", self.setup)
+        self.assertIn("docs/agents/personas/", self.setup)
+        self.assertIn("covers:", self.setup)
 
-    def test_both_say_a_repository_without_a_pool_is_not_at_fault(self) -> None:
-        for where, step in self.steps.items():
-            with self.subTest(copy=where):
-                self.assertIn("has not adopted overlays", step,
-                              "a repository with no persona pool is in a legitimate state; "
-                              "reporting it as a fault is how a check gets muted")
+    def test_setup_reports_unowned_concerns_as_action_output(self) -> None:
+        self.assertIn("report relevant concerns owned by nobody as action output",
+                      self.setup.lower())
+
+    def test_setup_does_not_claim_the_binding_is_written_automatically(self) -> None:
+        self.assertIn("nothing writes that line automatically",
+                      " ".join(self.setup.lower().split()))
+
+    def test_setup_treats_no_pool_as_nonfault_when_the_decision_is_explicit(self) -> None:
+        setup = self.setup.lower()
+        self.assertIn("has not adopted overlays", setup)
+        self.assertIn("not itself a fault", setup)
+        self.assertIn("base-only or deferral decision is explicit", setup)
 
 
 class OnboardingDelegatesItsVerification(unittest.TestCase):

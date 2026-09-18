@@ -46,6 +46,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from datetime import date, datetime, timezone
@@ -274,9 +275,10 @@ def source_revision(bundle_root: Path) -> str | None:
     Dirty scope is deliberately the explicit declaration, not the surrounding checkout. An
     unrelated documentation edit must not change runtime provenance or cause a rewrite.
     """
-    top = subprocess.run(["git", "-C", str(bundle_root), "rev-parse", "--show-toplevel"],
+    git = ["git", "--no-optional-locks"]
+    top = subprocess.run([*git, "-C", str(bundle_root), "rev-parse", "--show-toplevel"],
                          capture_output=True, text=True)
-    head = subprocess.run(["git", "-C", str(bundle_root), "rev-parse", "HEAD"],
+    head = subprocess.run([*git, "-C", str(bundle_root), "rev-parse", "HEAD"],
                           capture_output=True, text=True)
     if top.returncode or head.returncode:
         return None
@@ -288,7 +290,7 @@ def source_revision(bundle_root: Path) -> str | None:
             declared.append(absolute.resolve().relative_to(top_path).as_posix())
         except (OSError, ValueError):
             return None
-    dirty = subprocess.run(["git", "-C", str(top_path), "status", "--porcelain", "--", *declared],
+    dirty = subprocess.run([*git, "-C", str(top_path), "status", "--porcelain", "--", *declared],
                            capture_output=True, text=True)
     if dirty.returncode:
         return None
@@ -453,6 +455,43 @@ def is_ours(text: str) -> bool:
     return GENERATED in text
 
 
+class OutputSnapshot(NamedTuple):
+    text: str
+    sha256: str
+
+
+class RenderPlan(NamedTuple):
+    operations: tuple[dict, ...]
+    findings: tuple[dict, ...]
+    expected: str
+    expected_inventory: str
+    source_digest: str
+    has_overlay: bool
+
+
+def _missing_output_directories(repo: Path) -> tuple[str, ...]:
+    """Return absent owned directories without following an existing component."""
+    missing: list[str] = []
+    cursor = repo
+    relative = Path()
+    absent = False
+    for part in TARGET_REL.parent.parts:
+        relative /= part
+        cursor /= part
+        if absent:
+            missing.append(relative.as_posix())
+            continue
+        try:
+            info = cursor.lstat()
+        except FileNotFoundError:
+            absent = True
+            missing.append(relative.as_posix())
+            continue
+        if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+            raise MethodologyError(f"unsafe output directory: {relative.as_posix()}")
+    return tuple(missing)
+
+
 @contextmanager
 def _output_directory(repo: Path, *, create: bool):
     """Open the output directory component-by-component without following symlinks."""
@@ -476,25 +515,70 @@ def _output_directory(repo: Path, *, create: bool):
         os.close(fd)
 
 
-def _read_output(fd: int, name: str) -> str | None:
+def _snapshot_open_output(fd: int, name: str) -> OutputSnapshot | None:
+    """Read one validated destination without following or blocking on a special file."""
     try:
-        file_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+        file_fd = os.open(name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=fd)
     except FileNotFoundError:
         return None
     try:
-        with os.fdopen(os.dup(file_fd), "r", encoding="utf-8", errors="replace") as stream:
-            return stream.read()
+        info = os.fstat(file_fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise MethodologyError(f"refusing non-regular output: {name}")
+        if info.st_nlink != 1:
+            raise MethodologyError(f"refusing multiply-linked output: {name}")
+        data = bytearray()
+        while True:
+            block = os.read(file_fd, 1024 * 1024)
+            if not block:
+                break
+            data.extend(block)
+        raw = bytes(data)
+        return OutputSnapshot(raw.decode("utf-8", errors="replace"),
+                              hashlib.sha256(raw).hexdigest())
+    finally:
+        os.close(file_fd)
+
+
+def _read_authored_input(fd: int, name: str) -> str | None:
+    """Read a regular authored input safely; hardlinks are valid for read-only inputs."""
+    try:
+        file_fd = os.open(name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=fd)
+    except FileNotFoundError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+            raise MethodologyError(f"refusing non-regular input: {name}")
+        data = bytearray()
+        while True:
+            block = os.read(file_fd, 1024 * 1024)
+            if not block:
+                break
+            data.extend(block)
+        return bytes(data).decode("utf-8", errors="replace")
     finally:
         os.close(file_fd)
 
 
 def _open_output_for_write(fd: int, name: str, acceptable) -> int:
     """Bind a write to the verified file inode; a path swap cannot redirect the write."""
-    flags = os.O_RDWR | os.O_NOFOLLOW
+    flags = os.O_RDWR | os.O_NONBLOCK | os.O_NOFOLLOW
     try:
         file_fd = os.open(name, flags, dir_fd=fd)
-        with os.fdopen(os.dup(file_fd), "r", encoding="utf-8", errors="replace") as stream:
-            current = stream.read()
+        info = os.fstat(file_fd)
+        if not stat.S_ISREG(info.st_mode):
+            os.close(file_fd)
+            raise MethodologyError(f"refusing non-regular output: {name}")
+        if info.st_nlink != 1:
+            os.close(file_fd)
+            raise MethodologyError(f"refusing multiply-linked output: {name}")
+        data = bytearray()
+        while True:
+            block = os.read(file_fd, 1024 * 1024)
+            if not block:
+                break
+            data.extend(block)
+        current = bytes(data).decode("utf-8", errors="replace")
         if not acceptable(current):
             os.close(file_fd)
             raise MethodologyError(f"refusing to overwrite {name} (unmanaged output)")
@@ -1042,7 +1126,7 @@ def repair_approved_methodology(repo: Path, authorization: object) -> int:
                 raise MethodologyError("approved identity changed; refusing repair")
 
             body = source_text()
-            overlay_raw = _read_output(output_fd, OVERLAY_REL.name)
+            overlay_raw = _read_authored_input(output_fd, OVERLAY_REL.name)
             if overlay_raw is not None and not overlay_raw.strip():
                 raise MethodologyError(f"{OVERLAY_REL.as_posix()} exists but is empty")
             overlay = overlay_raw.strip() if overlay_raw is not None else None
@@ -1105,41 +1189,23 @@ def sync(repo: Path, check: bool) -> int:
     return code
 
 
-def render_methodology(repo: Path, check: bool) -> int:
-    try:
-        repo = repo.resolve(strict=True)
-        body = source_text()
-        overlay = read_overlay(repo)
-        inventory = runtime_inventory(body, overlay)
-    except (OSError, MethodologyError) as e:
-        print(e, file=sys.stderr)
-        return 2
-
-    try:
-        with _output_directory(repo, create=not check) as output_fd:
-            return _render_methodology_open(repo, check, body, overlay, inventory, output_fd)
-    except FileNotFoundError as e:
-        if check:
-            # A repository that has never rendered the output has no execution directory to open.
-            # That is ordinary stale state (exit 1), not an inspection failure. This branch is
-            # read-only; all mutation paths still require descriptor-bound destinations.
-            return _render_methodology_open(repo, check, body, overlay, inventory, None)
-        print(e, file=sys.stderr)
-        return 2
-    except (OSError, UnicodeError, MethodologyError) as e:
-        print(e, file=sys.stderr)
-        return 2
-
-
-def _render_methodology_open(repo: Path, check: bool, body: str, overlay: str | None,
-                             inventory: dict, output_fd: int | None) -> int:
-
-    target = repo / TARGET_REL
-    inventory_path = repo / RUNTIME_REL
+def calculate_render_plan(repo: Path, *, allow_unmanaged: bool = False) -> RenderPlan:
+    """Calculate all owned changes without mutating the repository."""
+    repo = repo.resolve(strict=True)
+    if not repo.is_dir():
+        raise MethodologyError(f"not a directory: {repo}")
+    body = source_text()
+    overlay = read_overlay(repo)
+    inventory = runtime_inventory(body, overlay)
+    missing = _missing_output_directories(repo)
+    current_snapshot = inventory_snapshot = None
+    if not missing:
+        with _output_directory(repo, create=False) as output_fd:
+            current_snapshot = _snapshot_open_output(output_fd, TARGET_REL.name)
+            inventory_snapshot = _snapshot_open_output(output_fd, RUNTIME_REL.name)
+    current = current_snapshot.text if current_snapshot is not None else None
+    current_inventory = inventory_snapshot.text if inventory_snapshot is not None else None
     expected = render(body, overlay, inventory["runtime_sha256"])
-    current = _read_output(output_fd, TARGET_REL.name) if output_fd is not None else None
-    current_inventory = (_read_output(output_fd, RUNTIME_REL.name)
-                         if output_fd is not None else None)
     if current_inventory is not None:
         try:
             previous = json.loads(current_inventory)
@@ -1154,79 +1220,138 @@ def _render_methodology_open(repo: Path, check: bool, body: str, overlay: str | 
                 inventory["source_revision"] = previous.get("source_revision")
     expected_inventory = inventory_text(inventory)
 
-    print(f"execution methodology v{METHODOLOGY_VERSION} "
-          f"(source sha256 {source_sha256(body)})"
-          f" -> {repo.name}/{TARGET_REL.as_posix()}"
-          + (f", overlay {OVERLAY_REL.as_posix()}" if overlay is not None else ""))
+    if current is not None and not is_ours(current) and not allow_unmanaged:
+        raise MethodologyError(
+            f"refusing to overwrite {repo / TARGET_REL} (unmanaged — not generated by this script)")
+    if (current_inventory is not None and not _inventory_is_ours(current_inventory)
+            and not allow_unmanaged):
+        raise MethodologyError(
+            f"refusing to overwrite {repo / RUNTIME_REL} (unmanaged — not generated by this script)")
 
-    if current is not None and not is_ours(current):
-        where = f"{target} (unmanaged — not generated by this script)"
-        if check:
-            print("  STALE — the rendered methodology does not match its source:")
-            print(f"    {where}")
-            print(f"  run: sync_methodology.py --repo {repo}")
-            return 1
-        print(f"  refusing to overwrite {where}", file=sys.stderr)
-        print("  move it aside, then re-run", file=sys.stderr)
+    operations: list[dict] = [{"action": "mkdir", "path": path} for path in missing]
+    for relative, snapshot, proposed in (
+            (TARGET_REL, current_snapshot, expected),
+            (RUNTIME_REL, inventory_snapshot, expected_inventory)):
+        proposed_bytes = proposed.encode("utf-8")
+        proposed_sha256 = hashlib.sha256(proposed_bytes).hexdigest()
+        if snapshot is not None and snapshot.sha256 == proposed_sha256:
+            continue
+        operations.append({
+            "action": "create" if snapshot is None else "update",
+            "path": relative.as_posix(),
+            "before_sha256": snapshot.sha256 if snapshot is not None else None,
+            "after_sha256": proposed_sha256,
+            "content": proposed,
+        })
+    findings: list[dict] = []
+    routed, detail = route_status(repo)
+    if not routed:
+        findings.append(_finding("route_invalid", detail, README_REL.as_posix(), "warning"))
+    return RenderPlan(tuple(operations), tuple(findings), expected, expected_inventory,
+                      source_sha256(body), overlay is not None)
+
+
+def render_methodology(repo: Path, check: bool) -> int:
+    try:
+        repo = repo.resolve(strict=True)
+        plan = calculate_render_plan(repo, allow_unmanaged=check)
+        return _execute_render_plan(repo, check, plan)
+    except (OSError, UnicodeError, MethodologyError) as e:
+        print(e, file=sys.stderr)
         return 2
 
-    if current == expected and current_inventory == expected_inventory:
+
+def _execute_render_plan(repo: Path, check: bool, plan: RenderPlan) -> int:
+    target = repo / TARGET_REL
+    inventory_path = repo / RUNTIME_REL
+    file_operations = {row["path"]: row for row in plan.operations if row["action"] != "mkdir"}
+
+    print(f"execution methodology v{METHODOLOGY_VERSION} "
+          f"(source sha256 {plan.source_digest})"
+          f" -> {repo.name}/{TARGET_REL.as_posix()}"
+          + (f", overlay {OVERLAY_REL.as_posix()}" if plan.has_overlay else ""))
+
+    if not file_operations:
         if check:
-            routed, detail = route_status(repo)
-            if not routed:
+            if plan.findings:
                 print("  ERROR — nothing routes to the rendered methodology:")
-                print_route_advice(detail)
+                print_route_advice(plan.findings[0]["message"])
                 return 1
             print("  in sync")
             return 0
         print("  already up to date")
-        routed, detail = route_status(repo)
-        if not routed:
+        if plan.findings:
             print("  WARNING — rendered, but nothing routes to it:")
-            print_route_advice(detail)
+            print_route_advice(plan.findings[0]["message"])
         return 0
 
     if check:
-        if current is None:
-            reason = "missing"
-        elif current != expected:
-            reason = "stale or hand-edited"
-        else:
+        target_op = file_operations.get(TARGET_REL.as_posix())
+        if target_op is None:
             reason = f"{RUNTIME_REL.as_posix()} missing or stale"
+        elif target_op["action"] == "create":
+            reason = "missing"
+        else:
+            reason = "stale or hand-edited"
         print("  STALE — the rendered methodology does not match its source:")
         print(f"    {target} ({reason})")
         print(f"  run: sync_methodology.py --repo {repo}")
         return 1
 
-    if current_inventory is not None:
-        try:
-            parsed_inventory = json.loads(current_inventory)
-        except json.JSONDecodeError:
-            parsed_inventory = None
-        if not isinstance(parsed_inventory, dict) or parsed_inventory.get("generated_by") != RUNTIME_GENERATOR:
-            print(f"  refusing to overwrite {inventory_path} (unmanaged — not generated by this script)",
-                  file=sys.stderr)
-            return 2
     target_fd = inventory_fd = None
     try:
-        inventory_fd = _open_output_for_write(
-            output_fd, RUNTIME_REL.name, _inventory_is_ours,
-        )
-        target_fd = _open_output_for_write(output_fd, TARGET_REL.name, is_ours)
-        _write_open_output(target_fd, expected)
-        _write_open_output(inventory_fd, expected_inventory)
+        with _output_directory(repo, create=True) as output_fd:
+            if RUNTIME_REL.as_posix() in file_operations:
+                inventory_fd = _open_output_for_write(
+                    output_fd, RUNTIME_REL.name, _inventory_is_ours)
+            if TARGET_REL.as_posix() in file_operations:
+                target_fd = _open_output_for_write(output_fd, TARGET_REL.name, is_ours)
+            if target_fd is not None:
+                _write_open_output(target_fd, plan.expected)
+            if inventory_fd is not None:
+                _write_open_output(inventory_fd, plan.expected_inventory)
     finally:
         if inventory_fd is not None:
             os.close(inventory_fd)
         if target_fd is not None:
             os.close(target_fd)
-    print(f"  wrote   {target}")
-    print(f"  wrote   {inventory_path}")
-    routed, detail = route_status(repo)
-    if not routed:
+    if TARGET_REL.as_posix() in file_operations:
+        print(f"  wrote   {target}")
+    if RUNTIME_REL.as_posix() in file_operations:
+        print(f"  wrote   {inventory_path}")
+    if plan.findings:
         print("  WARNING — rendered, but nothing routes to it:")
-        print_route_advice(detail)
+        print_route_advice(plan.findings[0]["message"])
     return 0
+
+
+def preview_methodology(repo: Path, machine: bool) -> int:
+    """Emit a project-scoped plan; the receipt is descriptive, never an authorization token."""
+    normalized = repo.resolve(strict=False)
+    receipt = {"schema_version": 1, "scope": "project", "repo": str(normalized),
+               "can_apply": False, "operations": [], "findings": []}
+    try:
+        plan = calculate_render_plan(normalized)
+        receipt["can_apply"] = True
+        receipt["operations"] = list(plan.operations)
+        receipt["findings"] = list(plan.findings)
+    except (OSError, UnicodeError, MethodologyError) as exc:
+        receipt["findings"] = [_finding("render_refused", str(exc))]
+    if machine:
+        print(json.dumps(receipt, separators=(",", ":")))
+    else:
+        print(f"project preview for {normalized}")
+        if receipt["can_apply"]:
+            if receipt["operations"]:
+                for operation in receipt["operations"]:
+                    print(f"  {operation['action']:<6} {operation['path']}")
+            else:
+                print("  no changes")
+            for finding in receipt["findings"]:
+                print(f"  {finding['severity'].upper()}: {finding['message']}")
+        else:
+            print(f"  REFUSED: {receipt['findings'][0]['message']}")
+    return 0 if receipt["can_apply"] else 2
 
 
 def read_deferral(repo: Path) -> tuple[dict | None, str | None]:
@@ -1416,9 +1541,30 @@ def main() -> int:
     ap.add_argument("--repair-approved", metavar="AUTHORIZATION_JSON",
                     help=("repair generated output only when route, overlay, inventory and source "
                           "still match this exact approved identity"))
+    ap.add_argument("--scope", choices=("project",),
+                    help="explicit write scope (project is the only supported scope)")
+    ap.add_argument("--preview", action="store_true",
+                    help="calculate project render operations without writing")
+    ap.add_argument("--json", action="store_true",
+                    help="emit the preview as exactly one JSON object")
     args = ap.parse_args()
 
     repo = Path(args.repo).resolve(strict=False) if args.repo else None
+    if args.json and not args.preview:
+        print("--json requires --preview", file=sys.stderr)
+        return 2
+    if args.preview:
+        if (repo is None or args.scope != "project" or args.adoption or args.show or args.check
+                or args.status_json or args.repair_approved is not None):
+            print("--preview requires only --repo PATH --scope project [--json]", file=sys.stderr)
+            return 2
+        # Preview must not leave bytecode in a copied owner bundle even when the caller omitted -B.
+        sys.dont_write_bytecode = True
+        return preview_methodology(repo, args.json)
+    if args.scope is not None and (repo is None or args.adoption or args.show or args.check
+                                   or args.status_json or args.repair_approved is not None):
+        print("--scope project is supported only for ordinary render or --preview", file=sys.stderr)
+        return 2
     if args.status_json:
         if repo is None or args.adoption or args.show or args.check or args.repair_approved:
             print("--status-json requires only --repo PATH", file=sys.stderr)

@@ -1206,13 +1206,24 @@ def main() -> int:
     in_flight = [item.strip() for item in args.in_flight.split(",") if item.strip()]
     status_payload, states = None, []
     try:
+        # Validate once before choosing milestone or per-plan scope, and before either Git read
+        # used by W7. The shared `git` helper deliberately returns None on failure; treating that
+        # as an empty subject or path set would turn "revision does not exist" into a clean check.
+        if args.commit and git(root.resolve(), "rev-parse", "--verify",
+                               f"{args.commit}^{{commit}}") is None:
+            raise SpecError(f"cannot resolve commit `{args.commit}`; --commit takes a commit "
+                            "revision")
         if args.milestone:
             found, milestone = run_milestone(root.resolve(), args.milestone)
             # This call was absent, which made `--milestone M<n> --commit REV` accept the flag and
             # silently never check it — the milestone view is the ONLY one that can see a commit
             # landing in another FEATURE's declared set, since a per-plan run never loads the other
             # plan. The scope that mattered most was the scope that was not wired.
-            if args.commit and milestone is not None and milestone.tasks:
+            if args.commit:
+                if milestone is None or not milestone.tasks:
+                    print(f"ERROR: nothing to check commit against: milestone {args.milestone} "
+                          "has no task in any plan", file=sys.stderr)
+                    return 2
                 check_commit_writes(root.resolve(), args.commit, milestone.tasks, found)
             if args.since:
                 if milestone is None or not milestone.tasks:

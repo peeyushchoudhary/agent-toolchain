@@ -11,6 +11,13 @@ explicit deferral; project overlay and approved runtime identity. Derive claims 
 ask for missing substantive choices together. Existing setup authorization remains valid; do not
 ask again for its individual mechanical steps.
 
+For the persona decision, follow `skills/agent-personas/SKILL.md`: project persona configuration
+lives in `docs/agents/personas/`, and optional `covers:` values bind a project specialist to the
+horizontal concerns it owns. Report relevant concerns owned by nobody as action output. Nothing
+writes that line automatically; the operator makes the domain-persona, justified `base-only`, or
+explicit deferral decision. A repository with no persona pool `has not adopted overlays`; that is
+not itself a fault when its base-only or deferral decision is explicit.
+
 Before applying the approved plan, preview every generated project path:
 
 ```bash

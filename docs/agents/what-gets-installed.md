@@ -28,7 +28,7 @@ decisions; [D21](../decisions/decisions.md) and [D22](../decisions/decisions.md)
 | `skills/progressive-disclosure/` | The route standard, validator, migrator, hook installer, GitHub checker, push guard |
 | `skills/agent-personas/` | Fourteen persona definitions and their generator; normal selection exposes eleven active roles and retains three compatibility definitions |
 | `skills/agent-persona-factory/` | Derives project specialists from PRD + architecture + guardrails |
-| `skills/execution-methodology/` | The pipeline from product spec to sealed milestone, and its renderer |
+| `skills/execution-methodology/` | The pipeline from product spec to sealed milestone, with one scheduling owner, bounded Gate 2 execution authority, compact resume state, and its renderer |
 | `skills/methodology-management/` | Explicit coordination for assessment, setup, repair, product-document migration and upgrades |
 | `skills/project-onboarding/` | Explicit compatibility route to the management setup procedure. Named when a project is uninitialised, never started automatically |
 | `skills/graph-navigation/` | The symbol-first ladder for querying a graphify graph |
