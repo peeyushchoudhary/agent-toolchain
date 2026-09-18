@@ -402,6 +402,33 @@ class RuntimeStatusTest(unittest.TestCase):
                     if parked.exists():
                         parked.rename(command)
 
+    def test_router_removal_and_change_are_non_ready(self) -> None:
+        relative = "execution-methodology/SKILL.md"
+        for mutation in ("missing", "changed"):
+            with self.subTest(mutation=mutation):
+                self.tearDown()
+                self.setUp()
+                self.render()
+                router = self.bundle / relative
+                parked = router.with_name(router.name + ".parked")
+                if mutation == "missing":
+                    router.rename(parked)
+                else:
+                    router.write_text(router.read_text(encoding="utf-8") + "\nchanged\n",
+                                      encoding="utf-8")
+                try:
+                    result, payload = self.status()
+                    self.assertEqual(result.returncode, 0)
+                    self.assertEqual(payload["state"], "source_changed")
+                    self.assertFalse(payload["ready"])
+                    self.assertEqual(payload["repair_candidates"], [])
+                    row = next(item for item in payload["dependencies"]
+                               if item["path"] == relative)
+                    self.assertEqual(row["status"], mutation)
+                finally:
+                    if parked.exists():
+                        parked.rename(router)
+
     def test_malformed_inventory_fails_closed_with_structured_error(self) -> None:
         self.render()
         (self.repo / RUNTIME_REL).write_text("{bad json\n", encoding="utf-8")
@@ -491,6 +518,14 @@ class RuntimeStatusTest(unittest.TestCase):
                                       check=True, capture_output=True, text=True).stdout.strip()
         self.assertEqual(json.loads(runtime.read_text(encoding="utf-8"))["source_revision"],
                          current_head + "+dirty")
+
+        methodology.write_text(methodology.read_text(encoding="utf-8").removesuffix("\nchanged\n"),
+                               encoding="utf-8")
+        router = self.bundle / "execution-methodology/SKILL.md"
+        router.write_text(router.read_text(encoding="utf-8") + "\nchanged router\n",
+                          encoding="utf-8")
+        declaration = self.import_owner().runtime_declaration(self.bundle)
+        self.assertEqual(declaration["source_revision"], current_head + "+dirty")
 
     def test_expected_command_entrypoints_and_direct_helpers_are_declared(self) -> None:
         self.render()

@@ -1,117 +1,77 @@
 # Execution methodology
 
-How work travels from product intent to a merged milestone. This maintained source is rendered into
-adopted repositories and is followed by every harness. Personas say who may act; this document says
-what must exist before a stage begins and what must be true before it ends.
-
-## Approved runtime
-
-Use the repository-approved runtime bound by `docs/agents/execution/runtime.json`, including an
-older approved bundle. A newer global source or candidate never replaces that binding. Resolve all
-commands and references below, including `~/.claude/skills/...` spellings, through the inventory's
-verified `bundle_root`; do not fall back to global source.
-
-At controller entry and after restart, run that bundle's
-`execution-methodology/scripts/sync_methodology.py --repo <repo> --status-json`. Repeat before
-dispatch or a long gate when runtime inputs or repository bindings changed; reuse a result only for
-identical checked inputs. Governed adopted execution requires `state=current` and `ready=true`.
-Missing, changed or unverified inputs stop dependent work. Without inventory, an inspector may
-report the gap but grants no adoption; unadopted or deferred projects retain their existing contract.
-
-Keep full status as tool-side evidence and pass the verified referent and required input paths to
-actors. Ordinary execution does not invoke maintenance, model research or upgrades. Report the gap;
-methodology-management coordinates a separately authorized change.
+This common core states the invariants shared by every stage. The skill entrypoint routes each
+reader to the existing reference that owns its procedure. Personas say who may act; the methodology
+says what must be true before work advances.
 
 ## Principles
 
-1. **Evidence binds to a referent and proves execution.** Record the tree, command, interpreter,
-   exit status, and machine-readable results. A green console summary without executed-test counts
-   is not evidence.
-2. **Strictness is owned by the checker.** A gate has one canonical strict invocation. Callers do
-   not choose a weaker mode.
-3. **A builder never approves their own work.** Judges are structurally read-only. `test-judge`
-   retains the minimum shell needed to run a gate and reports its real output; no judge promotes or
-   merges work.
-4. **Context arrives by path and recipe.** Writers put detailed reports in files and return compact
-   handoffs. Read-only judges return a structured verdict of at most thirty lines, which the
-   controller persists.
-5. **Every stop is resumable.** Complete steps leave a named referent and receipt. Partial state is
-   labelled or discarded.
-6. **Deferrals keep an owner.** A finding may be parked only in the milestone register with its
-   trigger, consequence, and destination milestone.
-7. **Execution is goal-bound.** Every dispatch names an approved criterion or invariant and an
-   observable delta. The PRD, spec, design, and plan are both floor and ceiling; preferences,
-   speculative hardening, and invented scope do not block delivery.
-8. **The process is measured.** `~/.claude/skills/execution-methodology/scripts/ratio_meter.py` classifies committed churn as product, product
-   thinking, or process. Process targets 10%, warns above 15%, and fails above 30% once at least 500
-   classified lines exist. Deleting process files is cleanup and cannot breach the budget.
+The sections below are the mandatory common invariants. Stage procedures remain in the single
+references selected by the skill entrypoint.
 
-## One chain and three gates
+## Runtime and outcome
+
+Use the repository-approved runtime in `docs/agents/execution/runtime.json`, including an older
+approved bundle. A newer global source or candidate never replaces that binding. Resolve commands
+and references through the inventory's verified `bundle_root`; do not fall back to global source.
+At controller entry and after restart, run the bound `sync_methodology.py --repo <repo>
+--status-json`. Governed adopted execution requires `state=current` and `ready=true`. Missing,
+changed, or unverified inputs stop dependent work. Ordinary execution does not invoke maintenance,
+model research or upgrades.
+
+Execution is goal-bound. Every dispatch names the approved outcome through a criterion or invariant
+and an observable delta. The PRD, spec, design, and plan are the floor and ceiling. Preferences,
+speculative hardening, and invented requirements do not block delivery.
+
+## Chain, gates, and authority
 
 The chain is PRD → feature spec → design → plan → tasks → implementation → task validation and
-review → commit → milestone validation → acceptance → merge. The skill diagram is the single
-high-level drawing; the loop reference is the single task-loop drawing.
+review → commit → milestone validation → acceptance → merge.
 
-Three human gates remain compatible in name and responsibility:
+Three founder gates control it:
 
-- **Gate 1, design:** approves the outcome, scope, invariants, and structural decisions.
-- **Gate 2, plan:** approves the whole bounded milestone execution: task decomposition,
-  dependencies, write boundaries, validation, lane assignment, permitted operations, routine
-  recovery, resource envelope, and any local commit authority.
-- **Gate 3, merge:** considers the sealed milestone, acceptance verdict, honest documentation, and
-  observed process metrics.
+- Gate 1, design, approves outcome, scope, invariants, and structural decisions.
+- Gate 2, plan, approves the whole bounded milestone execution: decomposition, dependencies, write
+  boundaries, validation, lane assignment, permitted operations, routine recovery, resource
+  envelope, and local commit authority.
+- Gate 3, merge, considers the sealed milestone, acceptance verdict, honest documentation, and
+  observed process evidence.
 
-Repeat a gate only when its referent or inputs change, a run fails, or prior evidence becomes
-invalid. Record the reason for every repeat and reuse a still-valid successful result; repeating an
-unchanged successful check adds no evidence.
+The founder is the approval authority at all three gates; the controller is the reader that records
+and applies the explicit decision. Missing approval is never inferred from silence or elapsed time.
+After one correction and scoped rereview, same-cause design recurrence returns to Gate 1 and
+same-cause plan recurrence returns to Gate 2.
 
-Related decisions may be presented together, but missing approval is never inferred from elapsed
-time. Between Gate 2 and Gate 3, the controller follows
-`references/execution-loop.md` without pausing for routine confirmations. A gate pass authorizes no
-deployment, provider activation, production write, push, PR, or merge.
+A gate pass authorizes no deployment, provider activation, production write, push, PR, or merge.
+Within Gate 2 authority the controller may dispatch, resume, retry recoverable tool inputs, repair
+inside an existing write boundary, and integrate where the plan permits. This does not weaken any
+safety, review, evidence, or acceptance stop. A new outcome, durable interface, write path,
+safety-policy decision, permission, or exhausted required resource returns to its owning gate.
+Only when Gate 2 explicitly grants local commit authority may the controller commit; otherwise it
+must preserve the accepted slice, then checkpoint and pause before any further selection.
 
-Within the named Gate 2 authority, the controller may dispatch, resume, retry recoverable tool
-inputs, repair inside an existing write boundary, and integrate where the plan permits. This
-authority does not weaken any safety, review, evidence, or acceptance stop. A new outcome, durable
-interface, write path, safety-policy decision, permission, or exhausted required resource returns
-to its owning gate.
+Unless Gate 2 records another envelope, the default is up to six elapsed hours, at most two
+file-disjoint builders, and one heavy local gate at a time. Budget exhaustion is a pause boundary
+and never weakens quality, validation, review, safety, evidence, or acceptance.
 
-Unless Gate 2 records another envelope, the ordinary default is up to six elapsed hours, at most
-two file-disjoint builders, and one heavy local gate at a time. Budget exhaustion is a pause
-boundary and never weakens quality, validation, review, safety, evidence, or acceptance.
+## Safety, lanes, and judgement
 
-## Product definition, design, and plan
+A builder never approves their own work. Judges are fresh and structurally read-only;
+`test-judge` retains only the shell access needed to run a gate. One semantic `reviewer` owns the
+task review, with at most one relevant specialist for a distinct invariant and
+`security-validator` for a safety surface. An unresolved semantic defect is INCOMPLETE. Safety
+findings, scope changes, new durable boundaries, and same-cause recurrence return to their owning
+authority rather than being waived by a budget or round count.
 
-`product-steward` owns the current-state PRD and feature specs. Acceptance criteria cover reachable
-success, failure, edge, authorization, privacy, and recovery behavior as applicable. Project domain
-validators read definition and design when their declared concern moves. `~/.claude/skills/execution-methodology/scripts/spec_check.py` verifies
-document shape, criterion coverage, horizontals, validator routing, and owned deferrals.
+Implementation review is one initial full task-diff review and, after a valid correction, one scoped correction review
+with independent executable confirmation. Its procedure and packet are
+owned by `references/execution-loop.md`, Step 5.
 
-`architect` owns system structure, module boundaries, dependency direction, and the named
-invariants put at risk. The plan, owned by `chief-of-staff`, freezes interfaces including payloads,
-task decomposition, dependencies, write boundaries, validation, lane assignment, and the Goal
-Capsule. Use the smallest operationally real safe slice and existing/native primitives. A new
-durable authority returns to design.
-
-Before design and plan freeze, trace **required outcome → existing production path → existing
-executable proof → actual uncovered gap → smallest sufficient addition**. A new parser, protocol,
-registry, or recovery subsystem must justify a specific uncovered gap; an available production path
-and behavioral test remain the default proof surface.
-
-The plan inventories actual consumers, fixtures and generated companions, and prerequisite states
-before Gate 2. It distinguishes staging, acceptance, and activation so each task can reach its
-declared next state without requiring that a successor task is already accepted. Combined
-activation may remain explicit when a protected invariant requires it; that does not make every
-implementation slice monolithic.
-
-Design, architecture, and data-flow visuals may use Mermaid or locally committed images, including
-ImageGen output. Choose the form that makes the relationships clearest and remains practical to
-maintain, honor the user's stated preference, and never require both. Keep labels, arrow direction,
-and protected invariants consistent with the design; provide an accessible text description and
-record image provenance. Raster review inspects rendered semantics and private pixels. A content
-hash identifies the reviewed file; it does not prove those properties. README architecture images
-follow the owning progressive-disclosure declaration contract. Other design images are not
-automatically validator-checked merely because this rule permits them.
+Before repair, classify every finding as a current-scope defect, harness defect, pre-existing
+defect, invalid frozen assumption, new outcome or claim, external fact, evidence defect, safety
+finding, or scope change. Only a current-scope defect inside the existing boundary returns to a
+writer; every other class goes to its named authority. Implementation review mechanics remain in
+`references/execution-loop.md`, Step 5.
 
 The exact pre-gate contract is a fresh, isolated, read-only `reviewer` with only named artifact
 paths, never the author conversation. `PASS` is valid; there is no finding quota. A blocker names
@@ -124,168 +84,70 @@ persisted original finding or report path, correction or diff path, corrected ar
 governing frozen artifact paths. A post-code review defaults to Implementation unless Design or Plan
 is explicitly named.
 
-## Plan admission and the two lanes
+Every governed task has an existing plan task id, explicit `lane:`, non-empty `writes:`, acceptance
+criteria, and declared dependencies. Light lane carries a complete inline dispatch and is limited
+to work that moves no durable boundary or declared safety surface. Full lane retains the light-lane
+controls and adds a validated task card, the applicable specialist, and sealed evidence for public
+contracts, schema or migrations, message shapes, module interfaces, generated clients, consent,
+authorization, personal or health data, redaction, retention, erasure, audit, tokens, or money. A
+Light lane task that reaches a Full lane boundary stops and returns to the plan.
 
-Every governed task must already exist in a fenced plan task block with all of:
+Every stop is resumable: completed steps leave a named referent and receipt, partial state is
+labelled or discarded, and deferrals keep an owner, trigger, consequence, and destination
+milestone. An unresolvable tool error, material ambiguity, write-boundary breach, unresolved review
+defect, safety finding requiring authority, or exhausted required resource stops affected work.
 
-- an existing plan task id;
-- an explicit `lane:` of `light` or `full`;
-- a non-empty `writes:` boundary;
-- non-empty acceptance criteria in `covers:`;
-- dependencies and intentional serialization where applicable.
+## Evidence
 
-`~/.claude/skills/execution-methodology/scripts/plan_waves.py` rejects missing admission metadata before either lane dispatches. It derives waves,
-continuous readiness, write-set conflicts, and named-commit conformance from the plans and git. It
-does not create plans, state, or a second task registry.
+Evidence binds to a referent. Record the source/tree, exact command, interpreter, runtime identity,
+environment inputs, exit status, and machine-readable results. A green summary without executed
+test counts is not proof. Strictness belongs to the checker; callers do not select weaker modes.
+Reuse successful evidence only while its referent, command, runtime, and environment inputs are
+unchanged. Repeat a gate only when its referent or inputs change, a run fails, or prior evidence
+becomes invalid. Record the reason for every repeat and reuse a still-valid successful result;
+repeating an unchanged successful check adds no evidence.
 
-**Light lane.** Use when the task moves no durable boundary or declared safety surface. There is no
-card. Its inline dispatch carries the existing plan task id, goal, criterion/invariant, observable
-delta, exact writes, tests, area check, persona, context paths, stop conditions, and report path.
-The writer works within that boundary, `test-judge` runs the tests and area check, `reviewer`
-inspects the full task diff, and `~/.claude/skills/execution-methodology/scripts/plan_waves.py --commit` checks the named commit against plan
-`writes`. Git plus the plan provide resume state.
+For Gradle execution, `--rerun-tasks` is the only accepted freshness evidence; `cleanTest` is
+insufficient.
 
-**Full lane.** Use for REST or published contracts, database schema and migrations, queue message
-shapes, module public interfaces, generated clients, or consent, authorization, personal or health
-data, redaction, retention, erasure, audit, tokens, and money. It retains every light-lane control
-and adds a strict task-card v2 pre/mid/post check, the applicable boundary specialist, and sealed
-evidence. The complete card, validation, JUnit, trace, sandbox, and handoff contracts live in
-`references/task-card.md`, `references/junit-evidence.md`, and
-`references/codex-gate-sandbox.md`; those maintained sources override summary prose.
+Context arrives by path and recipe. Writers put detailed reports in files and return compact
+handoffs. Read-only judges return a structured verdict of at most thirty lines, which the
+controller persists. Current resume pointers are replaceable bounded state derived from git and
+`plan_waves.py`; append-only decisions retain founder rulings, interface distillations, corrected
+assumptions, verified commands and limits, and owned deferrals.
 
-A light task that reaches a full boundary stops and returns to the plan. The plan changes first;
-the controller does not widen the dispatch in place.
+Process evidence is owned here. `ratio_meter.py` classifies committed churn against the 10% process
+target, and `weekly_review.py` reports the same classification over time. The executable tools own
+their calculations; this common core owns the target and verdict policy.
 
-## Implementation review: one procedure
+## Stage ownership
 
-Every implementation task receives **one initial full task-diff review** by a fresh read-only
-`reviewer`. This review covers all task writes against the frozen criteria and invariants, with at
-most one relevant specialist for a distinct owned invariant, plus `security-validator` when a
-safety surface moves. `test-judge` runs commands and is not a semantic review lens.
+| Stage | Owner | Canonical procedure |
+| --- | --- | --- |
+| Product definition and feature specs | `product-steward` | `references/specs.md` |
+| System structure and design invariants | `architect` | frozen design plus `references/specs.md` |
+| Plan, scheduling, recovery, and integration | `chief-of-staff` | `references/execution-loop.md` |
+| Bounded implementation | `developer` or `senior-developer` | inline dispatch or `references/task-card.md` |
+| Semantic review | `reviewer`, conditional specialist | `references/execution-loop.md`, Step 5 |
+| Executable validation | `test-judge` | Step 4 plus `references/junit-evidence.md` or `references/codex-gate-sandbox.md` |
+| Sealed milestone judgement | `acceptance` | `references/execution-loop.md`, Step 9 |
 
-Every finding is classified before repair as a current-scope defect, harness defect, pre-existing
-defect, invalid frozen assumption, new outcome or claim, external fact, evidence defect, safety
-finding, or scope change. Only a valid current-scope correction inside the existing task boundary
-returns to the writer.
-
-After that correction, perform **one scoped correction review**. The fresh reviewer receives the
-persisted original finding, correction/diff, causal area, corrected artifact, and governing frozen
-artifacts by path. It does not receive author conversation or rationale. This second review checks
-the repair without repeating the whole task diff.
-
-Two rounds are the procedure; they are not a rule that turns uncertainty into success. An
-unresolved semantic defect leaves the task **INCOMPLETE**, never READY. A mechanically specified
-final application may be performed by the controller only when it stays inside the frozen task and
-then receives **independent executable confirmation**. It does not receive a semantic promotion by
-default. A repeated causal defect returns to the relevant gate; distinct safety findings remain
-blocking regardless of count.
-
-`~/.claude/skills/execution-methodology/scripts/check_review_budget.py WORKSPACE --next SUBJECT` runs before each review dispatch. It enforces
-banned artifact classes and exposes lineage/round use; a dispatch that returns no verdict spends no
-round. Growth above 20% in the reviewed artifact returns to its gate. The review count never weakens
-a test, safety, evidence, or acceptance result.
-
-## Task execution and validation
-
-The operational sequence and exact commands are in `references/execution-loop.md`. Per task:
-
-1. Derive status and readiness from the plan and git.
-2. Admit either the light inline dispatch or the full validated card.
-3. Acquire only the named context and observe a repository-provable regression red where one
-   exists.
-4. Implement the smallest safe slice, including reachable failure, concurrency, ordering, retry,
-   privacy, and authorization cases relevant to the task.
-5. Run focused validation, the area gate, independent implementation review, and independent gate
-   execution.
-6. Only when Gate 2 explicitly grants local commit authority, commit with the plan task id and
-   distillation, then immediately check the commit's writes. When it does not, preserve the
-   accepted slice and missing integration work in the resume pointer, then checkpoint and pause
-   before any further selection.
-7. Drain deferrals, verify criterion trace evidence, run the milestone gate, and seal the exact
-   tree before acceptance.
-
-Full-lane cards are at most 150 lines. Frozen material over ten lines lives in a committed contract
-file named by path. Prerequisites assert working-tree state, never git history. A wrong card is
-regenerated from the plan under a new id. `~/.claude/skills/execution-methodology/scripts/validate_card.py --strict --phase pre` admits it;
-`--phase mid` checks drift; `--strict --phase post` requires every declared output and exact test
-to exist.
-
-Every validation entry is a direct process mapping with normalized `cwd` and non-empty `argv`; the
-task-card reference defines the exact v2 schema. Java selectors, `--rerun-tasks`, JUnit nonce
-receipts, criterion trace checks, sandboxed write-producing gates, migration fencing, and seal
-receipts retain their detailed source contracts. Do not paraphrase them into a second protocol.
-`--rerun-tasks` is the only accepted Gradle freshness proof.
-
-## Controller state, records, and recovery
-
-The controller owns plans and **bounded controller state** needed to resume the active milestone.
-Current resume pointers are a replaceable snapshot derived from git and `~/.claude/skills/execution-methodology/scripts/plan_waves.py`; they may
-name the active milestone, seal revision, and current in-flight task ids. They do not claim task
-completion and are refreshed or discarded as the tree changes.
-
-The durable record contains **append-only decisions** and task distillations: interfaces produced,
-verified commands and limits, corrected assumptions, deferrals with owners, and founder rulings.
-Current resume pointers never live in that append-only record. Plans may be edited by the
-controller; product source and tests always go to a dispatched writer.
-
-The git-ignored workspace may hold full cards, dispatch records, writer reports, and persisted
-judge verdicts. It holds no raw prompt dumps, restatement packets, accumulated diff snapshots, or
-files whose only content is a failed dispatch. Judges return compact verdicts; writers return
-reports. Workspace caps and verdict naming remain enforced by the existing review-budget tooling.
-
-After compaction or restart, rerun `~/.claude/skills/execution-methodology/scripts/plan_waves.py --milestone M<n> --since <seal-rev> --json` and
-reconcile only the current in-flight ids. Unclaimed commits remain visible as commits that did not
-resolve to any declared task. They are not silently reclassified as light-lane work and cannot
-complete a governed task.
-
-## Evidence and milestone completion
-
-Per-task validation records the real command and output. Java/JUnit tasks use a single-use start
-receipt immediately before execution and verified XML afterward. `~/.claude/skills/execution-methodology/scripts/trace_check.py` compares criteria
-with ids from verified evidence and reports its limits, including which ids predate the commit
-range. A passing selector or receipt does not prove assertion quality.
-
-A milestone declares its cross-feature gate. `~/.claude/skills/execution-methodology/scripts/milestone_seal.py --record M<n>` requires a clean
-tree, runs the gate on that tree, and stores a receipt outside the repository keyed to its tree SHA.
-`acceptance` independently evaluates the same sealed referent against the frozen criteria. The
-founder alone authorizes merge.
-
-The milestone report is composed from current command output: task status and unclaimed commits,
-criterion trace, owned deferrals, seal verification, process ratio, review-budget state, and explicit
-limits or skipped checks. Measurements use their actual unit and corpus; unmeasured claims stay
-unmeasured. A model choice is never evidence of quality or safety.
+Before design and plan freeze, trace **required outcome → existing production path → existing
+executable proof → actual uncovered gap → smallest sufficient addition**. A new parser, protocol,
+registry, or recovery subsystem must justify a specific uncovered gap. The plan inventories actual
+consumers, fixtures and generated companions, and prerequisite states. It distinguishes staging,
+acceptance, and activation so a task does not require that a successor task is already accepted.
 
 For weekly and ad hoc observation during an active methodology-management session,
 `chief-of-staff` owns collection, classification, and persistence. Follow
-`~/.claude/skills/methodology-management/references/assessment.md`, keep the working assessment in
-its private routed workspace, and append its dated distillation to `~/.claude/docs/LEDGER.md`.
-`~/.claude/skills/execution-methodology/scripts/weekly_review.py` reports the same
-`~/.claude/skills/execution-methodology/scripts/ratio_meter.py` classification over time; it is a
-trend report, while the merge-range ratio remains the gate input.
+`methodology-management/references/assessment.md`, append its distillation to
+`~/.claude/docs/LEDGER.md`, and record accepted outcomes with exact Git,
+task, trace, seal, and acceptance referents; noncached input, cache reads, cache writes, and output
+as separate units; actual cash or allowance evidence in its native unit; coverage and missing logs;
+founder, quota, and gate waits; and interruptions and rework classified by cause. Absent or
+unattributable data stays explicitly unknown. Observation records facts; it does not approve
+policy, model, or runtime changes.
 
-Each observation records accepted outcomes with exact Git, task, trace, seal, and acceptance
-referents; noncached input, cache reads, cache writes, and output as separate units; actual cash or
-allowance evidence in its native unit; coverage and missing logs; founder, quota, and gate waits;
-and interruptions and rework classified by cause. Absent or unattributable data stays explicitly
-unknown; processed-token totals are not bills, and unknown values are never inferred as zero.
-
-Observation records facts; it does not approve policy, model, or runtime changes. It is diagnostic,
-not a pilot or recurring delivery gate, and does not activate or migrate a project. Classify a
-selected gap as adherence, an owning-tool defect, or a policy/model change; route any proposed
-change through its existing authority. Safety stops act immediately rather than waiting for review.
-
-## Adoption, maintenance, and history
-
-This file is the maintained source. `sync_methodology.py --repo PATH` renders it into an adopted
-repository and `--check` detects drift; adoption is deliberate per repository. Source changes are
-reviewed and tested before selective re-vendoring. Global installation is a separate action.
-
-Methodology changes follow the same design, plan, review, and verification rules. Their goal names
-an observed process defect, their plan owns an exact write set, and their acceptance requires a
-real workflow fixture where possible. Historical measurements, superseded procedures, and the
-rationale for versions 3 through 5 live in
-`references/history-v3-v5.md`. That reference is not current authority.
-
-Landing updates the repository README and route so they describe the resulting system. Run the
-repository's local gate and report its verbatim verdict. Commit, push, PR, merge, release, and
-deployment remain deliberate, separately authorized actions.
+This maintained source is rendered into adopted repositories. Adoption, installation, publication,
+commit, push, PR, merge, release, and deployment remain deliberate actions under their existing
+authority. Historical rationale lives in `references/history-v3-v5.md` and is not current authority.

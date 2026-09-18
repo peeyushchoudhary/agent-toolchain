@@ -5,8 +5,10 @@ definition. The controller follows the branches below; it does not implement pro
 judge its own work.
 
 The `chief-of-staff` is the sole scheduling owner. It selects, reorders, dispatches, and records
-state for only tasks in the observed ready set. The root relays founder decisions and handles
-external approvals; it does not duplicate scheduling already owned by a `chief-of-staff` child.
+state for only tasks in the observed ready set. When the root/controller itself holds that role, it
+must not spawn a chief-of-staff child. When the role is delegated, the delegated chief sends the
+root only decisions that need root action, state deltas, and artifact paths. The root relays founder
+decisions and handles external approvals; it does not duplicate the delegated chief's scheduling.
 
 Every governed task enters from an existing plan task id with an explicit `lane:`, non-empty
 `writes:`, and acceptance criteria. `plan_waves.py` checks those facts before selection. Commands
@@ -127,6 +129,10 @@ work. Also confirm that remaining time, quota, builder slots, and heavy-gate slo
 task, its handoff, and required validation. Reserve closure time from observed durations. If a
 required resource is exhausted or no safe task is ready, refresh the resume pointer and pause.
 
+The approved milestone plan names an early representative integrated success journey or deny path.
+Select its prerequisite slices as soon as the ready graph permits so integration evidence arrives
+before the remaining milestone work can hide an interface error.
+
 ### Step 2 — dispatch: Light lane
 
 Light lane has no card. Before dispatch, match the selected id to its plan block and confirm the
@@ -156,6 +162,12 @@ Dispatch the card path, worktree, and report path. The task-card v2, direct argv
 frozen value, sandbox, and handoff contracts remain defined in `task-card.md` and its linked
 references.
 
+Both lanes use the same compact return: the writer writes the detailed report at the named path and
+returns only status and that path. The report ends with at most five evidence bullets, one each for
+the unproved requirement, assumption or inference, checks actually run, plausible remaining
+failure, and next decisive check or action; use `none` when a category has no evidence. These are
+evidence pointers, not scores and not self-acceptance or readiness claims.
+
 ### Step 3 — per-turn drift
 
 For full lane:
@@ -176,8 +188,14 @@ parked.
 
 ### Step 4 — validate
 
-Run the task's focused tests and area gate through `test-judge`. For Java/JUnit work, create and
-consume the single-use evidence pair around the actual test command:
+The writer may run focused diagnostics while stabilizing the change. After the handoff is stable,
+`test-judge` performs one independent focused-and-area run. Reuse that evidence while its source,
+command, runtime, and environment remain unchanged. Rerun only after a failure or a relevant change
+invalidates one of those inputs, and record the invalidation reason. If commands are batched for
+transport, retain a separate receipt for each command and result; a batch-level success line cannot
+stand in for them.
+
+For Java/JUnit work, create and consume the single-use evidence pair around the actual test command:
 
 ```bash
 start_junit_run.py --results <results-dir> --output <receipt>
@@ -222,7 +240,8 @@ their governing authority. Do not run a duplicate full-diff review after the sco
 plan_waves.py --root . --milestone M<n> --commit <rev>
 ```
 
-Run this step only after a local commit that Gate 2 explicitly authorized. When a task is
+Promptly transport the accepted slice into the representative integrated journey. Use an authorized
+local commit and write-set check only when Gate 2 explicitly granted that operation. When a task is
 independently accepted but leaves a dirty tree and Gate 2 withheld that authority, do not create a
 commit. Preserve the accepted slice and exact missing integration/seal work in the resume pointer,
 then checkpoint and pause before any further selection.
@@ -259,10 +278,12 @@ milestone_seal.py --root . --record M<n>
 milestone_seal.py --verify --tree <tree> --command <gate>
 ```
 
-`--gate` prints the declared cross-feature command. `--record` requires a clean tree, executes the
-gate against HEAD, and stores a receipt outside the repository keyed to the tree SHA. Verification
-fails when no receipt binds the tree and command. `acceptance` then judges that exact referent;
-committing, pushing, opening a PR, and merging remain founder decisions.
+`--gate` prints the declared cross-feature command. Run one final integrated gate per valid
+milestone candidate. `--record` requires a clean tree, executes that gate against HEAD, and stores a
+receipt outside the repository keyed to the tree SHA. Reuse the receipt while the tree, command,
+runtime, and environment remain valid; rerun after a failure or relevant invalidation and record why.
+Verification fails when no receipt binds the tree and command. `acceptance` then judges that exact
+referent; committing, pushing, opening a PR, and merging remain founder decisions.
 
 ## 3. Who is cast
 

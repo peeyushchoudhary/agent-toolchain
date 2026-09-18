@@ -88,6 +88,7 @@ RUNTIME_GENERATOR = "execution-methodology/scripts/sync_methodology.py"
 # deliberately absent: they are not runtime inputs to ordinary governed execution.
 RUNTIME_FILES = (
     ("common", "execution-methodology/methodology.md"),
+    ("router", "execution-methodology/SKILL.md"),
     ("runtime-owner", "execution-methodology/scripts/sync_methodology.py"),
     ("runtime-owner", "execution-methodology/scripts/runtime-status.schema.json"),
     ("controller", "execution-methodology/references/execution-loop.md"),

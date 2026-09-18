@@ -6,18 +6,16 @@ disable-model-invocation: true
 
 # Execute the approved methodology
 
-Read the repository's agent route and approved execution guide, preserving its overlay and declared
-authority. Resolve the approved inventory bundle, then check runtime readiness with its owning tool:
+Read the repository agent route. Resolve its approved inventory bundle and check runtime readiness:
 
 ```bash
 python3 <approved-bundle>/execution-methodology/scripts/sync_methodology.py --repo <repo> --status-json
 ```
 
-Without inventory, the global inspector may report legacy/unadopted state; it does not adopt.
-Keep the full status as tool-side evidence and show a compact state/ready/identity/finding summary.
-
-An adopted project with a missing, changed or unverified required runtime cannot proceed as
-verified. A deferred or unadopted project follows its existing contract without silent adoption.
+Keep the full status as tool-side evidence and report a compact state, ready, identity, and finding
+summary. Governed adopted execution requires `state=current` and `ready=true`; a missing, changed,
+or unverified input stops dependent work. Inspection never adopts a repository. Deferred and
+unadopted repositories retain their existing contract.
 
 ## The shape, in one screen
 
@@ -38,40 +36,31 @@ flowchart TD
 ```
 
 The PRD and feature spec pass through design and plan to tasks, the loop, a commit, milestone,
-acceptance and PR. The checked diagram names the canonical sequence and shipped command owners.
-Three human gates: the design, the plan, and the merge. The detailed rules and terminal conditions live in
-[methodology.md](methodology.md); the controller loop lives in
-[references/execution-loop.md](references/execution-loop.md).
+acceptance and PR. The checked diagram names the high-level sequence and shipped command owners;
+the per-task procedure remains solely in `references/execution-loop.md`. Three human gates: the
+design, the plan, and the merge.
 
-## Load the approved runtime
+Load [methodology.md](methodology.md) for the mandatory common invariants, then only the role's
+verified route below. Resolve every path through the inventory's `bundle_root`; do not assume a
+reference sits beside a rendered guide, and do not load source and rendered copies of the same rule.
 
-The complete common rules are mandatory. Load the verified stage reference required for the work:
+| Reader | Load after the common core |
+| --- | --- |
+| `product-steward` / `architect` | [references/specs.md](references/specs.md), plus the frozen product or design artifacts named by the dispatch |
+| `chief-of-staff` | [references/execution-loop.md](references/execution-loop.md), plus the approved plan or Goal Capsule |
+| `developer` / `senior-developer` | The complete inline light dispatch; for full lane, the validated card and [references/task-card.md](references/task-card.md) |
+| `reviewer` / applicable boundary or safety validator | [references/execution-loop.md](references/execution-loop.md), Step 5, plus frozen criteria, exact task diff, and the persisted finding/correction packet for a scoped rereview |
+| `test-judge` | [references/execution-loop.md](references/execution-loop.md), Step 4, the exact command and referent, and [references/junit-evidence.md](references/junit-evidence.md) or [references/codex-gate-sandbox.md](references/codex-gate-sandbox.md) when applicable |
+| `acceptance` | [references/execution-loop.md](references/execution-loop.md), Step 9, plus the sealed referent and frozen acceptance criteria |
 
-- Product definition/design: specs guidance and frozen product criteria/invariants.
-- Controller planning/execution: execution-loop and the approved plan or Goal Capsule.
-- Builder: the complete inline light dispatch or validated full card and named context recipe.
-- Review: frozen artifacts, exact task diff, and finding/correction packet for a scoped rereview.
-- Verification: exact command/referent plus
-  [JUnit evidence](references/junit-evidence.md),
-  [gate sandbox](references/codex-gate-sandbox.md), milestone evidence and `ratio_meter.py` when
-  those stages apply.
-- Process evidence: `ratio_meter.py` and `weekly_review.py`; the canonical methodology owns the
-  10% process target and its verdict bands.
+Process evidence remains common-core policy: `ratio_meter.py` measures the 10% process target and
+`weekly_review.py` reports its trend. The common core owns the thresholds; these tools own their
+calculations.
 
-Resolve references through the approved runtime inventory and explicit bundle root, not an assumed
-directory beside the rendered guide. Do not read source and rendered copies of the same rules
-twice. Keep persona permissions, strict gate commands, lane boundaries, fresh read-only review,
-stop states and authority unchanged. Resolve a missing input rather than inferring it.
-For Gradle execution, `--rerun-tasks` is the only accepted freshness evidence; `cleanTest` is insufficient.
+One semantic `reviewer` owns implementation review, with at most one relevant specialist for a
+distinct invariant and `security-validator` on a safety surface. `test-judge` executes commands and
+reports their real result. For Gradle, `--rerun-tasks` is the only freshness proof.
 
-Review ownership remains one semantic `reviewer`, with at most one relevant specialist for a
-distinct invariant, plus `security-validator` on safety surfaces. `test-judge` runs commands and
-reports their real result.
-
-**Executing** — follow
-[references/execution-loop.md](references/execution-loop.md). It owns the task commands, lane
-branches, review sequence, recovery state and stop conditions.
-
-Report a setup, repair or upgrade gap and the management invocation; do not load promotion
-procedures implicitly. The user invokes methodology-management separately. Do not research
-releases, change models, re-adopt projects or load historical rationale during ordinary work.
+Report setup, repair, or upgrade gaps and the methodology-management invocation. Ordinary execution
+does not load promotion or historical rationale, research releases, change models, install, or
+re-adopt projects.

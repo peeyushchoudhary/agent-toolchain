@@ -1,4 +1,84 @@
-# Historical model-routing record (2026-07-26)
+# Persona authoring reference
+
+Read this file only when authoring a base persona, changing roster or judge policy, changing model
+or effort defaults, diagnosing generation or overlay behavior, or consulting the dated rationale.
+Routine persona selection belongs in `../SKILL.md` and does not require this history.
+
+## Authoring and generation
+
+The base pool is exactly the fourteen names pinned by `BASE_PERSONA_NAMES` in
+`sync_personas.py`. `personas/<name>.md` is for editing one of those definitions; an unexpected name
+is rejected rather than becoming an implicit fifteenth role. New project specialists go through
+`agent-persona-factory` into `docs/agents/personas/<name>.md`.
+
+Each base source is harness-neutral and uses flat dotted frontmatter. The source description carries
+active, `SUPERSEDED`, or `RETIRED` status; the four Claude/Codex model and effort fields are current
+authority. Do not add phase-specific model or effort keys to persona frontmatter. Persona bodies
+own responsibilities and permissions. The execution-methodology skill,
+rather than a persona source, owns stage order, lane admission, review packets, gates, and terminal
+states.
+
+A judging-roster member must declare a non-empty `claude.tools` allow-list. Renderer policy derives
+the core deny-list from `ROSTER`, merges any source-local `claude.disallowedTools`, rejects overlap,
+and emits Codex `sandbox_mode = "read-only"`. Local restrictions may narrow the result and cannot
+widen it. On Claude, direct write and dispatch tools are withheld from every judge. Codex has no
+dispatch-denial key, so Codex dispatch remains instruction-bound and unmitigated; its read-only
+sandbox withholds direct filesystem writes only. `test-judge` is the single sanctioned shell
+holder; its Claude Bash remains instruction-bound against shell writes, and a
+write-producing gate uses a controller-prepared, manifest-bound copy inside the approved nested
+sandbox. Read `JUDGE_DENIED_TOOLS`, `KNOWN_JUDGE_TOOLS`, and the repository's decisions record when
+changing this policy instead of copying their current members into prose.
+
+The `reviewer` source is the base-pool authoring example. Keep it verbatim with that source so the
+repository test can render the documented text through both harness renderers:
+
+```yaml
+---
+name: reviewer
+description: Use before design and plan gates or after implementation, to independently falsify the artifact against its frozen criteria and invariants.
+writes: no
+claude.model: opus
+claude.effort: high
+claude.tools: Read, Grep, Glob, TodoWrite
+claude.disallowedTools: Bash
+codex.model: gpt-5.6-sol
+codex.effort: high
+codex.sandbox: read-only
+---
+The body becomes the system prompt on Claude and developer_instructions on Codex.
+```
+
+Copying a base judge is not sufficient for a new project specialist. Roster-derived restrictions
+apply only to names in `ROSTER`; a new-name overlay receives no derived allow-list or deny-list.
+Use the factory's project-specialist template, which must state both harness boundaries directly.
+
+## Overlay authoring
+
+A same-name project overlay is appended under project-specific direction and may retune model or
+effort. Omitted values inherit. If the base name is a roster judge, restriction still runs after
+merge, so the overlay may narrow tools and never widen them.
+
+A new-name overlay is a project-only specialist and never becomes a roster judge from its prose or
+`writes:` value. Use `agent-persona-factory`. The optional `covers:` list names horizontal concerns;
+`spec_check.py` requires the specialist as a reader when a product document moves a matching
+concern and rejects a binding that matches nothing.
+
+Repositories commit overlay sources and both generated harness formats. Their agent route links a
+maintained persona index, or records a `base-only` marker with a non-empty reason. Project checks
+verify project outputs without depending on the global pool; global checks own global drift.
+Generated files are never edited directly.
+
+## Verification boundaries
+
+`tests/test_repo_sync.py` checks source/render parity, the documented authoring template, judge
+restrictions, and the immutable roster floor. `tests/test_scope.py` checks preview purity, explicit
+scope, overlays, and routing scope. Preview, check, and apply consume the renderer's same plan.
+
+Some installed tests intentionally resolve the private decisions record and are not vendored. Keep
+their absolute installed-suite citations when changing an invariant they alone enforce. Do not
+turn that layout constraint into a second policy source.
+
+## Historical model-routing record (2026-07-26)
 
 This file preserves the measurements and reasoning used for the previous roster. It is dated
 history, not current model authority and not evidence for the current pilot defaults. Generate the
@@ -11,8 +91,8 @@ Re-measure before using any price, benchmark, quality, frequency, or savings cla
 
 Conflating importance with effort is the common mistake. `test-judge` reports whether the release
 gate passed — as important as anything in the pipeline — but the task is "run a command and repeat
-the output", which needs `low`. Its importance is handled by making it unable to edit, not by making
-it think harder.
+the output", which needs `low`. Its importance is handled by withholding direct write and dispatch
+tools and constraining its shell use, not by making it think harder.
 
 ## Prices and benchmarks
 
@@ -44,7 +124,8 @@ It is the only non-writing persona with `Bash`, added after it was observed bein
 execution it could not perform and chaining to a sub-subagent instead of reporting the problem. A
 persona that cannot do its one job does not fail loudly; it improvises. Every other tool the roster
 denies stays denied — see `~/.claude/docs/decisions.md`'s "What it withholds" for the current names, not a
-restatement here, which is exactly what went stale before — so it still cannot author a fix. Codex
+restatement here, which is exactly what went stale before — so it still has no direct authoring or
+dispatch tool. Its Claude shell remains instruction-bound. Codex
 remains `read-only`; a write-producing gate runs against a controller-prepared, manifest-bound
 standalone copy inside a nested sandbox, never against writable source. The judge requests approval
 for the **exact sandbox-launch** only. The approved nested launch is
