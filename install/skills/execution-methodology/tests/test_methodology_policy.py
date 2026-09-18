@@ -74,6 +74,60 @@ class CurrentPolicyTest(unittest.TestCase):
         self.assertIn("methodology.md", self.skill)
         self.assertIn("references/execution-loop.md", self.skill)
 
+    def test_role_routes_name_existing_canonical_references(self) -> None:
+        for role, reference in (
+            ("product-steward", "references/specs.md"),
+            ("chief-of-staff", "references/execution-loop.md"),
+            ("developer` / `senior-developer", "references/task-card.md"),
+            ("reviewer", "references/execution-loop.md"),
+            ("test-judge", "references/junit-evidence.md"),
+            ("acceptance", "references/execution-loop.md"),
+        ):
+            with self.subTest(role=role):
+                self.assertIn(role, self.skill)
+                self.assertIn(reference, self.skill)
+
+    def test_common_core_keeps_authority_safety_and_evidence_invariants(self) -> None:
+        method = " ".join(self.methodology.split())
+        for phrase in (
+            "approved outcome",
+            "Three founder gates",
+            "A builder never approves their own work",
+            "Light lane",
+            "Full lane",
+            "state=current` and `ready=true",
+            "Reuse successful evidence only while its referent, command, runtime, and environment inputs are unchanged",
+            "up to six elapsed hours",
+            "at most two file-disjoint builders",
+            "one heavy local gate at a time",
+            "Stage ownership",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, method)
+
+    def test_common_core_routes_approval_recurrence_and_finding_classes(self) -> None:
+        method = " ".join(self.methodology.split())
+        for phrase in (
+            "founder is the approval authority at all three gates",
+            "controller is the reader that records and applies the explicit decision",
+            "Missing approval is never inferred from silence or elapsed time",
+            "same-cause design recurrence returns to Gate 1",
+            "same-cause plan recurrence returns to Gate 2",
+            "Before repair, classify every finding",
+            "current-scope defect",
+            "harness defect",
+            "pre-existing defect",
+            "invalid frozen assumption",
+            "new outcome or claim",
+            "external fact",
+            "evidence defect",
+            "safety finding",
+            "scope change",
+            "Implementation review mechanics remain in `references/execution-loop.md`, Step 5",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, method)
+
     def test_direct_common_route_preserves_approved_runtime_authority(self) -> None:
         method = " ".join(self.methodology.split())
         for phrase in (
