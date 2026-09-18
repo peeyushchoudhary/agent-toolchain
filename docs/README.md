@@ -37,6 +37,9 @@ document by adding its row here in the same commit.
 | The Codex side, and what it does not get | [runbooks/codex.md](runbooks/codex.md) | Current |
 | Every file the installer places, and why | [agents/what-gets-installed.md](agents/what-gets-installed.md) | Current |
 | Front-page imagery, accessible descriptions and regeneration | [assets/readme/README.md](assets/readme/README.md) | Current |
+| Methodology efficiency feature | [product/specs/F-1-methodology-efficiency-vendoring.md](product/specs/F-1-methodology-efficiency-vendoring.md) | Current |
+| Methodology efficiency implementation plan | [product/plans/F-1-methodology-efficiency-vendoring.md](product/plans/F-1-methodology-efficiency-vendoring.md) | Current |
+| Methodology efficiency milestone | [product/milestones/M1-methodology-efficiency-vendoring.md](product/milestones/M1-methodology-efficiency-vendoring.md) | Current |
 
 Installation lives in [../install/README.md](../install/README.md).
 
