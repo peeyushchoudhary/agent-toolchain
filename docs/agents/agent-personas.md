@@ -18,7 +18,7 @@ output excludes compatibility definitions; `--include-retired` shows them with e
 |---|---|---|---|---|---|---|
 | acceptance | active | no | claude-fable-5-1 | xhigh | gpt-6-astra | xhigh |
 | architect | active | yes | claude-fable-5-1 | high | gpt-6-astra | high |
-| chief-of-staff | active | plans and bounded workspace state only | opus | medium | gpt-5.6-sol | medium |
+| chief-of-staff | active | plans and bounded workspace state only | opus | high | gpt-5.6-sol | high |
 | developer | active | yes | sonnet | medium | gpt-5.6-terra | medium |
 | migration-validator | active | no | claude-fable-5-1 | high | gpt-6-astra | high |
 | product-steward | active | product definition and documentation only | opus | high | gpt-5.6-sol | high |

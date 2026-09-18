@@ -74,10 +74,12 @@ remains at design, plan, and merge. Deployment is a separate, authorized action.
 
 ## Current state
 
-The execution methodology is **v5.1**. It has one canonical task procedure, plan admission for both
-light and full lanes, fresh independent review, local evidence, and a sealed milestone before
-acceptance. Eleven roles are active; three superseded or retired persona definitions remain for
-compatibility.
+The execution methodology is **v5.1**. After Gate 2, `chief-of-staff` is the sole scheduling owner
+and may dispatch, resume, recover, and use resources only within the approved plan's bounded
+authority. Resume state stays compact and is rebuilt from the plan and git. Weekly and ad hoc
+observations gathered during explicit methodology-management work inform later proposals; they do
+not activate policy, model assignments, runtime upgrades, or project migrations. Eleven roles are
+active; three superseded or retired persona definitions remain for compatibility.
 
 Model assignments are a selective, local pilot. Current evidence does not establish comparative
 quality, velocity, subscription efficiency, rare-defect detection, or full workflow performance.

@@ -378,11 +378,12 @@ def _display(path: Path, root: Path | None) -> str:
     return str(path)
 
 
-def read_doc(path: Path, root: Path | None = None) -> str:
+def read_doc(path: Path, root: Path | None = None, *, binary: bool = False) -> str | bytes:
     """Read a file this check depends on. Every way of not reading it raises. No exceptions.
 
-    Decoded as utf-8-sig, and STRICTLY, which is the second half of the same defect and was the
-    quieter half. `errors="replace"` never raises, so a UTF-16 or latin-1 entry file was read as a
+    Text is decoded as utf-8-sig, and STRICTLY, which is the second half of the same defect and was
+    the quieter half. Binary callers receive the same checked raw bytes for hashing. `errors="replace"`
+    never raises, so a UTF-16 or latin-1 entry file was read as a
     wall of replacement characters in which no markdown link matches, no `@import` matches, and no
     documented command matches — a clean report over a file the checker never actually understood.
     That is the same fail-open as the swallow, arrived at by a different road, and it is worse
@@ -408,6 +409,8 @@ def read_doc(path: Path, root: Path | None = None) -> str:
             f"the documents beyond them, not the commands it documents. Fix: make it readable, "
             f"then re-run",
         ) from exc
+    if binary:
+        return raw
     try:
         return raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
@@ -870,7 +873,15 @@ def check_readme(root: Path, files: list[Path], report: Report) -> None:
                     image = (root / image_raw).resolve()
                     counterpart = (root / text_raw).resolve()
                     repo_root = root.resolve()
-                except (OSError, ValueError):
+                except OSError as exc:
+                    why = exc.strerror or type(exc).__name__
+                    raise Unexaminable(
+                        rel_readme,
+                        f"declared architecture paths could not be resolved ({why}), so their "
+                        "repository containment could not be checked. Fix: make the paths "
+                        "resolvable, then re-run",
+                    ) from exc
+                except ValueError:
                     problem = "declared paths are not valid local repository paths"
                 if problem is None and (Path(image_raw).is_absolute()
                                         or Path(text_raw).is_absolute()
@@ -886,22 +897,18 @@ def check_readme(root: Path, files: list[Path], report: Report) -> None:
                 elif problem is None and not re.fullmatch(r"[0-9a-fA-F]{64}", declaration["sha256"]):
                     problem = "declared sha256 must be exactly 64 hexadecimal characters"
                 elif problem is None:
-                    try:
-                        image_bytes = image.read_bytes()
-                        counterpart_text = counterpart.read_text(encoding="utf-8-sig")
-                    except (OSError, UnicodeDecodeError) as exc:
-                        problem = f"declared files could not be read: {type(exc).__name__}"
+                    image_bytes = read_doc(image, root, binary=True)
+                    counterpart_text = read_doc(counterpart, root)
+                    actual = hashlib.sha256(image_bytes).hexdigest()
+                    if actual != declaration["sha256"].casefold():
+                        problem = f"declared sha256 does not match {image_raw}"
+                    elif not counterpart_text.strip():
+                        problem = f"declared text counterpart {text_raw} has no descriptive content"
                     else:
-                        actual = hashlib.sha256(image_bytes).hexdigest()
-                        if actual != declaration["sha256"].casefold():
-                            problem = f"declared sha256 does not match {image_raw}"
-                        elif not counterpart_text.strip():
-                            problem = f"declared text counterpart {text_raw} has no descriptive content"
-                        else:
-                            embedded_targets = (re.findall(r"!\[[^\]]*\]\(([^)\s]+)", arch_body)
-                                                + re.findall(r"<img[^>]+src=\"([^\"]+)\"", arch_body))
-                            if image_raw not in embedded_targets:
-                                problem = f"declared image {image_raw} is not embedded exactly in the architecture section"
+                        embedded_targets = (re.findall(r"!\[[^\]]*\]\(([^)\s]+)", arch_body)
+                                            + re.findall(r"<img[^>]+src=\"([^\"]+)\"", arch_body))
+                        if image_raw not in embedded_targets:
+                            problem = f"declared image {image_raw} is not embedded exactly in the architecture section"
             if problem is not None:
                 report.error("readme-architecture-image", rel_readme, problem)
             else:

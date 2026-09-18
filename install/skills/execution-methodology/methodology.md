@@ -55,8 +55,9 @@ high-level drawing; the loop reference is the single task-loop drawing.
 Three human gates remain compatible in name and responsibility:
 
 - **Gate 1, design:** approves the outcome, scope, invariants, and structural decisions.
-- **Gate 2, plan:** approves task decomposition, dependencies, write boundaries, validation, and
-  lane assignment.
+- **Gate 2, plan:** approves the whole bounded milestone execution: task decomposition,
+  dependencies, write boundaries, validation, lane assignment, permitted operations, routine
+  recovery, resource envelope, and any local commit authority.
 - **Gate 3, merge:** considers the sealed milestone, acceptance verdict, honest documentation, and
   observed process metrics.
 
@@ -68,6 +69,16 @@ Related decisions may be presented together, but missing approval is never infer
 time. Between Gate 2 and Gate 3, the controller follows
 `references/execution-loop.md` without pausing for routine confirmations. A gate pass authorizes no
 deployment, provider activation, production write, push, PR, or merge.
+
+Within the named Gate 2 authority, the controller may dispatch, resume, retry recoverable tool
+inputs, repair inside an existing write boundary, and integrate where the plan permits. This
+authority does not weaken any safety, review, evidence, or acceptance stop. A new outcome, durable
+interface, write path, safety-policy decision, permission, or exhausted required resource returns
+to its owning gate.
+
+Unless Gate 2 records another envelope, the ordinary default is up to six elapsed hours, at most
+two file-disjoint builders, and one heavy local gate at a time. Budget exhaustion is a pause
+boundary and never weakens quality, validation, review, safety, evidence, or acceptance.
 
 ## Product definition, design, and plan
 
@@ -81,6 +92,17 @@ invariants put at risk. The plan, owned by `chief-of-staff`, freezes interfaces 
 task decomposition, dependencies, write boundaries, validation, lane assignment, and the Goal
 Capsule. Use the smallest operationally real safe slice and existing/native primitives. A new
 durable authority returns to design.
+
+Before design and plan freeze, trace **required outcome → existing production path → existing
+executable proof → actual uncovered gap → smallest sufficient addition**. A new parser, protocol,
+registry, or recovery subsystem must justify a specific uncovered gap; an available production path
+and behavioral test remain the default proof surface.
+
+The plan inventories actual consumers, fixtures and generated companions, and prerequisite states
+before Gate 2. It distinguishes staging, acceptance, and activation so each task can reach its
+declared next state without requiring that a successor task is already accepted. Combined
+activation may remain explicit when a protected invariant requires it; that does not make every
+implementation slice monolithic.
 
 Design, architecture, and data-flow visuals may use Mermaid or locally committed images, including
 ImageGen output. Choose the form that makes the relationships clearest and remains practical to
@@ -175,7 +197,10 @@ The operational sequence and exact commands are in `references/execution-loop.md
    privacy, and authorization cases relevant to the task.
 5. Run focused validation, the area gate, independent implementation review, and independent gate
    execution.
-6. Commit with the plan task id and distillation; immediately check the commit's writes.
+6. Only when Gate 2 explicitly grants local commit authority, commit with the plan task id and
+   distillation, then immediately check the commit's writes. When it does not, preserve the
+   accepted slice and missing integration work in the resume pointer, then checkpoint and pause
+   before any further selection.
 7. Drain deferrals, verify criterion trace evidence, run the milestone gate, and seal the exact
    tree before acceptance.
 
@@ -230,8 +255,24 @@ criterion trace, owned deferrals, seal verification, process ratio, review-budge
 limits or skipped checks. Measurements use their actual unit and corpus; unmeasured claims stay
 unmeasured. A model choice is never evidence of quality or safety.
 
-`~/.claude/skills/execution-methodology/scripts/weekly_review.py` reports the same `~/.claude/skills/execution-methodology/scripts/ratio_meter.py` classification over time; it is a trend report,
-while the merge-range ratio remains the gate input.
+For weekly and ad hoc observation during an active methodology-management session,
+`chief-of-staff` owns collection, classification, and persistence. Follow
+`~/.claude/skills/methodology-management/references/assessment.md`, keep the working assessment in
+its private routed workspace, and append its dated distillation to `~/.claude/docs/LEDGER.md`.
+`~/.claude/skills/execution-methodology/scripts/weekly_review.py` reports the same
+`~/.claude/skills/execution-methodology/scripts/ratio_meter.py` classification over time; it is a
+trend report, while the merge-range ratio remains the gate input.
+
+Each observation records accepted outcomes with exact Git, task, trace, seal, and acceptance
+referents; noncached input, cache reads, cache writes, and output as separate units; actual cash or
+allowance evidence in its native unit; coverage and missing logs; founder, quota, and gate waits;
+and interruptions and rework classified by cause. Absent or unattributable data stays explicitly
+unknown; processed-token totals are not bills, and unknown values are never inferred as zero.
+
+Observation records facts; it does not approve policy, model, or runtime changes. It is diagnostic,
+not a pilot or recurring delivery gate, and does not activate or migrate a project. Classify a
+selected gap as adherence, an owning-tool defect, or a policy/model change; route any proposed
+change through its existing authority. Safety stops act immediately rather than waiting for review.
 
 ## Adoption, maintenance, and history
 

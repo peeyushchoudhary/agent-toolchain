@@ -4,6 +4,10 @@ This is the executable procedure between the plan gate and merge gate. It is the
 definition. The controller follows the branches below; it does not implement product changes or
 judge its own work.
 
+The `chief-of-staff` is the sole scheduling owner. It selects, reorders, dispatches, and records
+state for only tasks in the observed ready set. The root relays founder decisions and handles
+external approvals; it does not duplicate scheduling already owned by a `chief-of-staff` child.
+
 Every governed task enters from an existing plan task id with an explicit `lane:`, non-empty
 `writes:`, and acceptance criteria. `plan_waves.py` checks those facts before selection. Commands
 exit `0` clean, `1` with findings, and `2` when the question could not be asked. Exit `2` is never a
@@ -14,15 +18,23 @@ pass and is not retried without fixing the named input.
 The `chief-of-staff` may author plans, task cards, bounded controller state, and persisted handoffs.
 Product code, tests, and behavioral documentation go to a writer. Judges remain read-only.
 
-**Current resume pointers** are replaceable bounded controller state: active milestone, previous
-seal revision, current in-flight task ids, and paths to live reports/verdicts. Status and completion
-are always re-derived from git and the plan. The controller refreshes or discards this state when
-the tree changes.
+**Current resume pointers** are replaceable bounded controller state: active milestone, approved
+plan path, previous seal revision, source referent and dirty-path ownership, current in-flight task
+ids, paths to live findings and verdicts, remaining authority and resources, and the next legal
+action. Keep the pointer to about one screen and link to evidence instead of copying it. Status and
+completion are always re-derived from git and the plan. Refresh or discard the pointer when the
+tree changes and at accepted slice, integration, material stop, compaction, or session boundaries.
 
 **Append-only decisions** are a separate durable record: founder rulings, interface distillations,
 corrected assumptions, verified commands and limits, and deferrals with owners. Current resume
 pointers never enter append-only decisions. This separation keeps recovery cheap while preserving
 the decisions the next plan must inherit.
+
+Recovery reruns the status command below, verifies the pinned runtime and Git state, reads the
+complete payload, and reconciles each in-flight id with its report and dirty paths. Resume or retry
+a recoverable tool input only after correcting its actual cause within Gate 2 authority; preserve
+existing evidence and review lineage. This procedure does not create an unattended runner or
+background relaunch.
 
 ## 1. Resume and task status
 
@@ -39,6 +51,12 @@ After compaction, crash, or interruption, run this command and reconcile only th
 ids. Findings route before new dispatch: W1-W6 return to the plan; W7 is a write-boundary failure;
 an unresolved revision, invalid milestone, or missing plan task exits `2` and stops selection.
 
+Within the approved Gate 2 plan, the scheduling owner may reorder independent ready tasks, resume
+or retry a recoverable tool input, return a failed check or valid review finding for a bounded fix
+inside the existing write boundary, and integrate accepted work where permitted. It may make local
+commits only when Gate 2 explicitly grants that operation. This autonomy does not weaken the lane,
+review, safety, evidence, exit-2, or acceptance stops.
+
 ## 2. The loop
 
 ```mermaid
@@ -50,7 +68,8 @@ flowchart TD
     S4 -- "gate red" --> S2
     S4 -- "gate green" --> S5["5. review<br/>check_review_budget.py --next"]
     S5 -- "valid correction" --> S2
-    S5 -- "cleared" --> S6["6. commit check<br/>plan_waves.py --commit"]
+    S5 -- "cleared; commit authority granted" --> S6["6. commit check<br/>plan_waves.py --commit"]
+    S5 -- "cleared; commit authority withheld" --> PAUSE["checkpoint and pause"]
     S6 -- "milestone incomplete" --> S1
     S6 -- "every task committed" --> S7["7. deferrals<br/>spec_check.py --deferred"]
     S7 --> S8["8. coverage<br/>trace_check.py --evidence"]
@@ -94,10 +113,19 @@ plan_waves.py --root . --milestone M<n> --since <rev> --ready --in-flight <ids> 
 The wave graph is a legality certificate. `--ready` emits tasks whose dependencies are done, whose
 writes do not meet in-flight writes, and whose declared serialization partners are absent. The
 command admits each chosen task into the candidate set before checking the next. `--limit` is the
-operator's resource cap; no concurrency number is compiled into policy.
+operator's resource cap. The common policy supplies the ordinary default envelope unless Gate 2
+records another; no concurrency number is compiled into this scheduler.
 
 `0` or `1` may yield a ready set, but findings must be classified before dispatch. `deferred`
 explains candidates held by dependencies, serialization, writes, or the limit. `2` stops.
+
+Run selection against the actual selected repository root from the actual working directory, with
+the intended milestone, revision, in-flight ids, and limit. Inspect the successful status payload
+and selection output. Before launching a writer or expensive gate, require a non-empty ready set
+and prove the chosen id is a member of that ready set; zero membership is a stop, never completed
+work. Also confirm that remaining time, quota, builder slots, and heavy-gate slots can cover the
+task, its handoff, and required validation. Reserve closure time from observed durations. If a
+required resource is exhausted or no safe task is ready, refresh the resume pointer and pause.
 
 ### Step 2 — dispatch: Light lane
 
@@ -193,6 +221,11 @@ their governing authority. Do not run a duplicate full-diff review after the sco
 ```bash
 plan_waves.py --root . --milestone M<n> --commit <rev>
 ```
+
+Run this step only after a local commit that Gate 2 explicitly authorized. When a task is
+independently accepted but leaves a dirty tree and Gate 2 withheld that authority, do not create a
+commit. Preserve the accepted slice and exact missing integration/seal work in the resume pointer,
+then checkpoint and pause before any further selection.
 
 The commit subject must name the existing plan task id. The command compares every changed path
 with that task's `writes` at milestone scope, which can also name another feature's owner. `0`

@@ -307,6 +307,61 @@ class DocumentedInterfaceTest(unittest.TestCase):
         for forbidden in ("/Us" + "ers/", "/ho" + "me/", "C:" + chr(92)):
             self.assertNotIn(forbidden, self.text, "a personal path reached a public document")
 
+    def test_one_controller_owns_scheduling_and_may_reorder_only_ready_work(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        self.assertIn("sole scheduling owner", normalized)
+        self.assertIn("selects, reorders, dispatches", normalized)
+        self.assertIn("only tasks in the observed ready set", normalized)
+        self.assertIn("root relays founder decisions", normalized)
+        self.assertIn("does not duplicate scheduling", normalized)
+
+    def test_gate_two_authority_covers_bounded_execution_branches(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        for phrase in (
+            "inside the existing write boundary",
+            "recoverable tool input",
+            "local commits only when gate 2 explicitly grants that operation",
+            "remaining time, quota, builder slots, and heavy-gate slots",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+        self.assertIn("does not weaken the lane, review, safety, evidence, exit-2, or acceptance stops",
+                      normalized)
+
+    def test_no_commit_authority_pauses_before_any_further_selection(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        self.assertIn("checkpoint and pause before any further selection", normalized)
+        self.assertNotIn("continue only independent ready work", normalized)
+
+    def test_dispatch_admission_uses_the_actual_selection_and_environment(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        for phrase in (
+            "actual selected repository root",
+            "actual working directory",
+            "successful status payload",
+            "non-empty ready set",
+            "chosen id is a member of that ready set",
+            "before launching a writer or expensive gate",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+
+    def test_checkpoint_is_compact_replaceable_and_does_not_create_a_runner(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        for phrase in (
+            "approved plan path",
+            "dirty-path ownership",
+            "live findings",
+            "remaining authority and resources",
+            "next legal action",
+            "about one screen",
+            "does not create an unattended runner",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+        self.assertNotIn("weekly review", normalized,
+                         "weekly observation belongs to common methodology policy")
+
 
 def diagram_problems(text: str) -> list[str]:
     """Every way the section-2 fence can disagree with the section-2 table, as `kind: detail`.
@@ -396,6 +451,13 @@ class DiagramTest(unittest.TestCase):
 
     def test_the_diagram_and_the_table_say_the_same_thing(self) -> None:
         self.assertEqual([], diagram_problems(self.text))
+
+    def test_cleared_review_branches_on_explicit_commit_authority(self) -> None:
+        diagram = MERMAID_FENCE.search(self.text).group(1)
+        self.assertIn('S5 -- "cleared; commit authority granted" --> S6', diagram)
+        self.assertIn('S5 -- "cleared; commit authority withheld" --> PAUSE["checkpoint and pause"]',
+                      diagram)
+        self.assertNotRegex(diagram, r"PAUSE\s+--.*-->\s+S1")
 
 
 class DiagramDriftTest(unittest.TestCase):

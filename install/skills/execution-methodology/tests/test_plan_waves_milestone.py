@@ -520,6 +520,36 @@ class DerivedStateFixture(MilestoneFixture):
         return {ident: row["state"] for ident, row in self.since(base, *extra)["status"].items()}
 
 
+class MilestoneCommitAdmissionTest(DerivedStateFixture):
+    def test_commit_check_rejects_an_unresolved_revision_before_inspection(self) -> None:
+        """A missing commit is invalid input, not an empty subject with an empty path set."""
+        self.feature("F-11", task("T1", writes="a/**"))
+        self.start()
+        result = self.run_cli("--milestone", "M2", "--commit", "no-such-rev-here", "--json")
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("no-such-rev-here", result.stderr)
+
+    def test_commit_check_refuses_a_member_with_no_planned_task(self) -> None:
+        """An empty task denominator cannot prove that the named commit stayed in bounds."""
+        self.feature("F-11")
+        self.start()
+        self.commit("F-11/T1 outside declared plan", "outside/x")
+        result = self.run_cli("--milestone", "M2", "--commit", "HEAD", "--json")
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("has no task in any plan", result.stderr)
+
+    def test_commit_check_still_checks_a_milestone_with_tasks(self) -> None:
+        self.feature("F-11", task("T1", writes="a/**"))
+        self.feature("F-12", task("T1", writes="b/**"), slug="other")
+        self.start()
+        self.commit("feat(F-11/T1): strays into F-12", "a/x", "b/x")
+        result = self.run_cli("--milestone", "M2", "--commit", "HEAD", "--json")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("`F-12/T1` declares it", result.stdout)
+
+
 class DerivedStatusTest(DerivedStateFixture):
     def test_a_commit_naming_a_task_is_what_makes_it_done(self) -> None:
         self.feature("F-11", task("T1", writes="a/**"), task("T2", needs="[T1]", writes="b/**"))
