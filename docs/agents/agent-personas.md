@@ -17,7 +17,7 @@ output excludes compatibility definitions; `--include-retired` shows them with e
 | Persona | Status | Writes | Claude model | Claude effort | Codex model | Codex effort |
 |---|---|---|---|---|---|---|
 | acceptance | active | no | claude-fable-5-1 | xhigh | gpt-6-astra | xhigh |
-| architect | active | yes | claude-fable-5-1 | high | gpt-6-astra | high |
+| architect | active | yes | claude-opus-5-5 | high | gpt-6-sol | high |
 | chief-of-staff | active | plans and bounded workspace state only | opus | high | gpt-5.6-sol | high |
 | developer | active | yes | sonnet | medium | gpt-5.6-terra | medium |
 | migration-validator | active | no | claude-fable-5-1 | high | gpt-6-astra | high |
@@ -34,9 +34,10 @@ output excludes compatibility definitions; `--include-retired` shows them with e
 
 The current assignments are a selective, unmeasured pilot. Scout and test execution use the least
 expensive factual tier. Ordinary builders and implementation review retain their established tiers.
-Architecture, security, migration and acceptance start on the flagship candidates because their
-decisions propagate or are costly to reverse. Acceptance retains `xhigh`; no ordinary default uses
-`max` or `ultra`.
+Security, migration and acceptance retain flagship models due to reversal cost. Architecture pilots
+Opus 5.5 and GPT-6 Sol at `high`; compare structural findings with prior models before calling
+quality proven.
+Acceptance retains `xhigh`; no ordinary default uses `max` or `ultra`.
 
 Where a harness supports native per-dispatch overrides, the controller may use `high` for planning,
 `medium` for routine product custody, and Fable 5.1/Astra at `medium` or `high` for difficult causal
