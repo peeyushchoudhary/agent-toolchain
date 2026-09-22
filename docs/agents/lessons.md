@@ -66,3 +66,11 @@ public candidate checkouts. Its plan, authorization, implementation handoffs and
 survived there; an assessment limited to main missed them and proposed unrelated work. Before
 choosing a continuation, recover the current candidate and its last handoff. Keep a local recovery
 pointer and backup beside the project so temporary-directory state is not the only resume path.
+
+## 2026-09-23 — a persona pilot can expose installed and vendored drift
+
+Before the architect model change, the installed maintained source named Opus and GPT-5.6 Sol,
+while the published copy named Fable 5.1 and GPT-6 Astra. The global sync preview after changing
+the maintained architect source listed only the two generated architect agents for update. For a
+bounded model rollout, preview the exact generated operations and avoid treating a whole-skill
+install as an architect-only activation; it would also replace unrelated installed persona sources.

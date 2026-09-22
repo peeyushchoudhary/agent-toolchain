@@ -90,6 +90,8 @@ definitions remain for compatibility.
 
 Model assignments are a selective, local pilot. Current evidence does not establish comparative
 quality, velocity, subscription efficiency, rare-defect detection, or full workflow performance.
+The architect pilot now uses Claude Opus 5.5 and GPT-6 Sol at high effort; migration review keeps
+the frontier assignments pending workload-specific evidence.
 See [measurements](docs/product/measurements.md) for the honest limits and the
 [weekly record](docs/product/improvements-weekly.md) for v5.1 and earlier rationale.
 

@@ -1,8 +1,22 @@
 # Measurements
 
-Current model and verification evidence updated 2026-09-05. Older measurements retain their own
-dates and describe the system that existed then. Re-derive current prices and model comparisons
-when vendor terms or locally observed results move.
+## Architect model pilot — 2026-09-23
+
+The architect default now names Claude Opus 5.5 at `high` and GPT-6 Sol at `high`. The
+migration-validator remains on Claude Fable 5.1 and GPT-6 Astra at `high`. This is an assignment
+change, not a measured quality result. The 2026-09-05 twelve-case Codex smoke test did not cover
+architecture or migration review, so it cannot establish equivalence for either role.
+
+At Standard API rates per million tokens, Opus 5.5 is $4 uncached input, $0.20 cached input and
+$20 output; GPT-6 Sol is $2, $0.20 and $10 respectively. For an illustrative 40K uncached input
+and 8K output call, Opus 5.5 costs $0.32 and GPT-6 Sol costs $0.16, compared with $0.80 for
+Fable 5.1 or Astra. These are token-mix estimates, not observed cost per accepted review. Sources:
+[Opus 5.5](https://platform.claude.com/docs/en/models/opus-5-5/overview),
+[GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol).
+
+The broader model and verification evidence below was updated 2026-09-05. Older measurements retain
+their own dates and describe the system that existed then. Re-derive current prices and model
+comparisons when vendor terms or locally observed results move.
 
 ## Current model economics and pilot status — 2026-09-05
 
