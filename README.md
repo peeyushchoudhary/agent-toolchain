@@ -88,6 +88,13 @@ migrations. The approved
 tracks this public bundle update. Eleven roles are active; three superseded or retired persona
 definitions remain for compatibility.
 
+The core-first M2 implementation is accepted, projected to maintained source and the public
+package, and installed through the existing installer. The full repository and machine gate passed,
+and a fresh native Codex read-only run under normal configuration passed activation. Claude skills,
+hooks, personas and bytes are statically verified; authenticated Claude inference is deferred. M2
+remains building, unsealed and unaccepted. No publication, pull request, merge, tag or deployment
+occurred, and existing pinned consumer bindings are unchanged.
+
 Model assignments are a selective, local pilot. Current evidence does not establish comparative
 quality, velocity, subscription efficiency, rare-defect detection, or full workflow performance.
 The architect pilot now uses Claude Opus 5.5 and GPT-6 Sol at high effort; migration review keeps

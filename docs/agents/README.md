@@ -15,6 +15,8 @@
 | Read what an earlier agent already learned here | [lessons.md](lessons.md) | — |
 | Follow the explicit onboarding compatibility route | [../runbooks/onboarding-a-project.md](../runbooks/onboarding-a-project.md) | `python3 install/skills/progressive-disclosure/scripts/install_hooks.py . --scope project --preview --json` |
 | Execute methodology efficiency M1 | [spec](../product/specs/F-1-methodology-efficiency-vendoring.md), [plan](../product/plans/F-1-methodology-efficiency-vendoring.md), [milestone](../product/milestones/M1-methodology-efficiency-vendoring.md) | `python3 install/skills/execution-methodology/scripts/plan_waves.py --root . --milestone M1 --json` |
+| Read the dated optimization analysis and proposal | [research index](../product/research/README.md) | — research only; no activation |
+| Execute approved goal-directed autonomy M2 | [definition](../product/specs/F-2-goal-directed-autonomy.md), [design](../architecture/goal-directed-execution.md), [plan](../product/plans/F-2-goal-directed-autonomy.md), [non-authoritative stage boundaries](../product/plans/goal-directed-autonomy-task-boundaries.md) | `python3 install/skills/execution-methodology/scripts/plan_waves.py --root . --milestone M2 --json` |
 
 Everything else is one hop further: [../README.md](../README.md) is the documentation index.
 

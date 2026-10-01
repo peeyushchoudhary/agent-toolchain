@@ -74,3 +74,79 @@ while the published copy named Fable 5.1 and GPT-6 Astra. The global sync previe
 the maintained architect source listed only the two generated architect agents for update. For a
 bounded model rollout, preview the exact generated operations and avoid treating a whole-skill
 install as an architect-only activation; it would also replace unrelated installed persona sources.
+
+## 2026-09-30 — printed gate failure can still become a passing receipt
+
+Independent isolated execution of `gate.sh`'s actual terminal branch with child exit zero and a
+failed source-integrity check printed `GATE DID NOT PASS` but exited zero. `milestone_seal.py`
+promotes a zero command exit to a success receipt. Separately, an isolated fixture whose declared
+gate changed a tracked source file received a seal receipt and verified successfully: source
+cleanliness is checked only before the gate. No implementation was changed during the assessment.
+Bind launcher exit to its complete verdict and recheck the tested referent before certifying it;
+tests must exercise the process contract, not only inspect the printed verdict.
+
+## 2026-09-30 — efficiency follows the approved delivery objective
+
+A proposed benchmark and cheaper-model pilot route was corrected to prioritize accepted product
+velocity and quality, with quota efficiency as a sustained-execution constraint. Do not turn
+research options into rollout prerequisites after the owner rejects them. Front-load consequential
+questions in requirements, design and planning; preserve real local validation, then assess the
+delivered workflow through existing evidence after one week and regularly.
+
+## 2026-09-30 — disposable proof trees can distort bounded review
+
+A filename-based review-budget checker interpreted copied persona sources as verdicts and also
+counted repository files placed inside the bounded review workspace. Keep disposable proof
+checkouts and fixtures outside that workspace. If they contaminate it, preserve every actual
+verdict, lineage record and cap; have the Git owner move the fixtures; then rerun checks from the
+current repository root. A narrower corrected scope never closes a genuine finding surfaced by the
+earlier review.
+
+## 2026-09-30 — file-count limits can manufacture broad ownership
+
+An arbitrary write-path count made exact boundaries fail while broad globs passed, then encouraged
+duplicate cards and reviews for one logical change. Bound work with normalized exact roots,
+nonempty coverage and actual overlap, commit-scope and safety checks. Keep ordinary work Light and
+use one Full card and one review only when the logical task really changes a durable or safety
+boundary; a projection of the same change needs identity and consumer proof, not duplicated
+ceremony.
+
+## 2026-09-30 — review fixtures must not mutate frozen inputs
+
+A frozen review input must remain byte-identical through its verdict. Prepare mutable probes in
+separate existing fixture evidence, then bind the resulting evidence identity; do not turn probe
+setup into an unreviewed mutation of the referent.
+
+## 2026-10-01 — prerequisite repair must return to the delivery outcome
+
+A workflow improvement stalled while a temporary native proof engine acquired its own dispatcher,
+authority packets, model catalog, protocol schemas and repeated reviews. Core implementation never
+started. Passing mock tests and fresh verdicts showed activity without delivery. The controller
+allowed this dependency to grow; the chief kept repairing it instead of challenging the approach.
+
+Before introducing another helper or control, identify the approved criterion it serves, why its
+existing owner is insufficient, and the product outcome it unblocks. A genuine failure blocks the
+affected mechanism; establish an actual dependency before it blocks unrelated work. New isolation
+or runtime guarantees belong to the change introducing them, rather than becoming prerequisites
+for ordinary workflow improvements. Keep failed evidence and do not claim deferred guarantees.
+
+At the existing recovery or handoff boundary, recurring prerequisite repair must trigger an
+approach decision: simplify, use the existing route, split independent delivery, or escalate the
+real choice. Preserve the original blocked outcome and failure lineage; naming a new fixture or
+diagnostic does not reset recovery. Use targeted expert advice when justified, not another routine
+council, form, counter or checker. Report delivered outcomes and concrete blockers. These lessons
+do not replace independent judgment or the real local gate, and do not prove installed behavior.
+
+## 2026-10-01 — replacement authority retires the prerequisite, not its evidence
+
+The approved core-first replacement reduced M2 to two file-disjoint implementation tasks plus
+documentation, existing installation and local closure. The earlier native-first proof engine and
+its universal P0 prerequisite are superseded rationale; their failed verdicts remain immutable
+evidence and cannot be relabelled. When an approved approach changes, update every current route and
+plan in place while preserving the rejected path only where rationale belongs.
+
+## 2026-10-01 — security findings begin with the owner's trust model
+
+Security packets must name the existing owner's actual trust model and explicit exclusions, then
+classify findings against frozen criteria before demanding a substitute isolation or attestation
+system. A real fail-open defect in that owner still requires repair.
