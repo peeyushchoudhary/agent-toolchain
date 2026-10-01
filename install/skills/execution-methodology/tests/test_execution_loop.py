@@ -454,6 +454,41 @@ class DocumentedInterfaceTest(unittest.TestCase):
         self.assertNotIn("weekly review", normalized,
                          "weekly observation belongs to common methodology policy")
 
+    def test_approved_authority_persists_and_is_rechecked_at_real_boundaries(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        for phrase in (
+            "does not expire at a session or checkpoint boundary",
+            "recheck scope, frozen inputs, permissions, resources, and revocation state",
+            "before an external action",
+            "material scope or safety change",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+
+    def test_causal_recovery_keeps_lineage_and_has_no_fourth_approach(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        for phrase in (
+            "approaches a and b",
+            "same cause and finding lineage",
+            "targeted expert council",
+            "fresh independent pass",
+            "no fourth approach",
+            "renaming a task, attempt, fixture, or diagnostic",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+
+    def test_recovery_questions_new_controls_against_delivery(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        for phrase in (
+            "which approved criterion requires it",
+            "why the existing owner is insufficient",
+            "which delivery outcome it unblocks",
+            "no new form, counter, checker, ledger, or routine council",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+
 
 def diagram_problems(text: str) -> list[str]:
     """Every way the section-2 fence can disagree with the section-2 table, as `kind: detail`.

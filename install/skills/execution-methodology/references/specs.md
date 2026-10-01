@@ -29,6 +29,19 @@ Three places absorb what the body will not hold:
   carrying an ADR it never wrote.
 - **The append-only parts live in front matter**, as keys — never in prose.
 
+### Close context before dependent work
+
+Before design and planning close, the product steward resolves the actors, problem, outcome,
+priorities, non-goals, literal journeys and states, shared constraints, dependencies, existing
+consumers, and local verification prerequisites. Record each result in the PRD, feature spec,
+milestone, or linked decision that already owns it. Facts and assumptions remain distinguishable;
+only a material unresolved choice blocks the work that depends on its answer.
+
+When product UX applies, a separate founder-approved UX journey names its authoritative artifact,
+critical states, responsive and accessibility behavior, and concrete implementation inputs before
+the affected milestone proceeds. The journey supplies product authority for the affected surface;
+it does not become a second feature spec or let an implementer invent missing states.
+
 ### A bug is a spec whose `Why` is a defect
 
 A defect that needs its own criteria and its own tasks is written as a **feature spec**, in the same
@@ -557,6 +570,11 @@ An optional `serialises: [T1]` declares that a shared write set with another tas
 deliberate — without it, two tasks that write the same paths are a finding whether or not a
 dependency happens to hold them apart. `serialises` is plan-local like `needs`, and qualified the
 same way: `serialises: [F-11/T4]` names a task in another feature.
+
+Every `writes` member is a normalized, non-empty repository-relative path expression. There is no
+fixed count ceiling: a coherent logical task may name more than five exact paths. A broad glob does
+not substitute for exact ownership, and many unrelated paths still mean the planner should recut
+the task; that decision belongs to plan review instead of an arbitrary scheduler number.
 
 The orchestrator derives the waves; nobody writes them down. **The wave list is a legality
 certificate, not a dispatch schedule.** It is Kahn levels, so wave N+1 waits on the whole of wave N

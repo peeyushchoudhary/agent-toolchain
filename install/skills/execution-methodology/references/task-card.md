@@ -14,6 +14,12 @@ Cards live in the plan's scratch workspace. They are durable — a card and its 
 decisions to the next plan, and they survive the workspace deletion by being promoted into the
 program ledger's distillation.
 
+One logical task keeps one stable card identity, produces one compact report, and receives one
+complete review of its maintained change and declared public projection together. A repair or
+mechanical projection does not mint another card, task, report, or initial review. Renaming an
+attempt, fixture, or diagnostic never resets the original cause, finding lineage, or failed
+verdicts recorded in the report.
+
 ## Schema
 
 ```yaml
@@ -476,6 +482,10 @@ For every review finding, the report also records its capsule criterion/invarian
 or state, observable consequence, evidence, category, causal class, disposition, and owner. The
 card's stable identity remains unchanged across repairs; attempt renaming cannot reset causal
 history.
+
+When recovery reaches approach C, the report also points to the targeted council's technical
+replan and its fresh independent PASS. If C fails, it records that no fourth approach started and
+preserves the diagnosis, attempts, reviewed alternative, and consequences for founder decision.
 
 Those last three are not optional politeness. Interfaces produced, deferrals, verification actually
 run, and corrected assumptions are exactly what gets promoted into the program ledger, and a report

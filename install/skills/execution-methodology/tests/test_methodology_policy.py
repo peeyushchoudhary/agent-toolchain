@@ -225,6 +225,32 @@ class CurrentPolicyTest(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, method)
 
+    def test_product_context_and_ux_close_before_dependent_work(self) -> None:
+        specs = " ".join(read(SPECS).split())
+        for phrase in (
+            "actors, problem, outcome, priorities, non-goals",
+            "literal journeys and states",
+            "shared constraints, dependencies, existing consumers",
+            "local verification prerequisites",
+            "Facts and assumptions remain distinguishable",
+            "founder-approved UX journey",
+            "responsive and accessibility behavior",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, specs)
+
+    def test_one_logical_task_has_one_report_and_one_complete_review(self) -> None:
+        current = " ".join(self.current.split()).lower()
+        for phrase in (
+            "one logical task",
+            "one compact report",
+            "one complete review",
+            "light remains the ordinary bounded lane",
+            "full remains limited to durable or safety boundary changes",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, current)
+
 
 if __name__ == "__main__":
     unittest.main()

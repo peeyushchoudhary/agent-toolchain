@@ -321,11 +321,10 @@ class GlobTest(unittest.TestCase):
 
 
 class SizeTest(PlanFixture):
-    def test_w5_flags_more_than_five_write_globs(self) -> None:
-        self.plan(task("T1", writes="a/**, b/**, c/**, d/**, e/**, f/**"))
-        self.assertFinds("W5")
-        self.plan(task("T1", writes="a/**, b/**, c/**, d/**, e/**"))
+    def test_w5_accepts_more_than_five_exact_write_paths(self) -> None:
+        self.plan(task("T1", writes="a/1.txt, a/2.txt, a/3.txt, a/4.txt, a/5.txt, a/6.txt"))
         self.assertDoesNotFind("W5")
+        self.assertEqual(self.waves(), [["T1"]])
 
     def test_w5_flags_a_task_that_covers_no_criterion(self) -> None:
         self.plan(task("T1", covers="[]"))
@@ -373,6 +372,26 @@ class BlockTest(PlanFixture):
                           f"writes: {writes}\ncovers: [AC-1]\n```\n")
                 self.assertFinds("W0")
                 self.assertIn("blank member", self.messages("W0")[0])
+
+    def test_w0_rejects_non_normalized_write_members(self) -> None:
+        for writes in ("./src/a.py", "src//a.py", "src/./a.py", "src/../a.py",
+                       "src/a.py/", r"src\a.py", "C:/outside/file.py", "C:outside"):
+            with self.subTest(writes=writes):
+                self.plan(task("T1", writes=writes))
+                self.assertFinds("W0")
+                self.assertIn("normalized repository-relative path", self.messages("W0")[0])
+
+    def test_w0_rejects_blank_coverage_members(self) -> None:
+        for covers in ('[""]', '["   "]', '[AC-1, ""]', '[AC-1, "   "]'):
+            with self.subTest(covers=covers):
+                self.plan(task("T1", covers=covers))
+                self.assertFinds("W0")
+                self.assertIn("blank member in `covers:`", self.messages("W0")[0])
+
+    def test_empty_coverage_list_retains_the_w5_finding(self) -> None:
+        self.plan(task("T1", covers="[]"))
+        self.assertDoesNotFind("W0")
+        self.assertFinds("W5")
 
     def test_w0_flags_an_unknown_key(self) -> None:
         self.plan("\n```task\ntask: T1\nrepo: something\nwrites: [a/**]\ncovers: [AC-1]\n```\n")

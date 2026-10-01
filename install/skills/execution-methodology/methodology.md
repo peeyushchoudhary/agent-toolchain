@@ -23,6 +23,11 @@ Execution is goal-bound. Every dispatch names the approved outcome through a cri
 and an observable delta. The PRD, spec, design, and plan are the floor and ceiling. Preferences,
 speculative hardening, and invented requirements do not block delivery.
 
+Before dependent design and planning close, product definition closes the actors, problem,
+outcome, priorities, non-goals, literal journeys and states, shared constraints, dependencies,
+existing consumers, and local verification prerequisites. Where product UX applies, a separate
+founder-approved UX journey supplies its authoritative artifact and implementation inputs.
+
 ## Chain, gates, and authority
 
 The chain is PRD → feature spec → design → plan → tasks → implementation → task validation and
@@ -49,6 +54,11 @@ safety, review, evidence, or acceptance stop. A new outcome, durable interface, 
 safety-policy decision, permission, or exhausted required resource returns to its owning gate.
 Only when Gate 2 explicitly grants local commit authority may the controller commit; otherwise it
 must preserve the accepted slice, then checkpoint and pause before any further selection.
+
+That bounded authority persists across sessions and checkpoints without arbitrary time expiry.
+At resume and before external action, recheck its scope, frozen inputs, permissions, resources,
+and revocation state. Ask again only for a material scope or safety change, revocation, or an
+external action outside the approved grant.
 
 Unless Gate 2 records another envelope, the default is up to six elapsed hours, at most two
 file-disjoint builders, and one heavy local gate at a time. Budget exhaustion is a pause boundary
@@ -91,6 +101,10 @@ controls and adds a validated task card, the applicable specialist, and sealed e
 contracts, schema or migrations, message shapes, module interfaces, generated clients, consent,
 authorization, personal or health data, redaction, retention, erasure, audit, tokens, or money. A
 Light lane task that reaches a Full lane boundary stops and returns to the plan.
+
+Light remains the ordinary bounded lane; Full remains limited to durable or safety boundary
+changes. One logical task produces one compact report and receives one complete review across its
+maintained change and any declared byte-identical projection.
 
 Every stop is resumable: completed steps leave a named referent and receipt, partial state is
 labelled or discarded, and deferrals keep an owner, trigger, consequence, and destination
