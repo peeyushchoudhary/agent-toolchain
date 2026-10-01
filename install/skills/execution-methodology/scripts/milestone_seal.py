@@ -245,6 +245,13 @@ def post_gate_freshness(root: Path, milestone: str, path: Path, command: str,
 
 def record(root: Path, milestone: str) -> int:
     path, command = declared_gate(root, milestone)
+    tree = git(root, "rev-parse", "HEAD^{tree}").strip()
+    target = receipt_path(tree, command)
+    try:
+        target.unlink(missing_ok=True)
+    except OSError as exc:
+        raise SealError(f"cannot invalidate the existing receipt at {target} before running the "
+                        f"gate: {exc}") from exc
     hidden = advisory_index_flags(root)
     if hidden:
         shown = "\n".join(f"    {item}" for item in hidden[:10])
@@ -257,7 +264,6 @@ def record(root: Path, milestone: str) -> int:
         more = f"\n    ... and {len(dirty) - 10} more" if len(dirty) > 10 else ""
         raise SealError(f"the working tree is not clean, so HEAD's tree does not describe what "
                         f"would be tested:\n{shown}{more}\n  Commit or stash first, then record.")
-    tree = git(root, "rev-parse", "HEAD^{tree}").strip()
     head = git(root, "rev-parse", "HEAD").strip()
     repository = Path(git(root, "rev-parse", "--show-toplevel").strip()).resolve()
     if repository != root.resolve():
@@ -295,7 +301,6 @@ def record(root: Path, milestone: str) -> int:
     receipt = {"version": RECEIPT_VERSION, "milestone": milestone, "document": path.name,
                "tree": tree, "head": head, "command": command, "exit": 0,
                "recorded": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
-    target = receipt_path(tree, command)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         # Written whole and then moved into place: a receipt half-written by an interrupted run

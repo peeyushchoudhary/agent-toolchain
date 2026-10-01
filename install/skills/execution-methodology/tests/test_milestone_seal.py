@@ -169,6 +169,32 @@ class RecordTest(SealFixture):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(self.receipts(), [])
 
+    def test_failed_rerun_invalidates_a_pass_until_a_fresh_pass(self) -> None:
+        self.write("docs/product/milestones/M1-launch.md", MILESTONE)
+        self.write(
+            "gate.sh",
+            "#!/bin/sh\nif [ -e \"$XDG_STATE_HOME/fail-next\" ]; then exit 3; fi\nexit 0\n",
+            executable=True,
+        )
+        self.commit("conditional gate")
+        tree = self.tree()
+
+        self.assertEqual(self.run_cli("--record", "M1").returncode, 0)
+        self.assertEqual(self.run_cli("--verify", "--tree", tree,
+                                      "--command", "sh gate.sh").returncode, 0)
+
+        (self.state / "fail-next").touch()
+        failed = self.run_cli("--record", "M1")
+        self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+        refused = self.run_cli("--verify", "--tree", tree, "--command", "sh gate.sh")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertEqual(self.receipts(), [])
+
+        (self.state / "fail-next").unlink()
+        self.assertEqual(self.run_cli("--record", "M1").returncode, 0)
+        self.assertEqual(self.run_cli("--verify", "--tree", tree,
+                                      "--command", "sh gate.sh").returncode, 0)
+
     def test_tracked_source_mutation_during_a_passing_gate_writes_nothing(self) -> None:
         """A zero child status is stale evidence when the child changed the candidate it tested."""
         self.write("tracked.txt", "before\n")
