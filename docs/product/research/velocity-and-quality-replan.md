@@ -119,15 +119,19 @@ a gate that changes the source it tested must not receive a successful milestone
 This requirements task does not generate branding or UX assets; those belong to the approved UX
 milestone execution.
 
-## Process-overhead audit — 2026-09-30
+## Process-overhead audit rationale
 
-Four fresh advisory seats found duplicate cards, reports, reviews and unchanged-state checks in the
-candidate plan. The revision reduces the proposed route from 12 Full cards to 7 Full stage cards
-plus 1 Light dispatch, from 12 semantic reviews to 6, and from 10 security reviews to 5. These are
-artifact and review counts, not a latency claim.
+In the 2026-09-30 audit, four fresh advisory seats found duplicate cards, reports, reviews and
+unchanged-state checks in the candidate plan. The revision reduced the proposed route from 12 Full
+cards to 7 Full stage cards plus 1 Light dispatch, from 12 semantic reviews to 6, and from 10
+security reviews to 5. These historical counts are rationale, not a latency claim.
 
 The retained controls are the complete Full schema for actual durable or safety changes, exact
 write boundaries, one chief owner, one compact report and joint review per logical task, valid
 same-referent evidence reuse, final installed routing, and one genuine integrated gate, seal and
-acceptance. The audit is advice rather than a formal verdict or founder approval. The revised
-candidate remains unimplemented, uninstalled, not natively proven and unpublished.
+acceptance. The audit is advice rather than a formal verdict or founder approval. Current scope and
+checkpoint status live in [F-2](../specs/F-2-goal-directed-autonomy.md),
+[M2](../milestones/M2-goal-directed-autonomy.md), the
+[design](../../architecture/goal-directed-execution.md) and the
+[plan](../plans/F-2-goal-directed-autonomy.md); they record accepted installed implementation while
+M2 remains unsealed and unaccepted, with no publication claimed.
