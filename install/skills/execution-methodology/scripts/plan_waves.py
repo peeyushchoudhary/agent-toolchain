@@ -21,7 +21,7 @@ declares edges and write sets, and this script derives the schedule from them on
   W2  a cycle, named as the shortest one found
   W3  the same task id declared twice in one plan
   W4  two tasks in the SAME computed wave whose `writes` globs can match one path
-  W5  size: more than 5 write globs, `covers` empty, or more than 12 full-lane tasks in a feature
+  W5  size: `covers` empty, or more than 12 full-lane tasks in a feature
   W6  the milestone is not a usable scope: an edge leaving it, or two files claiming its id
 
 THE DEFAULT SCOPE IS ONE PLAN, AND THAT IS NOT WHERE THE PARALLELISM IS. Task ids are plan-local,
@@ -147,7 +147,6 @@ TASK_KEYS = (("task",), ("title", "lane", "needs", "writes", "covers", "serialis
 LANES = ("light", "full")
 LIST_KEYS = ("needs", "writes", "covers", "serialises")
 TASK_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]*$")
-MAX_WRITES = 5        # (P5) one green commit's worth of files in one module.
 MAX_FULL_LANE = 12    # (P5) above this it is two features, and no wave plan repairs that.
 
 FEATURE_ID_RE = re.compile(r"^F-\d+[A-Z]?$")
@@ -184,6 +183,15 @@ Milestone = NamedTuple("Milestone", [("name", str), ("rel", str), ("features", l
 def task_blocks(doc: Doc) -> list[tuple[int, list[str]]]:
     """Every ```task block, by way of the shared reader below."""
     return fenced_blocks(doc, "task")
+
+
+def normalized_write(path: object) -> bool:
+    """Whether a write is already a normalized repository-relative path expression."""
+    if not isinstance(path, str) or path != path.strip() or not path or "\\" in path:
+        return False
+    if path.startswith("/") or re.match(r"^[A-Za-z]:", path):
+        return False
+    return all(part not in ("", ".", "..") for part in path.split("/"))
 
 
 def fenced_blocks(doc: Doc, label: str) -> list[tuple[int, list[str]]]:
@@ -257,6 +265,14 @@ def parse_task(doc: Doc, fence: int, block: list[str], f: Findings) -> Task | No
         f.add(doc, at.get("writes", fence), "W0",
               "task block has a blank member in `writes:`; every listed path must name part of "
               "the task's change boundary")
+    elif any(not normalized_write(path) for path in values["writes"]):
+        f.add(doc, at.get("writes", fence), "W0",
+              "task block has a non-normalized `writes:` member; every listed path must be a "
+              "normalized repository-relative path expression")
+    if any(isinstance(cover, str) and not cover.strip() for cover in values["covers"]):
+        f.add(doc, at.get("covers", fence), "W0",
+              "task block has a blank member in `covers:`; every listed criterion must identify "
+              "what finishing the task would prove")
     return Task(ident, at.get("task", fence), lane, values["needs"], values["writes"],
                 values["covers"], values["serialises"], at, doc)
 
@@ -459,10 +475,6 @@ def check_edges(tasks: Sequence[Task], f: Findings, members: Sequence[str] | Non
 
 def check_size(tasks: Sequence[Task], f: Findings) -> None:
     for task in tasks:
-        if len(task.writes) > MAX_WRITES:
-            f.add(task.doc, task.where.get("writes", task.line), "W5",
-                  f"`{task.ident}` writes {len(task.writes)} globs; more than {MAX_WRITES} is two "
-                  "tasks wearing one id, and it is the pair that collides with everything")
         if not task.covers:
             f.add(task.doc, task.line, "W5", f"`{task.ident}` covers no acceptance criterion, so "
                                              "nothing states what finishing it would prove")

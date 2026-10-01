@@ -38,6 +38,11 @@ a recoverable tool input only after correcting its actual cause within Gate 2 au
 existing evidence and review lineage. This procedure does not create an unattended runner or
 background relaunch.
 
+Approved Gate 2 authority does not expire at a session or checkpoint boundary. At every resume,
+recheck scope, frozen inputs, permissions, resources, and revocation state; recheck again before an
+external action. Ask the founder again only for a material scope or safety change, revocation, or
+an external action outside the approved grant.
+
 ## 1. Resume and task status
 
 ```bash
@@ -212,6 +217,21 @@ validate_card.py <card> --repo . --strict --phase post
 `0` proves only what the command and receipt state. A red gate returns one bounded repair to the
 writer. Repeated same-cause failure after independently reviewed repair returns to the plan gate;
 it is not renamed into another attempt.
+
+### Causal recovery after the plan gate
+
+Recovery preserves the original task, failed verdicts, and the same cause and finding lineage.
+Approaches A and B may revise the causal hypothesis and proof without a routine council. Concrete
+evidence may justify a stronger available model or higher effort at either approach. Before C, a
+targeted expert council must produce a technical replan and a fresh independent PASS must accept
+that replan. If C fails, preserve the lineage, diagnosis, attempts, reviewed alternative, and
+consequences for the founder; start no fourth approach. Renaming a task, attempt, fixture, or
+diagnostic never resets the same cause.
+
+At a recovery or handoff boundary, test any proposed new control by asking which approved criterion
+requires it, why the existing owner is insufficient, and which delivery outcome it unblocks. The
+answer changes the approach through this existing flow; it creates no new form, counter, checker,
+ledger, or routine council.
 
 ### Step 5 — review
 

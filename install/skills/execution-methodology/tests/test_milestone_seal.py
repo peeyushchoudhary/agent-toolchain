@@ -169,6 +169,98 @@ class RecordTest(SealFixture):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(self.receipts(), [])
 
+    def test_failed_rerun_invalidates_a_pass_until_a_fresh_pass(self) -> None:
+        self.write("docs/product/milestones/M1-launch.md", MILESTONE)
+        self.write(
+            "gate.sh",
+            "#!/bin/sh\nif [ -e \"$XDG_STATE_HOME/fail-next\" ]; then exit 3; fi\nexit 0\n",
+            executable=True,
+        )
+        self.commit("conditional gate")
+        tree = self.tree()
+
+        self.assertEqual(self.run_cli("--record", "M1").returncode, 0)
+        self.assertEqual(self.run_cli("--verify", "--tree", tree,
+                                      "--command", "sh gate.sh").returncode, 0)
+
+        (self.state / "fail-next").touch()
+        failed = self.run_cli("--record", "M1")
+        self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+        refused = self.run_cli("--verify", "--tree", tree, "--command", "sh gate.sh")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertEqual(self.receipts(), [])
+
+        (self.state / "fail-next").unlink()
+        self.assertEqual(self.run_cli("--record", "M1").returncode, 0)
+        self.assertEqual(self.run_cli("--verify", "--tree", tree,
+                                      "--command", "sh gate.sh").returncode, 0)
+
+    def test_tracked_source_mutation_during_a_passing_gate_writes_nothing(self) -> None:
+        """A zero child status is stale evidence when the child changed the candidate it tested."""
+        self.write("tracked.txt", "before\n")
+        self.write("docs/product/milestones/M1-launch.md", MILESTONE)
+        self.write("gate.sh", "#!/bin/sh\nprintf 'after\\n' > tracked.txt\nexit 0\n",
+                   executable=True)
+        self.commit("mutating gate")
+
+        result = self.run_cli("--record", "M1")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("changed during the gate", result.stdout)
+        self.assertIn("tracked.txt", result.stdout)
+        self.assertEqual(self.receipts(), [])
+
+    def test_committed_candidate_change_during_a_passing_gate_writes_nothing(self) -> None:
+        """A gate can leave the worktree clean by committing its edit; HEAD/tree must still bind."""
+        self.write("tracked.txt", "before\n")
+        self.write("docs/product/milestones/M1-launch.md", MILESTONE)
+        self.write(
+            "gate.sh",
+            "#!/bin/sh\nprintf 'after\\n' > tracked.txt\n"
+            "git add tracked.txt\ngit commit -qm changed-during-gate\nexit 0\n",
+            executable=True,
+        )
+        self.commit("committing gate")
+
+        result = self.run_cli("--record", "M1")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("candidate changed during the gate", result.stdout)
+        self.assertEqual(self.receipts(), [])
+
+    def test_advisory_index_flags_before_the_gate_are_refused(self) -> None:
+        self.milestone()
+        for enable, disable, label in (
+            ("--assume-unchanged", "--no-assume-unchanged", "assume-unchanged"),
+            ("--skip-worktree", "--no-skip-worktree", "skip-worktree"),
+        ):
+            with self.subTest(flag=label):
+                self.git("update-index", enable, "gate.sh")
+                result = self.run_cli("--record", "M1")
+                self.git("update-index", disable, "gate.sh")
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn(label, result.stderr)
+                self.assertIn("gate.sh", result.stderr)
+                self.assertEqual(self.receipts(), [])
+
+    def test_gate_cannot_hide_its_source_mutation_with_assume_unchanged(self) -> None:
+        self.write("tracked.txt", "before\n")
+        self.write("docs/product/milestones/M1-launch.md", MILESTONE)
+        self.write(
+            "gate.sh",
+            "#!/bin/sh\ngit update-index --assume-unchanged tracked.txt\n"
+            "printf 'after\\n' > tracked.txt\nexit 0\n",
+            executable=True,
+        )
+        self.commit("hiding gate")
+
+        result = self.run_cli("--record", "M1")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("assume-unchanged", result.stdout)
+        self.assertIn("tracked.txt", result.stdout)
+        self.assertEqual(self.receipts(), [])
+
     def test_the_receipt_is_written_outside_the_repository(self) -> None:
         """Not merely git-ignored. A receipt that can travel in a clone lets one machine's run seal
         another machine's push, and it is one `git add -f` from being committed."""
@@ -258,6 +350,41 @@ class VerifyTest(SealFixture):
         receipt["exit"] = 1
         path.write_text(json.dumps(receipt), encoding="utf-8")
         self.assertEqual(self.verify(tree).returncode, 1)
+
+    def test_a_v1_receipt_missing_any_required_field_does_not_verify(self) -> None:
+        required = ("version", "milestone", "document", "tree", "head", "command", "exit",
+                    "recorded")
+        tree = self.record()
+        path = self.receipts()[0]
+        original = json.loads(path.read_text(encoding="utf-8"))
+        for missing in required:
+            with self.subTest(missing=missing):
+                receipt = dict(original)
+                del receipt[missing]
+                path.write_text(json.dumps(receipt), encoding="utf-8")
+                result = self.verify(tree)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(missing, result.stdout)
+
+    def test_a_receipt_with_an_invalid_version_does_not_verify(self) -> None:
+        tree = self.record()
+        path = self.receipts()[0]
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+        receipt["version"] = milestone_seal.RECEIPT_VERSION + 1
+        path.write_text(json.dumps(receipt), encoding="utf-8")
+        result = self.verify(tree)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("version", result.stdout)
+
+    def test_a_receipt_with_nul_in_its_document_does_not_verify(self) -> None:
+        tree = self.record()
+        path = self.receipts()[0]
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+        receipt["document"] = "M1-\x00.md"
+        path.write_text(json.dumps(receipt), encoding="utf-8")
+        result = self.verify(tree)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("invalid document", result.stdout)
 
     def test_an_unreadable_receipt_is_exit_2_and_never_exit_1(self) -> None:
         """"There is no valid receipt" and "I could not find out" are different sentences. The

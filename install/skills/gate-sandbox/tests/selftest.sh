@@ -282,6 +282,101 @@ check "a dirty checkout is refused" "2" \
   "$( ( GATE_REFERENT=""; resolve_referent ) >/dev/null 2>&1; echo $?)"
 rm -f "$REPO/untracked.txt"
 
+printf '\n── the terminal gate verdict\n'
+# Execute the real launcher with only its expensive/platform owners replaced. The child succeeds,
+# then the post-run source-integrity check fails: that terminal nonpass must decide the process
+# status rather than merely changing the text printed above a successful exit.
+GATEFIX="$FIXHOME/gate-verdict"
+mkdir -p "$GATEFIX/scripts" "$GATEFIX/run" "$GATEFIX/evidence"
+cp "$SCRIPTS/gate.sh" "$GATEFIX/scripts/gate.sh"
+cat > "$GATEFIX/scripts/gate_lib.sh" <<'LIB'
+RED=''; GRN=''; DIM=''; RST=''; FAILURES=0
+GATE_RUN_ROOT="${GATE_TEST_ROOT:?}/run"
+GATE_EVIDENCE_ROOT="${GATE_TEST_ROOT:?}/evidence"
+GATE_ARGV=true
+CACHE_SOURCE=fixture
+GATE_CONFIG_PATH=fixture
+head_() { :; }
+say() { :; }
+ok() { :; }
+warn() { :; }
+bad() { FAILURES=$((FAILURES+1)); printf 'BAD: %s\n' "$*"; }
+die() { printf '%s\n' "$*" >&2; exit 2; }
+gate_load_config() { :; }
+resolve_referent() { REFERENT=1111111111111111111111111111111111111111; REFERENT_BRANCH=fixture; }
+compose_project_name() { printf fixture; }
+resolve_root() { printf '%s' "$1"; }
+provision_root() { mkdir -p "$1/evidence" "$1/copy"; : > "$1/profile.sb"; }
+make_copy() { mkdir -p "$1"; }
+manifest_source() { printf '100644 blob fixture a.txt\n'; }
+manifest_copy() { printf '100644 blob fixture a.txt\n'; }
+provision_caches() { :; }
+sandboxed() {
+  case "${3:-}" in
+    *"docker compose down"*) return "${GATE_TEST_DOWN_RC:-0}" ;;
+    *) return "${GATE_TEST_CHILD_RC:-0}" ;;
+  esac
+}
+docker() {
+  if [ "${GATE_TEST_INSPECT_RC:-0}" != 0 ]; then return "$GATE_TEST_INSPECT_RC"; fi
+  printf '[]\n'
+}
+assert_source_unchanged() { return "${GATE_TEST_SOURCE_RC:-1}"; }
+LIB
+gate_output="$(GATE_TEST_ROOT="$GATEFIX" bash "$GATEFIX/scripts/gate.sh" --force --keep 2>&1)"
+gate_status=$?
+check "child success plus terminal integrity failure exits nonzero" "1" "$gate_status"
+case "$gate_output" in *"GATE DID NOT PASS"*) terminal_text=yes ;; *) terminal_text=no ;; esac
+check "terminal integrity failure remains visible" "yes" "$terminal_text"
+
+CHILD_FIX="$FIXHOME/gate-child"; mkdir -p "$CHILD_FIX/run" "$CHILD_FIX/evidence"
+child_output="$(GATE_TEST_ROOT="$CHILD_FIX" GATE_TEST_SOURCE_RC=0 GATE_TEST_CHILD_RC=7 \
+  bash "$GATEFIX/scripts/gate.sh" --force --keep 2>&1)"
+child_status=$?
+check "a failing child's exact status remains visible" "7" "$child_status"
+
+TEE_FIX="$FIXHOME/gate-tee"; mkdir -p "$TEE_FIX/bin" "$TEE_FIX/run" "$TEE_FIX/evidence"
+cat > "$TEE_FIX/bin/tee" <<'SH'
+#!/bin/sh
+exit 7
+SH
+chmod +x "$TEE_FIX/bin/tee"
+tee_output="$(PATH="$TEE_FIX/bin:$PATH" GATE_TEST_ROOT="$TEE_FIX" GATE_TEST_SOURCE_RC=0 \
+  bash "$GATEFIX/scripts/gate.sh" --force --keep 2>&1)"
+tee_status=$?
+check "child success plus gate-log tee failure exits nonzero" "1" "$tee_status"
+case "$tee_output" in *"gate log could not be persisted"*) tee_text=yes ;; *) tee_text=no ;; esac
+check "gate-log tee failure remains visible" "yes" "$tee_text"
+
+CP_FIX="$FIXHOME/gate-evidence"; mkdir -p "$CP_FIX/bin" "$CP_FIX/run" "$CP_FIX/evidence"
+cat > "$CP_FIX/bin/cp" <<'SH'
+#!/bin/sh
+exit 8
+SH
+chmod +x "$CP_FIX/bin/cp"
+cp_output="$(PATH="$CP_FIX/bin:$PATH" GATE_TEST_ROOT="$CP_FIX" GATE_TEST_SOURCE_RC=0 \
+  bash "$GATEFIX/scripts/gate.sh" --force --keep 2>&1)"
+cp_status=$?
+check "child success plus evidence-copy failure exits nonzero" "1" "$cp_status"
+case "$cp_output" in *"evidence could not be persisted"*) cp_text=yes ;; *) cp_text=no ;; esac
+check "evidence-copy failure remains visible" "yes" "$cp_text"
+
+DOWN_FIX="$FIXHOME/gate-down"; mkdir -p "$DOWN_FIX/run" "$DOWN_FIX/evidence"
+down_output="$(GATE_TEST_ROOT="$DOWN_FIX" GATE_TEST_SOURCE_RC=0 GATE_TEST_DOWN_RC=6 \
+  bash "$GATEFIX/scripts/gate.sh" --force 2>&1)"
+down_status=$?
+check "child success plus compose-down failure exits nonzero" "1" "$down_status"
+case "$down_output" in *"compose down failed"*) down_text=yes ;; *) down_text=no ;; esac
+check "compose-down failure remains visible" "yes" "$down_text"
+
+INSPECT_FIX="$FIXHOME/gate-inspect"; mkdir -p "$INSPECT_FIX/run" "$INSPECT_FIX/evidence"
+inspect_output="$(GATE_TEST_ROOT="$INSPECT_FIX" GATE_TEST_SOURCE_RC=0 GATE_TEST_INSPECT_RC=5 \
+  bash "$GATEFIX/scripts/gate.sh" --force 2>&1)"
+inspect_status=$?
+check "child success plus cleanup-inspection failure exits nonzero" "1" "$inspect_status"
+case "$inspect_output" in *"could not inspect compose cleanup"*) inspect_text=yes ;; *) inspect_text=no ;; esac
+check "cleanup-inspection failure remains visible" "yes" "$inspect_text"
+
 printf '\n── no project facts leaked into the published skill\n'
 # The rule that lets this skill be public. Any absolute home path, or a `Users/<name>` fragment, in
 # the shipped scripts is a defect rather than a convenience.

@@ -62,6 +62,19 @@ class ShellBreakTests(unittest.TestCase):
             + self.output(),
         )
 
+    def test_terminal_integrity_failure_injection_ran(self):
+        output = self.output()
+        for label in (
+            "child success plus terminal integrity failure exits nonzero",
+            "a failing child's exact status remains visible",
+            "child success plus gate-log tee failure exits nonzero",
+            "child success plus evidence-copy failure exits nonzero",
+            "child success plus compose-down failure exits nonzero",
+            "child success plus cleanup-inspection failure exits nonzero",
+        ):
+            with self.subTest(label=label):
+                self.assertIn("ok    " + label, output)
+
 
 if __name__ == "__main__":
     unittest.main()
