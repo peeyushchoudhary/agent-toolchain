@@ -193,8 +193,64 @@ def declared_gate(root: Path, milestone: str) -> tuple[Path, str]:
     return path, command
 
 
+def advisory_index_flags(root: Path) -> list[str]:
+    """Tracked paths Git status may hide because of advisory index flags."""
+    flagged = []
+    for line in git(root, "ls-files", "-v").splitlines():
+        if len(line) < 3:
+            continue
+        marker, path = line[0], line[2:]
+        if marker == "S":
+            flagged.append(f"skip-worktree: {path}")
+        elif marker.islower():
+            flagged.append(f"assume-unchanged: {path}")
+    return flagged
+
+
+def post_gate_freshness(root: Path, milestone: str, path: Path, command: str,
+                        tree: str, head: str, repository: Path) -> list[str]:
+    """Return every relevant value that drifted between gate start and receipt creation.
+
+    A successful child is evidence only for the values it actually ran against. Re-read each
+    repository-owned input after it exits so a dirty edit, an edit committed by the gate, or a
+    changed declaration cannot inherit the earlier zero status. Failures to inspect freshness stay
+    SealError (exit 2); known drift is a terminal nonpass (exit 1).
+    """
+    findings = []
+    current_path, current_command = declared_gate(root, milestone)
+    current_repository = Path(git(root, "rev-parse", "--show-toplevel").strip()).resolve()
+    current_tree = git(root, "rev-parse", "HEAD^{tree}").strip()
+    current_head = git(root, "rev-parse", "HEAD").strip()
+    dirty = [ln for ln in git(root, "status", "--porcelain").splitlines() if ln.strip()]
+    hidden = advisory_index_flags(root)
+
+    if current_repository != repository:
+        findings.append(f"repository runtime changed from {repository} to {current_repository}")
+    if current_path.resolve() != path.resolve():
+        findings.append(f"milestone input changed from {path.name} to {current_path.name}")
+    if current_command != command:
+        findings.append("declared gate command changed during the gate")
+    if current_tree != tree or current_head != head:
+        findings.append("candidate changed during the gate "
+                        f"({tree[:12]}/{head[:12]} -> {current_tree[:12]}/{current_head[:12]})")
+    if dirty:
+        shown = ", ".join(dirty[:10])
+        more = f", ... and {len(dirty) - 10} more" if len(dirty) > 10 else ""
+        findings.append(f"source changed during the gate: {shown}{more}")
+    if hidden:
+        findings.append("Git index flags can hide source changes after the gate: "
+                        + ", ".join(hidden[:10]))
+    return findings
+
+
 def record(root: Path, milestone: str) -> int:
     path, command = declared_gate(root, milestone)
+    hidden = advisory_index_flags(root)
+    if hidden:
+        shown = "\n".join(f"    {item}" for item in hidden[:10])
+        more = f"\n    ... and {len(hidden) - 10} more" if len(hidden) > 10 else ""
+        raise SealError("Git index flags can hide tracked source changes, so freshness cannot be "
+                        f"established:\n{shown}{more}\n  Clear the flags, then record.")
     dirty = [ln for ln in git(root, "status", "--porcelain").splitlines() if ln.strip()]
     if dirty:
         shown = "\n".join(f"    {ln}" for ln in dirty[:10])
@@ -203,6 +259,10 @@ def record(root: Path, milestone: str) -> int:
                         f"would be tested:\n{shown}{more}\n  Commit or stash first, then record.")
     tree = git(root, "rev-parse", "HEAD^{tree}").strip()
     head = git(root, "rev-parse", "HEAD").strip()
+    repository = Path(git(root, "rev-parse", "--show-toplevel").strip()).resolve()
+    if repository != root.resolve():
+        raise SealError(f"--root resolves to {root.resolve()}, but git identifies {repository} as "
+                        "the repository root")
 
     print(f"milestone {milestone} ({path.name})")
     print(f"  tree    {tree}")
@@ -221,6 +281,15 @@ def record(root: Path, milestone: str) -> int:
     if completed.returncode != 0:
         print(f"\n  gate FAILED (exit {completed.returncode}). No receipt written — "
               f"{milestone} cannot be sealed until it passes.")
+        return 1
+
+    freshness_findings = post_gate_freshness(
+        root, milestone, path, command, tree, head, repository,
+    )
+    if freshness_findings:
+        print(f"\n  gate STALE. No receipt written — {milestone} changed during the gate:")
+        for finding in freshness_findings:
+            print(f"    - {finding}")
         return 1
 
     receipt = {"version": RECEIPT_VERSION, "milestone": milestone, "document": path.name,
@@ -256,6 +325,38 @@ def verify(tree: str, command: str) -> int:
         raise SealError(f"the receipt at {target} is not readable JSON: {exc}") from exc
     if not isinstance(receipt, dict):
         raise SealError(f"the receipt at {target} is not a JSON object")
+    required = ("version", "milestone", "document", "tree", "head", "command", "exit",
+                "recorded")
+    missing = [field for field in required if field not in receipt]
+    if missing:
+        print(f"the receipt at {target.name} omits required field(s): {', '.join(missing)}")
+        return 1
+    if type(receipt["version"]) is not int or receipt["version"] != RECEIPT_VERSION:
+        print(f"the receipt at {target.name} records version {receipt['version']!r}, "
+              f"not {RECEIPT_VERSION}")
+        return 1
+    for field in ("milestone", "document", "tree", "head", "command", "recorded"):
+        if not isinstance(receipt[field], str) or not receipt[field].strip():
+            print(f"the receipt at {target.name} has an invalid {field} field")
+            return 1
+    if not MILESTONE_ID_RE.fullmatch(receipt["milestone"]):
+        print(f"the receipt at {target.name} has an invalid milestone field")
+        return 1
+    if (Path(receipt["document"]).name != receipt["document"]
+            or "\x00" in receipt["document"]
+            or not receipt["document"].startswith(f"{receipt['milestone']}-")
+            or not receipt["document"].endswith(".md")):
+        print(f"the receipt at {target.name} has an invalid document field")
+        return 1
+    oid = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+    if not oid.fullmatch(receipt["tree"]) or not oid.fullmatch(receipt["head"]):
+        print(f"the receipt at {target.name} has an invalid tree or head field")
+        return 1
+    try:
+        time.strptime(receipt["recorded"], "%Y-%m-%dT%H:%M:%S%z")
+    except ValueError:
+        print(f"the receipt at {target.name} has an invalid recorded field")
+        return 1
     # Every field is re-checked against the question that was asked, rather than trusted because the
     # FILENAME matched. The name carries a 12-hex-digit prefix of the command digest, which is a
     # lookup key and not a proof; a receipt whose stored command differs from the declared one is a
@@ -267,7 +368,7 @@ def verify(tree: str, command: str) -> int:
     if receipt.get("command") != command:
         print(f"the receipt at {target.name} records a different gate command")
         return 1
-    if receipt.get("exit") != 0:
+    if type(receipt["exit"]) is not int or receipt["exit"] != 0:
         print(f"the receipt at {target.name} records exit {receipt.get('exit')}, not a pass")
         return 1
     return 0

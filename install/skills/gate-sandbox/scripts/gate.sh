@@ -41,7 +41,7 @@ COMPOSE_PROJECT="$(compose_project_name "$NONCE")"
 ROOT="$(resolve_root "$GATE_RUN_ROOT/gate-$NONCE")"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 KEEP_DIR="$GATE_EVIDENCE_ROOT/$STAMP-$(printf '%s' "$REFERENT" | cut -c1-12)"
-mkdir -p "$KEEP_DIR"
+mkdir -p "$KEEP_DIR" || die "cannot create evidence directory $KEEP_DIR"
 
 # ── Readiness precondition ──────────────────────────────────────────────────────────────────────
 # Making the rule a MECHANISM rather than a note. A gate attempt blocked on provisioning costs the
@@ -83,7 +83,11 @@ printf '%s\n' "$GATE_ARGV" > "$ROOT/evidence/gate-argv.txt"
 
 START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 sandboxed "$ROOT" "$ROOT/copy" "$GATE_ARGV" 2>&1 | tee "$ROOT/evidence/gate.log"
-GATE_RC="${PIPESTATUS[0]}"
+gate_pipestatus=("${PIPESTATUS[@]}")
+GATE_RC="${gate_pipestatus[0]}"
+if [ "${gate_pipestatus[1]}" != "0" ]; then
+  bad "gate log could not be persisted (tee exit ${gate_pipestatus[1]})"
+fi
 END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ── The unchanged-source recheck ────────────────────────────────────────────────────────────────
@@ -93,8 +97,13 @@ else SOURCE_OK=0; bad "the source moved during the gate -- this run does not des
 
 # ── Persist evidence BEFORE cleanup ─────────────────────────────────────────────────────────────
 head_ "Evidence"
-cp -R "$ROOT/evidence/." "$KEEP_DIR/" 2>/dev/null
-cp "$ROOT/profile.sb" "$KEEP_DIR/profile.sb" 2>/dev/null
+EVIDENCE_OK=1
+if ! cp -R "$ROOT/evidence/." "$KEEP_DIR/" 2>/dev/null; then
+  EVIDENCE_OK=0; bad "evidence could not be persisted from $ROOT/evidence"
+fi
+if ! cp "$ROOT/profile.sb" "$KEEP_DIR/profile.sb" 2>/dev/null; then
+  EVIDENCE_OK=0; bad "evidence could not be persisted: profile copy failed"
+fi
 {
   printf '# Sandboxed gate receipt\n\n'
   printf 'referent          : %s\n' "$REFERENT"
@@ -128,7 +137,11 @@ Read them from gate.log. A run reporting zero tests is a provisioning block, NOT
 and must never be recorded as one.
 BOUNDARY
 } > "$KEEP_DIR/receipt.md"
-ok "evidence persisted to $KEEP_DIR"
+RECEIPT_RC=$?
+if [ "$RECEIPT_RC" != "0" ]; then
+  EVIDENCE_OK=0; bad "evidence could not be persisted: receipt write failed (exit $RECEIPT_RC)"
+fi
+if [ "$EVIDENCE_OK" = "1" ]; then ok "evidence persisted to $KEEP_DIR"; fi
 
 # ── Remove ONLY what this run owns ──────────────────────────────────────────────────────────────
 head_ "Cleanup"
@@ -137,21 +150,41 @@ if [ "$KEEP" = "1" ]; then
 else
   # The owned project, by its unique name. Never a global prune -- a developer machine carries
   # unrelated historical containers, images and volumes that are not this run's to touch.
-  down="$(sandboxed "$ROOT" "$ROOT/copy" "docker compose down --volumes --remove-orphans" 2>&1 | tail -3)"
-  printf '        %s\n' "$down"
-  if docker compose ls --all --format json 2>/dev/null | grep -q "\"Name\":\"$COMPOSE_PROJECT\""; then
-    bad "compose project $COMPOSE_PROJECT still exists after down -- remove it by hand"
-  else ok "owned compose project removed"; fi
-  rm -rf "$ROOT"
+  CLEANUP_LOG="$KEEP_DIR/cleanup.log"
+  if sandboxed "$ROOT" "$ROOT/copy" "docker compose down --volumes --remove-orphans" \
+      >"$CLEANUP_LOG" 2>&1; then
+    DOWN_RC=0
+  else
+    DOWN_RC=$?
+    bad "compose down failed (exit $DOWN_RC); inspect $CLEANUP_LOG"
+  fi
+  if down="$(tail -3 "$CLEANUP_LOG")"; then printf '        %s\n' "$down"
+  else bad "could not read compose-down output from $CLEANUP_LOG"; fi
+
+  if compose_list="$(docker compose ls --all --format json 2>&1)"; then
+    case "$compose_list" in
+      *"\"Name\":\"$COMPOSE_PROJECT\""*|*"\"Name\": \"$COMPOSE_PROJECT\""*)
+        bad "compose project $COMPOSE_PROJECT still exists after down -- remove it by hand" ;;
+      *) ok "owned compose project removed" ;;
+    esac
+  else
+    INSPECT_RC=$?
+    bad "could not inspect compose cleanup (docker compose ls exit $INSPECT_RC)"
+  fi
+  if ! rm -rf "$ROOT"; then bad "could not remove run root: $ROOT"; fi
   if [ -e "$ROOT" ]; then bad "run root not removed: $ROOT"; else ok "run root removed"; fi
 fi
 
 head_ "Verdict"
 printf '  gate exit code: %s\n' "$GATE_RC"
+FINAL_RC="$GATE_RC"
 if [ "$GATE_RC" = "0" ] && [ "$SOURCE_OK" = "1" ] && [ "$FAILURES" -eq 0 ]; then
   printf '  %sGATE PASSED%s -- read the test counts in gate.log before calling this evidence.\n' "$GRN" "$RST"
 else
   printf '  %sGATE DID NOT PASS%s -- diagnose it; do not retry a semantic failure.\n' "$RED" "$RST"
+  # Preserve a failing child's exact status. When the child passed, a later integrity/cleanup
+  # failure is still a terminal nonpass and must not be hidden behind that earlier zero.
+  if [ "$FINAL_RC" = "0" ]; then FINAL_RC=1; fi
 fi
 printf '  %sreceipt: %s/receipt.md%s\n' "$DIM" "$KEEP_DIR" "$RST"
-exit "$GATE_RC"
+exit "$FINAL_RC"
