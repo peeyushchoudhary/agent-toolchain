@@ -5,16 +5,19 @@
 [M2 milestone](../milestones/M2-goal-directed-autonomy.md),
 [design](../../architecture/goal-directed-execution.md) and
 [implementation plan](../plans/F-2-goal-directed-autonomy.md). Published executable behavior lives
-in `install/`; the plan records the accepted installed checkpoint and remaining closure.
+in `install/`; the plan records the accepted release candidate and durable publication conditions.
 
 ## Current status
 
 The two file-disjoint core-first implementation tasks are accepted, byte-consistent across their 13
 candidate/public/installed-Claude/installed-Codex mappings, and installed through the existing
-installer. The repository gate, installed scheduler checks and a fresh normal-configuration native
-Codex read-only activation run pass. Claude skills, hooks and personas are statically verified;
-authenticated Claude inference is deferred. M2 is unsealed and unaccepted, no publication occurred,
-and existing pinned consumer bindings remain unchanged.
+installer. The repository gate and installed scheduler checks pass; the implementation candidate
+was sealed and independently accepted, and a fresh normal-configuration native Codex read-only
+activation run passes. Claude skills, hooks and personas are statically verified; authenticated
+Claude inference is deferred. The final documentation tree is sealed and independently accepted.
+Exact-tree seal and independent acceptance remain required conditions for guarded conditional
+branch push, pull request and merge. Existing pinned consumer bindings remain unchanged; tag and
+deployment are excluded, and the one-week review remains future.
 
 Private frozen reports and failed verdicts remain immutable evidence. The replacement does not
 relabel them as passing; it makes their retired approach non-authoritative for current execution.
@@ -31,9 +34,8 @@ relabel them as passing; it makes their retired approach non-authoritative for c
 | [Safety and verification](safety-and-verification.md) | Dated safety assessment; no current activation claim |
 | [Stage boundary companion](../plans/goal-directed-autonomy-task-boundaries.md) | Non-authoritative exact mapping for the approved plan |
 
-## Remaining execution order
+## Publication and review
 
-1. Keep current documentation aligned with the accepted installed checkpoint.
-2. Seal and verify the unchanged candidate, then obtain fresh independent acceptance.
-3. Use existing guarded publication only under its still-valid conditional grant. Review business
-   value after one week from existing evidence, without a pilot or new apparatus.
+1. Existing guarded publication may conditionally push the branch or open and merge its pull
+   request only while exact-tree seal and independent acceptance remain valid.
+2. Review business value after one week from existing evidence, without a pilot or new apparatus.

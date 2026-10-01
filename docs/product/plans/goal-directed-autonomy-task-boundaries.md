@@ -39,10 +39,13 @@ write path and may proceed concurrently.
 
 T1 and T2 are accepted and projected. All 13 candidate, public, installed Claude and installed Codex
 mappings are byte-equal. The existing installer and repository gate pass, as do four focused
-installed scheduler tests and the real installed eight-write plan. Native Codex read-only activation
-passes under normal configuration; Claude setup is statically verified and authenticated inference
-is deferred. Stage 6 still awaits seal verification and fresh acceptance. Stage 7 has not begun;
-consumer bindings, publication, tag and deployment are unchanged.
+installed scheduler tests and the real installed eight-write plan. The implementation candidate was
+sealed and independently accepted. Native Codex read-only activation passes under normal
+configuration; Claude setup is statically verified and authenticated inference is deferred. The
+current documentation tree is the sealed and independently accepted release candidate. Stage 7's
+guarded conditional branch push, pull request and merge require exact-tree seal and independent
+acceptance to remain valid. Consumer bindings are unchanged, tag and deployment are excluded, and
+the one-week business-value review remains future.
 
 ## Ordered stages
 

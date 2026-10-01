@@ -15,11 +15,13 @@ Anything older than the date at the top of `measurements.md` is not authoritativ
 
 [The research and replanning index](research/README.md) routes the implementation assessment,
 external research and [current quality/velocity requirements intake](research/velocity-and-quality-replan.md).
-The core workflow implementation is accepted, projected and installed through the existing
-installer. Repository and installed Codex checks pass; Claude setup is statically verified while
-authenticated Claude inference is deferred. M2 remains unsealed and unaccepted, and no publication
-or consumer-binding change is claimed. Earlier pilot and native-first proof-engine proposals remain
-labelled background or superseded rationale.
+The core workflow release candidate is accepted, projected, installed, locally validated, sealed
+and independently accepted. Installed Codex activation passes; Claude setup is statically verified
+while authenticated inference is deferred. This final documentation tree is sealed and independently
+accepted. Exact-tree seal and independent acceptance remain required conditions for guarded
+conditional branch push, pull request and merge. Pinned consumer bindings remain unchanged; tag and
+deployment are excluded, and the one-week business-value review remains future. Earlier pilot and
+native-first proof-engine proposals remain labelled background or superseded rationale.
 
 ## Approved milestone
 

@@ -2,7 +2,7 @@
 id: F-2
 title: Deliver goal-directed milestone autonomy
 prd: docs/product/README.md
-status: building
+status: shipped
 updated: 2026-10-01
 milestone: M2
 edge_cases: [first-run, interrupted, concurrent, partial-failure, permission-denied, stale-evidence, repeated-failure, unavailable-model, source-drift]

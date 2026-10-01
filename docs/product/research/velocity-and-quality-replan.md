@@ -1,11 +1,11 @@
 # Velocity and quality replanning direction — 2026-09-30
 
-**Status: draft requirements direction. Not a frozen spec, design, plan, activation decision or
-implementation approval.**
+**Status: dated requirements rationale. Current authority lives in the linked F-2 and M2 artifacts.**
 
-The [F-2 candidate definition](../specs/F-2-goal-directed-autonomy.md) and
-[M2 candidate milestone](../milestones/M2-goal-directed-autonomy.md) were revised after an advisory
-overhead audit. They remain draft and require their actual review closure and founder Gates 1 and 2.
+This direction informed the current [F-2 definition](../specs/F-2-goal-directed-autonomy.md) and
+[M2 milestone](../milestones/M2-goal-directed-autonomy.md). Their linked design and plan state the
+current scope and release-candidate checkpoint; this page preserves requirements rationale rather
+than implementation or activation authority.
 
 ## Why this is being replanned
 
@@ -133,5 +133,6 @@ acceptance. The audit is advice rather than a formal verdict or founder approval
 checkpoint status live in [F-2](../specs/F-2-goal-directed-autonomy.md),
 [M2](../milestones/M2-goal-directed-autonomy.md), the
 [design](../../architecture/goal-directed-execution.md) and the
-[plan](../plans/F-2-goal-directed-autonomy.md); they record accepted installed implementation while
-M2 remains unsealed and unaccepted, with no publication claimed.
+[plan](../plans/F-2-goal-directed-autonomy.md); they record an implemented, installed, locally
+validated, sealed and independently accepted release candidate. Exact-tree seal and independent
+acceptance remain required conditions for guarded conditional branch push, pull request and merge.

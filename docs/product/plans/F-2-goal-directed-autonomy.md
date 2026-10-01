@@ -3,7 +3,7 @@ feature: F-2
 title: Deliver goal-directed milestone autonomy
 spec: docs/product/specs/F-2-goal-directed-autonomy.md
 milestone: M2
-status: building
+status: shipped
 updated: 2026-10-01
 ---
 
@@ -80,14 +80,17 @@ scheduler accepts T1's eight exact normalized paths while retaining the other de
 
 The accepted candidate was projected to maintained source and the public package, then installed
 through the existing installer. All 13 candidate/public/installed-Claude/installed-Codex mappings
-are byte-equal. `cd install && ./install.sh --dry-run && ./verify.sh` exits zero with repository and
-machine PASS. A fresh native Codex normal-configuration read-only run returned `ACTIVATION PASS` for
-checkpoint continuation, ready-set selection and refusal, dependent-only stops, the publication
-boundary and same-cause A/B/C recovery.
+are byte-equal. `cd install && ./install.sh --dry-run && ./verify.sh` exited zero with repository and
+machine PASS. The implementation candidate was sealed and independently accepted. A fresh native
+Codex normal-configuration read-only run returned `ACTIVATION PASS` for checkpoint continuation,
+ready-set selection and refusal, dependent-only stops, the publication boundary and same-cause
+A/B/C recovery.
 
 Claude skills, hooks, personas and bytes are statically verified; authenticated Claude inference is
-deferred. M2 has not been sealed or accepted. Publication, tag and deployment did not occur, and
-existing pinned consumer bindings were not changed.
+deferred. This final documentation tree is the sealed and independently accepted release candidate.
+Exact-tree seal and independent acceptance remain required conditions for guarded conditional
+branch push, pull request and merge. Existing pinned consumer bindings are unchanged; tag and
+deployment are excluded, and the one-week business-value review remains future.
 
 ## Validation plan
 
@@ -116,11 +119,10 @@ uses existing guarded tooling and is verified only after the local closure condi
 ### Documentation, installation and closure
 
 T1 and T2 passed their complete source/public reviews, and the existing installer and repository
-gate passed without adding installer implementation. Current-state documentation records that
-accepted and installed checkpoint. The remaining closure work is to seal and verify the unchanged
-candidate and obtain fresh acceptance against the same referent. Existing guarded publication may
-act only after that closure and only within a still-valid conditional grant. The one-week
-business-value review uses the existing evidence record.
+gate passed without adding installer implementation. The implementation candidate was sealed and
+independently accepted. Existing guarded publication may conditionally push the branch or open and
+merge its pull request only while exact-tree seal and independent acceptance remain valid. The
+one-week business-value review remains future and uses the existing evidence record.
 
 ### Gate
 

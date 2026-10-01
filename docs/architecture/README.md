@@ -7,4 +7,4 @@ the tooling in `install/` disagree, the tooling is right.
 | --- | --- |
 | [operating-model.md](operating-model.md) | How work is sequenced, and what "done" means |
 | [repository-standard.md](repository-standard.md) | Where files belong; migrating an existing repo |
-| [goal-directed-execution.md](goal-directed-execution.md) | Accepted implementation installed; M2 unsealed, Claude authenticated inference deferred |
+| [goal-directed-execution.md](goal-directed-execution.md) | Installed, sealed and independently accepted release candidate; Claude authenticated inference deferred |

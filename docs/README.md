@@ -40,10 +40,10 @@ document by adding its row here in the same commit.
 | Methodology efficiency feature | [product/specs/F-1-methodology-efficiency-vendoring.md](product/specs/F-1-methodology-efficiency-vendoring.md) | Current |
 | Methodology efficiency implementation plan | [product/plans/F-1-methodology-efficiency-vendoring.md](product/plans/F-1-methodology-efficiency-vendoring.md) | Current |
 | Methodology efficiency milestone | [product/milestones/M1-methodology-efficiency-vendoring.md](product/milestones/M1-methodology-efficiency-vendoring.md) | Current |
-| Goal-directed autonomy definition | [product/specs/F-2-goal-directed-autonomy.md](product/specs/F-2-goal-directed-autonomy.md) | Building; accepted implementation installed, M2 unsealed |
-| Goal-directed autonomy milestone | [product/milestones/M2-goal-directed-autonomy.md](product/milestones/M2-goal-directed-autonomy.md) | Building; seal and fresh acceptance pending |
-| Goal-directed execution design | [architecture/goal-directed-execution.md](architecture/goal-directed-execution.md) | Accepted implementation installed; Claude authenticated inference deferred |
-| Goal-directed autonomy implementation plan | [product/plans/F-2-goal-directed-autonomy.md](product/plans/F-2-goal-directed-autonomy.md) | Implementation accepted; closure pending |
+| Goal-directed autonomy definition | [product/specs/F-2-goal-directed-autonomy.md](product/specs/F-2-goal-directed-autonomy.md) | Shipped, sealed and independently accepted release candidate |
+| Goal-directed autonomy milestone | [product/milestones/M2-goal-directed-autonomy.md](product/milestones/M2-goal-directed-autonomy.md) | Shipped, sealed and independently accepted release candidate |
+| Goal-directed execution design | [architecture/goal-directed-execution.md](architecture/goal-directed-execution.md) | Accepted installed candidate; Claude authenticated inference deferred |
+| Goal-directed autonomy implementation plan | [product/plans/F-2-goal-directed-autonomy.md](product/plans/F-2-goal-directed-autonomy.md) | Shipped release candidate; guarded conditional publication route |
 | Goal-directed autonomy stage boundaries | [product/plans/goal-directed-autonomy-task-boundaries.md](product/plans/goal-directed-autonomy-task-boundaries.md) | Non-authoritative exact reference; the F-2 plan remains canonical and the chief owns scheduling |
 | Research and current replanning direction | [product/research/README.md](product/research/README.md) | Dated rationale; native-first approach superseded |
 | Quality and velocity replanning requirements | [product/research/velocity-and-quality-replan.md](product/research/velocity-and-quality-replan.md) | Draft intake, 2026-09-30 |
@@ -53,9 +53,11 @@ document by adding its row here in the same commit.
 | Announcements and GitHub comparisons | [product/research/external-research.md](product/research/external-research.md) | Dated research, 2026-09-30 |
 | Research safety and observed verification | [product/research/safety-and-verification.md](product/research/safety-and-verification.md) | Dated assessment, 2026-09-30 |
 
-F-2's accepted implementation is installed through the existing installer. Repository and native
-Codex checks pass; Claude setup is statically verified while authenticated inference is deferred.
-M2 is unsealed and unaccepted, no publication occurred, and pinned consumer bindings are unchanged.
+F-2's release candidate is installed, locally validated, sealed and independently accepted. Native
+Codex activation passes; Claude setup is statically verified while authenticated inference is
+deferred. Exact-tree seal and independent acceptance remain required conditions for guarded
+conditional branch push, pull request and merge. Pinned consumer bindings are unchanged; tag and
+deployment are excluded, and the one-week business-value review remains future work.
 
 Installation lives in [../install/README.md](../install/README.md).
 

@@ -1,7 +1,7 @@
 ---
 milestone: M2
 title: Carry an approved product goal to validated closure
-status: building
+status: shipped
 updated: 2026-10-01
 goal_plan: docs/product/plans/F-2-goal-directed-autonomy.md
 ---
@@ -56,13 +56,15 @@ The two implementation tasks are accepted, projected to maintained source and th
 and installed through the existing installer. For all 13 mappings, candidate, public, installed
 Claude and installed Codex bytes agree. The repository gate passed with repository and machine PASS;
 four focused installed scheduler tests passed, and the real installed scheduler accepted T1's eight
-normalized writes. A fresh native Codex read-only run under normal configuration returned
-`ACTIVATION PASS` for checkpoint continuation, ready-set refusal, dependent-only stops, publication
-boundaries and A/B/C recurrence.
+normalized writes. The implementation candidate was sealed and independently accepted. A fresh
+native Codex read-only run under normal configuration returned `ACTIVATION PASS` for checkpoint
+continuation, ready-set refusal, dependent-only stops, publication boundaries and A/B/C recurrence.
 
 Claude skills, hooks, personas and bytes are statically verified. Authenticated Claude inference is
-deferred. M2 is unsealed and has no fresh acceptance; no publication, tag or deployment occurred,
-and existing pinned consumer bindings remain unchanged.
+deferred. This final documentation tree is the sealed and independently accepted release candidate.
+Exact-tree seal and independent acceptance remain required conditions for guarded conditional
+branch push, pull request and merge. Existing pinned consumer bindings remain unchanged; tag and
+deployment are excluded, and the one-week business-value review remains future.
 
 ## Exit
 
