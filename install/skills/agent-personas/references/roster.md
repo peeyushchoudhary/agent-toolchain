@@ -37,11 +37,11 @@ repository test can render the documented text through both harness renderers:
 name: reviewer
 description: Use before design and plan gates or after implementation, to independently falsify the artifact against its frozen criteria and invariants.
 writes: no
-claude.model: opus
+claude.model: claude-opus-5-5
 claude.effort: high
 claude.tools: Read, Grep, Glob, TodoWrite
 claude.disallowedTools: Bash
-codex.model: gpt-5.6-sol
+codex.model: gpt-6.1-sol
 codex.effort: high
 codex.sandbox: read-only
 ---
@@ -77,6 +77,29 @@ scope, overlays, and routing scope. Preview, check, and apply consume the render
 Some installed tests intentionally resolve the private decisions record and are not vendored. Keep
 their absolute installed-suite citations when changing an invariant they alone enforce. Do not
 turn that layout constraint into a second policy source.
+
+## Current model-routing record (2026-10-03)
+
+The active source defaults route repeated complex work to Sol 6.1 and clear retrieval or gate
+reporting to Luna. Five consequential product, design, validation, and acceptance roles pair Sol 6.1
+with `xhigh`; no active persona defaults to Astra. Claude uses Opus 5.5 for judgement and
+cross-cutting work, and Sonnet 5.5 for bounded implementation, retrieval, and gate reporting.
+Effort follows each role's reasoning depth. The source frontmatter remains the sole default.
+
+A supported native Astra override is explicit and recorded, and is reserved for concrete reasoning
+complexity, a failed reasoning attempt that warrants a stronger retry, or a blocker needing deeper
+diagnosis. It is never automatic and never substitutes for login, permission, or another
+prerequisite. Fable likewise requires established model access and any required spending authority.
+
+OpenAI's [Sol 6.1 release](https://openai.com/index/introducing-gpt-6-1-sol/) reports competitive
+results at lower task cost on named evaluations while retaining Astra leads on others. The official
+[model price comparison](https://developers.openai.com/api/docs/models/compare?model=gpt-6.1-sol&model2=gpt-6-astra)
+and [Codex credit rates](https://learn.chatgpt.com/docs/pricing) inform routing but do not establish
+universal superiority, runtime selection, subscription capacity, or cost guarantees.
+
+These assignments are engineering choices from documented capabilities and role complexity, not a
+measured optimum. Generate the exact current table from source with `sync_personas.py --list
+--include-retired --format markdown`. The dated record below remains historical rationale only.
 
 ## Historical model-routing record (2026-07-26)
 

@@ -2,11 +2,11 @@
 name: test-judge
 description: Use when a verification gate needs to be run and its real result reported — a test suite, a linter, a build, a contract check. Not for fixing what it finds.
 writes: no
-claude.model: haiku
+claude.model: claude-sonnet-5-5
 claude.effort: low
 claude.tools: Read, Grep, Glob, TodoWrite, Bash
-codex.model: gpt-5.6-luna
-codex.effort: low
+codex.model: gpt-6-luna
+codex.effort: high
 codex.sandbox: read-only
 ---
 
@@ -18,8 +18,9 @@ You hold no `Write` tool, so you cannot save your findings to a file — and the
 
 1. The exact command you ran.
 2. Its exit code.
-3. The failing output, verbatim — not paraphrased, not summarised into "some tests failed".
+3. The material failing output, verbatim — not paraphrased into "some tests failed".
 4. Counts: how many passed, how many failed, how many were skipped.
+5. The bound referent and unchanged-source result when the dispatch requires them.
 
 ## Force execution before you believe a green
 

@@ -43,8 +43,11 @@ tools cannot restrict writes to their owned paths. They never absorb another rol
 
 ## Authority and restrictions
 
-Each persona's frontmatter is the model and effort authority for both harnesses. Per-dispatch
-overrides and model rollout are separate, explicit decisions. Permissions, frozen criteria,
+Each persona's frontmatter is the model and effort authority for both harnesses and the sole
+default authority. A
+supported native per-dispatch override is a separate, explicit recorded decision; it never creates a
+second source default or a silent fallback. Fable may be selected only when the dispatch has
+established model access and any required spending authority. Permissions, frozen criteria,
 independent review, and executable gates carry safety; model choice does not replace them.
 
 ## Judge tool boundary

@@ -88,19 +88,21 @@ migrations. The approved
 tracks this public bundle update. Eleven roles are active; three superseded or retired persona
 definitions remain for compatibility.
 
-The core-first M2 release candidate is implemented, projected to maintained source and the public
-package, installed, locally validated, sealed and independently accepted. A fresh native Codex
-read-only run under normal configuration passed activation. Claude skills, hooks, personas and
-bytes are statically verified; authenticated Claude inference is deferred. This final documentation
-tree is the sealed and independently accepted release candidate. Exact-tree seal and independent
-acceptance remain required conditions for guarded conditional branch push, pull request and merge.
-Existing pinned consumer bindings are unchanged; tag and deployment remain excluded, and the
-one-week business-value review remains future work.
+The earlier core-first M2 release candidate was implemented, projected to maintained source and the
+public package, installed, locally validated, sealed and independently accepted for its recorded
+tree. A fresh native Codex read-only run under normal configuration passed M2 activation. Claude
+skills, hooks, personas and bytes were statically verified; authenticated Claude inference remains
+deferred. M2's guarded conditional branch push, pull request and merge route requires an exact-tree
+seal and independent acceptance. Existing pinned consumer bindings are unchanged; tag and deployment
+remain excluded, and the one-week business-value review remains future work.
 
-Model assignments are a selective, local pilot. Current evidence does not establish comparative
-quality, velocity, subscription efficiency, rare-defect detection, or full workflow performance.
-The architect pilot now uses Claude Opus 5.5 and GPT-6 Sol at high effort; migration review keeps
-the frontier assignments pending workload-specific evidence.
+Current [persona routing](docs/agents/agent-personas.md) uses Sol 6.1 with effort proportional to
+reasoning depth and Luna for retrieval and gate reporting. No maintained persona defaults to Astra;
+supported native Astra overrides require concrete reasoning complexity, a failed reasoning attempt
+warranting a stronger retry, or a blocker needing deeper diagnosis. Claude uses Opus 5.5 and Sonnet
+5.5. Persona frontmatter is the sole default authority. Runtime model and effort metadata for this
+tuning remain unexposed; the assignments do not establish a measured optimum or proven subscription
+gains.
 See [measurements](docs/product/measurements.md) for the honest limits and the
 [weekly record](docs/product/improvements-weekly.md) for v5.1 and earlier rationale.
 

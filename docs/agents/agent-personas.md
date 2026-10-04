@@ -16,34 +16,48 @@ output excludes compatibility definitions; `--include-retired` shows them with e
 
 | Persona | Status | Writes | Claude model | Claude effort | Codex model | Codex effort |
 |---|---|---|---|---|---|---|
-| acceptance | active | no | claude-fable-5-1 | xhigh | gpt-6-astra | xhigh |
-| architect | active | yes | claude-opus-5-5 | high | gpt-6-sol | high |
-| chief-of-staff | active | plans and bounded workspace state only | opus | high | gpt-5.6-sol | high |
-| developer | active | yes | sonnet | medium | gpt-5.6-terra | medium |
-| migration-validator | active | no | claude-fable-5-1 | high | gpt-6-astra | high |
-| product-steward | active | product definition and documentation only | opus | high | gpt-5.6-sol | high |
-| reviewer | active | no | opus | high | gpt-5.6-sol | high |
-| scout | active | no | haiku | low | gpt-5.6-luna | low |
-| security-validator | active | no | claude-fable-5-1 | high | gpt-6-astra | high |
-| senior-developer | active | yes | opus | medium | gpt-5.6-sol | medium |
-| test-judge | active | no | haiku | low | gpt-5.6-luna | low |
+| acceptance | active | no | claude-opus-5-5 | xhigh | gpt-6.1-sol | xhigh |
+| architect | active | yes | claude-opus-5-5 | high | gpt-6.1-sol | xhigh |
+| chief-of-staff | active | plans and bounded workspace state only | claude-opus-5-5 | medium | gpt-6.1-sol | medium |
+| developer | active | yes | claude-sonnet-5-5 | medium | gpt-6.1-sol | medium |
+| migration-validator | active | no | claude-opus-5-5 | high | gpt-6.1-sol | xhigh |
+| product-steward | active | product definition and documentation only | claude-opus-5-5 | high | gpt-6.1-sol | xhigh |
+| reviewer | active | no | claude-opus-5-5 | high | gpt-6.1-sol | high |
+| scout | active | no | claude-sonnet-5-5 | low | gpt-6-luna | high |
+| security-validator | active | no | claude-opus-5-5 | high | gpt-6.1-sol | xhigh |
+| senior-developer | active | yes | claude-opus-5-5 | medium | gpt-6.1-sol | high |
+| test-judge | active | no | claude-sonnet-5-5 | low | gpt-6-luna | high |
 
 ## Three principles
 
 **Permissions and evidence carry safety. Model and effort are workload choices.**
 
-The current assignments are a selective, unmeasured pilot. Scout and test execution use the least
-expensive factual tier. Ordinary builders and implementation review retain their established tiers.
-Security, migration and acceptance retain flagship models due to reversal cost. Architecture pilots
-Opus 5.5 and GPT-6 Sol at `high`; compare structural findings with prior models before calling
-quality proven.
-Acceptance retains `xhigh`; no ordinary default uses `max` or `ultra`.
+The current assignments are engineering choices from documented capabilities and role complexity,
+not a measured optimum. Repeated complex work uses Sol 6.1, with `xhigh` for five consequential
+product, design, validation, and acceptance roles; clear retrieval and gate reporting use Luna.
+No active persona defaults to Astra. Claude uses Opus 5.5 for judgement and cross-cutting work, and
+Sonnet 5.5 for bounded implementation, retrieval, and gate reporting. Effort follows each role's
+reasoning depth. No ordinary default uses `max` or `ultra`.
 
-Where a harness supports native per-dispatch overrides, the controller may use `high` for planning,
-`medium` for routine product custody, and Fable 5.1/Astra at `medium` or `high` for difficult causal
-work. Record the resolved model and effort. These phase choices are not extra persona definitions
-or unsupported frontmatter keys. Fable 5.1 evaluation requires Claude Code 2.1.255 or newer; an
-older harness is an unmet local prerequisite, not a failed model result.
+The routing follows the official [Codex model guidance](https://developers.openai.com/codex/models),
+[latest-model prompting guidance](https://developers.openai.com/api/docs/guides/latest-model), and
+[Claude effort guidance](https://platform.claude.com/docs/en/build-with-claude/effort). These sources
+describe capability and effort controls; they do not make the assignments a measured optimum.
+OpenAI's [Sol 6.1 release](https://openai.com/index/introducing-gpt-6-1-sol/) reports competitive
+results at lower task cost on named evaluations while retaining Astra leads on others. The official
+[model price comparison](https://developers.openai.com/api/docs/models/compare?model=gpt-6.1-sol&model2=gpt-6-astra)
+and [Codex credit rates](https://learn.chatgpt.com/docs/pricing) inform routing without establishing
+universal superiority, runtime selection, subscription capacity, or cost guarantees.
+
+Persona frontmatter is the sole default authority. A supported native per-dispatch override is an
+explicit recorded decision and does not create another source default or a silent fallback. Astra
+may be selected only for concrete reasoning complexity, a failed reasoning attempt that warrants a
+stronger retry, or a blocker needing deeper diagnosis. It is never automatic and never substitutes
+for login, permission, or another prerequisite; record the issue, model, and effort in existing
+dispatch evidence. Fable requires established access and any required spending authority. Opus 5.5
+requires Claude Code 2.1.280 or newer and Sonnet 5.5 requires 2.1.284 or newer; see the official
+[model configuration reference](https://code.claude.com/docs/en/model-config). An older or
+unauthenticated harness is an unmet activation prerequisite, not a model result.
 
 ## Judges cannot edit
 
@@ -92,11 +106,11 @@ Personas are harness-neutral markdown with flat dotted frontmatter keys:
 name: reviewer
 description: Use before design and plan gates or after implementation…
 writes: no
-claude.model: opus
+claude.model: claude-opus-5-5
 claude.effort: high
 claude.tools: Read, Grep, Glob, TodoWrite
 claude.disallowedTools: Bash
-codex.model: gpt-5.6-sol
+codex.model: gpt-6.1-sol
 codex.effort: high
 codex.sandbox: read-only
 ---

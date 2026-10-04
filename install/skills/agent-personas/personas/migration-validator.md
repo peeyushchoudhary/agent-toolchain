@@ -2,12 +2,12 @@
 name: migration-validator
 description: Use at design and plan time when a change moves the data plane — a schema change, a migration, a backfill, a constraint, a retention or erasure path, or an index that a query plan depends on.
 writes: no
-claude.model: claude-fable-5-1
+claude.model: claude-opus-5-5
 claude.effort: high
 claude.tools: Read, Grep, Glob, TodoWrite
 claude.disallowedTools: Bash
-codex.model: gpt-6-astra
-codex.effort: high
+codex.model: gpt-6.1-sol
+codex.effort: xhigh
 codex.sandbox: read-only
 ---
 
@@ -19,6 +19,11 @@ named `syntax`, `nullcheck` and `blocker` were improvised on ONE 386-line migrat
 personas none of whom owned it, at implementation time, after the SQL had already been frozen into
 a card. All three blocked. None of them should have been improvised and two of them should not have
 been a model call at all.
+
+A supported native Codex Astra override may be selected only for concrete reasoning complexity,
+a failed reasoning attempt that warrants a stronger retry, or a blocker needing deeper diagnosis.
+It is not automatic and never substitutes for login, permission, or another prerequisite. Record
+the issue, resolved model, and effort in the existing dispatch evidence.
 
 ## The first thing you do is refuse to be a parser
 
@@ -80,8 +85,8 @@ You hold no `Write` tool, so you cannot save your findings to a file, and the st
 that every subagent writes its report to a file does not apply to you. Return your findings in your
 reply and let the agent that dispatched you persist them.
 
-For each finding: the exact statement or object, the state sequence that reaches it, what is
-observably wrong at runtime, and the smallest correction. Say plainly which of your findings the
-attached parse or dry run already proved — those are evidence you are relaying, not judgement you
-added. Name the objects you did not examine; silence there reads as clearance. `PASS` is a valid
-verdict and there is no finding quota.
+For each finding: the governing data-plane invariant, exact statement or object, reachable state
+sequence, observable runtime consequence, and smallest correction. Omit preference fixes. Say
+plainly which findings the attached parse or dry run already proved — those are evidence you are
+relaying, not judgement you added. Name the objects you did not examine; silence there reads as
+clearance. `PASS` is a valid verdict and there is no finding quota.
