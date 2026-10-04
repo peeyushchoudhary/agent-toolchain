@@ -59,7 +59,7 @@ warning, as is a path expression in either path field that matches nothing today
 rejects both. For a new file, put its exact repository-relative file path in `exclusive_writes`.
 Strict pre-validation accepts that absent literal without warning; it does not extend this exception
 to globs, metacharacters, directories, absolute paths, or `..` escapes. Strict post-validation
-requires every write entry to resolve. This means a typo in an intended new-file literal is
+requires every write entry to resolve before joint integration admission. This means a typo in an intended new-file literal is
 deliberately caught post-implementation, when absence is distinguishable from planned creation.
 Exact extensionless filenames such as `backend/core/Dockerfile` and `backend/core/.gitignore` are
 valid file literals; a trailing slash or an existing directory is not.
@@ -121,8 +121,11 @@ cannot remain absent.
 
 This is not documentation, it is the concurrency contract. Two tasks may run at the same time only
 if their write sets are disjoint, and the orchestrator enforces that by reading these fields. A card
-that lists a shared manifest, registry, or generated artifact here can never run concurrently with
-anything.
+that lists a shared manifest, registry, or generated artifact here cannot run concurrently with a
+task that also writes it. Concurrent writers use distinct named task working trees and one
+integration owner; a sole writer may use the shared checkout. Sibling card existence is not proof
+of active concurrency. Conflicting mutable service/runtime state uses the plan's existing
+`serialises:` relation even when paths are disjoint.
 
 Be exact. A glob that accidentally covers a shared file will serialize the whole plan or, worse,
 will not.
@@ -325,6 +328,7 @@ Never point the verifier at `build/`, a module root, or the repository: it scans
 directly inside the directory named on the command line.
 
 ```bash
+# Use a fresh working tree if this runner path holds previous results still required by trace.
 rm -rf backend/core/build/test-results/test
 python3 <execution-methodology>/scripts/start_junit_run.py \
   --results backend/core/build/test-results/test \
@@ -340,7 +344,10 @@ cd .. && python3 <execution-methodology>/scripts/verify_junit.py \
   --output .work/reports/EX-01-<run-id>-junit.json
 ```
 
-Both receipt paths must be new and outside the result directory. The start receipt binds the exact
+Both receipt paths must be new and outside the result directory. Keep the original run-specific
+result directory unchanged while a later trace receipt still refers to it. Configure a fresh result
+path or retain the original working tree/run root before a later run overwrites it; relocating XML
+does not preserve the absolute path and timestamp identity. The start receipt binds the exact
 result path and snapshots hashes of any direct XML already there, then records a 256-bit nonce and
 nanosecond boundary. Every final XML must differ from any same-named pre-run content and have mtime
 and ctime strictly after that boundary; same-time and older files fail even if otherwise valid. The
@@ -361,7 +368,11 @@ requires exact `--rerun-tasks`. The receipt is **not tamper-resistant**: a delib
 controlling both XML and evidence files can fabricate them. Treat it as freshness and consistency
 evidence within that trust boundary, never as hostile-writer attestation.
 
-When a Codex `test-judge` must run a gate that writes, the controller freezes writers and binds the
+Ordinary tests writing only disposable temporary fixtures use the ordinary test route under the
+judge's existing permissions, with source cache/bytecode output disabled where necessary.
+Sandbox self-tests that require the authorized host path use controller capture and independent
+judge verification of the captured results. When a Codex `test-judge` must run a gate that writes
+the source referent, the controller freezes writers and binds the
 referent to a committed tree or to `HEAD` plus a canonical manifest of paths, types, modes,
 content/link hashes, status, tracked deletions, and non-ignored untracked files. It materializes a
 manifest-equal standalone copy under a fresh temporary root with no source `.git` relationship,
@@ -379,7 +390,9 @@ network disabled.
 
 Record the referent and manifest hash, commands, exit code, verbatim failures, counts/skips, and an
 unchanged-source recheck. Stop on identity ambiguity, mismatch, sandbox failure, cached/zero/skipped
-execution, a required bypass, or failed cleanup. The source stays read-only. Plain nested execution
+execution, a required bypass, or failed cleanup of owned runtime resources. Retain original
+result directories still required by trace; the owning sandbox reference defines that retention.
+The source stays read-only. Plain nested execution
 cannot widen the outer sandbox, and plain unsandboxed gate execution is forbidden. For Gradle,
 exact `--rerun-tasks` is the sole freshness evidence; `cleanTest` does not qualify.
 

@@ -101,7 +101,11 @@ after the gate went green still satisfies it — a second, narrower `--tests '*A
 as proof. `trace_check.py` therefore also requires each file's mtime to be no later than the
 receipt's `verified_at_utc`, and requires the file count, the class set and the testcase total
 still to match what was certified. A result directory that moved on since the receipt was issued
-ends the run with exit 2 rather than reporting a clean trace.
+ends the run with exit 2 rather than reporting a clean trace. Preserve each original run-specific
+result directory unchanged for as long as its receipt will be used by trace. Use a fresh runner
+result path or retain its original working tree/run root before a later run clears or overwrites it.
+A relocated XML copy is not equivalent: the receipt binds the original absolute path and times.
+Temporary-root cleanup must wait until required trace consumption is complete.
 
 **An absent input is named, never silent.** No feature plans, or no `--evidence`, exits 0 and says
 which input was missing. "Traced clean" and "traced nothing" must never print the same way.

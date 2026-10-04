@@ -90,11 +90,28 @@ definitions remain for compatibility.
 
 The earlier core-first M2 release candidate was implemented, projected to maintained source and the
 public package, installed, locally validated, sealed and independently accepted for its recorded
-tree. A fresh native Codex read-only run under normal configuration passed M2 activation. Claude
-skills, hooks, personas and bytes were statically verified; authenticated Claude inference remains
-deferred. M2's guarded conditional branch push, pull request and merge route requires an exact-tree
-seal and independent acceptance. Existing pinned consumer bindings are unchanged; tag and deployment
-remain excluded, and the one-week business-value review remains future work.
+tree. Its complete source/public task reviews passed, and its 13
+candidate/public/installed-Claude/installed-Codex mappings were byte-equal. The repository gate
+returned repository and machine PASS, four focused installed scheduler tests passed, and the real
+installed scheduler accepted T1's eight normalized writes. A fresh native Codex
+read-only run under normal configuration returned `ACTIVATION PASS` for checkpoint continuation,
+ready-set selection and refusal, dependent-only stops, the publication boundary and same-cause
+A/B/C recovery. Claude skills, hooks, personas and bytes were statically verified; authenticated
+Claude inference remains deferred. M2's guarded conditional branch push, pull request and merge
+route requires an exact-tree seal and independent acceptance. Existing pinned consumer bindings are
+unchanged; tag and deployment remain excluded, and the one-week business-value review remains
+future work.
+
+The completed velocity follow-up source changes close product context and milestone planning before
+dispatch, support named working trees for concurrent builders, and separate file ownership from
+shared service/runtime serialization. Validation retains actual card, duplicate-ID and
+write-boundary checks. Semantic review may overlap independent focused validation on a frozen
+referent; both passes, the strict post-check and identity confirmation remain prerequisites for
+integration. Fixture tests use ordinary routes; source-writing gates retain required isolation and
+original receipts. Mechanical projection, installation and the full local gate use existing owners.
+Each candidate requires its own exact-tree seal and independent acceptance. Context, runtime and
+elapsed delivery evidence remain separate from committed churn; improvements in elapsed delivery
+and handoff efficiency remain unmeasured.
 
 Current [persona routing](docs/agents/agent-personas.md) uses Sol 6.1 with effort proportional to
 reasoning depth and Luna for retrieval and gate reporting. No maintained persona defaults to Astra;

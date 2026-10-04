@@ -52,19 +52,8 @@ Gate: cd install && ./install.sh --dry-run && ./verify.sh
 
 ## Current checkpoint
 
-The two implementation tasks are accepted, projected to maintained source and the public package,
-and installed through the existing installer. For all 13 mappings, candidate, public, installed
-Claude and installed Codex bytes agree. The repository gate passed with repository and machine PASS;
-four focused installed scheduler tests passed, and the real installed scheduler accepted T1's eight
-normalized writes. The implementation candidate was sealed and independently accepted. A fresh
-native Codex read-only run under normal configuration returned `ACTIVATION PASS` for checkpoint
-continuation, ready-set refusal, dependent-only stops, publication boundaries and A/B/C recurrence.
-
-Claude skills, hooks, personas and bytes are statically verified. Authenticated Claude inference is
-deferred. This final documentation tree is the sealed and independently accepted release candidate.
-Exact-tree seal and independent acceptance remain required conditions for guarded conditional
-branch push, pull request and merge. Existing pinned consumer bindings remain unchanged; tag and
-deployment are excluded, and the one-week business-value review remains future.
+See [the repository's current state](../../../README.md#current-state) for implementation,
+validation and remaining limits.
 
 ## Exit
 

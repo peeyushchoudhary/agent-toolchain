@@ -25,7 +25,9 @@ speculative hardening, and invented requirements do not block delivery.
 
 Before dependent design and planning close, product definition closes the actors, problem,
 outcome, priorities, non-goals, literal journeys and states, shared constraints, dependencies,
-existing consumers, and local verification prerequisites. Where product UX applies, a separate
+existing consumers, and local verification prerequisites. Walk the founder through the literal
+journeys, consequential alternatives, and contradictions; resolve the choices in their owning
+artifacts before freezing dependent work. Where product UX applies, a separate
 founder-approved UX journey supplies its authoritative artifact and implementation inputs.
 
 ## Chain, gates, and authority
@@ -38,7 +40,8 @@ Three founder gates control it:
 - Gate 1, design, approves outcome, scope, invariants, and structural decisions.
 - Gate 2, plan, approves the whole bounded milestone execution: decomposition, dependencies, write
   boundaries, validation, lane assignment, permitted operations, routine recovery, resource
-  envelope, and local commit authority.
+  envelope, local commit authority, and any separately authorized external-action grants. The plan
+  covers the coherent milestone batch, including every member feature's required tasks.
 - Gate 3, merge, considers the sealed milestone, acceptance verdict, honest documentation, and
   observed process evidence.
 
@@ -47,7 +50,8 @@ and applies the explicit decision. Missing approval is never inferred from silen
 After one correction and scoped rereview, same-cause design recurrence returns to Gate 1 and
 same-cause plan recurrence returns to Gate 2.
 
-A gate pass authorizes no deployment, provider activation, production write, push, PR, or merge.
+A gate pass by itself authorizes no deployment, provider activation, production write, push, PR, or
+merge. Each external action requires its own explicit grant, recorded with its scope.
 Within Gate 2 authority the controller may dispatch, resume, retry recoverable tool inputs, repair
 inside an existing write boundary, and integrate where the plan permits. This does not weaken any
 safety, review, evidence, or acceptance stop. A new outcome, durable interface, write path,
@@ -61,7 +65,11 @@ and revocation state. Ask again only for a material scope or safety change, revo
 external action outside the approved grant.
 
 Unless Gate 2 records another envelope, the default is up to six elapsed hours, at most two
-file-disjoint builders, and one heavy local gate at a time. Budget exhaustion is a pause boundary
+file-disjoint builders, and one heavy local gate at a time. Gate 2 may instead grant execution
+through milestone completion without an elapsed-time checkpoint. Actual resource exhaustion and
+material stops still apply. Concurrent writers use distinct named task working trees and one
+integration owner; solo execution may use the shared checkout. Conflicting service or runtime state
+is serialized through the existing plan `serialises:` relation. Budget exhaustion is a pause boundary
 and never weakens quality, validation, review, safety, evidence, or acceptance.
 
 ## Safety, lanes, and judgement
@@ -75,7 +83,9 @@ authority rather than being waived by a budget or round count.
 
 Implementation review is one initial full task-diff review and, after a valid correction, one scoped correction review
 with independent executable confirmation. Its procedure and packet are
-owned by `references/execution-loop.md`, Step 5.
+owned by `references/execution-loop.md`, Step 5. On a frozen candidate and relevant inputs,
+semantic review may overlap independent focused/area validation. Integration requires both PASS
+verdicts, the Full lane strict post check, and a recheck of the admitted bytes and inputs.
 
 Before repair, classify every finding as a current-scope defect, harness defect, pre-existing
 defect, invalid frozen assumption, new outcome or claim, external fact, evidence defect, safety
@@ -132,7 +142,8 @@ assumptions, verified commands and limits, and owned deferrals.
 
 Process evidence is owned here. `ratio_meter.py` classifies committed churn against the 10% process
 target, and `weekly_review.py` reports the same classification over time. The executable tools own
-their calculations; this common core owns the target and verdict policy.
+their calculations; this common core owns the target and verdict policy. Committed churn does
+not prove elapsed delivery time or handoff efficiency.
 
 ## Stage ownership
 

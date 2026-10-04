@@ -35,7 +35,9 @@ Before design and planning close, the product steward resolves the actors, probl
 priorities, non-goals, literal journeys and states, shared constraints, dependencies, existing
 consumers, and local verification prerequisites. Record each result in the PRD, feature spec,
 milestone, or linked decision that already owns it. Facts and assumptions remain distinguishable;
-only a material unresolved choice blocks the work that depends on its answer.
+only a material unresolved choice blocks the work that depends on its answer. Walk the founder
+through concrete journeys and consequential alternatives, reconcile contradictions, and record
+the decision in its owning artifact before dependent design or plan freeze.
 
 When product UX applies, a separate founder-approved UX journey names its authoritative artifact,
 critical states, responsive and accessibility behavior, and concrete implementation inputs before
@@ -566,7 +568,8 @@ covers: [AC-3]
 
 One block per task. `needs` names the tasks that must finish first; `writes` is the only paths this
 task may touch, and it is the parallelism contract; `covers` names the criteria the task satisfies.
-An optional `serialises: [T1]` declares that a shared write set with another task is known and
+An optional `serialises: [T1]` declares that a shared write set or conflicting mutable service/runtime
+state with another task is known and
 deliberate — without it, two tasks that write the same paths are a finding whether or not a
 dependency happens to hold them apart. `serialises` is plan-local like `needs`, and qualified the
 same way: `serialises: [F-11/T4]` names a task in another feature.
@@ -575,6 +578,14 @@ Every `writes` member is a normalized, non-empty repository-relative path expres
 fixed count ceiling: a coherent logical task may name more than five exact paths. A broad glob does
 not substitute for exact ownership, and many unrelated paths still mean the planner should recut
 the task; that decision belongs to plan review instead of an arbitrary scheduler number.
+
+Before Gate 2, plan the whole coherent milestone batch: every member feature's required tasks,
+dependencies, write boundaries, focused/area proof, and final integrated gate. Record permitted
+operations, routine recovery, local commit authority, the resource envelope (which may run through
+milestone completion), and separately authorized external-action grants in the existing plan.
+Inspect the scheduler's `unplanned` output before autonomous admission; missing plans remain valid
+while drafting but must be closed before milestone execution begins. Task working trees and
+remaining-slot selection follow `execution-loop.md`; no second schedule is written here.
 
 The orchestrator derives the waves; nobody writes them down. **The wave list is a legality
 certificate, not a dispatch schedule.** It is Kahn levels, so wave N+1 waits on the whole of wave N

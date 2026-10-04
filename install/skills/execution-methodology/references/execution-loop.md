@@ -57,6 +57,10 @@ light-lane work and cannot mark a task done.
 After compaction, crash, or interruption, run this command and reconcile only the current in-flight
 ids. Findings route before new dispatch: W1-W6 return to the plan; W7 is a write-boundary failure;
 an unresolved revision, invalid milestone, or missing plan task exits `2` and stops selection.
+Inspect `unplanned` and `unclaimed_commits` in the successful status payload before autonomous
+dispatch. A member feature without its required approved plan stops milestone admission until the
+owning plan is complete; drafting still tolerates missing plans. Classify unclaimed output and
+reconcile its ownership before selection; never treat it as accepted task completion.
 
 Within the approved Gate 2 plan, the scheduling owner may reorder independent ready tasks, resume
 or retry a recoverable tool input, return a failed check or valid review finding for a bounded fix
@@ -73,10 +77,13 @@ flowchart TD
     S2 --> S3["3. per-turn drift<br/>validate_card.py --phase mid"]
     S3 --> S4["4. validate<br/>verify_junit.py"]
     S4 -- "gate red" --> S2
-    S4 -- "gate green" --> S5["5. review<br/>check_review_budget.py --next"]
-    S5 -- "valid correction" --> S2
-    S5 -- "cleared; commit authority granted" --> S6["6. commit check<br/>plan_waves.py --commit"]
-    S5 -- "cleared; commit authority withheld" --> PAUSE["checkpoint and pause"]
+    S4 -- "default: gate green then review" --> S5["5. review<br/>check_review_budget.py --next"]
+    S3 -. "optional overlap on frozen candidate" .-> S5
+    S5 -- "valid correction; invalidate affected verdicts" --> S2
+    S4 -- "validation PASS" --> ADMIT["joint admission"]
+    S5 -- "review PASS" --> ADMIT
+    ADMIT -- "both PASS; Full strict post; identity recheck; commit authority granted" --> S6["6. commit check<br/>plan_waves.py --commit"]
+    ADMIT -- "cleared; commit authority withheld" --> PAUSE["checkpoint and pause"]
     S6 -- "milestone incomplete" --> S1
     S6 -- "every task committed" --> S7["7. deferrals<br/>spec_check.py --deferred"]
     S7 --> S8["8. coverage<br/>trace_check.py --evidence"]
@@ -87,7 +94,10 @@ flowchart TD
 
 The diagram and table are two checked encodings of the same ten steps. Steps 2 and 3 branch by
 lane. Step 5 contains one initial full task-diff review and, when needed, one scoped correction
-review. Step 6 returns to selection while tasks remain; steps 7-9 run once per milestone.
+review. Validation-first is the default; a frozen candidate permits Steps 4 and 5 to overlap.
+Joint admission requires both independent PASS verdicts, Full strict post, and identity recheck
+before Step 6 or checkpoint and pause. Step 6 returns to selection while tasks remain; steps 7-9
+run once per milestone.
 
 | # | Step | Command | Cast |
 |---|---|---|---|
@@ -97,7 +107,7 @@ review. Step 6 returns to selection while tasks remain; steps 7-9 run once per m
 | 3 | per-turn drift | `validate_card.py --phase mid` | `chief-of-staff` |
 | 4 | validate | dispatch validation + `verify_junit.py` | `test-judge` |
 | 5 | review | `check_review_budget.py --next` | `reviewer` + `test-judge` |
-| 6 | commit check | `plan_waves.py --milestone --commit` | `chief-of-staff` |
+| 6 | commit check | joint admission: validation PASS + review PASS + Full strict post + identity recheck; `plan_waves.py --milestone --commit` | `chief-of-staff` |
 | 7 | deferrals | `spec_check.py --deferred` | `chief-of-staff` |
 | 8 | coverage | `trace_check.py --evidence --commit` | `test-judge` |
 | 9 | seal | `milestone_seal.py --record` | `chief-of-staff`, then `acceptance` |
@@ -120,8 +130,11 @@ plan_waves.py --root . --milestone M<n> --since <rev> --ready --in-flight <ids> 
 The wave graph is a legality certificate. `--ready` emits tasks whose dependencies are done, whose
 writes do not meet in-flight writes, and whose declared serialization partners are absent. The
 command admits each chosen task into the candidate set before checking the next. `--limit` is the
-operator's resource cap. The common policy supplies the ordinary default envelope unless Gate 2
-records another; no concurrency number is compiled into this scheduler.
+remaining builder capacity for this selection, not the total concurrency allowance. Calculate
+`remaining_slots = approved_builder_cap - active_builder_count`, using the actual in-flight
+writers. Set `--limit` to that value; zero or negative means no new writer dispatch. The common
+policy supplies the ordinary default envelope unless Gate 2 records another; no concurrency
+number is compiled into this scheduler.
 
 `0` or `1` may yield a ready set, but findings must be classified before dispatch. `deferred`
 explains candidates held by dependencies, serialization, writes, or the limit. `2` stops.
@@ -133,6 +146,13 @@ and prove the chosen id is a member of that ready set; zero membership is a stop
 work. Also confirm that remaining time, quota, builder slots, and heavy-gate slots can cover the
 task, its handoff, and required validation. Reserve closure time from observed durations. If a
 required resource is exhausted or no safe task is ready, refresh the resume pointer and pause.
+
+Concurrent writers receive distinct named task working trees rooted at the selected base, with
+one controller owning integration. File-disjoint writes alone do not make a shared checkout safe:
+the per-task dirty-path check observes every edit there. A sole writer may use the shared checkout;
+unrelated sibling cards do not prove active concurrency. Declare conflicting ports, databases,
+compose projects, caches, or other mutable runtime state with existing `serialises:` partners, and
+keep the approved heavy-gate cap independent of builder capacity.
 
 The approved milestone plan names an early representative integrated success journey or deny path.
 Select its prerequisite slices as soon as the ready graph permits so integration evidence arrives
@@ -194,7 +214,11 @@ parked.
 ### Step 4 — validate
 
 The writer may run focused diagnostics while stabilizing the change. After the handoff is stable,
-`test-judge` performs one independent focused-and-area run. Reuse that evidence while its source,
+freeze the candidate and relevant governing inputs: bind a committed tree or the existing canonical
+manifest identity, exact task diff, commands, runtime, and environment inputs in the dispatch.
+Freeze only that referent's writers; unrelated task working trees may proceed. `test-judge`
+performs one independent focused-and-area run. Step 5 may start on that same frozen candidate
+before validation finishes; validation-first remains the default. Reuse that evidence while its source,
 command, runtime, and environment remain unchanged. Rerun only after a failure or a relevant change
 invalidates one of those inputs, and record the invalidation reason. If commands are batched for
 transport, retain a separate receipt for each command and result; a batch-level success line cannot
@@ -207,8 +231,15 @@ start_junit_run.py --results <results-dir> --output <receipt>
 verify_junit.py --results <results-dir> --expect <FQCN>=<N> --start-receipt <receipt> --output <evidence>
 ```
 
-The writer's output is a claim; the judge's rerun is the evidence. Full lane also runs the strict
-post check before review:
+Ordinary tests whose writes stay in disposable temporary fixtures run through the ordinary test
+route under the judge's existing permissions; disable source bytecode/cache output as needed.
+Commands that write the source referent use the owning isolated-copy route in
+`codex-gate-sandbox.md`. Sandbox self-tests that must invoke the sandbox from its authorized host
+path use controller capture; the read-only judge independently verifies the captured command,
+referent, source recheck, results, and limits. No judge boundary bypass is authorized.
+
+The writer's output is a claim; independent judge execution or verified authorized controller
+capture is the evidence. Full lane also runs the strict post check before joint admission:
 
 ```bash
 validate_card.py <card> --repo . --strict --phase post
@@ -222,7 +253,9 @@ it is not renamed into another attempt.
 
 Recovery preserves the original task, failed verdicts, and the same cause and finding lineage.
 Approaches A and B may revise the causal hypothesis and proof without a routine council. Concrete
-evidence may justify a stronger available model or higher effort at either approach. Before C, a
+evidence of reasoning complexity or a failed diagnosis may justify a stronger available model or
+higher effort at either approach. A literal path, permission, or input error returns to its existing
+owner for correction; it does not by itself justify model escalation or a council. Before C, a
 targeted expert council must produce a technical replan and a fresh independent PASS must accept
 that replan. If C fails, preserve the lineage, diagnosis, attempts, reviewed alternative, and
 consequences for the founder; start no fourth approach. Renaming a task, attempt, fixture, or
@@ -242,6 +275,11 @@ check_review_budget.py <workspace> --next <subject>
 Run this receipt before both semantic review dispatches. It enforces forbidden workspace artifacts
 and reports round use. A dispatch that produces no verdict spends no round.
 
+Supply the frozen candidate identity, exact diff, and governing artifact paths. Review can
+overlap Step 4 only on that stable referent and relevant inputs. A correction invalidates affected
+review and validation verdicts; persist the reason and repeat only the invalidated checks through
+the existing correction procedure. An earlier PASS cannot admit corrected bytes.
+
 Each round uses one semantic `reviewer`, with at most one relevant specialist for a distinct owned
 invariant, plus `security-validator` when a safety surface moves. `test-judge` runs commands
 and is not a semantic review lens. Every task, light or full, receives one initial full task-diff
@@ -260,7 +298,12 @@ their governing authority. Do not run a duplicate full-diff review after the sco
 plan_waves.py --root . --milestone M<n> --commit <rev>
 ```
 
-Promptly transport the accepted slice into the representative integrated journey. Use an authorized
+Before integration, joint admission requires independent validation PASS and review PASS plus
+Full lane strict post PASS. Recheck the frozen candidate and governing inputs against their recorded
+tree or canonical manifest identities. Promptly transport the accepted slice into the representative
+integrated journey. Recheck that the integrated task bytes match the admitted candidate. Do not
+infer evidence equivalence across working trees: if integration changes relevant source or inputs,
+invalidate affected verdicts and revalidate before treating the integrated slice as accepted. Use an authorized
 local commit and write-set check only when Gate 2 explicitly granted that operation. When a task is
 independently accepted but leaves a dirty tree and Gate 2 withheld that authority, do not create a
 commit. Preserve the accepted slice and exact missing integration/seal work in the resume pointer,
