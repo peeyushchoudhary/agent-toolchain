@@ -150,3 +150,11 @@ plan in place while preserving the rejected path only where rationale belongs.
 Security packets must name the existing owner's actual trust model and explicit exclusions, then
 classify findings against frozen criteria before demanding a substitute isolation or attestation
 system. A real fail-open defect in that owner still requires repair.
+
+## 2026-10-04 — persona defaults need one authority and one mutation owner
+
+When model routing changes, remove conflicting hardcoded defaults from persona prose and update the
+existing compatibility assertion to the approved frontmatter authority; otherwise correct source
+can leave the focused suite red. The chief previews global mirror and render operations, then
+delegates the mutation to the declared writer. Generated agents are never hand-edited, and the
+failed compatibility run remains evidence rather than being replaced by the correction.
