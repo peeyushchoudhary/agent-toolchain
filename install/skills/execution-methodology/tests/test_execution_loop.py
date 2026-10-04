@@ -438,6 +438,41 @@ class DocumentedInterfaceTest(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, normalized)
 
+    def test_overlap_requires_frozen_inputs_and_joint_admission(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        for phrase in (
+            "validation-first remains the default",
+            "freeze the candidate and relevant governing inputs",
+            "committed tree or the existing canonical manifest identity",
+            "exact task diff, commands, runtime, and environment inputs",
+            "a correction invalidates affected review and validation verdicts",
+            "independent validation pass and review pass plus full lane strict post pass",
+            "recheck that the integrated task bytes match the admitted candidate",
+            "do not infer evidence equivalence across working trees",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+        post = self.documented_post_command()
+        self.assertIn("--strict", post)
+
+    def documented_post_command(self) -> list[str]:
+        return next(command for command in self.commands
+                    if command[0] == "validate_card.py" and command[-1] == "post")
+
+    def test_concurrent_admission_uses_actual_remaining_slots_and_separate_trees(self) -> None:
+        normalized = " ".join(self.text.split()).lower()
+        for phrase in (
+            "remaining_slots = approved_builder_cap - active_builder_count",
+            "zero or negative means no new writer dispatch",
+            "distinct named task working trees",
+            "one controller owning integration",
+            "a sole writer may use the shared checkout",
+            "unrelated sibling cards do not prove active concurrency",
+            "existing `serialises:` partners",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, normalized)
+
     def test_checkpoint_is_compact_replaceable_and_does_not_create_a_runner(self) -> None:
         normalized = " ".join(self.text.split()).lower()
         for phrase in (
@@ -538,6 +573,18 @@ def diagram_problems(text: str) -> list[str]:
             if token.startswith("--") and token not in table:
                 problems.append(f"no-such-option: {command[0]} does not parse {token}")
 
+    # Review and validation may overlap, but neither branch can admit the task by itself.
+    diagram = fence.group(1)
+    admission_edges = (
+        'S4 -- "validation PASS" --> ADMIT["joint admission"]',
+        'S5 -- "review PASS" --> ADMIT',
+        'ADMIT -- "both PASS; Full strict post; identity recheck; commit authority granted" --> S6',
+        'ADMIT -- "cleared; commit authority withheld" --> PAUSE',
+    )
+    if any(edge not in diagram for edge in admission_edges) or re.search(
+            r'^\s*S[45]\s+(?:-->|-- "[^"]*" -->)\s*S6\b', diagram, re.MULTILINE):
+        problems.append("joint-admission: review and validation must join before commit")
+
     # Outside the fence: a box that only quotes itself is not evidence that the document says it.
     outside = text[:fence.start()] + text[fence.end():]
     for node, box in boxes:
@@ -579,12 +626,17 @@ class DiagramTest(unittest.TestCase):
     def test_the_diagram_and_the_table_say_the_same_thing(self) -> None:
         self.assertEqual([], diagram_problems(self.text))
 
-    def test_cleared_review_branches_on_explicit_commit_authority(self) -> None:
+    def test_joint_admission_branches_on_explicit_commit_authority(self) -> None:
         diagram = MERMAID_FENCE.search(self.text).group(1)
-        self.assertIn('S5 -- "cleared; commit authority granted" --> S6', diagram)
-        self.assertIn('S5 -- "cleared; commit authority withheld" --> PAUSE["checkpoint and pause"]',
+        self.assertIn('ADMIT -- "both PASS; Full strict post; identity recheck; commit authority granted" --> S6', diagram)
+        self.assertIn('ADMIT -- "cleared; commit authority withheld" --> PAUSE["checkpoint and pause"]',
                       diagram)
         self.assertNotRegex(diagram, r"PAUSE\s+--.*-->\s+S1")
+
+    def test_overlap_is_optional_and_validation_first_remains_drawn(self) -> None:
+        diagram = MERMAID_FENCE.search(self.text).group(1)
+        self.assertIn('S4 -- "default: gate green then review" --> S5', diagram)
+        self.assertIn('S3 -. "optional overlap on frozen candidate" .-> S5', diagram)
 
 
 class DiagramDriftTest(unittest.TestCase):
@@ -640,6 +692,26 @@ class DiagramDriftTest(unittest.TestCase):
 
     def test_deleting_the_fence_is_caught(self) -> None:
         self.assert_fires("no-diagram", MERMAID_FENCE.sub("", self.text, count=1))
+
+    def test_admitting_without_validation_is_caught(self) -> None:
+        self.assert_fires("joint-admission", self.text.replace(
+            'S4 -- "validation PASS" --> ADMIT["joint admission"]',
+            'ADMIT["joint admission"]', 1))
+
+    def test_review_alone_cannot_bypass_joint_admission(self) -> None:
+        self.assert_fires("joint-admission", self.text.replace(
+            'S5 -- "review PASS" --> ADMIT',
+            'S5 -- "review PASS" --> S6', 1))
+
+    def test_an_extra_shortcut_cannot_bypass_the_existing_join(self) -> None:
+        self.assert_fires("joint-admission", self.text.replace(
+            '    S5 -- "review PASS" --> ADMIT',
+            '    S5 -- "review PASS" --> ADMIT\n    S5 --> S6', 1))
+
+    def test_dropping_full_post_or_identity_checks_is_caught(self) -> None:
+        self.assert_fires("joint-admission", self.text.replace(
+            'both PASS; Full strict post; identity recheck; commit authority granted',
+            'both PASS; commit authority granted', 1))
 
 
 class WiredTest(unittest.TestCase):
@@ -770,6 +842,19 @@ class WiredTest(unittest.TestCase):
         result = self.run_documented(self.documented("plan_waves.py", "--ready"), **{"<ids>": "F-9/T9"})
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("F-9/T9", result.stderr)
+
+    def test_missing_member_plan_is_visible_during_drafting_and_blocks_policy_admission(self) -> None:
+        """The scheduler remains tolerant; autonomous execution must read the missing-plan signal."""
+        (self.root / "docs/product/plans/F-8-two.md").unlink()
+        result = self.run_documented(self.documented("plan_waves.py", "--since", "--json"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["unplanned"], ["F-8"])
+        self.assertIn("F-7/T1", payload["status"])
+        normalized = " ".join(read(LOOP).split()).lower()
+        self.assertIn("inspect `unplanned` and `unclaimed_commits`", normalized)
+        self.assertIn("without its required approved plan stops milestone admission", normalized)
+        self.assertIn("drafting still tolerates missing plans", normalized)
 
     # --- step 3: mid-task drift -------------------------------------------------------------
 

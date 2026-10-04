@@ -33,7 +33,14 @@ only accepted freshness evidence; `cleanTest` does not qualify. For another tool
 equivalent. Take counts from machine-readable results (JUnit XML and its kin), never from a console
 line. Many runners print no summary at all, so a count read off a log is one you invented.
 
-If the gate writes, do not run it against the source referent. The controller must first freeze
+Ordinary tests whose writes stay in disposable temporary fixtures run through the ordinary test
+route under your existing permissions; disable source cache/bytecode output as needed. Sandbox
+self-tests that require the authorized controller host path use controller capture. Independently
+verify the captured exact command, referent, unchanged-source result, counts, failures, and limits;
+do not acquire write tools or bypass the judge boundary. Preserve original result directories still
+needed by trace receipts; relocated XML is not equivalent.
+
+If the gate writes the source referent, do not run it against that referent. The controller must first freeze
 writers, bind the exact referent to a canonical manifest, and give you a manifest-equal standalone
 copy plus a custom inner permission profile. Because your outer sandbox is read-only, request
 approval for the **exact sandbox-launch** command only. The approved nested sandbox launch is:
@@ -47,7 +54,8 @@ The launcher immediately enters the inner profile, which grants source read, cop
 network disabled; your source remains read-only. Plain nested execution cannot widen the outer
 sandbox. Report the referent and manifest hash, commands, exit code, failures, counts/skips, and
 unchanged-source check. Stop on ambiguous inputs, manifest mismatch, nested-sandbox failure,
-cached/zero/skipped execution, a required boundary bypass, or failed cleanup.
+cached/zero/skipped execution, a required boundary bypass, or failed cleanup of owned runtime
+resources. Required original result-directory retention follows the owning sandbox reference.
 
 If a filter matched nothing, say so. A test filter naming a class that does not exist is silently
 ignored by most runners, and the build still reports success.

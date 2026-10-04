@@ -158,3 +158,14 @@ existing compatibility assertion to the approved frontmatter authority; otherwis
 can leave the focused suite red. The chief previews global mirror and render operations, then
 delegates the mutation to the declared writer. Generated agents are never hand-edited, and the
 failed compatibility run remains evidence rather than being replaced by the correction.
+
+## 2026-10-04 — handoff errors and velocity claims use existing evidence
+
+The velocity audit found repeated checkpoint prose and literal identity, handoff and path errors.
+Keep one routed public status summary and correct the named referent, path, permission or input
+through its existing owner and checks before retrying. Such errors do not by themselves justify a
+stronger model, expert council or new recovery machinery; causal recovery retains its A/B/C lineage.
+
+Committed churn and workspace size measure their own units. Record context transfer, runtime and
+environment identities, waits and elapsed delivery separately through existing evidence. Reduced
+status prose or file churn alone does not prove faster delivery or more efficient handoffs.

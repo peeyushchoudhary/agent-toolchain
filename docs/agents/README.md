@@ -19,6 +19,8 @@
 | Execute approved goal-directed autonomy M2 | [definition](../product/specs/F-2-goal-directed-autonomy.md), [design](../architecture/goal-directed-execution.md), [plan](../product/plans/F-2-goal-directed-autonomy.md), [non-authoritative stage boundaries](../product/plans/goal-directed-autonomy-task-boundaries.md) | `python3 install/skills/execution-methodology/scripts/plan_waves.py --root . --milestone M2 --json` |
 
 Everything else is one hop further: [../README.md](../README.md) is the documentation index.
+Implementation, validation and remaining limits have one public summary in
+[the repository's current state](../../README.md#current-state).
 
 ## What is NOT here, and why
 

@@ -6,16 +6,8 @@ second execution path.
 
 ## Current checkpoint
 
-The accepted implementation is byte-equal across its 13 candidate, public, installed Claude and
-installed Codex mappings and is installed through the existing installer. The repository gate and
-focused installed scheduler checks pass; the real installed scheduler accepts T1's eight normalized
-writes. The implementation candidate was sealed and independently accepted. A fresh
-normal-configuration native Codex read-only run returned `ACTIVATION PASS` for the approved
-continuation and recovery behavior. Claude skills, hooks and personas are statically verified;
-authenticated Claude inference is deferred. This final documentation tree is sealed and
-independently accepted. Exact-tree seal and independent acceptance remain required conditions for
-guarded conditional branch push, pull request and merge. Existing pinned consumer bindings are
-unchanged; tag and deployment remain excluded, and the one-week review remains future.
+See [the repository's current state](../../README.md#current-state) for implementation,
+validation and remaining limits.
 
 ## Design intent
 

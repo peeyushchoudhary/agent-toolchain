@@ -1761,6 +1761,20 @@ class ValidateCardTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("0 sibling card(s) compared", self.header(result))
 
+    def test_a_sole_writer_in_a_shared_checkout_with_an_unrelated_card_passes_strict(self) -> None:
+        """A planned or completed sibling card does not establish another active writer."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(Path(tmp))
+            self.assertTrue((repo / ".git").is_dir())
+            self.sibling(repo, "other.yaml", CLEAN_CARD.replace("id: EX-01", "id: EX-02").replace(
+                "title: Widget dispatch is idempotent", "title: Another job entirely"))
+
+            result = self.run_validator(CLEAN_CARD, repo, "--strict")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("1 sibling card(s) compared", self.header(result))
+            self.assertIn("no findings", result.stdout)
+
     def test_a_card_does_not_collide_with_itself(self) -> None:
         """Including when the same file is reached by another spelling, or by a symlink beside it —
         the two traps of comparing by path rather than by identity."""
@@ -1785,7 +1799,7 @@ class ValidateCardTest(unittest.TestCase):
                          CLEAN_CARD.replace("title: Widget dispatch is idempotent",
                                             "title: A different piece of work"))
 
-            result = self.run_validator(CLEAN_CARD, repo)
+            result = self.run_validator(CLEAN_CARD, repo, "--strict")
 
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertIn("[id] EX-01 is also used by other.yaml", result.stdout)
@@ -2491,9 +2505,12 @@ class MidPhaseTest(unittest.TestCase):
     def test_an_uncommitted_path_outside_the_write_set_is_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(Path(tmp))
+            ValidateCardTest.sibling(self, repo, "other.yaml", CLEAN_CARD.replace(
+                "id: EX-01", "id: EX-02").replace(
+                "title: Widget dispatch is idempotent", "title: Another job entirely"))
             self.touch(repo, "backend/core/build.gradle.kts",
                        "plugins { java }\n// a build file the card never declared\n")
-            result = self.run_validator(CLEAN_CARD, repo, "--phase", "mid")
+            result = self.run_validator(CLEAN_CARD, repo, "--strict", "--phase", "mid")
             self.assertEqual(result.returncode, 1, result.stdout)
             self.assertTrue(any("backend/core/build.gradle.kts" in line
                                 and "exclusive_writes" in line

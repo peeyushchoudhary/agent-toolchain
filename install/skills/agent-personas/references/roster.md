@@ -24,8 +24,8 @@ and emits Codex `sandbox_mode = "read-only"`. Local restrictions may narrow the 
 widen it. On Claude, direct write and dispatch tools are withheld from every judge. Codex has no
 dispatch-denial key, so Codex dispatch remains instruction-bound and unmitigated; its read-only
 sandbox withholds direct filesystem writes only. `test-judge` is the single sanctioned shell
-holder; its Claude Bash remains instruction-bound against shell writes, and a
-write-producing gate uses a controller-prepared, manifest-bound copy inside the approved nested
+holder; its Claude Bash remains instruction-bound against source writes, and a
+source-writing gate uses a controller-prepared, manifest-bound copy inside the approved nested
 sandbox. Read `JUDGE_DENIED_TOOLS`, `KNOWN_JUDGE_TOOLS`, and the repository's decisions record when
 changing this policy instead of copying their current members into prose.
 
@@ -149,7 +149,10 @@ persona that cannot do its one job does not fail loudly; it improvises. Every ot
 denies stays denied — see `~/.claude/docs/decisions.md`'s "What it withholds" for the current names, not a
 restatement here, which is exactly what went stale before — so it still has no direct authoring or
 dispatch tool. Its Claude shell remains instruction-bound. Codex
-remains `read-only`; a write-producing gate runs against a controller-prepared, manifest-bound
+remains `read-only`; ordinary tests writing only disposable temporary fixtures use the ordinary
+test route under existing permissions, with source cache/bytecode output disabled as needed.
+Sandbox-invoking self-tests requiring the authorized controller host path use captured results
+for independent judge verification. A source-writing gate runs against a controller-prepared, manifest-bound
 standalone copy inside a nested sandbox, never against writable source. The judge requests approval
 for the **exact sandbox-launch** only. The approved nested launch is
 `env CODEX_HOME=<temporary-home> codex sandbox -p gate -P copy-write -C <copy> -- <exact gate argv>`.

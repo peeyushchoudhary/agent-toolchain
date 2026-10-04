@@ -6,10 +6,12 @@ disable-model-invocation: true
 
 # Running a write-producing gate without touching the referent
 
-A gate that writes cannot run in the source checkout: the run would dirty the tree it is supposed to
+A gate that writes the source referent cannot run in the source checkout: the run would dirty the tree it is supposed to
 be judging, and no receipt from it could name what was tested. The methodology's answer is a
 **manifest-equal standalone copy** under an enforced profile. This skill is the executable form of
-that answer.
+that answer. Ordinary tests writing only disposable temporary fixtures need no gate isolation;
+run them under the judge's existing permissions with source cache/bytecode output disabled as
+needed. The judge remains read-only.
 
 It ships **machinery only**. Every project fact — which checkout, which branch, which gate command,
 which ports, which images — arrives from configuration that lives outside this repository. There is
@@ -233,6 +235,17 @@ same-UID process that can inject data or edit and restore bytes between observat
 tests/selftest.sh
 python3 -m unittest tests/test_evidence_supervisor.py
 ```
+
+The sandbox-invoking selftest uses the controller's existing authorized host path when a read-only
+judge cannot nest it. Capture the exact command, referent, output, exit/counts/skips, and unchanged
+source recheck; the independent judge verifies that capture. This does not authorize unsandboxed
+source-writing gates. Ordinary fixture tests use the ordinary test route.
+
+When later trace verification needs XML under the run root, use existing `gate.sh --keep` to
+preserve the original result directory and its identity. `--keep` skips automatic compose cleanup:
+the controller must separately clean and verify owned runtime resources before sealing. Record the
+retained root and consume required trace evidence before removing that exact root. A relocated XML
+copy cannot satisfy a receipt bound to the original path and timestamps.
 
 Hermetic: it builds its own git repository and its own configuration, so it runs on any machine and
 reads none of the operator's real config.

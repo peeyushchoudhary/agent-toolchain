@@ -61,10 +61,13 @@ restriction.
 On Claude, direct write and dispatch tools are withheld from every judge. On Codex, the read-only
 sandbox withholds direct filesystem writes, but no dispatch-denial key exists; Codex dispatch
 remains instruction-bound and unmitigated. `test-judge` alone may hold `Bash` so it can run a gate;
-Claude Bash remains instruction-bound against shell writes. A write-producing gate runs against a prepared copy inside the approved nested sandbox;
+Claude Bash remains instruction-bound against source writes. Ordinary tests writing only disposable
+temporary fixtures use the ordinary test route under existing permissions. Source-writing gates
+run against a prepared copy inside the approved nested sandbox;
 the controller prepares and manifest-binds that copy, never writable source. Other judges have no shell. Judges
 return findings for the controller to persist because they have no direct report-writing tool.
-Never weaken this boundary to simplify a handoff.
+Sandbox-invoking self-tests that require the authorized controller host path use captured results
+for independent judge verification. Never weaken this boundary to simplify a handoff.
 
 ## Preview and render
 
