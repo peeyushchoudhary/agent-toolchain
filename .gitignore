@@ -12,3 +12,6 @@ analysis/
 
 # Local-only founder-laptop gate infrastructure (machine paths, project names; never commit)
 infra/
+
+# Goal run state (receipts, verdicts, progress); local only
+/.runs/

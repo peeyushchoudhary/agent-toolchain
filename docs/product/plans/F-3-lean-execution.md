@@ -54,7 +54,7 @@ and each has its own round cap. Deletions are summarised by path, not read line 
 The walking skeleton is T1: a fixture goal in a throwaway repository is linted, checked, guarded,
 receipted and judged done before any prose changes.
 
-### [ ] T1 — `goal.py` and `gate.py`
+### [x] T1 — `goal.py` and `gate.py`
 - writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/test_gate.py, install/skills/execution-methodology/tests/fixtures/**, .gitignore
 - needs: —
 - covers: AC-3, AC-4, AC-5
