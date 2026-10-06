@@ -141,7 +141,7 @@ reviewer checks the renderer diff.
 
 **`review.py`.** It runs judges read-only by construction:
 - `codex exec -s read-only --ignore-user-config --ignore-rules`;
-- `claude -p --tools Read,Grep,Glob --strict-mcp-config`.
+- `claude -p --tools Read,Grep,Glob --strict-mcp-config --setting-sources project,local`.
 
 Both run with no user integrations loaded and with `GOAL_ROLE=judge`, at the reviewer frontmatter's
 model and effort. Tests assert the constructed commands. The smoke run asserts that a judge in each
@@ -348,5 +348,13 @@ secret and identifier behaviour; the security reviewer confirms it.
   `test_sync_preview.py` and `test_onboarding_adoption.py`, all previously in T5's scope. The
   Branch paragraph now matches the granted push. No criterion or goal scope changed. The approval
   tag moved to this commit, and T1 and T2 were replayed on top of it.
+
+- 2026-10-07: design amendment before T1 (founder-approved). codex-cli 0.160.0 rejects
+  `-s workspace-write` together with `--approve-for-me`, which already uses that sandbox, so the
+  Codex launch drops `-s`. The Claude judge adds `--setting-sources project,local`, so that it loads
+  no user-level hooks or plugins, as the cross-vendor rule already claimed. Codex project hooks live
+  in `.codex/hooks.json` and need a one-time trust step; only the Codex smoke run passes
+  `--dangerously-bypass-hook-trust`, on its own throwaway fixture. The approval tag moved to this
+  commit, and T1–T3 were replayed on top of it.
 
 ## Queue

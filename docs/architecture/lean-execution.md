@@ -118,9 +118,9 @@ designs and tasks marked `risk: data`:
 **Cross-vendor rule.** At design, plan and acceptance, the reviewer comes from the other vendor
 than the chief. It is invoked as a one-shot call that is read-only by construction:
 - `codex exec -s read-only --ignore-user-config --ignore-rules`;
-- or `claude -p --tools Read,Grep,Glob --strict-mcp-config`.
+- or `claude -p --tools Read,Grep,Glob --strict-mcp-config --setting-sources project,local`.
 
-Neither call loads the user's MCP servers, apps or other integrations, so a judge has no mutating
+Neither call loads the user's MCP servers, apps, hooks, plugins or other integrations, so a judge has no mutating
 surface besides the sandboxed shell. `--allowedTools` alone would only pre-approve tools; it would
 not remove the others. If the other
 vendor's quota is exhausted, the same vendor is used in a fresh context and the verdict header
@@ -159,7 +159,7 @@ both profiles (F-3 AC-2).
 | Harness | Command shape | Permissions |
 | --- | --- | --- |
 | Claude Code | `claude -p --model <m> --effort <e> --permission-mode auto --settings .runs/<goal>/claude-settings.json --output-format json "<resume prompt>"` | The settings file allows `git add`/`git commit`, the plan's gate commands and the skill's scripts. It registers the Stop and SessionStart hooks. Auto mode's reviewer decides the rest. A denial is logged, never retried blindly. |
-| Codex | `codex exec -s workspace-write --approve-for-me -m <m> -c model_reasoning_effort=<e> --json "<resume prompt>"`, adding `-c sandbox_workspace_write.network_access=true` when `run.network` is true | The workspace-write sandbox covers the repository. Automatic approval review handles the rest. Hooks come from the project's Codex hook configuration, which migration writes. |
+| Codex | `codex exec --approve-for-me -m <m> -c model_reasoning_effort=<e> --json "<resume prompt>"`, adding `-c sandbox_workspace_write.network_access=true` when `run.network` is true | `--approve-for-me` runs in the workspace-write sandbox, which covers the repository; the CLI rejects an explicit `-s` alongside it. Automatic approval review handles the rest. Hooks come from the project's `.codex/hooks.json`, which migration writes and the founder trusts once in Codex. |
 
 `GOAL_ROLE=chief` is set in the session environment. Judge and advisor calls set
 `GOAL_ROLE=judge`.
