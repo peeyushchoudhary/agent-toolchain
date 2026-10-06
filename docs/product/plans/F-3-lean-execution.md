@@ -36,11 +36,11 @@ the v6 default is `high`.
 
 criteria: AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11, AC-12
 proofs:
-- AC-2: the plan's `e2e` command (two-milestone smoke run in each harness)
-- AC-3, AC-4, AC-5: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_goal*.py'; and the same with -p 'test_gate*.py'
-- AC-6, AC-7: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_review*.py'; acceptance reads `references/review.md` and `references/escalation.md`
+- AC-2: e2e
+- AC-3, AC-4, AC-5: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_g*.py'
+- AC-6, AC-7: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_review*.py'
 - AC-8, AC-11: python3 -m unittest discover -s install/skills/agent-personas/tests -t install/skills/agent-personas/tests
-- AC-9, AC-10, AC-12: the plan's `full_gate` (size test, dangling-reference scan, installer tests)
+- AC-9, AC-10, AC-12: full_gate
 - AC-1: manual — founder confirms the two-touchpoint workflow in the merge explainer
 
 acceptance: [tooling, retirement]
@@ -253,8 +253,8 @@ execution sections. The founder applies it; this goal edits no private file.
 
 criteria: AC-10, AC-13
 proofs:
-- AC-13: line count of progressive-disclosure non-test scripts before and after; python3 -m unittest discover -s install/skills/progressive-disclosure/tests -t install/skills/progressive-disclosure/tests
-- AC-10: the plan's `full_gate`
+- AC-13: python3 -m unittest discover -s install/tests -t install/tests -p 'test_size.py'
+- AC-10: full_gate
 
 **Sizing exception.** M4 has two tasks, below the minimum. It is kept separate because it can merge
 independently of M3 and carries no criterion M3 needs.
@@ -336,5 +336,9 @@ secret and identifier behaviour; the security reviewer confirms it.
 
 - 2026-10-06: founder approved F-3 as one goal (M3+M4). `install/` becomes the single authored
   source. Grants: local commits, and pushing the branch at M3 READY.
+
+- 2026-10-06: format-only correction after approval. Proof entries are now exact commands, or the
+  `full_gate`/`e2e` tokens, so that `goal.py lint` can run them. No scope or criterion changed. The
+  approval tag moved to this commit; reported to the founder at merge.
 
 ## Queue

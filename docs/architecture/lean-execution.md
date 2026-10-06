@@ -83,6 +83,9 @@ proofs:
 - [blocks T5] <question>, options, recommendation
 ```
 
+A proof entry is `- AC-n[, AC-m]: <command>`. The command may also be one of the tokens `gate`,
+`full_gate` or `e2e`, which name the frontmatter command, or `manual — <what the founder checks>`.
+
 Task states are `[ ]` (todo), `[x]` (done) and `[!]` (parked, with a Queue entry). Every task
 commit names its task as `[T<n>]` in the subject line. Edits to `plan.md` that only change
 checkboxes, `Decisions` or `Queue` are controller metadata. They are always admitted alongside a
