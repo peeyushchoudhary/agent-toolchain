@@ -87,7 +87,7 @@ Counts are parsed from unittest, pytest, Gradle and JUnit XML output. Add `/.run
 - `done` on a later milestone while the earlier one is verified by its tag;
 - stop-hook block text, its stall cap, the judge exemption and envelope expiry.
 
-### [ ] T2 — rules, references, explainer template
+### [x] T2 — rules, references, explainer template
 - writes: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/methodology.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/run.md, install/skills/execution-methodology/references/review.md, install/skills/execution-methodology/references/escalation.md, install/skills/execution-methodology/references/migrate.md, install/skills/execution-methodology/references/explainer-template.html, install/skills/execution-methodology/agents/openai.yaml, install/skills/execution-methodology/tests/test_methodology_policy.py, install/skills/execution-methodology/tests/test_execution_loop.py, install/skills/execution-methodology/tests/test_shape_diagram.py, install/skills/execution-methodology/tests/test_break_tests.py, install/skills/execution-methodology/tests/test_repo_sync.py, install/skills/execution-methodology/tests/test_rules.py
 - needs: T1
 - covers: AC-1, AC-6, AC-7, AC-9, AC-12
