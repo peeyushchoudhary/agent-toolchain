@@ -107,7 +107,7 @@ facts only: that the routes and paths named in the skill exist, and the word cei
 
 **Style.** Write calmly: give the reason for each rule and use no capital-letter emphasis.
 
-### [ ] T3 — personas and renderer
+### [x] T3 — personas and renderer
 - writes: install/skills/agent-personas/**, install/skills/execution-methodology/scripts/sync_methodology.py, install/skills/execution-methodology/scripts/sync_methodology_selftest.py, install/skills/execution-methodology/scripts/runtime-status.schema.json, install/skills/execution-methodology/tests/test_runtime_status.py, install/skills/execution-methodology/tests/test_sync_preview.py, install/skills/execution-methodology/tests/test_onboarding_adoption.py
 - needs: T2
 - covers: AC-8, AC-11
@@ -397,5 +397,17 @@ secret and identifier behaviour; the security reviewer confirms it.
   already in T9's writes, and T6 left the AC-13 placeholder there for T9, but tests-may-change
   omitted it. The approval and M3 tags moved, every later commit was replayed with only the plan
   differing, and M3 was re-confirmed on its replayed tree.
+
+- 2026-10-07: `full_gate` baseline. On the approval base the old `verify.sh` exits 1 and prints no
+  test ids; its only failure is the known PluginSurface test inside the progressive-disclosure suite.
+  That id is recorded for `full_gate` too, with the base log kept in `.runs/F-3/logs/`. The T6
+  `verify.sh` must print suite failure ids and counts so that `gate.py` can attribute them.
+
+- 2026-10-07: T3 security review: round 1 BLOCK (persona-name YAML injection could shadow a
+  read-only judge), corrected once; scoped rereview PASS. Codex judge role files now also pin
+  `approval_policy = "never"` and `multi_agent = false`, accepted by `codex doctor`; runtime loss
+  of sub-agent spawning is not yet observed. Deferred as non-blocking: an unmanaged hand-written
+  project agent can shadow a judge, a project persona may declare `writes: no` with dispatch tools,
+  and the GENERATED marker is matched anywhere in a file.
 
 ## Queue
