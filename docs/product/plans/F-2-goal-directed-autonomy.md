@@ -4,7 +4,7 @@ title: Deliver goal-directed milestone autonomy
 spec: docs/product/specs/F-2-goal-directed-autonomy.md
 milestone: M2
 status: shipped
-updated: 2026-10-01
+updated: 2026-10-06
 ---
 
 # F-2 implementation and validation plan — goal-directed autonomy
@@ -66,12 +66,17 @@ serialises: []
   roots, run the milestone-seal test module and then its complete suite.
 - **Dependencies:** none; T2 and T1 may run concurrently because their write sets are disjoint.
 - **Stops:** any fail-open terminal branch, a receipt that survives relevant post-gate drift, a new
-  runner or receipt schema, or a change outside the five declared paths.
+  runner or receipt schema, or a write outside the admitted exact paths.
 
 The two task blocks are canonical. The maintained source paths are the same paths with the leading
 `install/` removed. Exact source/public mappings and closure stages are in the
 [stage companion](goal-directed-autonomy-task-boundaries.md). A builder may narrow a write set after
-confirming a listed file is unchanged; widening requires plan review.
+confirming a listed file is unchanged. The chief may propose necessary companion tests, fixtures,
+existing callers and mechanical baseline cleanup within the approved feature or module seam as one
+exact scoped plan amendment. A fresh independent review must pass before added paths are written;
+the chief then regenerates the dispatch or card and reruns admission. Forbidden paths, unrelated
+work and material boundary changes remain outside that grant. The execution loop owns the detailed
+dependency, overlap and safety checks.
 
 ## Current checkpoint
 
@@ -91,9 +96,11 @@ validation and remaining limits.
 ### End-to-end set
 
 1. **Core delivery:** a closed, approved task enters the ready set, receives the correct lane,
-   review and validation, and reaches an accepted result without routine reapproval.
-2. **Causal recovery:** the same cause survives A and B, requires targeted council plus fresh replan
-   PASS before C, and ends without a fourth attempt after C failure.
+   review and validation, and reaches an accepted result without routine reapproval or timer renewal.
+   Explicit deadlines and actual exhaustion still stop affected work.
+2. **Causal recovery:** technical corrections in Design, Plan and Implementation retain the same
+   cause through A and B, require targeted council plus fresh replan PASS before C, and end without
+   a fourth attempt after C failure. Substantive founder choices remain at their gates.
 3. **Valid closure:** maintained/public bytes agree, the existing installer verifies them, and the
    full gate, seal and fresh acceptance bind one unchanged candidate.
 
@@ -116,7 +123,13 @@ the existing evidence record.
 ## Trace and stops
 
 T1 and T2 are the only implementation tasks. Documentation, mechanical projection, installation
-and closure do not create duplicate cards or reviews. A changed frozen outcome, widened production
-write set, new interface, new safety claim, failed area check, failed full gate, stale seal, failed
-acceptance, revoked authority or unavailable required resource stops the affected path. The same
-cause retains its A/B/C lineage across renamed attempts.
+and closure do not create duplicate cards or reviews. A changed frozen outcome, unadmitted
+production write, new interface, changed safety promise, revoked authority or unavailable required
+resource stops the affected path for its owner. Failed area/full checks, stale seals and failed
+acceptance block integration and closure while unchanged technical correction follows approved
+recovery. Numeric review spend prompts diagnosis without changing a verdict. Equivalent or stronger
+proof returns to its proof owner and independent test judge; confirmation must preserve coverage,
+assertions, freshness, gate obligations and evidence identity, including original failed/skipped
+receipts. The same cause retains its A/B/C lineage across renamed attempts. See
+[D27](../../decisions/decisions.md#d27--approved-completion-and-technical-recovery) and the execution
+methodology for the owning recovery and admission rules.

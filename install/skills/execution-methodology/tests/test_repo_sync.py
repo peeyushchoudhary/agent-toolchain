@@ -97,8 +97,10 @@ class MethodologySyncTest(unittest.TestCase):
             body,
         )
         self.assertIn("one correction and one scoped rereview", body)
-        self.assertIn("Design recurrence returns to Gate 1", body)
-        self.assertIn("plan recurrence returns to Gate 2", body)
+        self.assertIn("one correction and one scoped rereview per causal approach", body)
+        self.assertIn("Unresolved technical recurrence remains INCOMPLETE and follows the loop's A/B/C recovery", body)
+        self.assertIn("Initial design/UX and plan approvals remain founder gates", body)
+        self.assertIn("a substantive new design or plan choice returns to its owning founder gate", body)
         self.assertIn('`fork_turns: "none"`', body)
         self.assertIn("equivalent fresh-thread primitive", body)
         self.assertIn("Prompt wording alone does not establish isolation", body)

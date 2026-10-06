@@ -80,11 +80,11 @@ class CheckReviewBudgetTest(unittest.TestCase):
         self.assertEqual(data["errors"], [])
         self.assertEqual(data["warnings"], [])
 
-    def test_round_three_is_refused(self):
+    def test_round_three_is_a_recovery_warning(self):
         self.touch("reviews/T1-r3-rereview.md")
         proc = run(self.ws)
-        self.assertEqual(proc.returncode, 1)
-        kinds = {e["kind"] for e in findings(proc)["errors"]}
+        self.assertEqual(proc.returncode, 0)
+        kinds = {e["kind"] for e in findings(proc)["warnings"]}
         self.assertIn("ROUND_CAP", kinds)
 
     def test_round_two_is_allowed(self):
@@ -96,26 +96,26 @@ class CheckReviewBudgetTest(unittest.TestCase):
         self.touch("reviews/T9-round4.md")
         self.touch("reviews/T9-fixround3.md")
         self.touch("reviews/T9-attempt5-rereview.md")
-        errors = findings(run(self.ws))["errors"]
-        cap = [e for e in errors if e["kind"] == "ROUND_CAP"]
-        self.assertEqual(len(cap), 1, errors)
+        warnings = findings(run(self.ws))["warnings"]
+        cap = [e for e in warnings if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(len(cap), 1, warnings)
         self.assertEqual(cap[0]["round"], 5)
 
     def test_round_marker_in_any_filename_trips_the_cap(self):
         """A high round number is caught wherever it appears, whatever the surrounding name."""
         self.touch("reviews/M1-01-spotless-r15.yaml")
         proc = run(self.ws)
-        self.assertEqual(proc.returncode, 1)
-        cap = [e for e in findings(proc)["errors"] if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(proc.returncode, 0)
+        cap = [e for e in findings(proc)["warnings"] if e["kind"] == "ROUND_CAP"]
         self.assertEqual(cap[0]["round"], 15)
 
-    def test_next_subject_with_spent_budget_is_refused_before_dispatch(self):
-        """The pre-dispatch refusal: two rounds on record means the third is refused."""
+    def test_next_subject_with_spent_budget_warns_before_dispatch(self):
+        """The receipt preserves numerical spend before dispatch without demanding new permission."""
         self.touch("reviews/T1-r1-review.md")
         self.touch("reviews/T1-r2-rereview.md")
         proc = run(self.ws, "--next", "T1")
-        self.assertEqual(proc.returncode, 1)
-        refused = [e for e in findings(proc)["errors"]
+        self.assertEqual(proc.returncode, 0)
+        refused = [e for e in findings(proc)["warnings"]
                    if e["kind"] == "ROUND_BUDGET_EXHAUSTED"]
         self.assertEqual(len(refused), 1, proc.stdout)
         self.assertEqual(refused[0]["subject"], "t1")
@@ -124,6 +124,63 @@ class CheckReviewBudgetTest(unittest.TestCase):
         self.touch("reviews/T1-r1-review.md")
         self.assertEqual(run(self.ws, "--next", "T1").returncode, 0)
         self.assertEqual(run(self.ws, "--next", "T2").returncode, 0)
+
+    def test_numeric_warnings_preserve_counts_without_admitting_incomplete_verdicts(self):
+        for rnd in (1, 2, 3):
+            self.touch(f"reviews/T1-r{rnd}-reviewer.md", "INCOMPLETE: unresolved defect\n")
+        proc = run(self.ws, "--next", "T1")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        data = findings(proc)
+        self.assertEqual(data["errors"], [])
+        self.assertEqual({w["kind"] for w in data["warnings"]},
+                         {"ROUND_CAP", "ROUND_BUDGET_EXHAUSTED"})
+        receipt = data["receipt"]
+        self.assertEqual(receipt["max_round"], 2)
+        self.assertEqual(receipt["next"], ["T1"])
+        self.assertEqual(receipt["rounds_charged"], {"t1": {
+            str(rnd): f"reviews/T1-r{rnd}-reviewer.md" for rnd in (1, 2, 3)}})
+        self.assertEqual(receipt["warnings"], data["warnings"])
+        self.assertEqual(receipt["errors"], data["errors"])
+        for finding in data["warnings"]:
+            self.assertIn("diagnose the technical cause", finding["why"])
+            self.assertIn("requires no founder permission", finding["why"])
+            self.assertIn("grants no recovery authority, semantic PASS or acceptance", finding["why"])
+        cap = next(w for w in data["warnings"] if w["kind"] == "ROUND_CAP")
+        self.assertEqual((cap["subject"], cap["round"], cap["ungranted"]), ("t1", 3, [3]))
+        self.assertNotIn("verdict", receipt)
+        self.assertNotIn("authorized", receipt)
+        self.assertEqual((self.ws / "reviews/T1-r3-reviewer.md").read_text(),
+                         "INCOMPLETE: unresolved defect\n")
+
+    def test_numeric_warnings_do_not_clear_independent_hard_findings(self):
+        for rnd in (1, 2, 3):
+            self.touch(f"reviews/T1-r{rnd}-reviewer.md")
+        for name, content, kind in (
+            ("reports/T2-final.diff", "evidence\n", "BANNED_CLASS"),
+            ("reviews/T2-r1-reviewer.txt", "INCOMPLETE\n", "NON_PROSE_VERDICT"),
+            ("reviews/T2-r1-reviewer.md", "finding\n" * 31, "VERDICT_OVER_CAP"),
+        ):
+            with self.subTest(kind=kind):
+                self.touch(name, content)
+                proc = run(self.ws, "--next", "T1")
+                self.assertEqual(proc.returncode, 1, proc.stdout)
+                data = findings(proc)
+                self.assertIn(kind, {e["kind"] for e in data["errors"]})
+                self.assertEqual({w["kind"] for w in data["warnings"]},
+                                 {"ROUND_CAP", "ROUND_BUDGET_EXHAUSTED"})
+                (self.ws / name).unlink()
+
+    def test_plain_text_numeric_findings_are_visible_recovery_warnings(self):
+        self.touch("reviews/T1-r3-reviewer.md")
+        proc = subprocess.run([sys.executable, str(script_for()), str(self.ws), "--next", "T1"],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for kind in ("ROUND_CAP", "ROUND_BUDGET_EXHAUSTED"):
+            line = next(line for line in proc.stdout.splitlines() if kind in line)
+            self.assertTrue(line.startswith("WARNING "), line)
+            self.assertIn("diagnose the technical cause", line)
+            self.assertNotIn("refuse", line)
+        self.assertIn("grants no recovery authority, semantic PASS or acceptance", proc.stdout)
 
     def test_version_suffix_is_not_a_round(self):
         """v3, schema-v1 and similar version tokens are not review rounds."""
@@ -172,7 +229,9 @@ class CheckReviewBudgetTest(unittest.TestCase):
     def test_max_round_is_configurable(self):
         self.touch("reviews/T1-r3.md")
         self.assertEqual(run(self.ws, "--max-round", "3").returncode, 0)
-        self.assertEqual(run(self.ws, "--max-round", "2").returncode, 1)
+        self.assertEqual(run(self.ws, "--max-round", "2").returncode, 0)
+        self.assertIn("ROUND_CAP", {w["kind"] for w in
+                                  findings(run(self.ws, "--max-round", "2"))["warnings"]})
 
     def test_workspace_budget_warns_but_does_not_block(self):
         for i in range(60):
@@ -267,27 +326,27 @@ class ReviewVsFixArtifactTest(unittest.TestCase):
         self.touch("verdicts/T7-r2-reviewer.md")
         self.touch("verdicts/T7-r2-test-judge.md")
         proc = run(self.ws, "--next", "T7")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        refused = [e for e in findings(proc)["errors"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        refused = [e for e in findings(proc)["warnings"]
                    if e["kind"] == "ROUND_BUDGET_EXHAUSTED"]
         self.assertEqual(len(refused), 1, proc.stdout)
         self.assertEqual(refused[0]["round"], 2)
 
-    def test_a_genuine_third_review_round_is_still_refused(self):
+    def test_a_genuine_third_review_round_still_warns(self):
         """THE invariant. Judge verdicts at r1, r2 and r3 must still trip the standing cap."""
         for r in (1, 2, 3):
             self.touch(f"verdicts/T8-r{r}-reviewer.md")
             self.touch(f"verdicts/T8-r{r}-test-judge.md")
         proc = run(self.ws)
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        cap = [e for e in findings(proc)["errors"] if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        cap = [e for e in findings(proc)["warnings"] if e["kind"] == "ROUND_CAP"]
         self.assertEqual(len(cap), 1, proc.stdout)
         self.assertEqual(cap[0]["round"], 3)
         self.assertEqual(cap[0]["subject"], "t8")
         proc = run(self.ws, "--next", "T8")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("ROUND_BUDGET_EXHAUSTED",
-                      {e["kind"] for e in findings(proc)["errors"]})
+                      {e["kind"] for e in findings(proc)["warnings"]})
 
     def test_fix_artifacts_alone_never_spend_a_review_round(self):
         self.touch("T9-r1-fix-brief.md")
@@ -312,8 +371,8 @@ class ReviewVsFixArtifactTest(unittest.TestCase):
         self.touch("verdicts/T10-r1fix-reviewer.md")
         self.touch("verdicts/T10-r2fix-reviewer.md")
         proc = run(self.ws, "--next", "T10")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        refused = [e for e in findings(proc)["errors"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        refused = [e for e in findings(proc)["warnings"]
                    if e["kind"] == "ROUND_BUDGET_EXHAUSTED"]
         self.assertEqual(len(refused), 1, proc.stdout)
         self.assertEqual(refused[0]["subject"], "t10")
@@ -350,9 +409,9 @@ class ReviewVsFixArtifactTest(unittest.TestCase):
         self.touch("T12-r1-quux.md")
         self.touch("T12-r2-quux.md")
         proc = run(self.ws, "--next", "T12")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("ROUND_BUDGET_EXHAUSTED",
-                      {e["kind"] for e in findings(proc)["errors"]})
+                      {e["kind"] for e in findings(proc)["warnings"]})
 
 
 def track(path: Path) -> Path:
@@ -429,12 +488,12 @@ class RoundGrantTest(unittest.TestCase):
 
     # --- the negative control, and the one thing a grant is allowed to do ---------------
 
-    def test_without_the_grant_line_the_workspace_still_fails(self):
-        """THE NEGATIVE CONTROL. A mechanism that passes with the line absent proves nothing."""
+    def test_without_the_grant_line_the_workspace_still_warns(self):
+        """Without a legacy grant, the numerical count stays visible as a recovery warning."""
         self.touch("verdicts/D185D-r3-reviewer.md")
         proc = self.go(self.ledger())
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        cap = [e for e in findings(proc)["errors"] if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        cap = [e for e in findings(proc)["warnings"] if e["kind"] == "ROUND_CAP"]
         self.assertEqual(len(cap), 1, proc.stdout)
         self.assertEqual((cap[0]["subject"], cap[0]["round"]), ("d185d", 3))
 
@@ -447,11 +506,11 @@ class RoundGrantTest(unittest.TestCase):
     # --- everything a grant must NOT do ------------------------------------------------
 
     def test_a_grant_never_creates_a_round_for_the_subject_it_names(self):
-        """The grant unblocks the WORKSPACE, never the SUBJECT: D185D is still refused."""
+        """A legacy grant suppresses its standing count warning, never the next-dispatch warning."""
         self.touch("verdicts/D185D-r3-reviewer.md")
         proc = self.go(self.ledger(self.grant("d185d", "r3")), "--next", "D185D")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        refused = [e for e in findings(proc)["errors"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        refused = [e for e in findings(proc)["warnings"]
                    if e["kind"] == "ROUND_BUDGET_EXHAUSTED"]
         self.assertEqual(len(refused), 1, proc.stdout)
         self.assertEqual(refused[0]["round"], 3)
@@ -460,22 +519,24 @@ class RoundGrantTest(unittest.TestCase):
         self.touch("verdicts/D185D-r3-reviewer.md")
         self.touch("verdicts/D185D-r4-reviewer.md")
         proc = self.go(self.ledger(self.grant("d185d", "r3")))
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        cap = [e for e in findings(proc)["errors"] if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        cap = [e for e in findings(proc)["warnings"] if e["kind"] == "ROUND_CAP"]
         self.assertEqual(len(cap), 1, proc.stdout)
         self.assertEqual(cap[0]["round"], 4)
 
     def test_a_grant_does_not_cover_another_subject_at_the_same_round(self):
         self.touch("verdicts/T21-r3-reviewer.md")
         proc = self.go(self.ledger(self.grant("t20", "r3")))
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        cap = [e for e in findings(proc)["errors"] if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        cap = [e for e in findings(proc)["warnings"] if e["kind"] == "ROUND_CAP"]
         self.assertEqual([c["subject"] for c in cap], ["t21"], proc.stdout)
 
     def test_a_grant_does_not_lower_the_bar_for_a_round_it_does_not_name(self):
         """A grant at r3 leaves an r5 breach exactly as loud as it was."""
         self.touch("verdicts/T22-r5-reviewer.md")
-        self.assertEqual(self.go(self.ledger(self.grant("t22", "r3"))).returncode, 1)
+        proc = self.go(self.ledger(self.grant("t22", "r3")))
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("ROUND_CAP", self.kinds(proc, "warnings"))
 
     def test_a_grant_does_not_clear_a_spent_terminal_pass(self):
         self.touch("verdicts/T23-full-diff-reviewer.md")
@@ -493,17 +554,19 @@ class RoundGrantTest(unittest.TestCase):
     def test_a_missing_grants_file_grants_nothing(self):
         self.touch("verdicts/T25-r3-reviewer.md")
         proc = self.go(Path(self._led.name) / "absent.tsv")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        self.assertIn("ROUND_CAP", self.kinds(proc))
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("ROUND_CAP", self.kinds(proc, "warnings"))
         self.assertIn("GRANTS_FILE_MISSING", self.kinds(proc, "warnings"))
 
     def test_a_malformed_grant_line_grants_nothing_and_is_named(self):
         """Fail closed: an unparsable line must not widen what is permitted, nor vanish."""
         self.touch("verdicts/T26-r3-reviewer.md")
         proc = self.go(self.ledger("t26 r3 deadbee1 2026-08-20 space separated, not tabs"))
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        self.assertIn("ROUND_CAP", self.kinds(proc))
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("ROUND_CAP", self.kinds(proc, "warnings"))
         self.assertIn("GRANT_LINE_MALFORMED", self.kinds(proc, "warnings"))
+        self.assertEqual(findings(proc)["grants"]["entries"], 0)
+        self.assertEqual(findings(proc)["receipt"]["grants_applied"], [])
 
     # --- a grant that protects nothing must say so -------------------------------------
 
@@ -575,9 +638,9 @@ class KindVocabularyTest(unittest.TestCase):
                 self.touch(f"verdicts/T30-r1-{kind}.md")
                 self.touch(f"verdicts/T30-r2-{kind}.md")
                 proc = self.go("--next", "T30")
-                self.assertEqual(proc.returncode, 1, proc.stdout)
+                self.assertEqual(proc.returncode, 0, proc.stdout)
                 data = findings(proc)
-                self.assertIn("ROUND_BUDGET_EXHAUSTED", {e["kind"] for e in data["errors"]})
+                self.assertIn("ROUND_BUDGET_EXHAUSTED", {e["kind"] for e in data["warnings"]})
                 self.assertNotIn("UNCLASSIFIED_ROUND_ARTIFACT",
                                  {w["kind"] for w in data["warnings"]})
 
@@ -679,8 +742,8 @@ class KindBeforeTheMarkerTest(unittest.TestCase):
         self.touch("reports/S-spotless-contract-r3-reviewer.md")
         proc = run(self.ws, "--grants", str(self.grants))
         data = findings(proc)
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        caps = [e for e in data["errors"] if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        caps = [e for e in data["warnings"] if e["kind"] == "ROUND_CAP"]
         self.assertEqual(len(caps), 1, proc.stdout)
         self.assertEqual(caps[0]["subject"], "s-spotless-contract", proc.stdout)
         self.assertNotIn("UNCLASSIFIED_ROUND_ARTIFACT",
@@ -760,8 +823,8 @@ class SilentUndercountTest(unittest.TestCase):
         """The control for the case above: the suffix is what changed, not the round marker."""
         self.touch("evidence/T36-R3-GREEN-suite.md")
         proc = self.go()
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        cap = [e for e in findings(proc)["errors"] if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        cap = [e for e in findings(proc)["warnings"] if e["kind"] == "ROUND_CAP"]
         self.assertEqual(cap[0]["round"], 3, proc.stdout)
 
 
@@ -975,8 +1038,8 @@ class GrantKeyingTest(unittest.TestCase):
         self.touch("verdicts/T40-r3-reviewer.md")
         self.touch("verdicts/T40-r4-reviewer.md")
         proc = run(self.ws, "--grants", str(self.ledger(self.grant("t40", "r4"))))
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        cap = [e for e in findings(proc)["errors"] if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        cap = [e for e in findings(proc)["warnings"] if e["kind"] == "ROUND_CAP"]
         self.assertEqual(len(cap), 1, proc.stdout)
         self.assertEqual(cap[0]["ungranted"], [3], proc.stdout)
 
@@ -998,8 +1061,8 @@ class GrantKeyingTest(unittest.TestCase):
         self.touch("verdicts/S2-01-R18-r1-reviewer.md")
         self.touch("verdicts/S2-01-R19-r1-reviewer.md")
         proc = run(self.ws, "--grants", str(self.ledger(self.grant("s2-01", "r19"))))
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        cap = [e for e in findings(proc)["errors"] if e["kind"] == "ROUND_CAP"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        cap = [e for e in findings(proc)["warnings"] if e["kind"] == "ROUND_CAP"]
         self.assertEqual(cap[0]["ungranted"], [18], proc.stdout)
 
     def test_a_grant_in_force_is_announced_with_its_attribution(self):
@@ -1059,7 +1122,7 @@ class GrantAuthorityTest(unittest.TestCase):
         data = findings(proc)
         kinds = {e["kind"] for e in data["errors"]}
         self.assertIn("GRANTS_FILE_UNTRACKED", kinds, proc.stdout)
-        self.assertIn("ROUND_CAP", kinds, proc.stdout)
+        self.assertIn("ROUND_CAP", {w["kind"] for w in findings(proc)["warnings"]}, proc.stdout)
         self.assertEqual([e["path"] for e in data["errors"]
                           if e["kind"] == "GRANTS_FILE_UNTRACKED"], [str(forged)])
 
@@ -1097,11 +1160,13 @@ class GrantAuthorityTest(unittest.TestCase):
         ):
             with self.subTest(label=label):
                 proc = run(self.ws, "--grants", str(track(self.write(line))))
-                self.assertEqual(proc.returncode, 1, proc.stdout)
+                self.assertEqual(proc.returncode, 0, proc.stdout)
                 data = findings(proc)
-                self.assertIn("ROUND_CAP", {e["kind"] for e in data["errors"]}, proc.stdout)
+                self.assertIn("ROUND_CAP", {e["kind"] for e in data["warnings"]}, proc.stdout)
                 self.assertIn("GRANT_LINE_MALFORMED",
                               {w["kind"] for w in data["warnings"]}, proc.stdout)
+                self.assertEqual(data["grants"]["entries"], 0)
+                self.assertEqual(data["receipt"]["grants_applied"], [])
 
     def test_a_duplicate_pair_keeps_the_first_line_and_names_the_second(self):
         ledger = track(self.write(self.line(commit="1111111", reason="the real one"),
@@ -1220,8 +1285,8 @@ class TerminalExemptionRemovedTest(unittest.TestCase):
         for rnd in (1, 2, 3):
             self.touch(f"verdicts/SUBJ-r{rnd}-full-diff-reviewer.md")
         proc = self.go(self.ledger(), "--next", "SUBJ-r4-reviewer")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        kinds = {e["kind"] for e in findings(proc)["errors"]}
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        kinds = {e["kind"] for e in findings(proc)["warnings"]}
         self.assertIn("ROUND_BUDGET_EXHAUSTED", kinds, proc.stdout)
         self.assertIn("ROUND_CAP", kinds, proc.stdout)
 
@@ -1237,26 +1302,27 @@ class TerminalExemptionRemovedTest(unittest.TestCase):
                 self.touch("verdicts/" + name.format(rnd))
             proc = self.go(self.ledger(), "--next", "SUBJ-r4-reviewer")
             outcomes[label] = (proc.returncode,
-                               tuple(sorted(e["kind"] for e in findings(proc)["errors"])))
+                               tuple(sorted(e["kind"] for e in
+                                            findings(proc)["errors"] + findings(proc)["warnings"])))
         self.assertEqual(outcomes["token"], outcomes["plain"], outcomes)
 
-    def test_a_next_dispatch_wearing_the_token_at_a_round_is_still_refused(self):
+    def test_a_next_dispatch_wearing_the_token_at_a_round_still_warns(self):
         """`--next SUBJ-r4-full-diff-reviewer` is a fourth scoped round in fancy dress."""
         for rnd in (1, 2):
             self.touch(f"verdicts/SUBJ-r{rnd}-reviewer.md")
         proc = self.go(self.ledger(), "--next", "SUBJ-r4-full-diff-reviewer")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("ROUND_BUDGET_EXHAUSTED",
-                      {e["kind"] for e in findings(proc)["errors"]}, proc.stdout)
+                      {e["kind"] for e in findings(proc)["warnings"]}, proc.stdout)
 
-    def test_a_terminal_dispatch_past_a_spent_budget_needs_a_LEDGER_ROW(self):
+    def test_a_terminal_dispatch_without_a_legacy_row_keeps_the_spend_warning(self):
         """The removal, in one case: the name identifies, only the ledger authorises."""
         for rnd in (1, 2):
             self.touch(f"verdicts/SUBJ-r{rnd}-reviewer.md")
         proc = self.go(self.ledger(), "--next", "SUBJ-full-diff-reviewer")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("ROUND_BUDGET_EXHAUSTED",
-                      {e["kind"] for e in findings(proc)["errors"]}, proc.stdout)
+                      {e["kind"] for e in findings(proc)["warnings"]}, proc.stdout)
 
     # --- the ledger row, and what it may do -------------------------------------------
 
@@ -1298,28 +1364,28 @@ class TerminalExemptionRemovedTest(unittest.TestCase):
                 for rnd in (1, 2):
                     self.touch(f"verdicts/SUBJ-r{rnd}-reviewer.md")
                 proc = self.go(self.ledger(line), "--next", "SUBJ-full-diff-reviewer")
-                self.assertEqual(proc.returncode, 1, proc.stdout)
+                self.assertEqual(proc.returncode, 0, proc.stdout)
                 data = findings(proc)
                 self.assertIn("GRANT_LINE_MALFORMED",
                               {w["kind"] for w in data["warnings"]}, proc.stdout)
                 self.assertIn("ROUND_BUDGET_EXHAUSTED",
-                              {e["kind"] for e in data["errors"]}, proc.stdout)
+                              {e["kind"] for e in data["warnings"]}, proc.stdout)
 
     def test_a_terminal_row_names_one_subject_exactly(self):
         for rnd in (1, 2):
             self.touch("verdicts/OTHER-r%d-reviewer.md" % rnd)
         proc = self.go(self.ledger(self.row("subj", "terminal")),
                        "--next", "OTHER-full-diff-reviewer")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("ROUND_BUDGET_EXHAUSTED",
-                      {e["kind"] for e in findings(proc)["errors"]}, proc.stdout)
+                      {e["kind"] for e in findings(proc)["warnings"]}, proc.stdout)
 
     def test_a_terminal_row_does_not_suppress_the_round_cap(self):
         """It authorises a DISPATCH. It is not a round grant and may not act as one."""
         self.touch("verdicts/SUBJ-r3-reviewer.md")
         proc = self.go(self.ledger(self.row("subj", "terminal")))
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        self.assertIn("ROUND_CAP", {e["kind"] for e in findings(proc)["errors"]}, proc.stdout)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("ROUND_CAP", {e["kind"] for e in findings(proc)["warnings"]}, proc.stdout)
 
     def test_a_round_grant_does_not_authorise_a_terminal_pass(self):
         """The converse. Two row types, two authorities, neither substitutable."""
@@ -1327,9 +1393,9 @@ class TerminalExemptionRemovedTest(unittest.TestCase):
             self.touch(f"verdicts/SUBJ-r{rnd}-reviewer.md")
         proc = self.go(self.ledger(self.row("subj", "r3")),
                        "--next", "SUBJ-full-diff-reviewer")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("ROUND_BUDGET_EXHAUSTED",
-                      {e["kind"] for e in findings(proc)["errors"]}, proc.stdout)
+                      {e["kind"] for e in findings(proc)["warnings"]}, proc.stdout)
 
     def test_a_second_terminal_row_for_one_subject_keeps_the_first(self):
         self.touch("verdicts/SUBJ-r1-reviewer.md")
@@ -1462,8 +1528,8 @@ class TerminalExemptionRemovedTest(unittest.TestCase):
             [sys.executable, str(SCRIPT), str(self.ws), "--json"],
             capture_output=True, text=True,
         )
-        self.assertEqual(capped.returncode, 1, capped.stdout + capped.stderr)
-        self.assertIn("ROUND_CAP", {e["kind"] for e in findings(capped)["errors"]}, capped.stdout)
+        self.assertEqual(capped.returncode, 0, capped.stdout + capped.stderr)
+        self.assertIn("ROUND_CAP", {e["kind"] for e in findings(capped)["warnings"]}, capped.stdout)
 
     # --- F3: forging the ledger costs more than `git init` ------------------------------
 
@@ -1488,7 +1554,7 @@ class TerminalExemptionRemovedTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 1, proc.stdout)
         kinds = {e["kind"] for e in findings(proc)["errors"]}
         self.assertIn("GRANTS_FILE_UNTRACKED", kinds, proc.stdout)
-        self.assertIn("ROUND_CAP", kinds, proc.stdout)
+        self.assertIn("ROUND_CAP", {w["kind"] for w in findings(proc)["warnings"]}, proc.stdout)
 
     def test_committing_inside_the_callers_own_repository_does_not_help(self):
         """The escalation of the case above: `git commit` is one more command, not a review."""
@@ -1565,12 +1631,12 @@ class NonProseVerdictIsAnErrorTest(unittest.TestCase):
         kinds = [e["kind"] for e in findings(proc)["errors"]]
         self.assertEqual(kinds.count("NON_PROSE_VERDICT"), 3, proc.stdout)
 
-    def test_the_md_control_still_refuses_so_the_extension_now_costs_nothing_either_way(self):
+    def test_md_verdicts_warn_on_spend_while_non_prose_verdicts_stay_hard(self):
         for n in (1, 2, 3):
             self.touch(f"verdicts/SUBJ-r{n}-reviewer.md")
         proc = run(self.ws, "--next", "SUBJ-r4-reviewer")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        self.assertIn("ROUND_BUDGET_EXHAUSTED", {e["kind"] for e in findings(proc)["errors"]})
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("ROUND_BUDGET_EXHAUSTED", {e["kind"] for e in findings(proc)["warnings"]})
 
     def test_the_error_does_not_charge_the_round_it_names(self):
         """THE HAZARD, named at the gate: promote it, do NOT charge it into `charged`."""
@@ -1696,9 +1762,9 @@ class TerminalSpendIsRecordedInTheLedgerTest(unittest.TestCase):
         g = self.ledger(self.row("subjx", "terminal"),
                         self.row("subjx", "terminal-spent"))
         proc = run(self.ws, "--grants", str(g), "--next", "SUBJX-full-diff-reviewer")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         f = findings(proc)
-        self.assertIn("ROUND_BUDGET_EXHAUSTED", {e["kind"] for e in f["errors"]}, proc.stdout)
+        self.assertIn("ROUND_BUDGET_EXHAUSTED", {e["kind"] for e in f["warnings"]}, proc.stdout)
         kinds = {w["kind"] for w in f["warnings"]}
         self.assertIn("TERMINAL_PASS_ALREADY_SPENT", kinds, proc.stdout)
         self.assertNotIn("TERMINAL_PASS_APPLIED", kinds, proc.stdout)
@@ -1708,17 +1774,23 @@ class TerminalSpendIsRecordedInTheLedgerTest(unittest.TestCase):
         g = self.ledger(self.row("subjx", "terminal-spent"),
                         self.row("subjx", "terminal"))
         proc = run(self.ws, "--grants", str(g), "--next", "SUBJX-full-diff-reviewer")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertNotIn("TERMINAL_PASS_APPLIED",
                          {w["kind"] for w in findings(proc)["warnings"]}, proc.stdout)
+
+        self.assertIn("ROUND_BUDGET_EXHAUSTED",
+                      {w["kind"] for w in findings(proc)["warnings"]})
 
     def test_a_terminal_spent_row_alone_authorises_nothing_and_breaks_nothing(self):
         self.spend_workspace()
         g = self.ledger(self.row("subjx", "terminal-spent"))
         proc = run(self.ws, "--grants", str(g), "--next", "SUBJX-full-diff-reviewer")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertNotIn("GRANT_LINE_MALFORMED",
                          {w["kind"] for w in findings(proc)["warnings"]}, proc.stdout)
+
+        self.assertIn("ROUND_BUDGET_EXHAUSTED",
+                      {w["kind"] for w in findings(proc)["warnings"]})
 
     def test_an_applied_pass_prints_the_exact_line_to_append(self):
         self.spend_workspace()
@@ -1746,11 +1818,14 @@ class TerminalSpendIsRecordedInTheLedgerTest(unittest.TestCase):
         with g.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
         second = run(self.ws, "--grants", str(g), "--next", "SUBJX-full-diff-reviewer")
-        self.assertEqual(second.returncode, 1, second.stdout)
+        self.assertEqual(second.returncode, 0, second.stdout)
         f = findings(second)
         self.assertNotIn("GRANT_LINE_MALFORMED", {w["kind"] for w in f["warnings"]}, second.stdout)
         self.assertIn("TERMINAL_PASS_ALREADY_SPENT", {w["kind"] for w in f["warnings"]},
                       second.stdout)
+
+        self.assertIn("ROUND_BUDGET_EXHAUSTED",
+                      {w["kind"] for w in findings(second)["warnings"]})
 
     def test_a_recorded_spend_is_in_the_receipt_even_with_no_matching_terminal_row(self):
         """r1-B2: `terminal_spent` was LOCAL, so a spend with a mistyped subject key appeared
@@ -1818,7 +1893,7 @@ class ReceiptTest(unittest.TestCase):
         return track(path)
 
     def busy(self) -> subprocess.CompletedProcess:
-        """A workspace that emits several DISTINCT warnings plus a grant and an error."""
+        """A workspace that emits several DISTINCT warnings plus a legacy grant."""
         self.touch("verdicts/T50-r1-reviewer.md")
         self.touch("verdicts/T50-r2-reviewer.md")
         self.touch("verdicts/T50-r3-reviewer.md")
@@ -2043,10 +2118,10 @@ class VerdictLineCapTest(unittest.TestCase):
         """Exhaustive by design: it excuses a LENGTH. It is not a round grant."""
         self.touch("verdicts/T71-r3-reviewer.md", self.OVER)
         proc = self.go(self.ledger(self.row("t71", "T71-r3-reviewer.md")))
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        kinds = {e["kind"] for e in findings(proc)["errors"]}
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        kinds = {e["kind"] for e in findings(proc)["warnings"]}
         self.assertIn("ROUND_CAP", kinds)
-        self.assertNotIn("VERDICT_OVER_CAP", kinds)
+        self.assertNotIn("VERDICT_OVER_CAP", {e["kind"] for e in findings(proc)["errors"]})
 
     def test_an_unattributed_row_grants_nothing(self):
         """The audit trail is the row's whole claim to authority."""
@@ -2215,17 +2290,18 @@ class AdvisoryPostureTest(unittest.TestCase):
             with self.subTest(needle=needle):
                 self.assertIn(needle, doc)
 
-    def test_round_cap_and_budget_exhausted_keep_their_error_severity(self):
-        """Advisory describes what the tool can achieve against its operator, not a downgrade."""
-        for kind in ("ROUND_CAP", "ROUND_BUDGET_EXHAUSTED", "BANNED_CLASS",
+    def test_numeric_recovery_warnings_preserve_non_numeric_error_severity(self):
+        """Only numerical count findings change severity; semantic and authority stops remain."""
+        for kind in ("BANNED_CLASS", "TERMINAL_PASS_SPENT", "GRANTS_FILE_UNREADABLE",
                      "GRANTS_FILE_UNTRACKED", "NON_PROSE_VERDICT", "VERDICT_OVER_CAP"):
             with self.subTest(kind=kind):
                 appends = re.findall(r"(errors|warnings)\.append\(\{[^}]*?\"kind\": \"" + kind
                                      + r"\"", self.SOURCE, re.DOTALL)
                 self.assertEqual(appends, ["errors"], f"{kind} must be raised as an ERROR")
-        for kind in ("NON_PROSE_UNCLASSIFIED", "TERMINAL_PASS_APPLIED", "GRANT_APPLIED",
+        for kind in ("ROUND_CAP", "ROUND_BUDGET_EXHAUSTED", "NON_PROSE_UNCLASSIFIED",
+                     "TERMINAL_PASS_APPLIED", "GRANT_APPLIED",
                      "STALE_GRANT", "TERMINAL_PASS_ALREADY_SPENT", "FAMILY_SPEND",
-                     "VERDICT_GRANT_APPLIED", "DUPLICATE_VERDICT_GRANT"):
+                     "VERDICT_GRANT_APPLIED", "DUPLICATE_VERDICT_GRANT", "GRANT_LINE_MALFORMED"):
             with self.subTest(kind=kind):
                 appends = re.findall(r"(errors|warnings)\.append\(\{[^}]*?\"kind\": \"" + kind
                                      + r"\"", self.SOURCE, re.DOTALL)
@@ -2471,8 +2547,8 @@ class TestJudgeIsEvidenceTest(unittest.TestCase):
             self.touch(f"verdicts/T21-r{r}-test-judge.md")
             self.touch(f"verdicts/T21-r{r}-reviewer.md")
         proc = run(self.ws, "--next", "T21")
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        refused = [e for e in findings(proc)["errors"]
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        refused = [e for e in findings(proc)["warnings"]
                    if e["kind"] == "ROUND_BUDGET_EXHAUSTED"]
         self.assertEqual(len(refused), 1, proc.stdout)
         self.assertEqual(refused[0]["round"], 2)

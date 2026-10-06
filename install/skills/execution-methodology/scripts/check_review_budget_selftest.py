@@ -136,15 +136,15 @@ def case_kind_before_the_marker_is_read() -> None:
         tmp = Path(td)
 
         code, payload = run(workspace(tmp / "review", "T1-security-r3.md"))
-        check("1a a REVIEW kind before the marker spends rounds and trips the cap",
-              "ROUND_CAP" in kinds(payload, "errors"), str(payload)[:300])
+        check("1a a REVIEW kind before the marker spends rounds and warns at the threshold",
+              "ROUND_CAP" in kinds(payload, "warnings") and code == 0, str(payload)[:300])
         check("1b and it is not reported as an unrecognised kind",
               "UNCLASSIFIED_ROUND_ARTIFACT" not in kinds(payload, "warnings"),
               str(payload.get("warnings"))[:300])
 
         code, payload = run(workspace(tmp / "work", "T1-fix-r3.md"))
         check("1c a WORK kind at the same position and round spends nothing",
-              "ROUND_CAP" not in kinds(payload, "errors"), str(payload)[:300])
+              "ROUND_CAP" not in kinds(payload, "warnings"), str(payload)[:300])
         check("1d so the pair distinguishes a reader from a charger", code == 0, f"got {code}")
 
         code, payload = run(workspace(tmp / "clean", "T1-review-r1.md", "T1-r2-rereview.md"))
@@ -158,25 +158,25 @@ def case_the_kind_is_not_part_of_the_subject() -> None:
         tmp = Path(td)
         # Two rounds already spent on ONE artifact, written with the kind in the name. If the kind
         # leaked into the subject key these would be two subjects of one round each, and a third
-        # round would be granted.
+        # spend warning would disappear.
         root = workspace(tmp, "T1-review-r1.md", "T1-security-r2.md")
         code, payload = run(root, "--next", "T1")
         check("2a two kinds on one artifact are ONE subject with its budget spent",
-              "ROUND_BUDGET_EXHAUSTED" in kinds(payload, "errors"), str(payload)[:400])
-        check("2b and the third round is refused before dispatch, not after it", code == 1,
+              "ROUND_BUDGET_EXHAUSTED" in kinds(payload, "warnings"), str(payload)[:400])
+        check("2b numerical spend warns before dispatch without requiring founder permission", code == 0,
               f"got {code}")
 
-        # The negative half: one round spent leaves one, so the refusal above is not unconditional.
+        # The negative half: one round spent leaves one, so the warning above is not unconditional.
         one = workspace(tmp / "one", "T1-review-r1.md")
         code, payload = run(one, "--next", "T1")
         check("2c a subject with one round left is still dispatchable",
-              "ROUND_BUDGET_EXHAUSTED" not in kinds(payload, "errors"), str(payload)[:300])
+              "ROUND_BUDGET_EXHAUSTED" not in kinds(payload, "warnings") and code == 0, str(payload)[:300])
 
         # And the same two rounds written the OTHER way round agree with each other.
         other = workspace(tmp / "other", "T1-r1-review.md", "T1-r2-security.md")
         code, payload = run(other, "--next", "T1")
         check("2d the two written orders reach the same budget for the same artifact",
-              "ROUND_BUDGET_EXHAUSTED" in kinds(payload, "errors"), str(payload)[:300])
+              "ROUND_BUDGET_EXHAUSTED" in kinds(payload, "warnings"), str(payload)[:300])
 
 
 def case_family_spend_is_visible_and_advisory() -> None:
@@ -277,8 +277,10 @@ def case_the_verdict_cap_binds_verdicts_and_never_evidence() -> None:
         root = sized(tmp / "still-charged", over, "T1-r1-reviewer.md")
         (root / "reviews" / "T1-r2-reviewer.md").write_text("finding\n" * over, encoding="utf-8")
         code, payload = run(root, "--next", "T1")
-        check("4m an over-cap verdict still spends its round",
-              "ROUND_BUDGET_EXHAUSTED" in kinds(payload, "errors"), str(payload)[:400])
+        check("4m an over-cap verdict still spends its round and retains its hard length error",
+              "ROUND_BUDGET_EXHAUSTED" in kinds(payload, "warnings")
+              and "VERDICT_OVER_CAP" in kinds(payload, "errors") and code == 1,
+              str(payload)[:400])
         check("4n and the receipt reports the length of every verdict it measured, not only the "
               "breaches",
               len(payload.get("receipt", {}).get("verdict_lines", {})) == 2,
@@ -354,7 +356,7 @@ def main() -> int:
         print(f"FAIL — {len(failures)} case(s): {', '.join(failures)}")
         return 1
     print("PASS — the kind is read where it is written, one artifact keeps one budget, and the "
-          "cap binds the verdict without touching the evidence")
+          "numerical threshold warns while the length cap binds the verdict without touching evidence")
     return 0
 
 

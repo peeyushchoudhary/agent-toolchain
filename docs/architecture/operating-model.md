@@ -39,9 +39,23 @@ assumed. That is the entire reason the persona pool exists, and why its judging 
 structurally unable to edit — see [agent-personas.md](../agents/agent-personas.md).
 
 **Design and plan receive independent review before approval.** Use the fresh read-only reviewer
-and the frozen criteria required by the execution methodology. Budgets bound the review process;
-they do not turn an unresolved defect into a passing verdict. The same authority defines review
-width, finding classification, correction, scoped rereview and terminal states.
+and the frozen criteria required by the execution methodology. Numeric review spend prompts
+technical diagnosis; it does not require founder permission by itself or turn an unresolved defect
+into a passing verdict. The same authority defines review width, finding classification,
+correction, scoped rereview and terminal states.
+
+**Approved execution continues through completion by default.** Checkpoints, elapsed time and
+session changes do not revoke authority. Explicit deadlines, actual required-resource exhaustion,
+revocation and consequential choices stop affected work. Substantive product, UX, design and plan
+approvals remain founder gates; external actions retain their separate grants.
+
+**A failed check blocks acceptance and integration.** The chief routes unchanged technical
+corrections to the existing owner under approved recovery in Design, Plan and Implementation.
+Repairing an unchanged safety invariant remains Full-lane work with independent security review.
+Changing that invariant or a durable boundary requires founder authority. Necessary companion
+paths require a fresh reviewed plan amendment before writes; equivalent or stronger verification
+requires independent confirmation before evidence admission. The exact boundary and proof rules
+remain in the execution methodology and its execution loop.
 
 **Context switches across projects are constant.** Assume no memory of another project. This is why
 every repo carries its own route (`docs/agents/README.md`) and its own `docs/agents/lessons.md`,
@@ -58,9 +72,10 @@ facts, and the stop condition. Both lanes reference its criteria; full-lane card
 Before implementation or a review repair, classify the finding and name the capsule criterion or
 invariant advanced plus the expected observable delta. A vague request produces a proposed capsule
 for approval. Ambiguity that changes acceptance, safety, authority, or an irreversible boundary
-returns to the appropriate human gate; bounded non-material ambiguity is recorded as an assumption.
+returns to the appropriate founder gate; bounded non-material ambiguity is recorded as an assumption.
 The detailed admission and repair rules live in the execution methodology. See
-[D14](../decisions/decisions.md#d14--bounded-repairs-and-review).
+[D27](../decisions/decisions.md#d27--approved-completion-and-technical-recovery), which supersedes
+D14's automatic return for unchanged technical recurrence.
 
 ## Deliberately not done
 

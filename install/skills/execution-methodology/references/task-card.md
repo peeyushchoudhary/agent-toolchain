@@ -130,6 +130,13 @@ of active concurrency. Conflicting mutable service/runtime state uses the plan's
 Be exact. A glob that accidentally covers a shared file will serialize the whole plan or, worse,
 will not.
 
+For a necessary companion outside this boundary, stop before writing it and send its exact path,
+criterion-linked reason, and observed trigger to the chief. The loop's companion-path amendment
+requires fresh independent scoped PASS, applicable security review, plan/card regeneration, and
+readmission before the added write. Preserve this card's stable identity, prior dispatch and causal
+lineage. A forbidden path or an earlier undeclared write remains a violation; a later amendment
+cannot authorize it retroactively.
+
 ### `context_acquisition`
 
 A numbered list of things the agent **does**, not a description of context it should have. Prose
@@ -225,6 +232,12 @@ flattens mappings rather than decoding processes. To migrate, move a leading dir
 `cwd`, make the executable and every argument separate `argv` items, and split multiple processes
 into separate entries. For indivisible orchestration, invoke a repository script directly. Run
 strict pre- and post-validation after conversion; there is no legacy mode.
+
+An equal or stronger command/proof correction follows the independent proof-owner/test-judge
+amendment in `execution-loop.md`. Preserve failed/skipped receipts and all required assertions,
+coverage, gates, freshness and evidence identities; the writer or chief cannot certify its own
+substitution. Changed relevant inputs invalidate affected results. Weaker or unprovably equivalent
+proof requires its governing decision rather than a silent card edit.
 
 ```yaml
 tests:
@@ -411,6 +424,10 @@ exact `--rerun-tasks` is the sole freshness evidence; `cleanTest` does not quali
 >
 > **Otherwise RECORD it** in the register at `record_to` and carry on with the task.
 
+If a necessary companion is outside OWNED but remains within the approved feature/module seam,
+send the exact-path amendment request above before writing; FIX applies only after independent
+PASS and readmission make it owned. This does not widen the card at discovery time.
+
 All three read fields already on the card, so the rule costs **zero model calls and zero extra
 reading**. Question 1 is a path comparison — `validate_card.py CARD --repo REPO --phase mid` answers
 it against your actual working tree. Question 2 is a lookup in a list you have already read.
@@ -424,7 +441,9 @@ three cards subdividing rather than closing. A human stopped it by hand with a s
 **Fixing every found issue with no floor did not converge.** This is that floor, applied at
 find-time instead of afterwards by a person.
 
-**Safety findings bypass the rule.** They always have; nothing here changes that.
+**Safety findings bypass the rule.** Route an unchanged approved security/privacy invariant to
+its technical owner in Full lane with independent security review. The label alone is not a
+founder-permission request; changing that invariant or promise requires founder authority.
 
 **A RECORD is not a dropped finding.** It becomes an entry in the milestone's `## Deferred`
 register — six keyed lines — where `spec_check.py` rule E lints it and refuses to let the owning
@@ -460,8 +479,11 @@ stop_conditions:
 Also stop when a repair cannot name the frozen criterion/invariant it advances and its observable
 delta; when proof machinery would acquire durable authority, persistence, compatibility, recovery,
 or a reusable API; or when the same causal mechanism recurs after one independently reviewed
-repair. Distinct safety findings do not share a counter and may still block release. Budgets trigger
-human review only and never change a gate verdict.
+repair. Hand recurrence to the chief's A/B/C recovery rather than repeating the same repair;
+unresolved defects remain INCOMPLETE. Distinct safety findings do not share a counter and may still
+block release. Numeric review spend triggers technical diagnosis, never a founder transaction by
+itself or a changed gate verdict. Initial founder gates, material choices, unavailable permissions
+or required resources, and the stop after C failure remain binding.
 
 **A stop is not the answer to an unrelated finding.** Run the fix/record rule above first: most
 findings that feel like a stop are a RECORD, and stopping the task to report one costs a dispatch

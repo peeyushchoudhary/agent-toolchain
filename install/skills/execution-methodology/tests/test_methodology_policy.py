@@ -35,10 +35,12 @@ class CurrentPolicyTest(unittest.TestCase):
         self.assertIn("Full lane", self.loop)
 
     def test_review_is_one_full_diff_then_one_scoped_correction_review(self) -> None:
+        normalized = " ".join(self.current.split())
         for phrase in ("one initial full task-diff review", "one scoped correction review",
                        "independent executable confirmation"):
             with self.subTest(phrase=phrase):
-                self.assertIn(phrase, self.current)
+                self.assertIn(phrase, normalized)
+        self.assertIn("correction review per causal approach", normalized)
         self.assertNotIn("five rounds", self.current.lower())
         self.assertNotIn("routed by score", self.current.lower())
 
@@ -97,7 +99,7 @@ class CurrentPolicyTest(unittest.TestCase):
             "Full lane",
             "state=current` and `ready=true",
             "Reuse successful evidence only while its referent, command, runtime, and environment inputs are unchanged",
-            "up to six elapsed hours",
+            "execution continues through approved completion",
             "at most two file-disjoint builders",
             "one heavy local gate at a time",
             "Stage ownership",
@@ -111,8 +113,9 @@ class CurrentPolicyTest(unittest.TestCase):
             "founder is the approval authority at all three gates",
             "controller is the reader that records and applies the explicit decision",
             "Missing approval is never inferred from silence or elapsed time",
-            "same-cause design recurrence returns to Gate 1",
-            "same-cause plan recurrence returns to Gate 2",
+            "Technical corrections in Design, Plan, and Implementation use the cause-based recovery",
+            "Initial design/UX and plan approvals remain founder gates",
+            "a substantive new design or plan choice returns to its owning founder gate",
             "Before repair, classify every finding",
             "current-scope defect",
             "harness defect",
@@ -193,18 +196,23 @@ class CurrentPolicyTest(unittest.TestCase):
         self.assertIn("only when gate 2 explicitly grants local commit authority", method)
         self.assertIn("checkpoint and pause before any further selection", method)
 
-    def test_ordinary_resource_envelope_is_bounded_and_quality_preserving(self) -> None:
+    def test_ordinary_authority_runs_through_completion_and_real_resources_still_stop(self) -> None:
         method = " ".join(self.methodology.split()).lower()
         for phrase in (
-            "up to six elapsed hours",
+            "execution continues through approved completion",
             "at most two file-disjoint builders",
             "one heavy local gate at a time",
             "unless gate 2 records another envelope",
-            "budget exhaustion is a pause boundary",
+            "an explicit founder deadline",
+            "actual exhausted quota, disk, memory, credentials, or required service stops affected work",
+            "session changes do not expire authority",
+            "numeric review spend triggers technical diagnosis",
             "never weakens quality",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, method)
+        self.assertNotIn("up to six elapsed hours", method)
+        self.assertNotIn("budget exhaustion is a pause boundary", method)
 
     def test_weekly_and_ad_hoc_observation_has_one_owner_and_no_approval_power(self) -> None:
         method = " ".join(self.methodology.split())

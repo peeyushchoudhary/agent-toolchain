@@ -18,7 +18,8 @@ across four rounds of hardening. Hardening stopped. What the tool is FOR, stated
     spend is actually adjudicated. Nothing below changes that, and no future edit to this file
     can, because the seam is the design and not a defect awaiting a fifth repair.
 
-An RC of 0 therefore means "nothing this instrument can see is wrong". It is not a certificate.
+An RC of 0 means no hard finding was observed; recovery warnings may remain. It is not a
+certificate of semantic PASS, acceptance or authority to recover.
 
 Run by the orchestrator BEFORE every review dispatch, against the plan workspace, naming the
 subject about to be dispatched:
@@ -81,12 +82,17 @@ round marker never enters `terminals`, so TERMINAL_PASS_SPENT cannot see it. Tha
 of "a round marker makes it a scoped round", which is deliberate, and it is the mechanism behind
 F-C above. Not separately fixed.
 
+Numeric recovery warnings (exit 0 unless a separate hard error is present):
+  * ROUND_BUDGET_EXHAUSTED — a subject named by --next has spent its numerical round budget.
+  * ROUND_CAP — a subject carries a round marker above --max-round without a matching legacy
+                grant. Counts, keys, grants and their attribution remain visible.
+These warnings trigger technical diagnosis through the existing causal recovery procedure. A
+number alone requires no founder permission and grants no recovery, semantic PASS or acceptance.
+Initial design/plan decisions, substantive changes and exhausted causal recovery retain their
+existing authority. Legacy grant and terminal records remain compatible; they do not define the
+current recovery policy.
+
 Errors (exit 1) — the dispatch must not proceed:
-  * ROUND_BUDGET_EXHAUSTED — a subject named by --next has already spent its round budget. This
-                    is the pre-dispatch refusal: round three is refused before it exists.
-  * ROUND_CAP     — any subject in the workspace carries a round marker above --max-round, and no
-                    grant line names that exact (subject, round). The standing scan: it catches a
-                    budget already breached, whoever breached it.
   * BANNED_CLASS  — a banned artifact class is present: diff/patch snapshots, restatement
                     packets, or files recording a dispatch that produced nothing
                     (invalid-attempt / no-verdict / no-progress). Those are ledger lines.
@@ -126,6 +132,10 @@ Errors (exit 1) — the dispatch must not proceed:
                     Rename it `.md` if it is a verdict, or give it a work kind if it is evidence.
                     THE ERROR IS THE WHOLE REPAIR: the round is not charged, so this does not
                     silently spend a budget either.
+
+LEGACY GRANT POLICY — retained attribution and history, not current numeric stop authority.
+The refusal descriptions in this section describe the former policy; current numerical findings
+are recovery warnings as stated above.
 
 THE ROUND GRANT IS DATA THIS TOOL READS (council ruling 2026-08-20, `bdcb7369`). A founder may
 grant one subject one round beyond the cap. That decision used to have no representation the
@@ -261,7 +271,7 @@ Warnings (exit 0, reported) — process-regression signals for the milestone rec
                     line can state the total, so this one does. Measured: a code-formatter
                     prerequisite in one real workspace holds 13 subject keys, 51 charged
                     artifacts and rounds r1..r15 for ONE artifact under review. ADVISORY — it
-                    raises no error, changes no exit code, and the `--next` refusal does not
+                    raises no error, changes no exit code, and the `--next` warning does not
                     consult it. Subject derivation is UNCHANGED, so no grant key is re-keyed.
   * WORKSPACE_BUDGET — workspace exceeds ~50 files or ~500 KB.
 
@@ -972,11 +982,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("workspace", type=Path)
     ap.add_argument("--max-round", type=int, default=2,
-                    help="the round budget (default 2). NOT the grant vehicle: it is global, so "
-                         "raising it here raises it for every subject in the invocation. Record a "
-                         "founder grant in the grants file instead.")
+                    help="the numerical review-spend warning threshold (default 2); it applies "
+                         "to every subject in the invocation and grants no recovery authority.")
     ap.add_argument("--next", action="append", default=[], metavar="SUBJECT",
-                    help="subject about to be dispatched; refused if its round budget is spent")
+                    help="subject about to be dispatched; reports a recovery warning if its "
+                         "numerical round budget is spent")
     ap.add_argument("--grants", type=Path, default=None, metavar="PATH",
                     help=f"tracked round-grant ledger (default {DEFAULT_GRANTS}). A line may only "
                          "SUPPRESS ROUND_CAP for the exact (subject, round) pair it names.")
@@ -1272,11 +1282,11 @@ def main() -> int:
         next_stem = Path(raw).stem
         # A terminal DISPATCH, on the same definition the walk uses: the marker and no round
         # marker. `--next SUBJ-r4-full-diff-reviewer` is a fourth scoped round wearing the token
-        # and is refused below like any other.
+        # and receives the numerical recovery warning below like any other scoped round.
         is_terminal = bool(TERMINAL_RE.search(next_stem)) and not ROUND_RE.search(next_stem)
-        # NO ROUND GRANT IS CONSULTED HERE, deliberately. A round grant suppresses the standing
-        # scan so the WORKSPACE is not blocked by a round already granted and already taken; it
-        # never hands the granted subject another dispatch. Reading round grants here would turn a
+        # NO ROUND GRANT IS CONSULTED HERE, deliberately. A legacy round grant suppresses its
+        # standing scan warning and never suppresses the --next recovery warning. It grants
+        # no new dispatch or recovery authority. Reading round grants here would turn a
         # suppression into a cap raise, which is the one thing the ruling forbids. A `terminal`
         # row is different in kind and is read: it authorises a DISPATCH and nothing else, which
         # is why it is read only for a name carrying no round marker. How often it is taken is
@@ -1334,22 +1344,24 @@ def main() -> int:
                            f"LINE TO {grants_path} SO THE SPEND SURVIVES:  {spend_line}",
                 })
                 excused = True
-            # NO `else`. A terminal name with no row buys NOTHING: the ordinary refusal below
-            # runs, which is the entire point of removing the exemption.
+            # NO `else`. A terminal name with no row suppresses nothing: the ordinary numerical
+            # warning below remains. Terminal history creates no new recovery authority.
         if not excused and spent >= args.max_round:
-            errors.append({
+            warnings.append({
                 "kind": "ROUND_BUDGET_EXHAUSTED", "subject": subj, "round": spent, "path": rel,
-                "why": f"subject has spent {spent} of {args.max_round} round(s); refuse this "
-                       "dispatch and escalate to the owning gate with the escalation brief",
+                "why": f"subject has spent {spent} of {args.max_round} round(s); diagnose the "
+                       "technical cause through the existing causal recovery procedure. This "
+                       "count alone requires no founder permission and grants no recovery "
+                       "authority, semantic PASS or acceptance",
             })
 
     for subj, by_round in sorted(charged.items()):
         over = sorted(r for r in by_round if r > args.max_round)
         if not over:
             continue
-        # EVERY over-cap round must be named, or the subject still blocks. A grant suppresses the
+        # EVERY over-cap round must be named, or the subject still warns. A grant suppresses the
         # pair it names and nothing else, so a subject carrying r3 and r4 with only r4 granted is
-        # still capped — otherwise one line at the top round would confer a pass on lower rounds
+        # still warned — otherwise one line at the top round would suppress lower rounds
         # no founder decision ever mentions, and under the known subject MERGE it would confer it
         # across a lineage the line cannot even see.
         ungranted = [r for r in over if (subj, r) not in grants]
@@ -1366,19 +1378,21 @@ def main() -> int:
         if not ungranted:
             continue
         top = max(over)
-        errors.append({
+        warnings.append({
             "kind": "ROUND_CAP", "subject": subj, "round": top,
             "path": by_round[max(ungranted)], "ungranted": ungranted,
             "why": f"round(s) {', '.join(f'r{r}' for r in ungranted)} exceed the budget of "
                    f"{args.max_round} and are named by no grant; "
-                   "escalate to the owning gate — do not dispatch",
+                   "diagnose the technical cause through the existing causal recovery procedure. "
+                   "This count alone requires no founder permission and grants no recovery "
+                   "authority, semantic PASS or acceptance",
         })
 
     # ------------------------------------------------------------------ THE FAMILY VIEW
     # ADVISORY BY CONSTRUCTION, and that is not an accident of implementation. Founder gate ruling
     # 2026-08-20 (module docstring, first line): this instrument makes spend VISIBLE and does not
     # bind its operator. So the family spend is a WARNING and appears in the receipt; it raises no
-    # error, changes no exit code, and is NOT consulted by the `--next` refusal above. Measured
+    # error, changes no exit code, and is NOT consulted by the `--next` warning above. Measured
     # over the 59 real workspaces: NO workspace changes its exit code because of this block.
     #
     # Making the true number visible is the whole job. The per-subject `rounds_charged` map is left
@@ -1577,7 +1591,8 @@ def main() -> int:
         "warnings": warnings,
         "errors": errors,
         "advisory": "this instrument reports round spend; it does not bind the party that runs "
-                    "it. RC=0 means nothing it can see is wrong, not that nothing is wrong. The "
+                    "it. RC=0 means no hard finding was observed; recovery warnings may remain. "
+                    "A numerical count grants no recovery authority, semantic PASS or acceptance. The "
                     "binding control is a human reading this receipt at the merge gate. Known-open "
                     "bypasses are named in the module docstring and are not defects awaiting a fix",
     }
