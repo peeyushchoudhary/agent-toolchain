@@ -18,8 +18,9 @@ This plan uses the v6 plan format it introduces. v6 does not exist yet, so the c
 Claude Code session) executes it by hand, using each new check as soon as the task delivering it
 lands.
 
-**Branch.** `v6-lean-execution`, local commits only. Push, merge, global installation and
-private-file edits are not granted; see [Grants requested](#grants-requested).
+**Branch.** `v6-lean-execution`. Local commits are granted, and pushing this branch once M3 is
+READY. Merge, global installation and private-file edits are not granted; see
+[Grants requested](#grants-requested).
 
 **Commit rules.** Every task commit:
 - leaves the per-task gate runnable and green;
@@ -107,12 +108,12 @@ facts only: that the routes and paths named in the skill exist, and the word cei
 **Style.** Write calmly: give the reason for each rule and use no capital-letter emphasis.
 
 ### [ ] T3 — personas and renderer
-- writes: install/skills/agent-personas/**
+- writes: install/skills/agent-personas/**, install/skills/execution-methodology/scripts/sync_methodology.py, install/skills/execution-methodology/scripts/sync_methodology_selftest.py, install/skills/execution-methodology/scripts/runtime-status.schema.json, install/skills/execution-methodology/tests/test_runtime_status.py, install/skills/execution-methodology/tests/test_sync_preview.py, install/skills/execution-methodology/tests/test_onboarding_adoption.py
 - needs: T2
 - covers: AC-8, AC-11
 - risk: safety
 - builder: judgement
-- tests-may-change: install/skills/agent-personas/tests/**
+- tests-may-change: install/skills/agent-personas/tests/**, install/skills/execution-methodology/tests/test_runtime_status.py, install/skills/execution-methodology/tests/test_sync_preview.py, install/skills/execution-methodology/tests/test_onboarding_adoption.py
 
 **Pool.** It becomes `builder`, `reviewer` (with design, plan, boundary, data and acceptance
 lenses), `security-reviewer`, `advisor`, and the non-spawnable `chief` routing profile. Each is at
@@ -340,5 +341,12 @@ secret and identifier behaviour; the security reviewer confirms it.
 - 2026-10-06: format-only correction after approval. Proof entries are now exact commands, or the
   `full_gate`/`e2e` tokens, so that `goal.py lint` can run them. No scope or criterion changed. The
   approval tag moved to this commit; reported to the founder at merge.
+
+- 2026-10-07: amendment before T3 (founder-approved). `sync_methodology.py` hard-codes the v5.1
+  persona pool and `ROSTER`, so T3 could not delete them without breaking its tests. T3 now also
+  deletes `sync_methodology.py`, its selftest, `runtime-status.schema.json`, `test_runtime_status.py`,
+  `test_sync_preview.py` and `test_onboarding_adoption.py`, all previously in T5's scope. The
+  Branch paragraph now matches the granted push. No criterion or goal scope changed. The approval
+  tag moved to this commit, and T1 and T2 were replayed on top of it.
 
 ## Queue
