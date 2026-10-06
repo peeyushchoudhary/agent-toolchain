@@ -581,8 +581,22 @@ the task; that decision belongs to plan review instead of an arbitrary scheduler
 
 Before Gate 2, plan the whole coherent milestone batch: every member feature's required tasks,
 dependencies, write boundaries, focused/area proof, and final integrated gate. Record permitted
-operations, routine recovery, local commit authority, the resource envelope (which may run through
-milestone completion), and separately authorized external-action grants in the existing plan.
+operations, routine recovery, local commit authority, the resource envelope (through milestone
+completion by default), and separately authorized external-action grants in the existing plan.
+An explicit founder deadline overrides the completion default; actual exhausted required resources
+still stop affected work. Before Gate 2, trace actual production callers, companion tests/fixtures
+and generated outputs, runtime prerequisites, and executable focused/area and integrated commands.
+Technical-owner confirmation closes technical assumptions; it substitutes for no founder product
+or UX decision.
+
+The approved envelope includes necessary exact companion paths within the existing feature/module
+seam and independently confirmed equal or stronger proof corrections. Their amendment and
+readmission procedures belong to `execution-loop.md`; neither permits writing an undeclared path
+first or certifying one's own evidence substitution. Initial design/UX and plan approvals remain
+founder gates. Technical correction and numeric review-spend diagnosis in Design and Plan use that
+same loop's A/B/C recovery, preserving failed verdicts and causal lineage; a substantive new choice
+still returns to the founder.
+
 Inspect the scheduler's `unplanned` output before autonomous admission; missing plans remain valid
 while drafting but must be closed before milestone execution begins. Task working trees and
 remaining-slot selection follow `execution-loop.md`; no second schedule is written here.

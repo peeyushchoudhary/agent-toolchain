@@ -169,3 +169,13 @@ stronger model, expert council or new recovery machinery; causal recovery retain
 Committed churn and workspace size measure their own units. Record context transfer, runtime and
 environment identities, waits and elapsed delivery separately through existing evidence. Reduced
 status prose or file churn alone does not prove faster delivery or more efficient handoffs.
+
+## 2026-10-06 — approval frequency must be checked against actual decisions
+
+A session audit found elapsed-time renewal, review-count exceptions, adjacent fixture repairs,
+and equivalent verification clarifications repeatedly becoming founder transactions. Completion
+authority was an opt-in while a six-hour fallback remained; the earlier autonomy change therefore
+did not remove the reported stop. A failed safety check must still block acceptance, but repairing
+an unchanged safety requirement is distinct from changing that requirement. Project overlays and
+narrow grants can require the observed stops even when the common autonomy prose sounds broader.
+These are audit findings for the owning authority rules, not new grants or changes to project pins.

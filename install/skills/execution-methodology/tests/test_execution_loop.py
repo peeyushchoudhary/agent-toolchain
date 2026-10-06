@@ -413,7 +413,8 @@ class DocumentedInterfaceTest(unittest.TestCase):
             "inside the existing write boundary",
             "recoverable tool input",
             "local commits only when gate 2 explicitly grants that operation",
-            "remaining time, quota, builder slots, and heavy-gate slots",
+            "actual quota, disk, memory, credentials, required services, builder slots, and heavy-gate slots",
+            "reserve closure time from observed durations only when the founder set an explicit deadline",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, normalized)
@@ -492,7 +493,9 @@ class DocumentedInterfaceTest(unittest.TestCase):
     def test_approved_authority_persists_and_is_rechecked_at_real_boundaries(self) -> None:
         normalized = " ".join(self.text.split()).lower()
         for phrase in (
-            "does not expire at a session or checkpoint boundary",
+            "lasts through approved completion by default",
+            "compaction, session changes, and checkpoints do not expire it",
+            "an explicit founder deadline",
             "recheck scope, frozen inputs, permissions, resources, and revocation state",
             "before an external action",
             "material scope or safety change",
@@ -503,7 +506,13 @@ class DocumentedInterfaceTest(unittest.TestCase):
     def test_causal_recovery_keeps_lineage_and_has_no_fourth_approach(self) -> None:
         normalized = " ".join(self.text.split()).lower()
         for phrase in (
+            "causal recovery in design, plan, and implementation",
+            "initial design/ux and plan approvals remain founder gates",
+            "substantive new design/plan choice returns to its owning gate even when approaches remain",
+            "one correction and one fresh scoped rereview",
+            "unresolved defects remain incomplete and cannot enter integration or acceptance",
             "approaches a and b",
+            "after a and b fail, before c",
             "same cause and finding lineage",
             "targeted expert council",
             "fresh independent pass",

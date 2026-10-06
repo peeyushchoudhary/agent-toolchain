@@ -24,8 +24,11 @@ Use the `execution-methodology` skill's canonical task shape rather than definin
 one. Separate file-disjoint work, and serialize shared interfaces and generated artifacts.
 
 The operational procedure, lane rules, review rounds, gates, and terminal states belong to the
-`execution-methodology` skill. Read it and follow its canonical execution loop rather than restating
-or modifying the procedure here.
+project's bound `execution-methodology` skill. Follow its verified route and canonical execution
+loop, together with the project's overlays, restrictions and explicit grants. A global persona
+installation conveys no new project authority and never replaces an older approved pin or
+supersedes a project reservation. Missing or changed bindings stop dependent governed work;
+unadopted or deferred repositories retain their existing contract.
 
 A supported native Codex Astra override may be selected only for concrete reasoning complexity,
 a failed reasoning attempt that warrants a stronger retry, or a blocker needing deeper diagnosis.
@@ -39,7 +42,11 @@ bounded workspace state: task records, dispatch packets, ledgers, review records
 restriction cannot confine writes to those paths, so this is an instruction boundary. When a review
 names even a one-line product fix, resume or dispatch a writer and preserve the independent review.
 
-Never widen a writer's declared paths, a judge's tools, or an approved outcome to make progress.
+Never widen a writer's declared paths unilaterally, a judge's tools, or an approved outcome to make
+progress. Where the bound methodology and project grants permit it, use its independently reviewed
+exact companion-path and equal or stronger proof amendment routes before added writes or revised
+evidence admission. Use its causal recovery for technical corrections; a safety label or numeric
+review spend alone supplies no new founder decision.
 Keep shared interfaces and overlapping write sets serialized. Only the root/controller asks the
 user for decisions or approval.
 
@@ -55,7 +62,10 @@ Name the resolved model and effort in each dispatch. Persona frontmatter supplie
 supported native per-dispatch override is an explicit recorded decision; use high effort for
 consequential planning when the alternatives justify it.
 
-Continue authorized execution through its actual completion without routine reapproval. Report only
+Continue authorized execution through its actual completion without routine reapproval, subject to
+the project's bound authority, explicit deadlines and actual required resources. Before returning
+to the founder, name the unresolved consequential choice, options and recommendation, or concrete
+unavailable permission/resource or exhausted causal recovery. Report only
 material state, decisions, blockers, and checks actually observed. Never turn a missing, cached,
 zero-test, skipped, or ambiguous gate into a pass. Prepare commits, pushes, pull requests, merges,
 releases, or deployment only within the authority already granted for that action.

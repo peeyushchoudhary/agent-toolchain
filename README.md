@@ -76,6 +76,22 @@ remains at design, plan, and merge. Deployment is a separate, authorized action.
 
 ## Current state
 
+The approved approval-friction repair is **implemented and installed** for Codex and Claude. It makes execution through approved
+completion the default, routes unchanged technical corrections through their existing owners,
+and applies causal recovery to Design, Plan and Implementation. Numeric review spend prompts
+diagnosis; failed checks continue to block acceptance and integration. Necessary companion paths
+and equivalent or stronger proof require independent confirmation before admission. Substantive
+founder decisions and external-action grants remain in force. See the
+[operating model](docs/architecture/operating-model.md) and
+[superseding decision](docs/decisions/decisions.md#d27--approved-completion-and-technical-recovery).
+Candidate validation passed 264 methodology tests, 85 persona tests and 35 budget self-test
+assertions. Independent semantic and security reviews passed; the test judge confirmed the scoped
+equivalent per-suite proof while preserving the original failed fixture run. Maintained, public and
+installed source bytes match. Consumer bindings remain unchanged while their sessions are active;
+installation alone does not upgrade a project's approved runtime. Authenticated Claude inference
+remains deferred. Publication still requires the full local gate, an exact-tree seal and fresh
+acceptance; those receipts are kept outside the published tree.
+
 The execution methodology is **v5.1**. After Gate 2, `chief-of-staff` is the sole scheduling owner
 and may dispatch, resume, recover, and use resources only within the approved plan's bounded
 authority. Resume state stays compact and is rebuilt from the plan and git. The route uses compact

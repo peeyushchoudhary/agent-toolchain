@@ -177,6 +177,11 @@ rewritten: the reasoning was sound and one of its two premises turned out to be 
 
 ## D14 — Bounded repairs and review
 
+**Historical decision.** [D27](#d27--approved-completion-and-technical-recovery) supersedes the
+automatic gate return for unchanged technical recurrence. Current procedure is owned by the
+[execution methodology](../../install/skills/execution-methodology/methodology.md) and its
+[execution loop](../../install/skills/execution-methodology/references/execution-loop.md).
+
 **Chose:** Goal Capsule, classification, fresh read-only `reviewer` before Design/Plan gates
 (`fork_turns: "none"` Codex; equivalent fresh-thread primitive elsewhere, never prompts); `PASS`;
 one correction, scoped rereview. Post-code default: Implementation unless Design/Plan named.
@@ -506,3 +511,33 @@ here is a hard-coded name wearing a reader's clothes.
 
 **Known-wrong-in-a-month if:** a preserved path is later vendored and stops being compared, which
 `test_a_preserved_path_that_is_vendored_is_compared_normally` exists to catch.
+
+---
+
+## D27 — Approved completion and technical recovery
+
+**Supersedes:** D14's automatic return to a founder gate after an unchanged technical correction
+recurs. Its independent review, frozen-artifact evidence and verdict requirements remain binding.
+
+**Chose:** execution through approved completion by default; cause-based A/B/C recovery for
+technical corrections in Design, Plan and Implementation; and numeric review spend as a visible
+diagnosis warning. Unchanged safety repairs retain Full-lane and independent security review.
+Necessary companion paths may be admitted through a fresh independently passed exact plan
+amendment before writing. Equivalent or stronger verification may be admitted only after
+independent confirmation. Failed checks still block acceptance and integration.
+
+**Over:** elapsed-time renewals, numeric repair-permission caps and founder transactions for
+technical choices already resolved by the approved outcome.
+
+**Why:** those stops consume founder attention without changing product intent. Technical owners
+can correct execution within an approved envelope while preserving failed evidence, exact write
+boundaries and independent verdicts. Material outcome, UX, design, plan, safety or durable-boundary
+choices remain founder decisions. Explicit deadlines, actual exhausted required resources,
+revocation, unavailable permissions and recovery exhausted after C remain real stops. External
+actions still require their matching grants. Installing source conveys no new consumer authority.
+
+**Owner:** the [execution methodology](../../install/skills/execution-methodology/methodology.md)
+and its [execution loop](../../install/skills/execution-methodology/references/execution-loop.md)
+own the recovery and admission procedure. This decision adds no counter, ledger, scheduler or
+approval form. The [current state](../../README.md#current-state) reports validation and activation;
+approval of this rule is not evidence that installation or project upgrades ran.

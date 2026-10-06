@@ -1,8 +1,9 @@
 # The chief-of-staff operating loop
 
 This is the executable procedure between the plan gate and merge gate. It is the only task-loop
-definition. The controller follows the branches below; it does not implement product changes or
-judge its own work.
+definition; its causal recovery also governs technical corrections in Design and Plan without
+bypassing their initial founder gates. The controller follows the branches below; it does not
+implement product changes or judge its own work.
 
 The `chief-of-staff` is the sole scheduling owner. It selects, reorders, dispatches, and records
 state for only tasks in the observed ready set. When the root/controller itself holds that role, it
@@ -38,7 +39,9 @@ a recoverable tool input only after correcting its actual cause within Gate 2 au
 existing evidence and review lineage. This procedure does not create an unattended runner or
 background relaunch.
 
-Approved Gate 2 authority does not expire at a session or checkpoint boundary. At every resume,
+Approved Gate 2 authority lasts through approved completion by default; elapsed hours, sleep,
+compaction, session changes, and checkpoints do not expire it. An explicit founder deadline and
+actual exhausted required resources still stop affected work. At every resume,
 recheck scope, frozen inputs, permissions, resources, and revocation state; recheck again before an
 external action. Ask the founder again only for a material scope or safety change, revocation, or
 an external action outside the approved grant.
@@ -94,7 +97,8 @@ flowchart TD
 
 The diagram and table are two checked encodings of the same ten steps. Steps 2 and 3 branch by
 lane. Step 5 contains one initial full task-diff review and, when needed, one scoped correction
-review. Validation-first is the default; a frozen candidate permits Steps 4 and 5 to overlap.
+review per causal approach through the recovery route below. Validation-first is the default;
+a frozen candidate permits Steps 4 and 5 to overlap.
 Joint admission requires both independent PASS verdicts, Full strict post, and identity recheck
 before Step 6 or checkpoint and pause. Step 6 returns to selection while tasks remain; steps 7-9
 run once per milestone.
@@ -143,9 +147,11 @@ Run selection against the actual selected repository root from the actual workin
 the intended milestone, revision, in-flight ids, and limit. Inspect the successful status payload
 and selection output. Before launching a writer or expensive gate, require a non-empty ready set
 and prove the chosen id is a member of that ready set; zero membership is a stop, never completed
-work. Also confirm that remaining time, quota, builder slots, and heavy-gate slots can cover the
-task, its handoff, and required validation. Reserve closure time from observed durations. If a
-required resource is exhausted or no safe task is ready, refresh the resume pointer and pause.
+work. Confirm actual quota, disk, memory, credentials, required services, builder slots, and
+heavy-gate slots. Check remaining time and reserve closure time from observed durations only when
+the founder set an explicit deadline. If that deadline or an actual exhausted required resource
+prevents the task and required validation, or no safe task is ready, refresh the resume pointer
+and pause affected work.
 
 Concurrent writers receive distinct named task working trees rooted at the selected base, with
 one controller owning integration. File-disjoint writes alone do not make a shared checkout safe:
@@ -180,8 +186,10 @@ validate_card.py <card> --repo . --strict --phase pre
 
 The controller binds the selected plan task id to a card generated from that block and verifies the
 card's writes, criteria, frozen inputs, commands, persona, and stop conditions against it. `0`
-admits the task. `1` means regenerate the card from the plan under a new card id. `2` means the card
-or repository cannot be resolved. Never patch or widen a dispatched card.
+admits the task. `1` means correct the named input and regenerate the card from the plan,
+preserving its stable task/card identity and causal lineage. `2` means the card or repository
+cannot be resolved. Never patch or widen a dispatched card; preserve the old dispatch when a
+permitted plan amendment requires regeneration and readmission.
 
 Dispatch the card path, worktree, and report path. The task-card v2, direct argv, exact Java/JUnit,
 frozen value, sandbox, and handoff contracts remain defined in `task-card.md` and its linked
@@ -208,8 +216,28 @@ approved scope truly changed.
 For light lane, compare `git status --short` paths with the inline write boundary at every writer
 handoff and before validation. A path outside the plan task's writes stops the task and returns to
 the plan. Both lanes fix an adjacent finding only when it remains inside the approved boundary and
-advances a frozen criterion/invariant; otherwise record it with an owner. Safety findings are never
-parked.
+advances a frozen criterion/invariant; otherwise record it with an owner or request the scoped
+amendment below before writing a necessary companion. Safety findings are never parked: route an
+unchanged approved policy repair to its technical owner in Full lane with independent security
+review; a changed policy or promise requires founder authority.
+
+### Necessary companion-path amendment
+
+The approved milestone envelope includes necessary companion tests, fixtures, existing callers,
+and mechanical baseline cleanup within the existing feature/module seam. Before any added path
+is written, the chief proposes the exact additional paths and criterion-linked reason in the
+existing plan, checks dependencies, active write overlap, serialization, and forbidden paths, and
+freezes that scoped amendment for a fresh independent reviewer. Include `security-validator` for
+an applicable safety surface. An independent scoped PASS is required before the chief applies the
+amendment, regenerates the affected card or inline dispatch, and reruns plan/card admission.
+Preserve the prior dispatch, findings, and receipts; batch logical companions in one compact
+amendment rather than a separate full review or founder transaction per file.
+
+This is exact-path authority, not a blanket directory grant. It grants no unrelated refactor or
+change to public contracts, schema, retention, authorization, or money behavior. An uncertain or
+material expansion returns to the founder with the consequential choice. Forbidden paths still
+stop work, and a write before the amendment's PASS and readmission remains a boundary violation;
+a later amendment cannot retroactively authorize it.
 
 ### Step 4 — validate
 
@@ -245,18 +273,39 @@ capture is the evidence. Full lane also runs the strict post check before joint 
 validate_card.py <card> --repo . --strict --phase post
 ```
 
-`0` proves only what the command and receipt state. A red gate returns one bounded repair to the
-writer. Repeated same-cause failure after independently reviewed repair returns to the plan gate;
-it is not renamed into another attempt.
+`0` proves only what the command and receipt state. A red gate blocks admission and returns a
+bounded repair to the technical owner. Repeated same-cause failure after independently reviewed
+repair changes the diagnosis or approach through causal recovery below; it is not renamed into
+another attempt or treated as an automatic founder-permission request.
 
-### Causal recovery after the plan gate
+### Equal or stronger proof amendment
 
-Recovery preserves the original task, failed verdicts, and the same cause and finding lineage.
+Route a verification correction to the existing proof owner and independent `test-judge`. Freeze
+the proposed commands, assertion/coverage comparison, required gates, freshness, runtime and
+environment inputs, and evidence identities. The judge independently confirms that the revised
+proof is equal or stronger before it is admitted; the controller cannot certify its own
+substitution. Preserve original failed/skipped receipts, amend the existing validation plan/card
+or dispatch, rerun admission where applicable, and execute revised commands under the existing
+judge permissions. Relevant source, command, runtime, or environment changes invalidate affected
+PASS results; equivalence alone does not make an old receipt prove a new run.
+
+Weaker assertions, reduced coverage, removed gates, release claims without real services, or
+unprovable equivalence return to the governing authority. This route neither weakens a checker nor
+grants source-write permission to a judge.
+
+### Causal recovery in Design, Plan, and Implementation
+
+Recovery preserves the original artifact/task, failed verdicts, and the same cause and finding
+lineage in existing dispatch/recovery reports. Initial design/UX and plan approvals remain founder
+gates; a substantive new design/plan choice returns to its owning gate even when approaches remain.
+Within the approved outcome, a failed correction changes the diagnosis or approach instead of
+repeatedly resubmitting the same repair. Each approach retains one correction and one fresh scoped
+rereview; unresolved defects remain INCOMPLETE and cannot enter integration or acceptance.
 Approaches A and B may revise the causal hypothesis and proof without a routine council. Concrete
 evidence of reasoning complexity or a failed diagnosis may justify a stronger available model or
 higher effort at either approach. A literal path, permission, or input error returns to its existing
-owner for correction; it does not by itself justify model escalation or a council. Before C, a
-targeted expert council must produce a technical replan and a fresh independent PASS must accept
+owner for correction; it does not by itself justify model escalation or a council. After A and B
+fail, before C, a targeted expert council must produce a technical replan and a fresh independent PASS must accept
 that replan. If C fails, preserve the lineage, diagnosis, attempts, reviewed alternative, and
 consequences for the founder; start no fourth approach. Renaming a task, attempt, fixture, or
 diagnostic never resets the same cause.
@@ -272,8 +321,13 @@ ledger, or routine council.
 check_review_budget.py <workspace> --next <subject>
 ```
 
-Run this receipt before both semantic review dispatches. It enforces forbidden workspace artifacts
-and reports round use. A dispatch that produces no verdict spends no round.
+Run this receipt before each semantic review dispatch. It enforces forbidden workspace artifacts
+and reports round use. Numeric ROUND_CAP/ROUND_BUDGET_EXHAUSTED findings are visible recovery
+warnings: diagnose the cause and follow the A/B/C route, without a founder transaction solely for
+the number. Preserve counts, original finding keys, legacy grant history, and output fields.
+Malformed authority, forbidden artifacts, invalid identity, and evidence-integrity findings remain
+hard stops. A dispatch that produces no verdict spends no round; no counter authorizes acceptance
+or determines a semantic verdict.
 
 Supply the frozen candidate identity, exact diff, and governing artifact paths. Review can
 overlap Step 4 only on that stable referent and relevant inputs. A correction invalidates affected
@@ -283,14 +337,16 @@ the existing correction procedure. An earlier PASS cannot admit corrected bytes.
 Each round uses one semantic `reviewer`, with at most one relevant specialist for a distinct owned
 invariant, plus `security-validator` when a safety surface moves. `test-judge` runs commands
 and is not a semantic review lens. Every task, light or full, receives one initial full task-diff
-review. After a valid finding, a writer makes one correction and a fresh reviewer performs one
+review. After a valid finding, a writer makes one correction per causal approach and a fresh reviewer performs one
 scoped correction review of the persisted finding, correction, causal area, corrected artifact,
 and frozen criteria.
 
 No round count creates semantic success. If the scoped review leaves an unresolved semantic
 defect, record the task as **INCOMPLETE**, never READY. A mechanically specified final application
-may close only after independent executable confirmation. Safety and scope findings return to
-their governing authority. Do not run a duplicate full-diff review after the scoped correction.
+may close only after independent executable confirmation. Route unresolved technical defects
+through causal recovery; restore an unchanged safety policy through its technical owner and
+independent security review. Changed policy or material scope returns to its governing authority.
+Do not run a duplicate full-diff review after the scoped correction.
 
 ### Step 6 — commit check
 
@@ -346,7 +402,8 @@ milestone candidate. `--record` requires a clean tree, executes that gate agains
 receipt outside the repository keyed to the tree SHA. Reuse the receipt while the tree, command,
 runtime, and environment remain valid; rerun after a failure or relevant invalidation and record why.
 Verification fails when no receipt binds the tree and command. `acceptance` then judges that exact
-referent; committing, pushing, opening a PR, and merging remain founder decisions.
+referent; committing, pushing, opening a PR, and merging require their existing explicit founder
+grants, which do not need routine renewal while their scope and inputs remain valid.
 
 ## 3. Who is cast
 
@@ -370,13 +427,19 @@ distinct remaining concern.
 ## 4. What stops the loop
 
 Stop the affected work for an unresolvable exit `2`, a material ambiguity the approved artifacts do
-not decide, a write-boundary breach, a new durable boundary, same-cause recurrence after one
-independently reviewed repair, an unresolved semantic defect after the scoped correction review, a
-safety finding requiring authority, a scope change, or repeated writer failure.
+not decide, a write-boundary breach, a new durable boundary, an unresolved semantic defect, a
+changed safety policy or promise, a material scope change, an explicit deadline, an actual
+exhausted required resource, or unavailable permission. Failed validation/review/safety blocks
+acceptance and integration; technical repair and same-cause recurrence route through existing
+owners and A/B/C recovery. After C fails, stop that recovery and return to the founder; no fourth
+approach may start.
 
 A status report, an unfinished milestone, a duplicate commit, or an owned deferral does not by
-itself stop unrelated ready work. Classify and route each finding. Budgets trigger human review and
-never weaken a test, safety, evidence, or acceptance result.
+itself stop unrelated ready work. Classify and route each finding. Numeric review spend triggers
+technical diagnosis and never weakens a test, safety, evidence, or acceptance result. Before a
+founder request, name the actual unresolved consequential choice, options and recommendation, or
+the concrete missing permission/resource or exhausted recovery. A technical issue already decided
+by the approved outcome returns to its owner.
 
 ## 5. Milestone evidence and limits
 

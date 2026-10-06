@@ -2,7 +2,8 @@
 
 **Authority: approved M2 design.** This design replaces the superseded native-first proof-engine
 approach. It changes the existing execution methodology and its gate/seal owners; it creates no
-second execution path.
+second execution path. The approved completion and technical-recovery rules are recorded in
+[D27](../decisions/decisions.md#d27--approved-completion-and-technical-recovery).
 
 ## Current checkpoint
 
@@ -22,8 +23,8 @@ the original cause and evidence.
    founder-approved UX journey supplies implementation authority where UX applies.
 2. The chief derives the ready set from the approved plan, selects only file-disjoint work and
    delegates each logical task to its existing owner.
-3. Ordinary work uses a Light dispatch. A Full card is required only when the task changes a
-   durable interface or safety boundary.
+3. Ordinary work uses a Light dispatch. Work on a durable boundary or declared safety surface uses
+   a Full card, including repairs that preserve an existing safety invariant.
 4. The task's adjacent tests and area check run against its complete source/public change. Fresh
    read-only judges review the frozen delta through the existing eligible native route.
 5. The chief integrates accepted work, drives causal recovery where needed, and repeats affected
@@ -37,9 +38,18 @@ the original cause and evidence.
 ## Authority and persistence
 
 The approved scope, frozen inputs, write boundaries, permissions and revocation state form the
-working authority. A session or checkpoint does not expire it. The chief rechecks authority at
-resume and before external action, and asks again only for a material scope or safety change, a
-revocation, or an external action outside the grant.
+working authority. Execution continues through approved completion by default; elapsed time,
+sessions and checkpoints do not expire it. The chief rechecks authority at resume and before
+external action. Explicit deadlines, actual required-resource exhaustion and revocation stop
+affected work. Substantive product, UX, design and plan choices, material scope or safety changes,
+and external actions outside the grant return to founder authority.
+
+Failed validation, review and safety checks block acceptance and integration. Their labels do not
+by themselves require founder permission for an unchanged technical correction. The owning gate
+routes that correction through approved recovery; Full-lane and independent security obligations
+remain on safety repairs. Equivalent or stronger verification returns to its proof owner and an
+independent test judge before revised evidence is admitted. Original failed and skipped receipts
+remain visible. Numeric review spend prompts technical diagnosis without granting a semantic PASS.
 
 The chief is the single scheduling owner. Builders do not approve their work. One fresh semantic
 reviewer judges each logical task, with a relevant specialist only for a distinct boundary and a
@@ -51,7 +61,11 @@ Each task declares an exact normalized nonempty write set and nonempty `covers:`
 retains dependency, overlap, commit-scope, task-count and Full-lane schema checks. The arbitrary
 limit that rejects a coherent task merely because it names more than five exact paths is removed;
 broad globs are not an alternative. A task with many unrelated writes is still recut by judgment
-and review.
+and review. Necessary companion tests, fixtures, existing callers and mechanical baseline cleanup
+within the approved feature or module seam can enter an exact plan amendment. A fresh scoped
+review must pass before added paths are written; the chief then regenerates the dispatch or card
+and reruns admission. Forbidden paths, unrelated work and material expansions remain outside that
+authority. The execution loop owns the detailed amendment checks.
 
 The M2 implementation consists of two file-disjoint logical changes:
 
@@ -65,9 +79,11 @@ not create another implementation task, card or scheduler.
 
 ## Causal recovery
 
-The chief preserves one cause and finding lineage across renamed attempts, fixtures and diagnostics.
-A and B test revised causal hypotheses. Stronger available model or effort may be used as soon as
-evidence justifies it. Before C, a targeted expert council must produce a technical replan and a
+Technical corrections in Design, Plan and Implementation preserve one cause and finding lineage
+across renamed attempts, fixtures and diagnostics. A failed correction changes the causal diagnosis
+or approach; it does not repeatedly resubmit the same repair. A and B test revised causal hypotheses.
+Stronger available model or effort may be used as soon as evidence justifies it. Before C, a
+targeted expert council must produce a technical replan and a
 fresh independent reviewer must pass it. C failure ends automatic recovery and returns the decision
 packet to the founder; there is no fourth approach.
 

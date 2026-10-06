@@ -3,7 +3,7 @@ id: F-2
 title: Deliver goal-directed milestone autonomy
 prd: docs/product/README.md
 status: shipped
-updated: 2026-10-01
+updated: 2026-10-06
 milestone: M2
 edge_cases: [first-run, interrupted, concurrent, partial-failure, permission-denied, stale-evidence, repeated-failure, unavailable-model, source-drift]
 ---
@@ -22,8 +22,8 @@ closure, and preserve independent judgment and real local validation.
 **In:** requirements, interview and context closure; one coherent planned milestone batch;
 founder-approved UX journeys as separate product authority where UX applies; chief-owned ready
 selection, delegation, review, validation and causal recovery through closure; ordinary Light and
-boundary-changing Full work; fail-closed gate and seal freshness; maintained/public package
-consistency through the existing installer; full local gate, seal and acceptance; conditional
+Full work on durable boundaries or safety surfaces; fail-closed gate and seal freshness;
+maintained/public package consistency through the existing installer; full local gate, seal and acceptance; conditional
 publication under the matching standing grant; and a one-week business-value review using existing
 evidence.
 
@@ -52,22 +52,28 @@ behavior and implementation inputs before the affected milestone proceeds. [a11y
 
 **AC-3** When an approved milestone starts or resumes, given its scope, frozen inputs, permissions
 and resources remain valid, the chief selects from the ready set, delegates implementation, routes
-fresh independent review and validation, and drives recovery until the milestone closes or reaches
-an honest stop. Covered authority persists across sessions without arbitrary time expiry and is
-rechecked at resume and external-action boundaries. [authz]
+fresh independent review and validation, and drives recovery through completion by default or to
+an honest stop. Elapsed time and checkpoints require no routine renewal; explicit deadlines and
+actual exhaustion still apply. Covered authority persists across sessions and is rechecked at
+resume and external-action boundaries. [authz]
 
 **AC-4** When work is dispatched, given an approved outcome or named invariant, ordinary bounded
-work uses the Light lane and a compact inline dispatch; Full is used only for a real durable or
-safety boundary change. Each logical task has an exact normalized nonempty write boundary,
-nonempty acceptance coverage, one compact report and one complete review of its changed surface.
+work uses the Light lane and a compact inline dispatch; work on a durable boundary or declared
+safety surface uses Full, including repairs that preserve its policy. Each logical task has an
+exact normalized nonempty write boundary, nonempty acceptance coverage, one compact report and
+one complete review of its changed surface.
+Necessary companions within the approved feature or module seam are independently admitted through
+an exact plan amendment before writing; forbidden paths and material expansions are refused.
 
-**AC-5** When a correction fails, given the approved outcome and boundaries remain valid, recovery
-keeps the original cause, task, finding lineage and failed verdicts visible. Concrete evidence may
+**AC-5** When a technical correction fails in Design, Plan or Implementation, given the approved
+outcome and boundaries remain valid, recovery changes the causal diagnosis or approach and keeps
+the original cause, task, finding lineage and failed verdicts visible. Concrete evidence may
 justify a stronger available model or higher effort. Approaches A and B may be attempted without a
 routine council; before C, a targeted expert council and a fresh independent PASS on the technical
 replan are mandatory. If C fails, no fourth approach starts and the founder receives the preserved
 lineage, diagnosis, attempts, reviewed alternative and consequences. Renaming an attempt, fixture
-or diagnostic never resets the same cause. [audit]
+or diagnostic never resets the same cause. A substantive new design or plan choice remains a
+founder decision even when technical recovery has approaches left. [audit]
 
 **AC-6** When recurring prerequisite repair reaches the existing recovery or handoff boundary,
 given another control is proposed, the chief asks which approved criterion it serves, why its
@@ -76,8 +82,10 @@ decision through the existing flow, without a new form, counter, checker or rout
 
 **AC-7** When the declared gate or seal path encounters a nonpass verdict, source mutation, stale
 input, mismatched evidence or unverifiable freshness, closure is refused with the cause visible.
-A later correction must pass the real gate and freshness checks against the same unchanged
-candidate before a seal can support acceptance. [audit]
+A later correction preserves failed and skipped receipts and must pass required real gate and
+freshness checks against the same unchanged candidate before a seal can support acceptance.
+Equivalent or stronger verification requires independent confirmation before admission; coverage,
+assertions, freshness, gate obligations and evidence identity cannot be weakened. [audit]
 
 **AC-8** When accepted maintained changes are projected, given their exact source and public
 write sets are bound, the public package is byte-consistent where projection is declared and the
@@ -90,7 +98,8 @@ and merge. Tag and deployment remain separate founder decisions. [authz]
 
 **AC-10** When authority is revoked or a required permission, resource, safety decision or valid
 next action is unavailable, affected work stops with the blocker and consequence visible; unrelated
-work continues only when its independence is established. [authz]
+work continues only when its independence is established. Numeric review-spend warnings alone
+require technical diagnosis without stopping authorized recovery or changing verdicts. [authz]
 
 **AC-11** When the one-week review occurs, given existing execution evidence, it reports accepted
 integrated business outcomes, quality, elapsed delivery, defects, rework, interruptions, quota waits,
@@ -100,6 +109,14 @@ usage and unknowns without creating a pilot or new apparatus.
 
 - A valid milestone resumes after several days → its grant is rechecked for scope and revocation,
   then covered work continues.
+- Approved work crosses six elapsed hours without an explicit deadline or actual exhaustion →
+  covered work continues without a timer-renewal request.
+- A third numeric review record → the original count and warning remain; recovery is diagnosed,
+  and acceptance still requires every passing verdict.
+- A required adjacent fixture is missing from the write set → an exact independent plan amendment
+  precedes its write; an unrelated module or forbidden path cannot enter under that grant.
+- A safety check fails against an unchanged promise → Full-lane correction and independent security
+  review proceed; acceptance remains blocked until required checks pass.
 - A renamed fixture reproduces the same failure after A and B → the same lineage reaches targeted
   council and fresh replan review before C.
 - The gate command succeeds but the candidate changes during the run → no valid seal is recorded.
