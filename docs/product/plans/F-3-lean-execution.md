@@ -131,7 +131,7 @@ agent-dispatch capability.
 `risk: safety` applies because judges' inability to write is a safety property. The security
 reviewer checks the renderer diff.
 
-### [ ] T4 — `review.py`, `run_goal.py`, hooks, smoke run
+### [x] T4 — `review.py`, `run_goal.py`, hooks, smoke run
 - writes: install/skills/execution-methodology/scripts/review.py, install/skills/execution-methodology/scripts/run_goal.py, install/skills/execution-methodology/tests/test_review.py, install/skills/execution-methodology/tests/test_run_goal.py, install/skills/execution-methodology/tests/smoke_goal.py, install/hooks/goal-session.sh
 - needs: T1, T2, T3
 - covers: AC-2, AC-6, AC-12
@@ -410,4 +410,16 @@ secret and identifier behaviour; the security reviewer confirms it.
   project agent can shadow a judge, a project persona may declare `writes: no` with dispatch tools,
   and the GENERATED marker is matched anywhere in a file.
 
+- 2026-10-07: T4 smoke. Claude: 9 of 9 checks pass, including the blocked premature stop, M1 then
+  M2 in fresh sessions, harness commits, cross-vendor acceptance, the judge unable to write, and the
+  migrate notice. Codex: 6 of 9 pass. The driver finished the goal and the judge could not write,
+  but the three hook checks fail because Codex runs project hooks only after trust is saved in the
+  user's config. The founder approved a smoke-only trust bypass, but the permission classifier
+  refused it in both the builder's and the controller's sessions, so it is not implemented.
+
 ## Queue
+
+- Q1 (2026-10-07, blocks M3 close only): prove the Codex Stop and SessionStart hooks for AC-2. The
+  options are a permission rule that lets the smoke run pass the hook-trust bypass on its own
+  fixture, trusting a fixed fixture path by hand once, or accepting AC-2's hook proof for Claude
+  only.
