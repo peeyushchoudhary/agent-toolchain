@@ -45,6 +45,9 @@ document by adding its row here in the same commit.
 | Goal-directed execution design | [architecture/goal-directed-execution.md](architecture/goal-directed-execution.md) | Approved design; [current state](../README.md#current-state) |
 | Goal-directed autonomy implementation plan | [product/plans/F-2-goal-directed-autonomy.md](product/plans/F-2-goal-directed-autonomy.md) | Canonical plan; [current state](../README.md#current-state) |
 | Goal-directed autonomy stage boundaries | [product/plans/goal-directed-autonomy-task-boundaries.md](product/plans/goal-directed-autonomy-task-boundaries.md) | Non-authoritative exact reference; the F-2 plan remains canonical and the chief owns scheduling |
+| Lean goal execution (methodology v6) definition | [product/specs/F-3-lean-execution.md](product/specs/F-3-lean-execution.md) | Approved 2026-10-06; in implementation |
+| Lean goal execution design | [architecture/lean-execution.md](architecture/lean-execution.md) | Approved 2026-10-06; in implementation |
+| Lean goal execution plan | [product/plans/F-3-lean-execution.md](product/plans/F-3-lean-execution.md) | Approved 2026-10-06; in implementation |
 | Research and current replanning direction | [product/research/README.md](product/research/README.md) | Dated rationale; native-first approach superseded |
 | Quality and velocity replanning requirements | [product/research/velocity-and-quality-replan.md](product/research/velocity-and-quality-replan.md) | Draft intake, 2026-09-30 |
 | Current implementation audit | [product/research/implementation-audit.md](product/research/implementation-audit.md) | Dated assessment, 2026-09-30 |
