@@ -524,6 +524,13 @@ secret and identifier behaviour; the security reviewer confirms it.
   the plan, because the close passed it as `--subject`. The reviewer reconstructed the full diff,
   and round 2 is given the whole milestone diff.
 
+- 2026-10-08: founder decision on M4 acceptance round 2. Round 2 blocked because an empty
+  `core.hooksPath=""` still let the graph hook be reported installed, though git would not run it
+  (verified locally). It is the same defect family as round 1: the check read the config value
+  instead of asking git where it runs hooks. The family is fixed under T9: the graph hook is
+  skipped unless `git rev-parse --git-path hooks` resolves to the project's `.git/hooks`. One
+  founder-granted scoped acceptance round (round 3) follows.
+
 ## Queue
 
 - Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now

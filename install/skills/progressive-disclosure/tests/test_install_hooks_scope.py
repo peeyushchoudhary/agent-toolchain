@@ -331,7 +331,7 @@ class ScopedHooksTest(unittest.TestCase):
                        check=True)
         proc = self.invoke()
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertIn("graph refresh skipped \u2014 core.hooksPath is set", proc.stdout)
+        self.assertIn("graph refresh skipped \u2014 git runs hooks from", proc.stdout)
         self.assertNotIn("graph refresh installed", proc.stdout)
         self.assert_graphify_blocks(present=False)
         self.assertEqual(self.graphify_calls(log), [])
@@ -345,6 +345,46 @@ class ScopedHooksTest(unittest.TestCase):
         self.assert_graphify_blocks(present=False)
         self.assertEqual(list((self.repo / ".hooks").iterdir()), [])
         self.assertEqual(self.graphify_calls(log), [])
+
+    def test_graph_hook_follows_where_git_runs_hooks(self) -> None:
+        """The decision is git's answer (`rev-parse --git-path hooks`), not the config value: an
+        empty core.hooksPath also stops git running .git/hooks, and an inherited GIT_DIR must not
+        redirect the answer."""
+        log = self.stub_graphify()
+        graph = self.repo / "graphify-out" / "graph.json"
+        graph.parent.mkdir(); graph.write_text("{}\n", encoding="utf-8")
+        (self.repo / ".hooks").mkdir()
+        other = self.tmp / "other"
+        subprocess.run(["git", "init", "-q", str(other)], check=True)
+        own = str((self.repo / ".git" / "hooks").resolve())
+        cases = [("empty", "", {}, False), ("relative", ".hooks", {}, False),
+                 ("own-absolute", own, {}, True), ("unset", None, {}, True),
+                 ("inherited-git-dir", None, {"GIT_DIR": str(other / ".git")}, True),
+                 ("inherited-git-dir-empty", "", {"GIT_DIR": str(other / ".git")}, False)]
+        for label, value, extra, installed in cases:
+            with self.subTest(label):
+                cfg = ["git", "-C", str(self.repo), "config"]
+                subprocess.run(cfg + ["--unset-all", "core.hooksPath"])
+                if value is not None:
+                    subprocess.run(cfg + ["core.hooksPath", value], check=True)
+                log.unlink(missing_ok=True)
+                proc = self.invoke(**extra)
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                if installed:
+                    self.assertIn("graph refresh installed", proc.stdout)
+                    self.assert_graphify_blocks(present=True)
+                    self.assert_never_ran_in_project(log)
+                else:
+                    self.assertIn("graph refresh skipped \u2014 git runs hooks from", proc.stdout)
+                    self.assertNotIn("graph refresh installed", proc.stdout)
+                    self.assert_graphify_blocks(present=False)
+                    self.assertEqual(self.graphify_calls(log), [])
+                    for hook in (self.repo / ".hooks").iterdir():
+                        self.assertNotIn("graphify", hook.read_text(encoding="utf-8"))
+                for name in self.STUB_BLOCKS:  # reset for the next case
+                    hook = self.repo / ".git" / "hooks" / name
+                    if hook.exists():
+                        hook.unlink()
 
     def test_commit_time_hooks_directory_swap_cannot_touch_external_target(self) -> None:
         module = self.load_installer_module()

@@ -681,11 +681,18 @@ def install_graph_hook(root: Path, *, no_graph: bool) -> bool:
     if not graphify_available():
         print("  post-commit graph refresh skipped — graphify is not installed")
         return False
-    hooks_path = subprocess.run(["git", "config", "--get", "core.hooksPath"], cwd=root,
-                                capture_output=True, text=True).stdout.strip()
-    if hooks_path:
-        print("  post-commit graph refresh skipped — core.hooksPath is set, and git would not "
-              "run hooks in .git/hooks")
+    # Ask git where it runs hooks, not what core.hooksPath says: an empty value moves them too.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    try:
+        done = subprocess.run(["git", "rev-parse", "--git-path", "hooks"], cwd=root, env=env,
+                              capture_output=True, text=True, timeout=30)
+        out = done.stdout.strip() if done.returncode == 0 else ""
+        where = (root / out).resolve() if out else None
+    except (OSError, subprocess.SubprocessError):
+        where = None
+    if where != (root / ".git" / "hooks").resolve():
+        print(f"  post-commit graph refresh skipped — git runs hooks from "
+              f"{where or 'an unknown directory'}, not .git/hooks")
         return False
     try:
         for path, content in _graph_edits(root, _render_graphify_blocks()):
