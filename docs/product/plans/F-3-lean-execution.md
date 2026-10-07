@@ -280,7 +280,7 @@ independently of M3 and carries no criterion M3 needs.
 - covers: AC-13
 - risk: safety
 - builder: judgement
-- tests-may-change: install/skills/progressive-disclosure/tests/**, install/skills/progressive-disclosure/scripts/*_selftest.py
+- tests-may-change: install/skills/progressive-disclosure/tests/**, install/skills/progressive-disclosure/scripts/*_selftest.py, install/tests/test_size.py
 
 Changes:
 - `check_toolchain.py` shrinks to a renderer-parity check, since there is one source.
@@ -392,5 +392,10 @@ secret and identifier behaviour; the security reviewer confirms it.
   tests belong in test files that T1, T4 and T6 created, so T1 (`test_goal.py`, `test_gate.py`), T4
   (`test_review.py`, `test_run_goal.py`, `smoke_goal.py`) and T6 (`install/tests/**`) may now modify
   them, for the acceptance correction. The criteria, scope and guard semantics are unchanged.
+
+- 2026-10-07: amendment (founder-approved). T9 may change `install/tests/test_size.py`. It was
+  already in T9's writes, and T6 left the AC-13 placeholder there for T9, but tests-may-change
+  omitted it. The approval and M3 tags moved, every later commit was replayed with only the plan
+  differing, and M3 was re-confirmed on its replayed tree.
 
 ## Queue
