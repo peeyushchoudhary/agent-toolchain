@@ -10,9 +10,8 @@ this page explains the operating priorities and does not restate its repair stat
 Ordinary work resolves the project's approved runtime inventory, route and overlay before governed
 execution. A valid approved older bundle remains authoritative for that project. Global-source or
 candidate differences are reported rather than substituted. Assessment, setup, repair, migration
-and upgrade coordination belong to
-[methodology management](../../install/skills/methodology-management/SKILL.md), outside ordinary
-execution context.
+and upgrade coordination stay outside ordinary execution context; a v5.1 project migrates with
+[the migration guide](../../install/skills/execution-methodology/references/migrate.md).
 
 ## The three stages, in order
 

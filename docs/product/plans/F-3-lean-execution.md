@@ -172,7 +172,7 @@ The run consumes a small amount of real quota.
 **`goal-session.sh`.** It prints the active goal's status, or the migrate-first notice. `goal.py`
 and the skill refuse execution in an unmigrated project (AC-12).
 
-### [ ] T5 — retire v5.1 machinery and repair its couplings
+### [x] T5 — retire v5.1 machinery and repair its couplings
 - writes: install/skills/execution-methodology/scripts/**, install/skills/execution-methodology/tests/**, install/skills/execution-methodology/references/**, install/skills/gate-sandbox/**, install/skills/methodology-management/**, install/skills/project-onboarding/**, install/skills/project-migration/**, install/skills/project-conformance/**, install/skills/agent-persona-factory/**, install/skills/.gitignore, install/skills/README.md, install/skills/progressive-disclosure/**, install/hooks/disclosure-check.sh, docs/runbooks/**, docs/decisions/decisions.md, docs/README.md, docs/agents/**, docs/architecture/operating-model.md, docs/architecture/repository-standard.md, README.md, AGENTS.md, docs/product/research/**, docs/product/README.md, install/README.md
 - needs: T4
 - covers: AC-10, AC-12
@@ -416,6 +416,13 @@ secret and identifier behaviour; the security reviewer confirms it.
   but the three hook checks fail because Codex runs project hooks only after trust is saved in the
   user's config. The founder approved a smoke-only trust bypass, but the permission classifier
   refused it in both the builder's and the controller's sessions, so it is not implemented.
+
+- 2026-10-07: T5 security review PASS. Deferred to T9 as non-blocking: a selftest that pins the
+  bare-repository exit 2 now that only the surviving probe keeps it; the pre-existing silent skip in
+  the installed pre-push hook when the guard file is missing (recorded there as a founder call). The
+  push-guard and identifier-guard selftest harnesses gained a one-line module-registration fix; their
+  remaining failures (push guard 11, identifier guard 12f and 13) are environmental, because they
+  expect the copy installed in `~/.claude`.
 
 ## Queue
 

@@ -11,8 +11,6 @@ and reports the ways that route can silently break:
   WARN    a code directory with no scoped entry file     (proximity disclosure has a hole)
   WARN    an entry or guide over its word budget         (disclosure degrades into a dump)
   WARN    route deeper than --max-depth hops             (too many reads before real work)
-  WARN    no rendered execution methodology                (docs/agents/execution/, or minor drift)
-  ERROR   an execution methodology a MAJOR version behind  (the repo documents withdrawn rules)
   NOTE    a lessons file past its entry count             (accretion, not a rule violation)
 
 `--readme` adds the human-facing README contract: the front page a person meets on the forge, and
@@ -144,12 +142,6 @@ CMD_PNPM = re.compile(r"\bpnpm(?:\s+run)?\s+([a-z][\w:.-]*)")
 CMD_NPM = re.compile(r"\b(?:npm|yarn)\s+run\s+([a-z][\w:.-]*)")
 CMD_JUST = re.compile(r"\bjust\s+([a-zA-Z][\w:.-]*)")
 CMD_TASK = re.compile(r"\btask\s+([a-zA-Z][\w:.-]*)")
-PERSONA_MARKER = re.compile(r"<!--\s*agent-personas:\s*(\{[^\r\n]*\})\s*-->", re.IGNORECASE)
-PERSONA_MARKER_ANY = re.compile(r"<!--\s*agent-personas:", re.IGNORECASE)
-# Same single-line JSON comment spelling, for the rendered execution methodology.
-EXECUTION_MARKER = re.compile(r"<!--\s*execution-methodology:\s*(\{[^\r\n]*\})\s*-->", re.IGNORECASE)
-EXECUTION_MARKER_ANY = re.compile(r"<!--\s*execution-methodology:", re.IGNORECASE)
-SEMVER2 = re.compile(r"^(\d{1,4})\.(\d{1,4})$")
 
 # A lessons file grows by accretion — entries get added, rarely removed — so a total word budget
 # is a budget on entry *count*, not entry length. It was answered by sharding lessons.md into two
@@ -979,79 +971,11 @@ def _standard_repo(root: Path) -> bool:
     return "progressive-disclosure standard v" in read_doc(disclosure, root)
 
 
-def check_persona_decision(root: Path, depth: dict[Path, int], report: Report) -> None:
-    """Require a deliberate project-persona decision in every routed repository.
-
-    Persona sources are the positive decision. A project that needs only the shared base pool
-    records one exact JSON marker in the routed index. Missing decisions are warnings during the
-    fleet migration; contradictory or unreachable specialist sources are structural errors.
-    """
-    index = root / "docs" / "agents" / "README.md"
-    overlays = root / "docs" / "agents" / "personas"
-    sources = (sorted(p for p in overlays.glob("*.md")
-                      if p.is_file() and p.name.lower() != "readme.md")
-               if overlays.is_dir() else [])
-    text = read_doc(index, root) if index.is_file() else ""
-    marker_text = strip_code(text)
-    raw_markers = PERSONA_MARKER.findall(marker_text)
-    marker_count = len(PERSONA_MARKER_ANY.findall(marker_text))
-    any_marker = marker_count > 0
-    decision: dict | None = None
-
-    if marker_count > 1:
-        report.error("persona-decision-invalid", "docs/agents/README.md",
-                     "contains more than one `agent-personas` decision marker; keep exactly one")
-    elif marker_count == 1 and len(raw_markers) == 1:
-        try:
-            parsed = json.loads(raw_markers[0])
-        except json.JSONDecodeError as exc:
-            report.error("persona-decision-invalid", "docs/agents/README.md",
-                         f"`agent-personas` marker is not valid JSON: {exc.msg}")
-        else:
-            if not isinstance(parsed, dict) or parsed.get("mode") != "base-only":
-                report.error("persona-decision-invalid", "docs/agents/README.md",
-                             "`agent-personas` marker mode must be `base-only`")
-            elif not isinstance(parsed.get("reason"), str) or not parsed["reason"].strip():
-                report.error("persona-decision-invalid", "docs/agents/README.md",
-                             "`agent-personas` base-only decision needs a non-empty reason")
-            else:
-                decision = parsed
-    elif marker_count == 1:
-        report.error("persona-decision-invalid", "docs/agents/README.md",
-                     "`agent-personas` marker must contain one single-line JSON object")
-
-    if sources:
-        if decision is not None:
-            report.error("persona-decision-conflict", "docs/agents/README.md",
-                         "declares `base-only` but docs/agents/personas/ contains persona sources")
-        guide = root / "docs" / "agents" / "personas.md"
-        direct_links = set()
-        if index.is_file():
-            for target in MD_LINK.findall(strip_code(text)):
-                path = target.split("#", 1)[0]
-                if not path or "://" in path:
-                    continue
-                direct_links.add((index.parent / path).resolve())
-        if not guide.is_file() or guide.resolve() not in direct_links or guide.resolve() not in depth:
-            report.error("persona-route-missing", "docs/agents/personas.md",
-                         "persona sources exist but docs/agents/README.md does not directly route "
-                         "to the maintained personas guide")
-        return
-
-    if not index.is_file():
-        return
-    if decision is None and not any(item["kind"] == "persona-decision-invalid"
-                                    for item in report.errors):
-        report.warn("persona-decision-missing", "docs/agents/README.md",
-                    "record either project persona sources or "
-                    '`<!-- agent-personas: {"mode":"base-only","reason":"..."} -->`')
-
-
 def check_personas(root: Path, report: Report) -> None:
     """Generated agent files must match the persona sources they came from.
 
-    Runs for every standard repository, including a base-only decision: deleting the last source
-    must not leave a generated project agent dispatchable. The generated `.claude/agents/` and
+    Runs for every standard repository, including one with no persona sources: deleting the last
+    source must not leave a generated project agent dispatchable. The generated `.claude/agents/` and
     `.codex/agents/` files are committed, so drift is invisible in review — the diff looks
     intentional. Same reason a generated API client gets a drift check.
 
@@ -1086,107 +1010,6 @@ def check_personas(root: Path, report: Report) -> None:
                      detail or "persona source could not be parsed")
     elif r.returncode not in (0, 1):
         report.warn("persona-check-failed", "docs/agents/personas", r.stderr.strip()[:160])
-
-
-def installed_methodology_version() -> str | None:
-    """The methodology version this machine has installed, or None if it cannot be determined.
-
-    Read from the renderer's own constant rather than duplicated here. Two copies of a version
-    number drift, and the copy inside a validator is the one nobody remembers to bump.
-
-    ABSENCE stays soft, and only absence. The methodology skill is an optional machine-global
-    install; a machine that does not have it is not a repository with a problem, and turning a
-    missing optional skill into a blocked commit would be the opposite mistake. So
-    `FileNotFoundError` returns None and the version comparison is skipped.
-
-    PRESENT-BUT-UNREADABLE does not stay soft, because it used to return the same None down the
-    same path — the two states were indistinguishable in the output, which is the whole pattern
-    this file was audited for. An installed skill this process cannot read is a broken machine, not
-    an absent feature, and `read_doc` says so.
-    """
-    script = (Path.home() / ".claude" / "skills" / "execution-methodology"
-              / "scripts" / "sync_methodology.py")
-    if not script.exists():
-        return None
-    text = read_doc(script)
-    m = re.search(r'^METHODOLOGY_VERSION\s*=\s*"(\d{1,4}\.\d{1,4})"', text, re.MULTILINE)
-    return m.group(1) if m else None
-
-
-def check_execution_methodology(root: Path, report: Report) -> None:
-    """Check the rendered execution methodology at docs/agents/execution/methodology.md.
-
-    Codex has no Skill tool, so the methodology only reaches both harnesses as in-repo markdown. A
-    repo carrying a copy from a MAJOR-older methodology is following rules that have since been
-    withdrawn, which is an error.
-
-    This checks a rendered copy and says nothing about a repository that has none. Whether a repo
-    *should* have adopted the methodology is not this script's question: adoption is staggered, a
-    repo may have deliberately deferred it with a recorded reason, and only
-    `sync_methodology.py --adoption-check` can tell the four states apart. Two scripts reporting the
-    same fact is how a deferred repo ends up being told off for a decision it recorded on purpose.
-
-    Fail-soft about JUDGEMENT, not about COVERAGE. An unparseable or missing marker is still a
-    finding rather than a crash, and a repo with no rendered copy is still left alone. But the
-    rendered file being unreadable was previously a `warn`, and a warn exits 0 — so chmod-ing the
-    rendered methodology made a major-version-behind repository pass. Unreadable is now
-    `read_doc`'s business, like every other read in this file.
-    """
-    if not (root / "docs" / "agents" / "README.md").is_file():
-        return                      # not a routed repository; nothing to be behind on
-    installed = installed_methodology_version()
-    rel = "docs/agents/execution/methodology.md"
-    rendered = root / "docs" / "agents" / "execution" / "methodology.md"
-
-    if not rendered.is_file():
-        return                      # not adopted — the adoption check owns that report
-
-    text = strip_code(read_doc(rendered, root))
-
-    count = len(EXECUTION_MARKER_ANY.findall(text))
-    raw = EXECUTION_MARKER.findall(text)
-    if count == 0:
-        report.warn("execution-marker-missing", rel,
-                    "carries no `execution-methodology` version marker; re-render it with "
-                    "`sync_methodology.py --repo .`")
-        return
-    if count > 1:
-        report.error("execution-marker-invalid", rel,
-                     "contains more than one `execution-methodology` marker; keep exactly one")
-        return
-    if len(raw) != 1:
-        report.error("execution-marker-invalid", rel,
-                     "`execution-methodology` marker must contain one single-line JSON object")
-        return
-    try:
-        parsed = json.loads(raw[0])
-    except json.JSONDecodeError as exc:
-        report.error("execution-marker-invalid", rel,
-                     f"`execution-methodology` marker is not valid JSON: {exc.msg}")
-        return
-    if not isinstance(parsed, dict):
-        report.error("execution-marker-invalid", rel,
-                     "`execution-methodology` marker must be a JSON object")
-        return
-
-    found = parsed.get("v")
-    m = SEMVER2.match(found.strip()) if isinstance(found, str) else None
-    if m is None:
-        report.error("execution-marker-invalid", rel,
-                     f"`execution-methodology` marker version {found!r} is not MAJOR.MINOR")
-        return
-    if installed is None:
-        return
-    cur = SEMVER2.match(installed)
-    if cur is None:
-        return
-    if int(m.group(1)) < int(cur.group(1)):
-        report.error("execution-version-drift", rel,
-                     f"rendered from methodology v{found}; current is v{installed} — a major "
-                     "version behind, so this repo documents withdrawn rules. Re-render it.")
-    elif int(m.group(1)) == int(cur.group(1)) and int(m.group(2)) < int(cur.group(2)):
-        report.warn("execution-version-drift", rel,
-                    f"rendered from methodology v{found}; current is v{installed}")
 
 
 def check_readme_freshness(root: Path, base: str, report: Report) -> None:
@@ -1394,9 +1217,7 @@ def collect(args: argparse.Namespace, root: Path) -> tuple[Report, list[Path]]:
     check_orphans(root, depth, files, report)
     check_scoped_coverage(root, files, depth, report)
     check_stale_paths(root, depth, files, report)
-    check_persona_decision(root, depth, report)
     check_personas(root, report)
-    check_execution_methodology(root, report)
     # THE OPT-IN FAMILIES, and the one place their absence is recorded.
     #
     # Each of these is a whole family of ERROR-producing checks selected at the CALL SITE, which

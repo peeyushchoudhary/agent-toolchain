@@ -180,7 +180,7 @@ rewritten: the reasoning was sound and one of its two premises turned out to be 
 **Historical decision.** [D27](#d27--approved-completion-and-technical-recovery) supersedes the
 automatic gate return for unchanged technical recurrence. Current procedure is owned by the
 [execution methodology](../../install/skills/execution-methodology/methodology.md) and its
-[execution loop](../../install/skills/execution-methodology/references/execution-loop.md).
+[run reference](../../install/skills/execution-methodology/references/run.md).
 
 **Chose:** Goal Capsule, classification, fresh read-only `reviewer` before Design/Plan gates
 (`fork_turns: "none"` Codex; equivalent fresh-thread primitive elsewhere, never prompts); `PASS`;
@@ -537,7 +537,7 @@ revocation, unavailable permissions and recovery exhausted after C remain real s
 actions still require their matching grants. Installing source conveys no new consumer authority.
 
 **Owner:** the [execution methodology](../../install/skills/execution-methodology/methodology.md)
-and its [execution loop](../../install/skills/execution-methodology/references/execution-loop.md)
+and its [run reference](../../install/skills/execution-methodology/references/run.md)
 own the recovery and admission procedure. This decision adds no counter, ledger, scheduler or
 approval form. The [current state](../../README.md#current-state) reports validation and activation;
 approval of this rule is not evidence that installation or project upgrades ran.

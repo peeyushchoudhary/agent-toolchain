@@ -2,13 +2,19 @@
 """End-to-end smoke run of the v6 driver with a real harness CLI (consumes a little real quota).
 
   smoke_goal.py --harness claude|codex [--timeout-min 25] [--keep]
+  smoke_goal.py --harness codex --prepare
 
-It builds a two-milestone, three-task fixture goal in a temporary git repository and registers the
-hooks only there: Claude Code through the driver's --settings file, Codex through the repository's
-.codex/hooks.json. The chief session runs with user settings excluded (Claude: project and local
-setting sources only, no user MCP servers; Codex: no user config or rules). It first makes one
+It builds a two-milestone, three-task fixture goal in a git repository and registers the hooks only
+there: Claude Code through the driver's --settings file, Codex through the repository's
+.codex/hooks.json. The Claude chief runs with user settings excluded (project and local setting
+sources only, no user MCP servers); the Codex chief runs without user rules. It first makes one
 judge call in the same harness that is asked to write a file, then drives the goal with
 run_goal.py and asserts the run's evidence. The summary line is unittest's, so gate.py counts it.
+
+Codex runs project hooks only after the user has trusted them, and that trust is stored in the
+user's config, which this script never writes. So the Codex fixture lives at one fixed path and is
+rebuilt identically on every run: `--prepare` builds it and prints the one-time trust step, and a
+Codex run stops early with that instruction while the trust is missing.
 """
 from __future__ import annotations
 
@@ -30,6 +36,8 @@ import goal  # noqa: E402
 import review  # noqa: E402
 import run_goal  # noqa: E402
 
+CODEX_FIXTURE = Path.home() / ".cache" / "goal-smoke" / "codex"
+CODEX_CONFIG = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "config.toml"
 HARNESS = "claude"
 TIMEOUT_MIN = 25.0
 KEEP = False
@@ -181,14 +189,46 @@ def judge_attempt(root: Path, harness: str):
     return {"code": code, "hook_log": hook_log.read_text() if hook_log.exists() else ""}
 
 
+def codex_fixture() -> Path:
+    """Rebuild the fixed Codex fixture; its .codex/hooks.json is byte-identical on every run."""
+    root = CODEX_FIXTURE
+    shutil.rmtree(root, ignore_errors=True)
+    root.mkdir(parents=True)
+    build(root, "codex")
+    return Path(os.path.realpath(root))
+
+
+def codex_hooks_trusted(root: Path) -> bool:
+    """Read-only check that the user has trusted this fixture's hooks in Codex."""
+    try:
+        config = CODEX_CONFIG.read_text()
+    except OSError:
+        return False
+    return f'{root / ".codex" / "hooks.json"}:' in config
+
+
+TRUST_STEP = """The Codex fixture's hooks are not trusted yet. One-time step, done by you:
+  cd {root} && codex
+Trust the folder and approve its Stop and SessionStart hooks when Codex asks, then exit Codex.
+The fixture is rebuilt identically at this path on every run, so the trust stays valid."""
+
+
 def setup_run():
-    Run.root = Path(os.path.realpath(tempfile.mkdtemp(prefix="goal-smoke-")))
-    build(Run.root, HARNESS)
+    if HARNESS == "codex":
+        Run.root = codex_fixture()
+        if not codex_hooks_trusted(Run.root):
+            Run.error = TRUST_STEP.format(root=Run.root)
+            return
+    else:
+        Run.root = Path(os.path.realpath(tempfile.mkdtemp(prefix="goal-smoke-")))
+        build(Run.root, HARNESS)
     started = time.time()
     sh(Run.root, sys.executable, str(SCRIPTS / "goal.py"), "start", "--goal", GOAL_ID, "--plan", "docs/plan.md")
     Run.judge = judge_attempt(Run.root, HARNESS)
+    Run.judge["hooks_log"] = read(f".runs/{GOAL_ID}/hooks.log")
+    # The Codex chief keeps the user config: that is where the hook trust lives.
     extra = (["--setting-sources", "project,local", "--strict-mcp-config"] if HARNESS == "claude"
-             else ["--ignore-user-config", "--ignore-rules"])
+             else ["--ignore-rules"])
     cmd = [sys.executable, str(SCRIPTS / "run_goal.py"), "--goal", GOAL_ID, "--harness", HARNESS, "--plan",
            "docs/plan.md", "--poll", "1", "--max-sessions", "6", "--quota-wait", "0",
            *[f"--harness-arg={x}" for x in extra]]
@@ -216,8 +256,11 @@ class SmokeTest(unittest.TestCase):
 
     def test_judge_was_not_held_by_the_stop_hook(self):
         if HARNESS == "codex":
-            self.fail("Codex runs project hooks only after their trust is persisted in the user's "
-                      "config.toml, which this smoke run must not write; judge-hook evidence unavailable")
+            # The Codex judge runs with --ignore-user-config, so no trusted project hook loads at all:
+            # the call returned, and nothing reached the project hook log during it.
+            self.assertIn(Run.judge.get("code"), (0, 1), "the judge call failed")
+            self.assertEqual(Run.judge.get("hooks_log", ""), "", "a project hook ran in the judge session")
+            return
         log = Run.judge.get("hook_log", "")
         self.assertIn("GOAL_ROLE=judge", log, "the judge's Stop hook did not run")
         self.assertNotIn('"decision"', log)
@@ -282,17 +325,28 @@ def main():
     ap.add_argument("--harness", required=True, choices=("claude", "codex"))
     ap.add_argument("--timeout-min", type=float, default=TIMEOUT_MIN)
     ap.add_argument("--keep", action="store_true", help="keep the fixture repository for inspection")
+    ap.add_argument("--prepare", action="store_true",
+                    help="codex only: build the fixed fixture and print the one-time trust step")
     a = ap.parse_args()
     HARNESS, TIMEOUT_MIN, KEEP = a.harness, a.timeout_min, a.keep
+    if a.prepare:
+        if HARNESS != "codex":
+            ap.error("--prepare applies to --harness codex only")
+        root = codex_fixture()
+        print("trusted: yes" if codex_hooks_trusted(root) else TRUST_STEP.format(root=root))
+        return 0
     print(f"smoke: {HARNESS} · fixture goal {GOAL_ID} · bound {TIMEOUT_MIN:g} min", flush=True)
     setup_run()
+    if Run.driver is None and Run.error:
+        print(Run.error, flush=True)
+        return 1
     print(f"smoke: fixture {Run.root} · driver exit {getattr(Run.driver, 'returncode', None)} · "
           f"{Run.elapsed / 60:.1f} min", flush=True)
     if Run.driver is not None:
         print((Run.driver.stdout + Run.driver.stderr)[-2500:], flush=True)
     result = unittest.TextTestRunner(stream=sys.stdout, verbosity=2).run(
         unittest.defaultTestLoader.loadTestsFromTestCase(SmokeTest))
-    if not KEEP and result.wasSuccessful():
+    if not KEEP and result.wasSuccessful() and HARNESS != "codex":  # the Codex fixture path is fixed
         shutil.rmtree(Run.root, ignore_errors=True)
     return 0 if result.wasSuccessful() else 1
 

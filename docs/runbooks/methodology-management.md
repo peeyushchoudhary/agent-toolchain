@@ -1,15 +1,18 @@
 # Methodology management routes
 
-**Authority: current routing.** Executable owners and the project's approved runtime remain the
-behavioral authority. This page maps maintenance intent to one procedure; it does not restate those
-procedures.
+**Retired in v6 (F-3).** The skills, procedures and scripts named below no longer ship; a v5.1
+project migrates with [migrate.md](../../install/skills/execution-methodology/references/migrate.md).
+This page is kept as history until the documentation rewrite.
+
+**Authority: historical routing (v5.1).** This page mapped maintenance intent to one procedure; it
+does not restate those procedures.
 
 | Requested intent | Entry | Owning procedure |
 | --- | --- | --- |
-| Assess status or repair approved generated drift | `methodology-management` | [assessment](../../install/skills/methodology-management/references/assessment.md) |
-| Set up or adopt a project | `methodology-management`, or explicit compatibility name `project-onboarding` | [setup](../../install/skills/methodology-management/references/setup.md) |
-| Migrate product documents | `methodology-management`, or explicit compatibility name `project-migration` | [migration](../../install/skills/methodology-management/references/migration.md) |
-| Compare or apply a methodology/model candidate | `methodology-management` | [upgrades](../../install/skills/methodology-management/references/upgrades.md) |
+| Assess status or repair approved generated drift | `methodology-management` | `references/assessment.md` (retired) |
+| Set up or adopt a project | `methodology-management`, or explicit compatibility name `project-onboarding` | `references/setup.md` (retired) |
+| Migrate product documents | `methodology-management`, or explicit compatibility name `project-migration` | `references/migration.md` (retired) |
+| Compare or apply a methodology/model candidate | `methodology-management` | `references/upgrades.md` (retired) |
 | Read-only conformance assessment | `project-conformance` may be selected implicitly | Existing conformance checker; requested repair returns to management assessment |
 
 Onboarding and migration disable model-initiated invocation in both harnesses. Their compatibility

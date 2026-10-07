@@ -11,10 +11,6 @@ project needs this run once:
   pre-push     blocks the mistakes a push makes permanent (secrets, huge files, pushes to main)
   post-commit  re-extracts changed code into the Graphify graph, via `graphify hook install`
 
-It also wires one machine-global reporter line: the execution-methodology adoption check, added to
-the SessionStart script so every repository states whether it has adopted the shared methodology,
-drifted from it, or deliberately deferred it. It reports; it never adopts.
-
 pre-push carries the rules that GitHub itself would charge for: secret scanning on a private repo
 needs paid Secret Protection, and protected branches need a paid plan. Enforcing them locally costs
 nothing and matches the operating model, where local gates are the only gates.
@@ -157,8 +153,7 @@ the hook templates from this source and asserts each one's dependency reaches th
 
 A hook that only REPORTS is treated differently from a hook that BLOCKS, and that distinction is
 argued at PRE_COMMIT_IDENTIFIER below: not validating the route is not a claim about the route, but a
-guard that did not run reads as a clean result. The SessionStart adoption reporter therefore still
-installs when its script is missing — it just says, in its own status line, that it will not report.
+guard that did not run reads as a clean result.
 
 Usage:
   install_hooks.py [ROOT]              # install / update
@@ -313,39 +308,6 @@ if [ -f "$_pd_guard" ]; then
 fi
 {end}
 """
-
-# The SessionStart hook is not a git hook. It is the machine-global reporter at
-# ~/.claude/hooks/disclosure-check.sh, wired once in ~/.claude/settings.json, which already runs
-# validate_disclosure.py, check_github.py and check_toolchain.py against whatever directory a
-# session opens in. The execution-methodology adoption check belongs beside them: adoption is
-# staggered, so a repository that has not adopted the methodology has to say so every session until
-# it does, and only a session-level reporter can say it.
-#
-# Installing it from here — rather than shipping it inside that script — is what keeps the two
-# skills decoupled and what makes adopting the progressive-disclosure standard the thing that turns
-# the warning on. install_hooks.py invokes both scripts; neither imports the other.
-SESSION_BEGIN = "# >>> execution-methodology adoption >>>"
-SESSION_END = "# <<< execution-methodology adoption <<<"
-
-# The insertion point: everything above it builds $notes, and this line is where the reporter stops
-# collecting and emits. Anchoring on it (rather than appending) is required — an appended block
-# would sit after the emit and never run.
-SESSION_ANCHOR = '[ -n "$notes" ] || exit 0'
-
-SESSION_BLOCK = """{begin}
-# Reports whether this repository has adopted the shared execution methodology, has drifted from
-# it, or deliberately deferred it. Reports only: it never renders, never adopts, and never fails a
-# session. --adoption-check exits 0 by contract, and `|| true` covers anything it does not.
-# Skips silently when this repo has no route or the script is not installed.
-_em_sync="$HOME/.claude/skills/execution-methodology/scripts/sync_methodology.py"
-if [ -f "$root/docs/agents/README.md" ] && [ -f "$_em_sync" ]; then
-  _em_out=$(PYTHONDONTWRITEBYTECODE=1 python3 "$_em_sync" --repo "$root" --adoption-check 2>/dev/null || true)
-  [ -n "$_em_out" ] && add "$_em_out"
-fi
-{end}
-"""
-
-SESSION_HOOK = Path.home() / ".claude" / "hooks" / "disclosure-check.sh"
 
 
 def render_pre_commit(*, standard: bool = False, public: bool = False) -> str:
@@ -801,60 +763,6 @@ def strip_block(text: str, begin: str = BEGIN, end: str = END) -> str:
     return (head.rstrip("\n") + "\n" + tail.lstrip("\n")).strip("\n")
 
 
-def wire_session_start(remove: bool = False) -> str:
-    """Add (or remove) the execution-methodology adoption check in the SessionStart reporter.
-
-    Defensive in exactly the way the git-hook blocks are: every failure mode ends in a printed
-    status and a normal return, never an exception and never a broken hook. The block is marked, so
-    re-running replaces it instead of duplicating, and uninstalling takes back only our lines.
-
-    This is the one machine-global edit here, matching sync_codex above, which also writes outside
-    the repository being installed into. That is correct: SessionStart is configured once per
-    machine, not once per repository, and the adoption question is asked of whichever repository the
-    session opens in.
-    """
-    if not SESSION_HOOK.is_file():
-        return "skipped — no SessionStart reporter at ~/.claude/hooks/disclosure-check.sh"
-    try:
-        text = SESSION_HOOK.read_text(encoding="utf-8", errors="replace")
-        # Not strip_block(): that one normalises leading and trailing blank lines, which is fine for
-        # a git hook we own outright and wrong for a script we are only a guest in. Removing our
-        # block must leave the file byte-identical to what it was before we added it.
-        if SESSION_BEGIN in text and SESSION_END in text:
-            head, _, rest = text.partition(SESSION_BEGIN)
-            _, _, tail = rest.partition(SESSION_END)
-            stripped = head + tail.lstrip("\n")
-        else:
-            stripped = text
-        if remove:
-            if stripped == text:
-                return "absent"
-            SESSION_HOOK.write_text(stripped, encoding="utf-8")
-            SESSION_HOOK.chmod(0o755)
-            return "removed"
-
-        if SESSION_ANCHOR not in stripped:
-            return ("skipped — the reporter has been restructured and no longer contains its emit "
-                    f"anchor ({SESSION_ANCHOR}); add the block by hand")
-        # A REPORTER, NOT A GUARD — and that is the whole reason a missing script is not fatal here
-        # the way it is in `install_hook`. The argument is the one made above PRE_COMMIT_IDENTIFIER:
-        # a guard that did not run reads as a clean result, while a reporter that did not run makes
-        # no claim at all. What it may NOT do is report itself as installed and working when it will
-        # never emit a line, so the status says which of the two it is.
-        block = SESSION_BLOCK.format(begin=SESSION_BEGIN, end=SESSION_END)
-        inert = "" if not missing_dependencies(block) else (
-            " (INERT — " + ", ".join(p.name for p in missing_dependencies(block))
-            + " is not on this machine, so no adoption line will ever be reported)")
-        updated = stripped.replace(SESSION_ANCHOR, block + "\n" + SESSION_ANCHOR, 1)
-        if updated == text:
-            return "already current" + inert
-        SESSION_HOOK.write_text(updated, encoding="utf-8")
-        SESSION_HOOK.chmod(0o755)
-        return ("installed" if SESSION_BEGIN not in text else "updated") + inert
-    except OSError as e:
-        return f"skipped — {e}"
-
-
 def write_hook(path: Path, block: str) -> str:
     """Insert or replace our block, preserving any hook the user already had."""
     existing = strip_block(read(path))
@@ -1292,26 +1200,6 @@ def _persona_preview(root: Path, scope: str) -> tuple[list[dict], list[dict]]:
     return operations, list(payload["findings"])
 
 
-def _session_file_operation(remove: bool) -> PlannedFile | None:
-    if not SESSION_HOOK.is_file():
-        return None
-    text = read(SESSION_HOOK)
-    if SESSION_BEGIN in text and SESSION_END in text:
-        head, _, rest = text.partition(SESSION_BEGIN)
-        _, _, tail = rest.partition(SESSION_END)
-        stripped = head + tail.lstrip("\n")
-    else:
-        stripped = text
-    if remove:
-        desired = stripped
-    elif SESSION_ANCHOR not in stripped:
-        return None
-    else:
-        block = SESSION_BLOCK.format(begin=SESSION_BEGIN, end=SESSION_END)
-        desired = stripped.replace(SESSION_ANCHOR, block + "\n" + SESSION_ANCHOR, 1)
-    return _file_operation(SESSION_HOOK, desired, executable=True)
-
-
 def _mirror_operations() -> list[PlannedFile]:
     """Overlay maintained bundle files into CODEX_HOME without deleting unknown content."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1443,9 +1331,6 @@ def _scoped_plan(root: Path, *, scope: str, uninstall: bool, standard: bool,
                 findings.append({"code": "graph-operation-unpreviewable",
                                  "message": "graphify hook install has no write-equivalent preview"})
     if scope in ("global", "all"):
-        session = _session_file_operation(uninstall)
-        if session:
-            files.append(session)
         if not uninstall:
             files.extend(_mirror_operations())
             global_personas, persona_findings = _persona_preview(root, "global")
@@ -1566,10 +1451,6 @@ def main() -> int:
         print(f"  pre-push secret/size/main guard: {push}")
         print(f"  post-commit graph refresh: {graph}")
         print(f"  repo has a disclosure route: {route}")
-        session = read(SESSION_HOOK)
-        print("  session-start methodology adoption check: "
-              + ("present" if SESSION_BEGIN in session else
-                 "ABSENT" if session else "ABSENT (no SessionStart reporter)"))
         # BEHAVIOUR 4. A declaring repository whose guard is missing is the state this whole card
         # exists to make impossible, so --check must not be the mode that shrugs at it. It reported
         # exactly this pair of lines — "declares itself PUBLIC: YES" and "guard: ABSENT" — and
@@ -1610,7 +1491,6 @@ def main() -> int:
         if graphify_available():
             subprocess.run(["graphify", "hook", "uninstall"], cwd=root, capture_output=True)
             print("  removed graphify post-commit hook")
-        print(f"  session-start methodology adoption check {wire_session_start(remove=True)}")
         return 0
 
     synced = sync_codex(root)
@@ -1808,11 +1688,6 @@ def main() -> int:
         if removed != "absent":
             print(f"  commit-msg identifier guard {removed} — no honoured `public-exception` "
                   f"marker was found in any candidate file the parser could read")
-
-    # Adoption of the execution methodology is staggered and deliberate. This block only ever
-    # reports; it is what makes an unadopted repository say so at every session start instead of
-    # drifting onto a methodology of its own. Nothing here renders anything into any repository.
-    print(f"  session-start methodology adoption check {wire_session_start()}")
 
     if not install_hook(root, "pre-push", PRE_PUSH.format(begin=BEGIN, end=END)):
         refused.append("pre-push")

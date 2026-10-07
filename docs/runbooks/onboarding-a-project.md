@@ -1,7 +1,11 @@
 # Per-project initialisation
 
-The maintained setup procedure is
-[methodology-management/references/setup.md](../../install/skills/methodology-management/references/setup.md).
+**Retired in v6 (F-3).** The skills and scripts named below no longer ship; a v5.1 project migrates
+with [migrate.md](../../install/skills/execution-methodology/references/migrate.md). The route setup
+(`migrate_to_standard.py`, `install_hooks.py`, `sync_personas.py`) below still applies. This page is
+kept as history until the documentation rewrite.
+
+The maintained setup procedure was `methodology-management/references/setup.md` (retired).
 The explicitly invoked `project-onboarding` skill is a compatibility route to that procedure in
 both harnesses; it carries the user's target and existing authority forward without asking for a
 second invocation. A session check may report missing setup, but never starts adoption.

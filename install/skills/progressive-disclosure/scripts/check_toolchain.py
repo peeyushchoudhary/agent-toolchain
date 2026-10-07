@@ -53,14 +53,9 @@ A fifth machine-global concern was added by TC-47, and it sits one floor BELOW e
      swept, because sweeping it without an authored-set emits 22 unclearable findings on an
      ordinary machine; see ENTRY_SURFACES and TOP_LEVEL_DEFERRAL.
 
-`--vendored` and `--reviews` add two REPOSITORY-SCOPED concerns; neither ever runs implicitly:
+`--vendored` adds one REPOSITORY-SCOPED concern; it never runs implicitly:
 
-  6. `--reviews <workspace>`: for every card that produced a report, an independent review artifact
-     must exist. Same defect class as (5) one floor over — authored work that no gate can see —
-     added after a live near-miss in which a card skipped its review stage entirely, was verified,
-     and moved toward a commit carrying two criticals. See `check_reviews`.
-
-  7. `--vendored <repo>`: a repository that publishes a vendored copy of the installed shared layer
+  6. `--vendored <repo>`: a repository that publishes a vendored copy of the installed shared layer
      — `install/skills` mirroring `~/.claude/skills`. That copy is refreshed by hand, so it drifts
      in both directions: a skill edited or added in `~/.claude` and never re-vendored publishes
      stale instructions, and a skill deleted or renamed in `~/.claude` but left in the repository
@@ -74,10 +69,6 @@ A fifth machine-global concern was added by TC-47, and it sits one floor BELOW e
      `~/.claude/skills` after replacing it (`read_preserved`). The first is symmetric; the second
      applies to the installed-only direction alone. Everything either one removes is reported as
      excluded, with the file that removed it named.
-
-The two repository-scoped modes are MUTUALLY EXCLUSIVE at the argument parser: they are verdicts
-about different trees, and a run that silently executed one of them would print a status for a
-question the caller did not ask.
 
 THREE STATES, NEVER TWO. Every run resolves to exactly one of `clean`, `findings`, or `not-run`,
 and a check that did not execute is reported as not-run in those words. It is never absorbed into a
@@ -101,7 +92,6 @@ Usage:
   check_toolchain.py --hook    # compact agent context, silent when healthy
   check_toolchain.py --json
   check_toolchain.py --vendored <repo>   # diff ~/.claude/skills against <repo>/install/skills
-  check_toolchain.py --reviews <dir>     # every card with a report in <dir> must carry a review
 
 `--json` emits an OBJECT, not a bare findings array: an array cannot carry the difference between
 "nothing was wrong" and "nothing was looked at". Stable keys for a caller:
@@ -109,20 +99,18 @@ Usage:
   {"mode", "status", "exit", "counts": {<severity>: n, "total": n},
    "evaluated": [...], "not_evaluated": [{"check", "why"}], "excluded": [{"name", "why"}],
    "findings": [{"severity", "detail"}], "plugins": {...} | null,
-   "tracking": {...} | null, "reviews": {...} | null, "summary": "..."}
+   "tracking": {...} | null, "summary": "..."}
 
 `counts` is keyed by severity so a caller counts by severity without parsing prose, and always
 carries a key for every severity in SEVERITY_RANK even when it is zero.
 
-`plugins` is the TC-41 enumeration, structured so `project-conformance` can act on it without
-parsing prose. It is `null` in `--vendored` mode — that mode enumerates no plugins, and `null` says
+`plugins` is the TC-41 enumeration, structured so a caller can act on it without parsing prose. It is `null` in `--vendored` mode — that mode enumerates no plugins, and `null` says
 so where `{}` would read as "there are none". Its shape is fixed by `plugin_surface()`; the field a
 caller most likely wants is `plugins["claude"]["enumerated"]`, which is `false` whenever any part of
 the Claude-side enumeration could not be completed, so an incomplete list can never be mistaken for
 a short one.
 
-`tracking` and `reviews` are TC-47's two sweeps, on the same terms and `null` in the modes that do
-not run them — `tracking` in `--vendored` and `--reviews`, `reviews` everywhere but `--reviews`.
+`tracking` is TC-47's sweep, on the same terms: `null` in `--vendored`, which does not run it.
 
   tracking.claude.asked        false whenever git could not be asked. THE FIELD TO CHECK FIRST: an
                                unasked question is not a satisfied one, and `results` is empty in
@@ -146,9 +134,6 @@ not run them — `tracking` in `--vendored` and `--reviews`, `reviews` everywher
                                unanswerable one; both give an empty `results`, so the two fields
                                together are what tell them apart.
   tracking.codex.in_scope      always false, with `why_not_asked` carrying the reason.
-  reviews.cards                card id -> {"reports", "reviews"}. The per-card counts; the zero
-                               that is invisible in the aggregate is obvious here.
-  reviews.totals               {"cards", "with_reports", "unreviewed"}.
 
 WHAT A `--json` CONSUMER MUST HANDLE, stated because it is NOT symmetrical with
 `validate_disclosure.py` and a caller told otherwise will crash on the path that matters most.
@@ -241,25 +226,12 @@ ROUTED_MIRRORED = [
 # published-skills manifest this file does not have. Until it does, `check_vendored` reports the
 # raw fact that a directory exists on one side and not the other, and the operator decides what to
 # do about it; it must not be read as an instruction to publish anything. See the TC-03 review, F5.
-MIRRORED_SKILLS = ("progressive-disclosure", "agent-personas", "agent-persona-factory",
-                   "graph-navigation", "project-onboarding", "execution-methodology",
-                   # Added when `project-conformance` was published. This list is the FIFTH place a
-                   # roster lives, and the docs that described publishing as "four coordinated
-                   # edits" named only four. `install.sh` began mirroring seven skills while this
-                   # watched six, so the newest one was installed on the Codex side and guarded by
-                   # nothing there — the precise edge the comment above `check_skills` had already
-                   # written down while it was still unpublished.
-                   "project-conformance",
-                   # Added WITH the `project-migration` publication, not after it. The lesson above
-                   # cost a release: publishing is FIVE coordinated edits, not four, and this list
-                   # is the fifth. A skill named in the allowlist is mirrored to ~/.codex/skills by
-                   # install.sh whether or not this tuple knows about it, so an omission here does
-                   # not fail loudly — it installs the skill on the Codex side and guards it with
-                   # nothing.
-                   "project-migration", "methodology-management",
-                   # Added WITH the `gate-sandbox` publication. The comment above has now been
-                   # right twice and is being trusted the third time rather than re-learned.
-                   "gate-sandbox")
+# This list is one of the places the published roster lives, alongside `install/skills/.gitignore`
+# and `install.sh`. A skill named in the allowlist is mirrored to ~/.codex/skills by install.sh
+# whether or not this tuple knows about it, so an omission here does not fail loudly — it installs
+# the skill on the Codex side and guards it with nothing. Edit them together.
+MIRRORED_SKILLS = ("progressive-disclosure", "agent-personas", "graph-navigation",
+                   "execution-methodology")
 
 # The third state. A `not-run` is not a severity of finding in the ordinary sense — it is the
 # absence of a finding *and* the absence of a clean result, which is precisely the thing two-state
@@ -319,10 +291,9 @@ class Run:
         # an empty mapping is the correct value for "a machine with no plugins", so using it for
         # "not enumerated here" would collapse the same two states this class exists to keep apart.
         self.plugins: dict | None = None
-        # The TC-47 sweeps, on the same terms and for the same reason: `{}` is the right value for
-        # "a workspace with no cards", so it cannot also mean "this mode does not sweep".
+        # The TC-47 tracking sweep, on the same terms and for the same reason: `{}` is a real
+        # answer, so it cannot also mean "this mode does not sweep".
         self.tracking: dict | None = None
-        self.reviews: dict | None = None
 
     def add(self, findings: list[tuple[str, str]], label: str | None = None,
             clean_phrase: str | None = None) -> None:
@@ -934,8 +905,8 @@ def check_vendored(vendored_skills: Path, rules=(), preserved=frozenset()) -> li
             # `scripts/x.py` against rules written for `<skill>/scripts/…` and quietly
             # under-exclude.
             lambda rel, _n=name: excluded_by(rules, f"{_n}/{rel}"),
-            # Same re-rooting, same reason: `PRESERVE_ACROSS_INSTALLS` names
-            # `execution-methodology/ROUND-GRANTS.tsv`, and what arrives here is `ROUND-GRANTS.tsv`.
+            # Same re-rooting, same reason: `PRESERVE_ACROSS_INSTALLS` names `<skill>/<file>`, and
+            # what arrives here is `<file>`.
             is_preserved=lambda rel, _n=name: preserved_by(preserved, f"{_n}/{rel}"))
         out += found
         dropped.update({f"{name}/{rel}": why for rel in skipped})
@@ -1627,17 +1598,13 @@ DECLARED_VENDOR_SKILLS: dict[str, str] = {
 #
 # The compensating control is real but NARROWER THAN IT FIRST APPEARS, and the earlier version of
 # this comment overclaimed it. `check_skills` fires `critical` when a mirrored skill is missing from
-# ~/.codex/skills — and it iterates MIRRORED_SKILLS, which is now SEVEN names.
-#
-# IT WAS SIX, AND THE MISSING ONE WAS THE SKILL FROM MEASURED INCIDENT 3. While
-# `project-conformance` was unpublished it was gated by this sweep on the Claude side and by
-# NOTHING on the Codex side, and that edge was stated here rather than smoothed over. Publishing it
-# closed the edge, and the closing was a separate edit from the publishing — which is the whole
-# lesson: a roster that lives in five places is repaired in five commits or not at all.
+# ~/.codex/skills — and it iterates MIRRORED_SKILLS, so a skill missing from that tuple is gated
+# on the Claude side and by NOTHING on the Codex side (measured incident 3). A roster that lives in
+# several places is repaired in all of them or not at all.
 #
 # What the exclusion does rest on is that nothing AUTHORED lives in ~/.codex/skills: the tree is
 # generated, so the recovery path is regeneration rather than restoration from a commit. Same shape
-# as the TC-04 ruling on vendor content. That argument holds for all seven directories there
+# as the TC-04 ruling on vendor content. That argument holds for every directory there
 # regardless of how many of them `check_skills` happens to compare.
 #
 # DECLARED is the operative word. The Codex side is reported as scope deliberately not covered, never
@@ -1766,33 +1733,6 @@ TRACKING_EXCLUSIONS = [("Codex skill tracking",
                         "derived mirror, not authored; see tracking.codex in --json"),
                        TOP_LEVEL_EXCLUSION]
 
-# ------------------------------------------------------------------------------------------------
-# TC-47, sweep two. Same class one floor over: authored work that no gate can see.
-#
-# A LIVE NEAR-MISS, not a hypothetical. Card TC-40 skipped its review stage entirely, was verified,
-# and moved toward a commit; the first review it ever received returned two CRITICALs, one of them a
-# `--fix` that deleted machine-global agent files while printing "nothing changed". At that moment
-# the workspace held, per card: TC-35 2 review artifacts, TC-36 2, TC-37 2, TC-39 5, TC-41 3,
-# TC-42 2, TC-45 2 — and TC-40 zero. Seventeen artifacts across eight cards looks healthy in
-# aggregate and the zero is obvious the instant it is counted PER CARD. So the question this asks is
-# not "is a review file missing" but "did anything act on a paraphrase", once per card.
-#
-# REPOSITORY-SCOPED, like `--vendored` and unlike everything above it: the subject is one named
-# directory on the command line, never the machine, and it never runs implicitly at session start.
-CARD_PATTERN = "TC-*.yaml"
-REPORTS_DIRNAME = "reports"
-
-# What an artifact's name after `TC-<id>-` must contain to count. Two markers, not one: a
-# security-validator's verdict is an independent judging artifact by a persona that holds no write
-# tool, and refusing to count it would report a card as unreviewed because of who reviewed it.
-#
-# NOTE FOR ANYONE RECONCILING THIS WITH THE COUNTS ABOVE: those were taken with `review` alone, so
-# `--reviews` reports TC-39 as 6 rather than 5, and TC-34 and TC-38 as reviewed on the strength of a
-# `-security.md`. Two of the eight measured counts have moved on their own since (TC-40 acquired the
-# review that found the criticals; TC-41 a fourth round), which is why no count is pinned anywhere.
-REVIEW_MARKERS = ("review", "security")
-REPORT_MARKER = "report"
-
 # Module-level DATA, exactly like `MIRRORED`, and for a reason worth stating: an `excluded` entry is
 # a `(name, why)` pair with the same shape as a `(severity, detail)` finding, so built inline it
 # would be indistinguishable from an emission to the AST rule in
@@ -1884,7 +1824,7 @@ def plugin_surface() -> tuple[dict, list[str], list[str]]:
             # False whenever any part of the CLAUDE enumeration failed — and only then. A consumer
             # that reads only this field can never mistake a truncated list for a short one, which
             # is the empty-versus-failed distinction expressed in the data. It used to be false when
-            # the CODEX config was merely absent, which told `project-conformance` that 42 perfectly
+            # the CODEX config was merely absent, which told the consumer that 42 perfectly
             # enumerated Claude plugins could not be trusted.
             "enumerated": not problems,
             "classified": True,
@@ -2402,18 +2342,10 @@ def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]
 
     An escalation rule was considered and rejected on the evidence: promote to `critical` when the
     ignored directory is named in MIRRORED_SKILLS, i.e. known to be ours. It would have been WRONG
-    on the measured case. The skill that actually went invisible was `project-conformance`, which
-    was not in MIRRORED_SKILLS at the time — the rule would have quietly demoted the one instance it
-    was invented for. A discriminator that fails on the recorded evidence is worse than none.
-
-    THE CONDITION HAS SINCE CHANGED AND THE RULING HAS NOT. `project-conformance` is published and
-    is now in that list, so the discriminator would no longer fail on that case. That is hindsight,
-    not vindication: the rule was rejected because it was wrong about the evidence available when it
-    was proposed, and a list that grows is exactly what would make it wrong again on the NEXT
-    unpublished skill. Recorded here so the next reader re-argues it from the evidence rather than
-    from the fact that one counter-example expired.
-
-    `--reviews` rules the opposite way for the opposite reason; see `check_reviews`.
+    on the measured case. The skill that actually went invisible was an unpublished one, not in
+    MIRRORED_SKILLS at the time — the rule would have quietly demoted the one instance it was
+    invented for. A discriminator that fails on the recorded evidence is worse than none, and a list
+    that changes is exactly what would make it wrong again on the NEXT unpublished skill.
     """
     surface: dict = {}
     findings: list[tuple[str, str]] = []
@@ -2477,7 +2409,7 @@ def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]
 
     # TC-49. The per-ENTRY surfaces, kept in their OWN key rather than folded into `results`.
     # `results` is keyed by SKILL DIRECTORY and consumers reconcile its length against the skill
-    # count — `project-conformance` does, and so does this suite. Mixing document paths into it
+    # count — this suite does. Mixing document paths into it
     # would silently move a number three callers read.
     root = CLAUDE_SKILLS.parent
     surfaces: dict = {}
@@ -2490,7 +2422,7 @@ def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]
         # `!/docs/NEW-LESSON.md` in the top-level file, `!/NOTES.md` in `skills/.gitignore`.
         holder = str(Path(allowlist_rel).parent)
         entry = {"root": str(base), "present": base.is_dir(), "asked": False,
-                 # Structured, so `project-conformance` can route the remedy without parsing the
+                 # Structured, so a consumer can route the remedy without parsing the
                  # prose below — and so a future surface cannot be added without saying which
                  # allow-list decides it.
                  "allowlist": str(allowlist),
@@ -2549,111 +2481,6 @@ def check_tracking() -> tuple[dict, list[tuple[str, str]], list[tuple[str, str]]
                                    "tracking.claude.declared_vendor")
                  for name in sorted(DECLARED_VENDOR_SKILLS) if name in claude["results"]]
     return surface, findings, excluded
-
-
-def card_artifacts(reports: Path, card: str) -> tuple[list[str], list[str]]:
-    """`(report_names, review_names)` belonging to `card`, matched on the `TC-<id>-` delimiter.
-
-    THE DELIMITER IS LOAD-BEARING, and a bare `startswith(card)` is a silent all-clear generator:
-    the real workspace holds TC-04 beside TC-40 and TC-02A beside an orphan `TC-02-review.md`, so a
-    prefix match lets one card's review satisfy another card's obligation. Zero-padding makes the
-    numeric collision survivable on its own; the suffixed ids do not.
-    """
-    prefix = f"{card}-"
-    stems = [p.name[len(prefix):-len(p.suffix)].lower()
-             for p in sorted(reports.glob(f"{prefix}*.md"))]
-    # REVIEW WINS A TIE, and the markers are deliberately not disjoint. `TC-NN-security-report.md`
-    # contains both `report` and `security`.
-    #
-    # WHAT THIS DOES AND DOES NOT CHANGE, stated precisely because the first version of this comment
-    # implied more. It does NOT change the finding stream: counted in both lists the card had a
-    # report AND a review and emitted nothing; counted review-first it has no report and still emits
-    # nothing. What changes is the COUNTS — `reviews.cards[id]` no longer reports one file as both
-    # `{"reports": 1, "reviews": 1}`, and `totals.with_reports` no longer includes a card whose only
-    # artifact is its own reviewer's. The defect was therefore in the reported picture rather than
-    # in the verdict: a workspace could show a card as reported-and-reviewed on the strength of a
-    # single file. Fail toward silence, never toward an obligation that discharged itself.
-    reviews = [s for s in stems if any(m in s for m in REVIEW_MARKERS)]
-    return ([s for s in stems if REPORT_MARKER in s and s not in reviews], reviews)
-
-
-def check_reviews(workspace: Path) -> tuple[dict, list[tuple[str, str]]]:
-    """For every card that produced a report, assert an independent review artifact exists.
-
-    SEVERITY: `critical`, under an any-finding exit rule — the opposite of `check_tracking`'s ruling
-    on the same class of defect, and the discriminator is worth stating because it is the whole
-    reason two sweeps in one card get two answers.
-
-    `check_tracking` runs UNATTENDED at every session start in every directory, and its finding has
-    a benign cause it cannot rule out. This mode runs only when a human or an orchestrator names a
-    workspace on the command line and asks the question, and "a report exists and no review does"
-    has no benign cause: either a judging persona looked at the work or nothing did. A `warn` here
-    would exit 0 and print drift, which is precisely the false GREEN `--vendored` was built to kill;
-    this mode follows that mode's rule for that reason.
-
-    A large count is not noise. Run against the real workspace this reports sixteen cards, which is
-    the milestone's actual review debt measured per card — the number being uncomfortable is the
-    finding, not an argument against it.
-    """
-    surface: dict = {"workspace": str(workspace), "asked": False,
-                     "cards": {}, "totals": {"cards": 0, "with_reports": 0, "unreviewed": 0}}
-
-    def unanswerable(why: str) -> tuple[dict, list[tuple[str, str]]]:
-        surface["why_not_asked"] = why
-        return surface, [(NOT_RUN, f"review coverage was NOT RUN: {why}. No card was asked whether "
-                                   f"anything reviewed it, which is not the same as every card "
-                                   f"having been reviewed")]
-
-    try:
-        cards = sorted(p.stem for p in workspace.glob(CARD_PATTERN))
-    except OSError as e:
-        return unanswerable(f"{workspace} could not be listed ({e})")
-    if not cards:
-        return unanswerable(f"no file matching `{CARD_PATTERN}` in {workspace}")
-    reports = workspace / REPORTS_DIRNAME
-    if not reports.is_dir():
-        # Deliberately not "every card is unreviewed". That reading turns one missing directory into
-        # a wall of findings nobody can act on, and it is a verdict about a tree that was not read.
-        return unanswerable(f"{reports} does not exist, so no card's artifacts could be listed")
-
-    findings: list[tuple[str, str]] = []
-    surface["asked"] = True
-    unreviewed = with_reports = 0
-    for card in cards:
-        try:
-            report_names, review_names = card_artifacts(reports, card)
-        except OSError as e:
-            findings.append((NOT_RUN, f"card `{card}` was NOT ASKED whether it was reviewed: "
-                                      f"{reports} could not be listed ({e})"))
-            continue
-        surface["cards"][card] = {"reports": len(report_names), "reviews": len(review_names)}
-        if not report_names:
-            # No report is work not yet done, not work that skipped its review. Conflating them
-            # would make every unstarted card in the workspace red and the sweep unreadable.
-            continue
-        with_reports += 1
-        if review_names:
-            continue
-        unreviewed += 1
-        # WHAT WAS SEARCHED FOR, not what was concluded. The previous wording asserted "nothing
-        # independent judged this work", which this function cannot observe and which is FALSE for
-        # several of the sixteen cards in the real workspace: it holds `FULL-DIFF-review.md` — a
-        # reviewer-persona review of 3585 lines across 13 files and two repositories — plus
-        # `SECURITY-review.md` and others, none of which carry a card id and none of which this
-        # name-based search can see. A `critical` in a file whose register is measured fact must not
-        # carry an inference the measurement does not support.
-        findings.append(("critical", f"card `{card}` produced {len(report_names)} report(s) and no "
-                                     f"file named `{card}-*.md` containing "
-                                     f"{' or '.join(REVIEW_MARKERS)} in {reports}. THIS SEARCH IS "
-                                     f"BY NAME: a workspace-wide review that does not carry this "
-                                     f"card's id — a full-diff or branch-level review — is not "
-                                     f"counted, so this reports a missing PER-CARD artifact and not "
-                                     f"that the work went unjudged. Fix: persist the per-card "
-                                     f"verdict as {reports / (card + '-review.md')}, or confirm a "
-                                     f"broader review covered it"))
-    surface["totals"] = {"cards": len(cards), "with_reports": with_reports,
-                         "unreviewed": unreviewed}
-    return surface, findings
 
 
 def plugin_line(surface: dict | None) -> str | None:
@@ -2771,14 +2598,8 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--hook", action="store_true", help="compact context; silent when healthy")
     ap.add_argument("--json", action="store_true", dest="as_json")
-    # MUTUALLY EXCLUSIVE, because they are verdicts about different trees. A run that silently
-    # executed one of them would print a status for a question the caller did not ask, which is the
-    # same false-reassurance shape as the clean line that named checks it had not run.
-    scoped = ap.add_mutually_exclusive_group()
-    scoped.add_argument("--vendored", metavar="REPO",
-                        help="compare ~/.claude/skills against REPO/install/skills; drift only")
-    scoped.add_argument("--reviews", metavar="WORKSPACE",
-                        help="assert every card with a report in WORKSPACE also has a review")
+    ap.add_argument("--vendored", metavar="REPO",
+                    help="compare ~/.claude/skills against REPO/install/skills; drift only")
     args = ap.parse_args()
 
     # EXIT SEMANTICS — stated per mode, deliberately, rather than shared.
@@ -2811,40 +2632,17 @@ def main() -> int:
     # `NOT A CLEAN RESULT` on its own line and `--json` carries `status` and per-severity `counts`.
     # A caller that discards stdout and reads only `$?` still cannot see it — that is the caller's
     # defect, and it is TC-37's to fix in verify.sh, not this file's to work around.
-    #   --reviews:
-    #       exit 1 iff there is ANY finding, same as `--vendored` and for the same reason. Both are
-    #       deliberate, repository-scoped invocations rather than session-start ones, and both
-    #       report a state with no benign cause. See `check_reviews` on why this is the opposite
-    #       ruling to `check_tracking`'s `warn`, on what is the same class of defect.
     vendored_mode = args.vendored is not None
-    reviews_mode = args.reviews is not None
-    mode = "vendored" if vendored_mode else "reviews" if reviews_mode else "default"
-    run = Run(mode, BLOCKING_ANY if (vendored_mode or reviews_mode) else BLOCKING_DEFAULT)
+    mode = "vendored" if vendored_mode else "default"
+    run = Run(mode, BLOCKING_ANY if vendored_mode else BLOCKING_DEFAULT)
     # The `--hook` header, chosen with the mode rather than derived from a boolean at the point of
-    # printing. Both repository-scoped modes must deny the default header's two claims — "the SHARED
+    # printing. The repository-scoped mode must deny the default header's two claims — "the SHARED
     # toolchain" and "affects EVERY project" — or the reader is sent to fix a machine-global mirror
     # over a diff scoped to one named directory.
     hook_header = ("AGENT CONTEXT: the shared agent toolchain has drifted. This affects every "
                    "project, not just this one.")
 
-    if reviews_mode:
-        if not args.reviews.strip():
-            print("error: --reviews requires a workspace path; got an empty value", file=sys.stderr)
-            return 2
-        workspace = Path(args.reviews).expanduser()
-        if not workspace.is_dir():
-            print(f"error: workspace not found or unreadable: {workspace}", file=sys.stderr)
-            return 2
-        hook_header = (f"AGENT CONTEXT: cards in {workspace} produced work that nothing reviewed. "
-                       f"This is scoped to that workspace — the installed toolchain and other "
-                       f"projects are unaffected.")
-        surface, findings = check_reviews(workspace)
-        run.reviews = surface
-        run.add(findings, "review coverage",
-                clean_phrase=f"every card in {workspace} that produced a report also carries a "
-                             f"review artifact ({surface['totals']['with_reports']} of "
-                             f"{surface['totals']['cards']} card(s) had a report to judge)")
-    elif vendored_mode:
+    if vendored_mode:
         # Truthiness would be wrong: `--vendored ""` is falsy, and under `if args.vendored:` it
         # silently ran the machine-global check and printed "clean" for a vendored-drift request.
         if not args.vendored.strip():
@@ -2928,14 +2726,11 @@ def main() -> int:
             # `agents` lists directly; it never has to parse a finding's prose to learn what is
             # installed. See `plugin_surface` for the shape.
             "plugins": run.plugins,
-            # TC-47, both sweeps, on the same `null`-outside-this-mode terms as `plugins`.
+            # TC-47's tracking sweep, on the same `null`-outside-this-mode terms as `plugins`.
             # `tracking.claude.results` maps a skill directory to `trackable`/`ignored`/`unknown`
             # and `tracking.claude.asked` is false whenever the question could not be put to git,
-            # so an unasked question can never be read as a satisfied one. `reviews.cards` maps a
-            # card id to its report and review counts, which is where the per-card zero that is
-            # invisible in aggregate becomes obvious.
+            # so an unasked question can never be read as a satisfied one.
             "tracking": run.tracking,
-            "reviews": run.reviews,
             "summary": summary,
         }, indent=2))
     elif args.hook:

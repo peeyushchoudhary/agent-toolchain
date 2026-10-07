@@ -14,14 +14,8 @@
 
 !/progressive-disclosure
 !/agent-personas
-!/agent-persona-factory
 !/execution-methodology
-!/methodology-management
 !/graph-navigation
-!/project-onboarding
-!/project-conformance
-!/project-migration
-!/gate-sandbox
 
 # Never, anywhere.
 __pycache__/

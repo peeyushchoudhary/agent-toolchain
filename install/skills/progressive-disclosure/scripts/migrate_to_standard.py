@@ -153,7 +153,6 @@ def plan_creates(root: Path, moves: list[tuple[Path, Path]]) -> list[tuple[Path,
         creates.append((idx, (
             "# Agent start here\n\n"
             "Read this page, then only the guide that matches your task.\n\n"
-            "<!-- agent-personas: TODO choose project specialists or base-only with a reason -->\n\n"
             "| Task | Read next | Primary verification |\n| --- | --- | --- |\n"
             f"| TODO: name an area | TODO: link its guide | `{cmd}` |\n"
             f"| Agent docs, routing, or this index | [disclosure.md](disclosure.md) | "
@@ -338,8 +337,6 @@ Keep both filenames per directory. `AGENTS.md` holds the text; `CLAUDE.md` is th
 - **One verification command per index row.** "Run the tests" is not routing.
 - Historical plans, handoffs, and reports are rationale, never current behaviour.
 - Adding a guide means adding its index row. An unrouted guide is invisible.
-- Every project records a persona decision in the index: routed project persona sources, or an
-  exact `base-only` marker with a non-empty reason. Silence is not a decision.
 
 ## Validate
 

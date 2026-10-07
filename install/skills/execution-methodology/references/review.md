@@ -33,9 +33,9 @@ Judges are read-only by construction, not by instruction, because an instruction
 and a missing tool cannot. `scripts/review.py` builds the packet and makes a one-shot call:
 
 - Codex: `codex exec -s read-only --ignore-user-config --ignore-rules`
-- Claude Code: `claude -p --tools Read,Grep,Glob --strict-mcp-config`
+- Claude Code: `claude -p --tools Read,Grep,Glob --strict-mcp-config --setting-sources project,local`
 
-Neither call loads the user's MCP servers, apps or other integrations, so a judge has no mutating
+Neither call loads the user's MCP servers, apps, hooks, plugins or other integrations, so a judge has no mutating
 surface besides the sandboxed shell. An allow-list of tools alone would only pre-approve those
 tools without removing the others. Both run with `GOAL_ROLE=judge`, so the Stop hook lets them end,
 and at the model and effort in the reviewer persona's frontmatter.

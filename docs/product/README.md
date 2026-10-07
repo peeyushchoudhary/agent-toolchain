@@ -13,8 +13,8 @@ Anything older than the date at the top of `measurements.md` is not authoritativ
 
 ## Research and rationale
 
-[The research and replanning index](research/README.md) routes the implementation assessment,
-external research and [current quality/velocity requirements intake](research/velocity-and-quality-replan.md).
+The evidence behind the current methodology is summarised in the
+[lean execution design](../architecture/lean-execution.md#evidence); git holds the earlier research.
 Implementation, validation and remaining limits are recorded in
 [the repository's current state](../../README.md#current-state). Earlier pilot and native-first
 proof-engine proposals remain labelled background or superseded rationale.

@@ -63,7 +63,7 @@ rules; see [../docs/architecture/operating-model.md](../docs/architecture/operat
    `sync_personas.py` to apply.
 3. **Invoke `methodology-management` in each project when ready.** Request assessment or adoption
    explicitly; global installation does not migrate projects. See the
-   [setup procedure](skills/methodology-management/references/setup.md).
+   [migration reference](skills/execution-methodology/references/migrate.md).
 
 ## Keeping it current
 

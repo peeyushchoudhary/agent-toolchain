@@ -48,13 +48,6 @@ document by adding its row here in the same commit.
 | Lean goal execution (methodology v6) definition | [product/specs/F-3-lean-execution.md](product/specs/F-3-lean-execution.md) | Approved 2026-10-06; in implementation |
 | Lean goal execution design | [architecture/lean-execution.md](architecture/lean-execution.md) | Approved 2026-10-06; in implementation |
 | Lean goal execution plan | [product/plans/F-3-lean-execution.md](product/plans/F-3-lean-execution.md) | Approved 2026-10-06; in implementation |
-| Research and current replanning direction | [product/research/README.md](product/research/README.md) | Dated rationale; native-first approach superseded |
-| Quality and velocity replanning requirements | [product/research/velocity-and-quality-replan.md](product/research/velocity-and-quality-replan.md) | Draft intake, 2026-09-30 |
-| Current implementation audit | [product/research/implementation-audit.md](product/research/implementation-audit.md) | Dated assessment, 2026-09-30 |
-| Earlier chief-of-staff autonomy proposal | [product/research/autonomy-proposal.md](product/research/autonomy-proposal.md) | Background proposal, 2026-09-30 |
-| Earlier economics and pilot proposal | [product/research/economics-and-pilot.md](product/research/economics-and-pilot.md) | Background; pilot direction superseded |
-| Announcements and GitHub comparisons | [product/research/external-research.md](product/research/external-research.md) | Dated research, 2026-09-30 |
-| Research safety and observed verification | [product/research/safety-and-verification.md](product/research/safety-and-verification.md) | Dated assessment, 2026-09-30 |
 
 Implementation, validation and remaining limits are recorded once in
 [the repository's current state](../README.md#current-state).

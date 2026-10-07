@@ -1,8 +1,11 @@
 # Adopt the methodology in an existing project
 
-This document is retained as a compatibility route for existing links. The maintained procedure is
-the [management setup procedure](../../install/skills/methodology-management/references/setup.md);
-the concise public interface and authority boundaries are in
+**Retired in v6 (F-3).** The skills and scripts named below no longer ship; a v5.1 project migrates
+with [migrate.md](../../install/skills/execution-methodology/references/migrate.md). This page is
+kept as history until the documentation rewrite.
+
+This document is retained as a compatibility route for existing links. The maintained procedure was
+the management setup procedure (`methodology-management/references/setup.md`, retired); the concise public interface and authority boundaries are in
 [onboarding-a-project.md](onboarding-a-project.md).
 
 Invoke `methodology-management` for setup or adoption. It assesses first, presents the concrete

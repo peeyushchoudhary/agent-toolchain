@@ -63,7 +63,7 @@ if [ ! -f "$index" ]; then
     missing="$missing, no git hooks"
   fi
   [ -f "$root/README.md" ] || missing="$missing, no README"
-  add "AGENT CONTEXT: this project is not initialised for agent work — $missing. Report this gap. The user can invoke \`methodology-management\` (or the \`project-onboarding\` compatibility entry) for a setup proposal. Do not select setup from this notice; follow an explicit source/toolchain repository route where present. Do not scaffold a repository, create a remote, or push unasked."
+  add "AGENT CONTEXT: this project is not initialised for agent work — $missing. Report this gap. The user can ask for the \`progressive-disclosure\` route setup; a project still on methodology v5.1 migrates with \`execution-methodology/references/migrate.md\`. Do not select setup from this notice; follow an explicit source/toolchain repository route where present. Do not scaffold a repository, create a remote, or push unasked."
 else
   # 1. Is the route actually intact? On a non-git project this is the only check that ever runs.
   # --readme included: the seven-section README contract is part of the standard, and it is checked
@@ -94,18 +94,6 @@ else
   [ -f "$root/docs/agents/lessons.md" ] && \
     add "AGENT CONTEXT: this project keeps route lessons at docs/agents/lessons.md — read it before trusting a guide, and append there when something in the docs misleads you."
 fi
-
-# >>> execution-methodology adoption >>>
-# Reports whether this repository has adopted the shared execution methodology, has drifted from
-# it, or deliberately deferred it. Reports only: it never renders, never adopts, and never fails a
-# session. --adoption-check exits 0 by contract, and `|| true` covers anything it does not.
-# Skips silently when this repo has no route or the script is not installed.
-_em_sync="$HOME/.claude/skills/execution-methodology/scripts/sync_methodology.py"
-if [ -f "$root/docs/agents/README.md" ] && [ -f "$_em_sync" ]; then
-  _em_out=$(PYTHONDONTWRITEBYTECODE=1 python3 "$_em_sync" --repo "$root" --adoption-check 2>/dev/null || true)
-  [ -n "$_em_out" ] && add "$_em_out"
-fi
-# <<< execution-methodology adoption <<<
 
 [ -n "$notes" ] || exit 0
 

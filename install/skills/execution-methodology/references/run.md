@@ -35,7 +35,7 @@ lets the chief edit, commit and run the declared gates with no human present.
 | Harness | Command shape | Permissions |
 | --- | --- | --- |
 | Claude Code | `claude -p --model <m> --effort <e> --permission-mode auto --settings .runs/<goal>/claude-settings.json --output-format json "<resume prompt>"` | The settings file allows `git add`, `git commit`, the plan's gate commands and the skill's scripts, and registers the Stop and SessionStart hooks. Auto mode's reviewer decides the rest. A denial is logged, never retried blindly. |
-| Codex | `codex exec -s workspace-write --approve-for-me -m <m> -c model_reasoning_effort=<e> --json "<resume prompt>"`, adding `-c sandbox_workspace_write.network_access=true` when `run.network` is true | The workspace-write sandbox covers the repository; automatic approval review handles the rest. Hooks come from the project's Codex hook configuration, which migration writes. |
+| Codex | `codex exec --approve-for-me -m <m> -c model_reasoning_effort=<e> --json "<resume prompt>"`, adding `-c sandbox_workspace_write.network_access=true` when `run.network` is true | `--approve-for-me` runs in the workspace-write sandbox, which covers the repository; the CLI rejects an explicit `-s` alongside it. Automatic approval review handles the rest. Hooks come from the project's `.codex/hooks.json`, which migration writes and the founder trusts once in Codex (see [migrate.md](migrate.md), step 4). |
 
 The session environment sets `GOAL_ROLE=chief`. Judge and advisor calls set `GOAL_ROLE=judge`, which
 exempts them from the Stop hook.

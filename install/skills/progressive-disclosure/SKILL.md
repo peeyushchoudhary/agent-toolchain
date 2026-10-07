@@ -70,19 +70,12 @@ and reports:
 | `standard-version-drift` (warn) | This repo's generated copies predate the current standard |
 | `readme-*` (error, under `--readme`) | The human front page is missing a section, a diagram, a PRD link, or a component |
 | `readme-stale` (warn, under `--vs REF`) | Source changed since REF but the README did not |
-| `persona-decision-missing` (warn) | No project specialists and no explicit reason the base pool is sufficient |
-| `persona-route-missing` (error) | Project persona sources exist but their maintained guide is not directly routed |
 | `lessons-entries` (note) | A lessons file has accreted past the point of being readable in one sitting |
 
 Exit 1 on any error. Never on a warning or a note: severity is a property of the finding, decided
 in the validator, not a strictness level chosen at the call site — so there is no `--strict`.
 `--json` for machine use. Wire it into the repo's check gate so the route is verified like any
 other invariant.
-
-(`validate_card.py` in the execution-methodology skill *does* keep a `--strict`, deliberately: a
-task card is a proposal being gated before work starts, where a caller may reasonably demand a
-clean bill, while this validator reports on a repository that already exists. The toolchain is
-inconsistent here on purpose, not by accident.)
 
 ## The README is a separate deliverable
 
@@ -178,35 +171,28 @@ migrate_to_standard.py <repo> --product    # plan the docs/product/specs/ migrat
 The migrator refuses to apply to a repository with uncommitted changes, never commits, and rewrites
 every markdown link a move invalidated. Read `references/standard.md` before running it.
 
-`--product` is a separate mode for one specific silence. `spec_check.py` binds feature specs by the
-single path glob `docs/product/specs/F-*.md`, so a repository that writes
+`--product` is a separate mode for one specific silence. The v5.1 spec checker (now retired) bound
+feature specs by the single path glob `docs/product/specs/F-*.md`, so a repository that writes
 `docs/product/specs/<slug>/spec.md` has every spec walked, matched by no rule, and reported as a
 clean exit 0. The mode proposes a RENAME PLUS A FRONT MATTER HEADER and nothing else: it derives
 `id`, `title`, `prd`, `status` and `updated` from what each document already says, refuses in
 writing where it cannot derive one, and prints the body word count before and after together with a
 repository-wide broken-link count so "no prose moved" is checkable rather than asserted. The area
 identifier a repository actually cites — `FED-C1` — is kept in the title and in the filename; the
-`F-<n>` value exists only because `spec_check.ID_RE` accepts nothing else.
+`F-<n>` value exists only because that checker's identifier rule accepted nothing else.
 
 Break-test: `python3 scripts/migrate_to_standard_selftest.py` (exit 0 = every case passes).
 
 ## Setting this up in a project
 
-Moved to the `project-onboarding` skill, which owns the end-to-end procedure: migrate, write the
-route, wire the gate, install hooks, add specialists. It spans GitHub and personas as well as the
-route, so it does not belong here.
+This skill owns the *standard* — the layers, the taxonomy, the budgets, and the validator. Applying
+it is: `migrate_to_standard.py`, write the route, wire the gate, then `install_hooks.py .`. A
+project still on methodology v5.1 migrates with `execution-methodology/references/migrate.md`.
 
-This skill owns the *standard* — the layers, the taxonomy, the budgets, and the validator.
-`project-onboarding` owns *applying* it to a repository.
-
-Two rules that live here because they are properties of the route, not of onboarding:
+Two rules that live here because they are properties of the route:
 
 - **Git hooks are never shared through git.** `install_hooks.py` runs once per *clone*, not once per
   project. Session start flags a clone that is missing them.
-- **Persona need is an explicit project decision.** A standard repository either keeps sources in
-  `docs/agents/personas/` and directly routes `docs/agents/personas.md`, or records
-  `<!-- agent-personas: {"mode":"base-only","reason":"..."} -->` in
-  `docs/agents/README.md`. Missing both is warned; tooling never invents the reason.
 - **Never run `graphify claude install`.** It appends a section to `CLAUDE.md`, which breaks the
   standard's one-line rule and makes that guidance invisible to every non-Claude agent.
 

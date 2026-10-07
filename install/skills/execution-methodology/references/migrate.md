@@ -38,9 +38,15 @@ v5.1 lifecycle.
    Leave the approved v5.1 bundle that the pin pointed to untouched; it is the founder's to retire.
 4. **Add run state and hooks.**
    - Add `/.runs/` to the project's `.gitignore`; run state is local evidence, not a record.
-   - Write the project's Codex hook configuration, registering `goal.py stop-hook` as the Stop hook
-     and `goal-session.sh` as the session-start hook. Claude Code gets both hooks from the global
-     install, and the driver registers them for headless sessions through its settings file.
+   - Write `<repo>/.codex/hooks.json`, in the same JSON shape as Claude Code's `hooks` block
+     (`run_goal.hooks_config` produces it): `Stop` runs `python3 <skill>/scripts/goal.py stop-hook`
+     and `SessionStart` runs `bash <hooks>/goal-session.sh`. Claude Code gets both hooks from the
+     global install, and the driver registers them for headless sessions through its settings file.
+   - **One-time trust step, by the founder.** In Codex, trust the project and then review and trust
+     these hooks. That persists `[projects."<abs>"] trust_level="trusted"` and
+     `[hooks.state."<abs>/.codex/hooks.json:stop:0:0"] trusted_hash=…` in `~/.codex/config.toml`.
+     Untrusted hooks silently do not run, and any edit to `.codex/hooks.json` changes the hash and
+     needs trusting again.
 5. **Update the route.** In `docs/agents/README.md` (or the project's route index), remove rows
    that pointed to the rendered methodology, the overlay and the runtime status command, and add
    a row for `docs/product/goals/`. Record the methodology version in one line of `AGENTS.md`.

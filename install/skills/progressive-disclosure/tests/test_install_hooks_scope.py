@@ -263,7 +263,12 @@ Validate the domain.
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "outside\n")
 
     def test_historical_default_still_demonstrates_the_global_side_effect(self) -> None:
-        """The red observation: a project install also entered three machine-global paths."""
+        """The red observation: a project install also entered two machine-global paths.
+
+        The SessionStart reporter was a third until the adoption block was retired; it is now
+        left untouched.
+        """
+        session_before = self.session.read_bytes()
         legacy = self.home / ".claude" / "skills" / "agent-personas" / "scripts" / "sync_personas.py"
         legacy.parent.mkdir(parents=True)
         legacy.write_text(
@@ -275,13 +280,14 @@ Validate the domain.
         legacy_codex.mkdir(parents=True)
         proc = self.invoke("--no-graph")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertIn("execution-methodology adoption", self.session.read_text(encoding="utf-8"))
+        self.assertEqual(self.session.read_bytes(), session_before)
         self.assertTrue((self.home / ".claude" / "agents" / "legacy.md").is_file())
         self.assertTrue((legacy_codex / "progressive-disclosure" / "scripts" /
                          "install_hooks.py").is_file())
 
     def test_global_preview_and_apply_never_visit_project(self) -> None:
         before_repo = self.snapshot()
+        session_before = self.session.read_bytes()
         preview = self.invoke("--scope", "global", "--preview", "--json", "--no-graph")
         self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
         plan = json.loads(preview.stdout)
@@ -292,7 +298,7 @@ Validate the domain.
         applied = self.invoke("--scope", "global", "--no-graph")
         self.assertEqual(applied.returncode, 0, applied.stdout + applied.stderr)
         self.assertFalse((self.repo / ".git" / "hooks" / "pre-commit").exists())
-        self.assertIn("execution-methodology adoption", self.session.read_text(encoding="utf-8"))
+        self.assertEqual(self.session.read_bytes(), session_before)
         self.assertTrue((self.codex_home / "skills" / "progressive-disclosure" /
                          "scripts" / "install_hooks.py").is_file())
         second = self.invoke("--scope", "global", "--preview", "--json", "--no-graph")

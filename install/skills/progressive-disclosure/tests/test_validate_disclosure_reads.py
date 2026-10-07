@@ -75,9 +75,8 @@ def run(root: Path, *flags: str) -> tuple[int, str]:
     this one's.
 
     `HOME` IS REDIRECTED to an empty scratch directory. `validate_disclosure.py` reaches
-    `Path.home()`, and `installed_methodology_version()` runs BEFORE the early return, so every
-    one of these fixture runs otherwise stats the real `~/.claude/skills/execution-methodology/`
-    and the answer depends on what this machine happens to have installed. Every assertion here is
+    `Path.home()` in `check_personas()`, so every one of these fixture runs otherwise stats the
+    real `~/.claude/skills/agent-personas/` and the answer depends on what this machine happens to have installed. Every assertion here is
     about the FIXTURE ROOT, so an empty home is the honest input; the alternative is a suite whose
     result changes when an unrelated skill is installed.
     """
