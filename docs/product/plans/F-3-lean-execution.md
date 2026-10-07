@@ -173,7 +173,7 @@ The run consumes a small amount of real quota.
 and the skill refuse execution in an unmigrated project (AC-12).
 
 ### [ ] T5 — retire v5.1 machinery and repair its couplings
-- writes: install/skills/execution-methodology/scripts/**, install/skills/execution-methodology/tests/**, install/skills/execution-methodology/references/**, install/skills/gate-sandbox/**, install/skills/methodology-management/**, install/skills/project-onboarding/**, install/skills/project-migration/**, install/skills/project-conformance/**, install/skills/agent-persona-factory/**, install/skills/.gitignore, install/skills/README.md, install/skills/progressive-disclosure/**, install/hooks/disclosure-check.sh, docs/runbooks/**, docs/decisions/decisions.md, docs/README.md, docs/agents/**, docs/architecture/operating-model.md, docs/architecture/repository-standard.md, README.md, AGENTS.md
+- writes: install/skills/execution-methodology/scripts/**, install/skills/execution-methodology/tests/**, install/skills/execution-methodology/references/**, install/skills/gate-sandbox/**, install/skills/methodology-management/**, install/skills/project-onboarding/**, install/skills/project-migration/**, install/skills/project-conformance/**, install/skills/agent-persona-factory/**, install/skills/.gitignore, install/skills/README.md, install/skills/progressive-disclosure/**, install/hooks/disclosure-check.sh, docs/runbooks/**, docs/decisions/decisions.md, docs/README.md, docs/agents/**, docs/architecture/operating-model.md, docs/architecture/repository-standard.md, README.md, AGENTS.md, docs/product/research/**, docs/product/README.md, install/README.md
 - needs: T4
 - covers: AC-10, AC-12
 - risk: safety
@@ -228,7 +228,7 @@ reports anything else. A plain install removes nothing.
 `risk: boundary` applies because the installer writes into the founder's harness configuration.
 
 ### [ ] T7 — repository documentation to v6
-- writes: README.md, AGENTS.md, install/AGENTS.md, install/CLAUDE.md, docs/README.md, docs/agents/**, docs/architecture/README.md, docs/architecture/operating-model.md, docs/architecture/repository-standard.md, docs/architecture/goal-directed-execution.md, docs/runbooks/**, docs/assets/readme/**, docs/product/README.md, docs/product/specs/F-1-methodology-efficiency-vendoring.md, docs/product/specs/F-2-goal-directed-autonomy.md, docs/product/plans/F-1-methodology-efficiency-vendoring.md, docs/product/plans/F-2-goal-directed-autonomy.md, docs/product/plans/goal-directed-autonomy-task-boundaries.md, docs/product/milestones/**, docs/product/research/**
+- writes: README.md, AGENTS.md, install/AGENTS.md, install/CLAUDE.md, docs/README.md, docs/agents/**, docs/architecture/README.md, docs/architecture/operating-model.md, docs/architecture/repository-standard.md, docs/architecture/goal-directed-execution.md, docs/runbooks/**, docs/assets/readme/**, docs/product/README.md, docs/product/specs/F-1-methodology-efficiency-vendoring.md, docs/product/specs/F-2-goal-directed-autonomy.md, docs/product/plans/F-1-methodology-efficiency-vendoring.md, docs/product/plans/F-2-goal-directed-autonomy.md, docs/product/plans/goal-directed-autonomy-task-boundaries.md, docs/product/milestones/**
 - needs: T6
 - covers: AC-1, AC-10
 - risk: none
@@ -243,7 +243,7 @@ reports anything else. A plain install removes nothing.
 - the repository standard's tooling references;
 - the runbooks.
 
-**Deletions.** Delete the superseded F-1 and F-2 documents, the research folder and the
+**Deletions.** Delete the superseded F-1 and F-2 documents and the
 goal-directed design; git holds them.
 
 **Global-instructions runbook.** Add `docs/runbooks/global-instructions.md` with the exact
@@ -361,5 +361,12 @@ secret and identifier behaviour; the security reviewer confirms it.
   chose to trust the Codex fixture's hooks by hand, so the smoke run's Codex fixture moves to one
   fixed path that is rebuilt identically on every run. That edits `smoke_goal.py`, which T5 may now
   change. The approval tag moved to this commit, and T1–T4 were replayed on top of it.
+
+- 2026-10-07: amendment before T1 (founder-approved). T5's deletions break links inside
+  `docs/product/research/` and one link in `install/README.md`, and the installed pre-commit hook
+  rejects broken links. T5 therefore also deletes the research folder (moved from T7), repairs its
+  inbound links including `docs/product/README.md`, and repairs that one README link (T6 still
+  rewrites the file). No criterion or goal scope changed. The approval
+  tag moved to this commit, and T1–T4 were replayed on top of it.
 
 ## Queue
