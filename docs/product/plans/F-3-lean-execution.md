@@ -516,6 +516,14 @@ secret and identifier behaviour; the security reviewer confirms it.
   destination-checked path. Uninstall strips graphify's marker blocks itself. One scoped
   rereview (round 4) follows under this decision.
 
+- 2026-10-07: M4 acceptance round 1 BLOCK. With `core.hooksPath` set, the plain installer wrote
+  the graph hooks to `.git/hooks` and reported them installed, although git would not run them.
+  T9's third security fix had removed that skip. Corrected under T9: the graph hook is skipped,
+  with a message, when `core.hooksPath` is set. One scoped rereview follows. The same gap for our
+  own hooks predates F-3 and is queued for the founder (Q7). The round-1 packet's diff covered only
+  the plan, because the close passed it as `--subject`. The reviewer reconstructed the full diff,
+  and round 2 is given the whole milestone diff.
+
 ## Queue
 
 - Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now
@@ -542,3 +550,8 @@ secret and identifier behaviour; the security reviewer confirms it.
   The fixture's hook command carries the absolute `scripts` path, so a run from any other checkout
   changes the hooks Codex trusted. Codex then skips them silently, while the pre-check, which
   matches only the key, still reports them trusted.
+- Q7 (2026-10-07, founder decision, blocks nothing in F-3): `install_hooks.py` writes our own
+  pre-commit, commit-msg and pre-push hooks to `.git/hooks` and reports them installed even when
+  `core.hooksPath` is set, in which case git never runs them, the push guard included. This
+  predates F-3. Decide whether the installer should refuse, warn, or install into
+  `core.hooksPath` when it resolves inside the project.

@@ -319,23 +319,32 @@ class ScopedHooksTest(unittest.TestCase):
         self.assert_never_ran_in_project(log)
         self.assertEqual(sorted(p.name for p in (outside / ".git" / "hooks").iterdir()), outside_hooks)
 
-    def test_core_hooks_path_cannot_redirect_graphify(self) -> None:
-        """Our hooks are written to .git/hooks whatever core.hooksPath says; graphify's blocks
-        follow them there, and the configured directory is never written."""
+    def test_core_hooks_path_skips_graph_hook_and_uninstall_still_strips(self) -> None:
+        """git runs core.hooksPath, not .git/hooks, so blocks written to .git/hooks would never
+        run. The plain install skips the graph hook without running graphify; --uninstall still
+        strips our blocks from .git/hooks and never writes the configured directory."""
         log = self.stub_graphify()
         graph = self.repo / "graphify-out" / "graph.json"
         graph.parent.mkdir(); graph.write_text("{}\n", encoding="utf-8")
-        (self.repo / "custom-hooks").mkdir()
-        subprocess.run(["git", "-C", str(self.repo), "config", "core.hooksPath", "custom-hooks"],
+        (self.repo / ".hooks").mkdir()
+        subprocess.run(["git", "-C", str(self.repo), "config", "core.hooksPath", ".hooks"],
                        check=True)
         proc = self.invoke()
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assert_graphify_blocks(present=True)
+        self.assertIn("graph refresh skipped \u2014 core.hooksPath is set", proc.stdout)
+        self.assertNotIn("graph refresh installed", proc.stdout)
+        self.assert_graphify_blocks(present=False)
+        self.assertEqual(self.graphify_calls(log), [])
+        for hook in (self.repo / ".hooks").iterdir():
+            self.assertNotIn("graphify", hook.read_text(encoding="utf-8"))
+        for name, block in self.STUB_BLOCKS.items():
+            hook = self.repo / ".git" / "hooks" / name
+            hook.write_text("#!/bin/sh\n" + block + "\n", encoding="utf-8")
         proc = self.invoke("--uninstall")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assert_graphify_blocks(present=False)
-        self.assertEqual(list((self.repo / "custom-hooks").iterdir()), [])
-        self.assert_never_ran_in_project(log)
+        self.assertEqual(list((self.repo / ".hooks").iterdir()), [])
+        self.assertEqual(self.graphify_calls(log), [])
 
     def test_commit_time_hooks_directory_swap_cannot_touch_external_target(self) -> None:
         module = self.load_installer_module()
