@@ -476,6 +476,14 @@ secret and identifier behaviour; the security reviewer confirms it.
   The grant is applied through `review.py --founder-grant`, which admits one round past the cap,
   once per subject, and stamps the verdict. The fix adds that option.
 
+- 2026-10-07: M3 founder-granted final reviews on tree `4104752`. Retirement PASS. Tooling BLOCK, with
+  three concurrency edge cases in the new round-reservation code: out-of-order completion of one
+  subject, a reservation not released, and a progress-log failure undoing a round. The founder
+  decided to simplify: a per-subject lock held for the whole review, a round counted only when its
+  verdict is written, and best-effort progress logging. The founder also authorised one more scoped
+  tooling review of that diff, applied by clearing the used grant record (logged), and a scoped
+  retirement confirmation on the new tree.
+
 ## Queue
 
 - Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now
