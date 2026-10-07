@@ -5,8 +5,9 @@
   gate.py receipt  --goal G --cmd CMD [--name full_gate|e2e|proof] [--count none] [--junit GLOB]
   gate.py baseline --goal G --cmd CMD [--junit GLOB]
 
-`check` gates a commit and writes nothing but a log. `receipt` needs a clean committed tree and
-binds its result to (tree, exact command). Exit codes: 0 PASS, 1 FAIL or refused, 2 usage/internal.
+`check` gates a commit and writes nothing but a log; on a clean committed tree it first deletes any
+receipt for (HEAD's tree, command), since it reruns that command. `receipt` needs a clean committed
+tree and binds its result to (tree, exact command). Exit codes: 0 PASS, 1 FAIL or refused, 2 usage/internal.
 """
 from __future__ import annotations
 
@@ -65,7 +66,9 @@ PYTEST_PAIR = re.compile(r"(\d+) (passed|failed|errors?|skipped|xfailed|xpassed)
 PYTEST_ID = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.M)
 GRADLE_LINE = re.compile(r"(\d+) tests completed, (\d+) failed(?:, (\d+) skipped)?")
 GRADLE_ID = re.compile(r"^(\S+) > (\S+).* FAILED\s*$", re.M)
-VERDICT_FAIL = re.compile(r"FAILED \(|\b[1-9]\d* failed\b|GATE DID NOT PASS|BUILD FAILED")
+VERDICT_FAIL = re.compile(r"FAILED \(|\b[1-9]\d* failed\b|GATE DID NOT PASS|BUILD FAILED"
+                          # a line-anchored FAIL verdict: `FAIL: test_x`, `verify: FAIL (1 checks)`
+                          r"|^[ \t]*(?:[\w./-]+: )?FAIL(?:ED)?\b(?!:?[ \t]*0\b)", re.M)
 
 
 def parse_counts(out: str) -> dict:
@@ -127,10 +130,16 @@ def parse_junit(root, pattern, since: float) -> dict | None:
 
 # ---- running ------------------------------------------------------------------------------
 
+def dirty_paths(root) -> list:
+    """`git status --porcelain` lines for changes outside .runs/; empty means a clean committed tree."""
+    out = git(root, "status", "--porcelain", "--untracked-files=all")
+    return [l for l in out.splitlines() if not l[3:].startswith(".runs/")]
+
+
 def snapshot(root) -> dict:
-    """Map each dirty or untracked (non-ignored) path to a content hash, ignoring .runs/."""
+    """HEAD plus each dirty or untracked (non-ignored) path's content hash, ignoring .runs/."""
     out = git(root, "status", "--porcelain", "--untracked-files=all", "-z")
-    snap = {}
+    snap = {"\0HEAD": git(root, "rev-parse", "-q", "--verify", "HEAD", check=False)}
     for entry in filter(None, out.split("\0")):
         path = entry[3:]
         if path.startswith(".runs/"):
@@ -160,14 +169,16 @@ def run(root, cmd, goal, label):
     return proc.returncode, "".join(chunks), log
 
 
-def load_baseline(root, goal, cmd) -> list:
+def load_baseline(root, goal, cmd) -> dict:
+    """The baseline entry recorded for this exact command: {failures, exit, ...}, or {}."""
     if not goal:
-        return []
+        return {}
     try:
         data = json.loads((Path(root) / ".runs" / goal / "baseline.json").read_text())
     except (OSError, ValueError):
-        return []
-    return data.get(cmd_hash(cmd), {}).get("failures", [])
+        return {}
+    entry = data.get(cmd_hash(cmd), {})
+    return entry if isinstance(entry, dict) else {}
 
 
 def evaluate(root, cmd, goal, count_none, junit, label):
@@ -183,7 +194,8 @@ def evaluate(root, cmd, goal, count_none, junit, label):
     failed = counts["failed"] + src["failed"]
     skipped = counts["skipped"] + src["skipped"]
     failures = sorted(set(counts["failures"] + (xml["failures"] if xml else [])))
-    baseline = set(load_baseline(root, goal, cmd))
+    entry = load_baseline(root, goal, cmd)
+    baseline = set(entry.get("failures", []))
     new = [f for f in failures if f not in baseline]
     known = [f for f in failures if f in baseline]
     reasons = []
@@ -194,13 +206,22 @@ def evaluate(root, cmd, goal, count_none, junit, label):
             reasons.append(f"nonzero exit {code}")
         elif failed > len(failures):
             reasons.append(f"nonzero exit {code} with {failed - len(failures)} unidentified failure(s)")
+        elif not new and entry.get("exit") != code:
+            # Baselined failures explain a nonzero exit only when the baseline run exited the same way.
+            recorded = "no recorded exit" if entry.get("exit") is None else f"exit {entry['exit']}"
+            reasons.append(f"nonzero exit {code} is not explained by the baseline ({recorded})")
+    elif failed or failures:
+        reasons.append(f"exit 0 with {max(failed, len(failures))} counted failure(s) (exit/verdict mismatch)")
     elif VERDICT_FAIL.search(out):
         reasons.append("exit 0 but the output reports a failure (exit/verdict mismatch)")
     if executed == 0 and not count_none:
         reasons.append("zero tests executed")
     if new:
         reasons.append("failures not in baseline: " + ", ".join(new))
-    if snapshot(root) != before:
+    after = snapshot(root)
+    if after.pop("\0HEAD") != before.pop("\0HEAD"):
+        reasons.append("the run changed the tree: HEAD moved (a commit, reset or checkout during the run)")
+    if after != before:
         reasons.append("the run changed the working tree")
     return {"command": cmd, "exit": code, "executed": executed, "failed": failed,
             "skipped": skipped, "failures": failures, "new_failures": new,
@@ -217,15 +238,18 @@ def summary(res) -> str:
 
 
 def cmd_check(args, root):
-    res = evaluate(root, args.cmd, args.goal or active_goal(root), args.count == "none",
-                   args.junit, "check")
+    goal = args.goal or active_goal(root)
+    if goal and not dirty_paths(root):
+        # On a clean committed tree this is a rerun of that exact command on HEAD's tree, so an
+        # earlier receipt for (tree, command) no longer describes the latest run.
+        receipt_path(root, goal, git(root, "rev-parse", "HEAD^{tree}"), args.cmd).unlink(missing_ok=True)
+    res = evaluate(root, args.cmd, goal, args.count == "none", args.junit, "check")
     print(summary(res))
     return 0 if res["verdict"] == "PASS" else 1
 
 
 def cmd_receipt(args, root):
-    dirty = git(root, "status", "--porcelain", "--untracked-files=all")
-    dirty = [l for l in dirty.splitlines() if not l[3:].startswith(".runs/")]
+    dirty = dirty_paths(root)
     if dirty:
         print("receipt refused: the working tree is not clean; commit first:\n  "
               + "\n  ".join(dirty[:10]))

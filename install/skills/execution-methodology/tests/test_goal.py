@@ -68,6 +68,16 @@ class ParseTest(unittest.TestCase):
         self.assertFalse(goal.overlap(["src/a/**"], ["src/b/**"]))
         self.assertFalse(goal.overlap(["tests/test_a.py"], ["tests/test_b*.py"]))
 
+    def test_common_test_layouts_are_tests(self):
+        for path in ("src/calc_test.go", "pkg/x/calc_test.rs", "test/helper.js", "app/test/util.rb",
+                     "spec/models/user_spec.rb", "lib/user_spec.rb", "src/main/java/a/CalcTest.java",
+                     "App/CalcTests.cs", "app/src/CalcTest.kt", "Sources/CalcTests.swift",
+                     "tests/test_a.py", "src/test/java/A.java", "web/a.test.ts", "x/test_y.py"):
+            self.assertTrue(goal.is_test(path), path)
+        for path in ("src/calc.go", "src/contest.go", "docs/spec.md", "docs/product/specs/F-1.md",
+                     "src/Latest.java", "src/testing.py", "README.md"):
+            self.assertFalse(goal.is_test(path), path)
+
     def test_real_plan_lints(self):
         res = subprocess.run([sys.executable, str(GOAL), "lint", "--plan", str(REAL_PLAN)],
                              cwd=REAL_ROOT, capture_output=True, text=True, timeout=60)
@@ -153,6 +163,25 @@ class GuardTest(RepoCase):
         self.repo.commit("F-9: sneak")
         self.repo.write("src/a/x.py", "A = 1\n")
         self.assertFinding(self.guard(), "frozen: docs/spec.md changed since goal/F-9/approved")
+
+
+class GoTestGuardTest(RepoCase):
+    plan = plan_text(extra_m1=task("T4", "calc", "src/**", "AC-1"))
+
+    def setUp(self):
+        super().setUp()
+        self.repo.write("src/calc_test.go", "package calc\n\nfunc TestAdd(t *testing.T) {}\n")
+        self.repo.commit("F-9: seed a Go test")
+
+    def test_modified_go_test_inside_writes_is_reported(self):
+        self.repo.write("src/calc_test.go", "package calc\n")
+        self.assertFinding(self.repo.goal("guard", "--task", "T4"),
+                           "tests: existing test src/calc_test.go modified outside tests-may-change")
+
+    def test_deleted_go_test_inside_writes_is_reported(self):
+        self.repo.path("src/calc_test.go").unlink()
+        self.assertFinding(self.repo.goal("guard", "--task", "T4"),
+                           "tests: existing test src/calc_test.go deleted outside tests-may-change")
 
 
 class DoneTest(RepoCase):
@@ -242,6 +271,49 @@ class DoneTest(RepoCase):
     def test_untagged_earlier_milestone_blocks_later(self):
         self.assertFinding(self.done("--milestone", "M2"), "M1 is not tagged yet")
 
+    def finish_m2(self):
+        self.repo.write("src/c/z.py", "C = 1\n")
+        self.repo.tick("T3")
+        self.repo.commit("[T3] gamma")
+        self.repo.close("M2", self.M2, partitions=("acceptance-alpha", "acceptance-beta"))
+
+    def test_earlier_tag_without_evidence_is_not_trusted(self):
+        self.repo.finish_m1()
+        self.repo.git("tag", "goal/F-9/M1")  # tagged with no receipts and no acceptance verdict
+        self.finish_m2()
+        res = self.done("--milestone", "M2")
+        self.assertFinding(res, "M1 (tag goal/F-9/M1): no full_gate receipt for the candidate tree")
+        self.assertIn("M1 (tag goal/F-9/M1): no acceptance verdict (all)", res.stdout)
+        self.assertIn("M2: NOT DONE", res.stdout)
+
+    def test_earlier_milestone_whose_receipt_later_fails_is_not_done(self):
+        self.repo.finish_m1()
+        self.repo.close("M1", self.M1)
+        self.repo.git("tag", "goal/F-9/M1")
+        self.assertEqual(self.repo.receipt(FULL, FIXTURE_FAIL="1").returncode, 1)  # rerun on M1's tree
+        self.finish_m2()
+        self.assertFinding(self.done(), "M1 (tag goal/F-9/M1): full_gate receipt is FAIL")
+
+    def test_every_milestone_tagged_is_reverified(self):
+        self.repo.finish_m1()
+        self.repo.git("tag", "goal/F-9/M1")
+        self.repo.write("src/c/z.py", "C = 1\n")
+        self.repo.tick("T3")
+        self.repo.commit("[T3] gamma")
+        self.repo.git("tag", "goal/F-9/M2")
+        res = self.done()
+        self.assertFinding(res, "M2 (tag goal/F-9/M2): no full_gate receipt for the candidate tree")
+        self.assertIn("M1 (tag goal/F-9/M1): no full_gate receipt", res.stdout)
+        self.assertIn("goal F-9: NOT DONE", res.stdout)
+
+    def test_every_milestone_tagged_with_evidence_is_done(self):
+        self.repo.finish_m1()
+        self.repo.close("M1", self.M1)
+        self.repo.git("tag", "goal/F-9/M1")
+        self.finish_m2()
+        self.repo.git("tag", "goal/F-9/M2")
+        self.assertIn("goal F-9: DONE; every milestone is tagged and verified", self.assertPasses(self.done()).stdout)
+
     def test_evidence_record(self):
         self.repo.finish_m1()
         self.repo.edit("docs/plan.md", "- 2026-01-01: fixture decision.\n",
@@ -320,6 +392,17 @@ class StopHookTest(RepoCase):
         self.repo.close("M1", DoneTest.M1)
         self.repo.activate()
         self.assertAllowed(self.hook())
+
+    def test_every_milestone_tagged_without_evidence_blocks(self):
+        self.repo.finish_m1()
+        self.repo.git("tag", "goal/F-9/M1")
+        self.repo.tick("T3")
+        self.repo.commit("[T3] gamma")
+        self.repo.git("tag", "goal/F-9/M2")
+        self.repo.activate()
+        out = json.loads(self.hook().stdout)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("Not done: M1 (tag goal/F-9/M1): no full_gate receipt", out["reason"])
 
     def test_internal_error_allows(self):
         self.repo.activate()

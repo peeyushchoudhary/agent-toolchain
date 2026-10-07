@@ -25,8 +25,8 @@ TASK_RE = re.compile(r"^###\s+\[([ x!])\]\s+(T\d+)\s+[—–-]+\s*(.*)$")
 MILESTONE_RE = re.compile(r"^##\s+(M\d+)\s+[—–-]+\s*(.*)$")
 PROOF_RE = re.compile(r"^-\s+(AC-\d+(?:\s*,\s*AC-\d+)*)\s*:\s*(.+)$")
 AC_ROW_RE = re.compile(r"^\|\s*(AC-\d+)\s*\|", re.M)
-TEST_RE = re.compile(r"(^|/)(tests|__tests__)/|(^|/)src/test/|(^|/)test_[^/]*\.py$|_test\.py$"
-                     r"|\.(test|spec)\.[^/]+$")
+TEST_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)src/test/|(^|/)test_[^/]*\.py$"
+                     r"|_(test|spec)\.[^/.]+$|\.(test|spec)\.[^/]+$|Tests?\.(java|kt|cs|swift)$")
 SKIP_RE = re.compile(r"\bunittest\.(skip\w*|expectedFailure)\b|\.skipTest\(|\bpytest\.(skip|xfail)\("
                      r"|\bpytest\.mark\.(skip|skipif|xfail)\b|\.only\(|\b(it|describe|test)\.skip\("
                      r"|\bx(it|describe)\(|@Disabled\b|@Ignore\b")
@@ -408,15 +408,32 @@ def load_receipt(ctx, tree, cmd):
     return r if r.get("tree") == tree and r.get("command") == cmd else None
 
 def done(ctx, mid=None):
-    """Return (unmet, info) for a milestone; unmet is empty when it is done."""
+    """Return (unmet, info) for a milestone; unmet is empty when it is done.
+
+    Every earlier milestone is re-verified against its own tag. With no milestone and every
+    milestone tagged, all of them are re-verified and info["milestone"] is None.
+    """
     head_plan = ctx.plan_at("HEAD")
-    mid = mid or ctx.active(head_plan)
-    if mid is None:
-        return [], {"milestone": None}
     order = [m["id"] for m in head_plan["milestones"]]
-    milestone(head_plan, mid)
+    mid = mid or ctx.active(head_plan)
+    if mid is not None:
+        milestone(head_plan, mid)
+    idx = order.index(mid) if mid is not None else len(order)
+    unmet = []
+    for earlier in order[:idx]:
+        if not ctx.tagged(earlier):
+            unmet.append(f"{earlier} is not tagged yet")
+        else:
+            unmet += [f"{earlier} (tag {ctx.tag(earlier)}): {u}" for u in verify(ctx, earlier, order)[0]]
+    if mid is None:
+        return unmet, {"milestone": None}
+    found, info = verify(ctx, mid, order)
+    return unmet + found, info
+
+def verify(ctx, mid, order):
+    """(unmet, info) for one milestone on its candidate: its tag when tagged, else HEAD."""
     idx = order.index(mid)
-    unmet = [f"{m} is not tagged yet" for m in order[:idx] if not ctx.tagged(m)]
+    unmet = []
     cand = ctx.tag(mid) if ctx.tagged(mid) else "HEAD"
     commit = git(ctx.root, "rev-parse", f"{cand}^{{commit}}")
     tree = git(ctx.root, "rev-parse", f"{commit}^{{tree}}")
@@ -528,11 +545,12 @@ def cmd_guard(ctx, args):
 
 def cmd_done(ctx, args):
     unmet, info = done(ctx, args.milestone)
-    if info["milestone"] is None:
-        print("done: every milestone is tagged")
-        return 0
     for u in unmet:
         print(f"not done: {u}")
+    if info["milestone"] is None:
+        print(f"goal {ctx.goal}: {'NOT DONE' if unmet else 'DONE'}; every milestone is tagged"
+              + (", but re-verification against the tags failed" if unmet else " and verified"))
+        return 1 if unmet else 0
     print(f"{info['milestone']}: {'NOT DONE' if unmet else 'DONE'} on tree {info['tree']}")
     return 1 if unmet else 0
 
@@ -549,7 +567,8 @@ def cmd_stop_hook(args):
         ctx = find_ctx(argparse.Namespace(plan=None, goal=None), cwd=str(root))
         state_path = ctx.runs / "stop_state.json"
         mid = ctx.active()
-        unmet = done(ctx, mid)[0] if mid else []
+        # With every milestone tagged, done() re-verifies them all against their tags, as the driver does.
+        unmet = done(ctx, mid)[0]
         remaining = [t for t in (milestone(ctx.plan, mid)["tasks"] if mid else []) if t["state"] != "x"]
         if not unmet or (remaining and all(t["state"] == "!" for t in remaining)) \
                 or envelope_expired(ctx):
@@ -561,7 +580,7 @@ def cmd_stop_hook(args):
             state = {"session_id": session, "blocks": 0, "progress": score}
         if state["blocks"] >= 3:
             with open(ctx.runs / "progress.md", "a") as fh:
-                fh.write(f"{dt.datetime.now(dt.timezone.utc):%Y-%m-%dT%H:%M:%SZ} STALLED {mid}: "
+                fh.write(f"{dt.datetime.now(dt.timezone.utc):%Y-%m-%dT%H:%M:%SZ} STALLED {mid or 'goal'}: "
                          "3 stop-hook blocks without progress\n")
             state_path.unlink(missing_ok=True)
             return 0

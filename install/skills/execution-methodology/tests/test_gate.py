@@ -51,6 +51,14 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(c["gradle"], {"executed": 11, "failed": 2, "skipped": 1})
         self.assertEqual(c["failures"], ["FooTest.bar()"])
 
+    def test_fail_verdict_lines_are_recognised_and_pass_output_is_not(self):
+        for out in ("verify: FAIL (1 checks)", "FAIL: test_x", "  FAIL: lint (verify.checks)",
+                    "FAILED tests/test_x.py::test_y", "result: FAILED"):
+            self.assertTrue(gate.VERDICT_FAIL.search(f"Ran 1 test in 0.0s\n\nOK\n{out}\n"), out)
+        for out in ("verify: PASS", "gate: PASS · exit 0 · 3 run / 0 failed / 0 skipped", "FAIL_FAST=1",
+                    "FAIL: 0", "no FAIL here", "PASS: 3  FAIL: 0", "test_fail_lines ... ok", "OK (skipped=1)"):
+            self.assertFalse(gate.VERDICT_FAIL.search(f"Ran 1 test in 0.0s\n\nOK\n{out}\n"), out)
+
 
 class GateCase(unittest.TestCase):
     def setUp(self):
@@ -106,6 +114,54 @@ class CheckTest(GateCase):
         self.repo.git("checkout", "docs/design.md")
         self.assertGate(self.check(EMIT + " && touch stray.txt"), "FAIL", "changed the working tree")
 
+    def test_nonzero_exit_needs_the_baselines_exit_code(self):
+        cmd = EMIT + "; rc=$?; exit ${GATE_EXIT:-$rc}"
+        res = self.repo.gate("baseline", "--goal", "F-9", "--cmd", cmd, GATE_FIXTURE_MODE="base")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(json.loads(self.repo.read(".runs/F-9/baseline.json"))[gate.cmd_hash(cmd)]["exit"], 1)
+        self.assertGate(self.check(cmd, mode="base"), "PASS", "(baseline 1)")
+        res = self.repo.gate("check", "--goal", "F-9", "--cmd", cmd, GATE_FIXTURE_MODE="base", GATE_EXIT="127")
+        self.assertGate(res, "FAIL", "nonzero exit 127 is not explained by the baseline (exit 1)")
+
+    def test_baseline_without_a_recorded_exit_does_not_explain_a_nonzero_exit(self):
+        self.repo.write(".runs/F-9/baseline.json", json.dumps({gate.cmd_hash(EMIT): {"command": EMIT,
+                                                                                    "failures": [KNOWN]}}))
+        self.assertGate(self.check(mode="base"), "FAIL", "nonzero exit 1 is not explained by the baseline "
+                                                         "(no recorded exit)")
+
+    def test_exit_zero_with_a_verify_fail_line_fails(self):
+        cmd = "printf 'Ran 2 tests in 0.0s\\n\\nOK\\nverify: FAIL (1 checks)\\n'"
+        self.assertGate(self.check(cmd), "FAIL", "exit/verdict mismatch")
+
+    def test_exit_zero_with_a_baselined_junit_failure_fails(self):
+        xml = ('<testsuite><testcase classname="a.B" name="ok"/><testcase classname="a.B" name="bad">'
+               '<failure/></testcase></testsuite>')
+        cmd = f"mkdir -p .runs/junit && printf '%s' '{xml}' > .runs/junit/r.xml"
+        res = self.repo.gate("baseline", "--goal", "F-9", "--cmd", cmd, "--junit", ".runs/junit/*.xml")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        res = self.repo.gate("check", "--goal", "F-9", "--cmd", cmd, "--junit", ".runs/junit/*.xml")
+        self.assertGate(res, "FAIL", "exit 0 with 1 counted failure(s) (exit/verdict mismatch)")
+        self.assertIn("(baseline 1)", res.stdout)
+
+    def test_gate_that_commits_fails(self):
+        self.assertGate(self.check(EMIT + " && git commit -q --allow-empty -m sneak"), "FAIL",
+                        "the run changed the tree")
+        cmd = EMIT + " && echo x >> docs/design.md && git commit -qam sneak"
+        self.assertGate(self.check(cmd), "FAIL", "the run changed the tree")
+        self.assertEqual(self.repo.git("status", "--porcelain"), "")
+
+    def test_check_on_a_clean_tree_replaces_the_stale_receipt(self):
+        self.assertGate(self.receipt(), "PASS")
+        self.assertGate(self.check(mode="crash"), "FAIL", "nonzero exit 1")
+        self.assertEqual(self.receipts(), [])
+
+    def test_check_on_a_dirty_tree_leaves_receipts_alone(self):
+        self.assertGate(self.receipt(), "PASS")
+        self.repo.write("src/a/x.py", "A = 1\n")
+        self.assertGate(self.check(mode="crash"), "FAIL", "nonzero exit 1")
+        (r,) = self.receipts()
+        self.assertEqual(r["verdict"], "PASS")
+
     def test_gradle_needs_rerun_tasks(self):
         self.assertGate(self.check("echo ./gradlew test >/dev/null; " + EMIT), "FAIL", "--rerun-tasks")
         self.assertGate(self.check("echo ./gradlew test --rerun-tasks >/dev/null; " + EMIT), "PASS")
@@ -150,6 +206,11 @@ class ReceiptTest(GateCase):
     def test_gate_that_dirties_the_tree_gets_a_failing_receipt(self):
         res = self.receipt(EMIT + " && echo x >> docs/design.md")
         self.assertGate(res, "FAIL", "changed the working tree")
+        self.assertEqual(self.receipts()[0]["verdict"], "FAIL")
+
+    def test_gate_that_commits_gets_a_failing_receipt(self):
+        res = self.receipt(EMIT + " && git commit -q --allow-empty -m sneak")
+        self.assertGate(res, "FAIL", "the run changed the tree")
         self.assertEqual(self.receipts()[0]["verdict"], "FAIL")
 
 
