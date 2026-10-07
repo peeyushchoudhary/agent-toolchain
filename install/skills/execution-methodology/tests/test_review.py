@@ -6,10 +6,15 @@ model and effort from persona frontmatter) and that goal.py reads the verdict th
 """
 from __future__ import annotations
 
+import argparse
+import contextlib
+import io
 import subprocess
 import sys
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.goal_fixture import E2E, FULL, GOAL, Repo, plan_text  # noqa: E402
@@ -18,6 +23,7 @@ from test_run_goal import FakeHarness, clean_env  # noqa: E402
 sys.path.insert(0, str(GOAL.parent))
 sys.path.insert(0, str(GOAL.parents[2] / "agent-personas" / "scripts"))
 import goal  # noqa: E402
+import review  # noqa: E402
 import sync_personas  # noqa: E402
 
 REVIEW = GOAL.parent / "review.py"
@@ -176,6 +182,123 @@ class RoundTest(ReviewCase):
         self.assertEqual(res.returncode, 1)
         self.assertEqual(self.verdict("plan")[0], "INVALID")
         self.assertIn('"plan": 1', self.repo.read(".runs/F-9/verdicts/rounds.json"))
+
+
+class ConcurrentRoundTest(ReviewCase):
+    """review() in-process with a fake judge that blocks on an event: no sleeps, no real CLIs."""
+
+    def setUp(self):
+        super().setUp()
+        self.ctx = goal.find_ctx(argparse.Namespace(plan="docs/plan.md", goal=None), cwd=str(self.repo.dir))
+        self.vdir = self.ctx.runs / "verdicts"
+        self.entered, self.go, self.calls = threading.Event(), threading.Event(), []
+        self.block_on = None
+        patcher = mock.patch.object(review, "run_judge", self.judge)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.go.set)
+
+    def judge(self, vendor, persona, variant, packet, root, timeout):
+        self.calls.append(packet)
+        if self.block_on and self.block_on in packet:
+            self.entered.set()
+            self.go.wait(30)
+        r = {"model": "m", "effort": "e"}
+        if "FAIL" in packet:
+            return r, "", "", "judge crashed", False
+        return r, BLOCK, "fake", "", False
+
+    def run_review(self, *args):
+        a = review.parser().parse_args(["--chief", "claude", *args])
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return review.review(a, self.ctx)
+
+    def in_background(self, *args):
+        result = {}
+        t = threading.Thread(target=lambda: result.setdefault("code", self.run_review(*args)))
+        t.start()
+        self.assertTrue(self.entered.wait(30), "the background judge never started")
+        return t, result
+
+    def counts(self):
+        return goal.read_json(self.vdir / "rounds.json")
+
+    def test_two_subjects_reviewed_concurrently_both_keep_their_counts(self):
+        self.block_on = "Lens: design"
+        t, result = self.in_background("--kind", "design", "--subject", "docs/design.md")
+        self.assertEqual(self.run_review("--kind", "plan", "--subject", "docs/plan.md"), 1)
+        self.go.set()
+        t.join(30)
+        self.assertEqual(result["code"], 1)
+        self.assertEqual(self.counts(), {"design": 1, "plan": 1})
+
+    def test_two_calls_on_one_subject_at_the_cap_cannot_both_run(self):
+        self.assertEqual(self.run_review("--kind", "plan"), 1)
+        self.block_on = "Lens: plan"
+        t, result = self.in_background("--kind", "plan")
+        self.assertEqual(self.counts(), {"plan": 2})  # reserved before the judge runs
+        self.assertEqual(self.run_review("--kind", "plan"), 1)
+        self.go.set()
+        t.join(30)
+        self.assertEqual(result["code"], 1)
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(self.counts(), {"plan": 2})
+
+    def test_a_failed_judge_call_releases_its_reservation(self):
+        self.assertEqual(self.run_review("--kind", "plan", "--note", "FAIL"), 2)
+        self.assertEqual(self.counts(), {})
+        self.assertEqual(self.run_review("--kind", "plan"), 1)
+        self.assertEqual(self.counts(), {"plan": 1})
+        self.assertEqual(review.admit(self.vdir, "plan", 2)[0], 2)  # a second reservation...
+        review.release(self.vdir, "plan", 2)  # ...is returned by its failed call
+        self.assertEqual(self.counts(), {"plan": 1})
+
+    def test_an_existing_history_file_is_not_overwritten(self):
+        old = self.vdir / "history" / "plan-r1.md"
+        old.parent.mkdir(parents=True)
+        old.write_text("VERDICT: PASS\nround: 1\n")
+        with self.assertRaises(review.ReviewError):
+            self.run_review("--kind", "plan")
+        self.assertEqual(old.read_text(), "VERDICT: PASS\nround: 1\n")
+        self.assertEqual((self.calls, self.counts()), ([], {}))
+
+
+class FounderGrantTest(ReviewCase):
+    def plan_review(self, *extra, text=BLOCK):
+        return self.review("--kind", "plan", "--chief", "claude", *extra, text=text)
+
+    def test_refused_below_the_cap(self):
+        self.assertEqual(self.plan_review().returncode, 1)
+        res = self.plan_review("--founder-grant", "Decisions D9")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("applies only at the cap", res.stdout)
+        self.assertEqual(len(self.fake.calls()), 1)
+        self.assertNotIn("founder_grants", self.repo.read(".runs/F-9/verdicts/rounds.json"))
+
+    def test_admits_one_round_at_the_cap_stamps_the_header_and_refuses_a_second_grant(self):
+        for _ in range(2):
+            self.assertEqual(self.plan_review().returncode, 1)
+        self.assertIn("refused", self.plan_review().stdout)
+        res = self.plan_review("--founder-grant", "Decisions D9", text=PASS)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        verdict, _tree, head = self.verdict("plan")
+        self.assertEqual((verdict, head["round"], head["founder-grant"]), ("PASS", "3", "Decisions D9"))
+        self.assertIn("round 3 of 3", self.fake.calls()[-1]["argv"][-1])
+        rounds = goal.read_json(self.repo.dir / ".runs/F-9/verdicts/rounds.json")
+        self.assertEqual(rounds, {"plan": 3, "founder_grants": {"plan": "Decisions D9"}})
+        res = self.plan_review("--founder-grant", "Decisions D10")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("already used its founder grant", res.stdout)
+        self.assertEqual(self.plan_review().returncode, 1)
+        self.assertEqual(len(self.fake.calls()), 3)
+
+    def test_empty_text_and_advice_kinds_are_never_eligible(self):
+        self.assertEqual(self.plan_review("--founder-grant", " ").returncode, 2)
+        res = self.review("--kind", "advisor", "--item", "T2", "--note", "q", "--chief", "claude",
+                          "--founder-grant", "Decisions D9", text=ADVICE)
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("never eligible", res.stderr)
+        self.assertEqual(self.fake.calls(), [])
 
 
 class FallbackTest(ReviewCase):
