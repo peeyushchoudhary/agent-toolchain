@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from support import Hermetic, load_module
+from support import Hermetic, load_module, parse_toml_subset, tomllib
 
 sp = load_module()
 SPAWNABLE = sorted(n for n in sp.BASE_PERSONA_NAMES if n != "chief")
@@ -204,6 +204,27 @@ class ProjectTest(Hermetic):
     def test_a_broken_project_persona_is_a_source_error(self) -> None:
         (self.sources / "broken.md").write_text("no frontmatter\n", encoding="utf-8")
         self.assertEqual(self.run_sync("--repo", str(self.repo), "--check").returncode, 2)
+
+
+class TomlSubsetTest(unittest.TestCase):
+    """The Python 3.10 fallback loader reads exactly what `render_codex` emits, and nothing else."""
+
+    def test_every_rendered_persona_parses_like_tomllib(self) -> None:
+        for name in sorted(sp.BASE_PERSONA_NAMES):
+            meta, body = sp.load(name)
+            text = sp.render_codex(meta, body)
+            with self.subTest(name=name):
+                parsed = parse_toml_subset(text)
+                self.assertEqual(parsed["name"], meta["name"])
+                self.assertEqual(parsed["developer_instructions"], body.rstrip() + "\n")
+                if tomllib:
+                    self.assertEqual(parsed, tomllib.loads(text))
+
+    def test_anything_outside_the_subset_raises(self) -> None:
+        for text in ("a = 1.5\n", "a = 'x'\n", "a.b = 1\n", "[a.b]\n", "a = [1, 2]\n",
+                     "a = 1\na = 2\n", "a = '''\nunterminated\n", "a = {b = 1}\n"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                parse_toml_subset(text)
 
 
 if __name__ == "__main__":
