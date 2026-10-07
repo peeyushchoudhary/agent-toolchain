@@ -13,9 +13,9 @@ The judge comes from the other vendor than the chief (--chief, else $GOAL_HARNES
 to the chief's vendor only when the other vendor reports exhausted quota. A subject is keyed on its
 kind and plan ids, never on free text, and gets at most two rounds (one review, one scoped
 rereview); advisor and council members get one. Only --founder-grant, naming the founder's
-decision, admits one more round, once per subject that has reached its cap. Rounds are reserved
-under a lock on verdicts/rounds.lock, so parallel reviews keep each other's counts; a failed judge
-call releases its reservation. Verdicts go to .runs/<goal>/verdicts/<key>.md.
+decision, admits one more round, once per subject that has reached its cap. A review holds
+verdicts/<key>.lock throughout, so one round per subject is in flight; a round is counted only when
+its verdict is written, under verdicts/rounds.lock. Verdicts go to .runs/<goal>/verdicts/<key>.md.
 Exit codes: 0 PASS or advice written, 1 BLOCK, invalid judge output or refused round, 2 usage/error.
 """
 from __future__ import annotations
@@ -201,57 +201,56 @@ def build_packet(a, ctx, key, rnd, cap, persona, tree, diff_path):
 
 
 @contextlib.contextmanager
-def locked_rounds(vdir):
-    """Hold the exclusive round lock and yield (counts, save); counts are reread under the lock."""
+def rounds_lock(vdir):
+    """Hold the global lock on rounds.json briefly; closing the file releases it."""
     vdir.mkdir(parents=True, exist_ok=True)
     with open(vdir / "rounds.lock", "a") as fh:
         fcntl.flock(fh, fcntl.LOCK_EX)
-        try:
-            path = vdir / "rounds.json"
-            yield goal.read_json(path), lambda r: path.write_text(json.dumps(r, indent=2) + "\n")
-        finally:
-            fcntl.flock(fh, fcntl.LOCK_UN)
+        yield vdir / "rounds.json"
 
 
-def admit(vdir, key, cap, grant=None, reserve=True):
-    """Atomically check the cap and reserve the next round: (round, None) or (None, refusal)."""
-    with locked_rounds(vdir) as (rounds, save):
-        used = int(rounds.get(key, 0))
-        grants = rounds.get("founder_grants", {})
-        if grant is None and used >= cap:
-            return None, (f"{key} already had {used} round(s); a subject still blocked after its rereview "
-                          "goes to the founder with the advisor's recommendation (references/review.md)")
-        if grant is not None and key in grants:
-            return None, f"{key} already used its founder grant ({grants[key]})"
-        if grant is not None and used < cap:
-            return None, f"{key} has used {used} of {cap} round(s); a founder grant applies only at the cap"
-        rnd = used + 1
-        if (vdir / "history" / f"{key}-r{rnd}.md").exists():
-            raise ReviewError(f"history/{key}-r{rnd}.md already exists but rounds.json says {used}; "
-                              "refusing to overwrite it")
-        if reserve:
-            rounds[key] = rnd
-            if grant is not None:
-                rounds["founder_grants"] = {**grants, key: grant}
-            save(rounds)
-        return rnd, None
+def subject_lock(vdir, key):
+    """The open lock file held for a whole review of key, or None when another review holds it."""
+    vdir.mkdir(parents=True, exist_ok=True)
+    fh = open(vdir / f"{key}.lock", "a")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        fh.close()
+        return None
+    return fh
 
 
-def release(vdir, key, rnd, grant=None):
-    """Return a failed call's reservation. Only the latest reservation can be returned: a later
-    concurrent call already holds round rnd + 1, so an earlier failed round then stays consumed."""
-    with locked_rounds(vdir) as (rounds, save):
-        if int(rounds.get(key, 0)) != rnd:
-            return
-        if rnd > 1:
-            rounds[key] = rnd - 1
-        else:
-            rounds.pop(key, None)
+def admit(vdir, key, cap, grant=None):
+    """Check the cap or the founder grant, reserving nothing: (round, None) or (None, refusal)."""
+    with rounds_lock(vdir) as path:
+        rounds = goal.read_json(path)
+    used, grants = int(rounds.get(key, 0)), rounds.get("founder_grants", {})
+    if grant is None and used >= cap:
+        return None, (f"{key} already had {used} round(s); a subject still blocked after its rereview "
+                      "goes to the founder with the advisor's recommendation (references/review.md)")
+    if grant is not None and key in grants:
+        return None, f"{key} already used its founder grant ({grants[key]})"
+    if grant is not None and used < cap:
+        return None, f"{key} has used {used} of {cap} round(s); a founder grant applies only at the cap"
+    if (vdir / "history" / f"{key}-r{used + 1}.md").exists():
+        raise ReviewError(f"history/{key}-r{used + 1}.md already exists but rounds.json says {used}; "
+                          "refusing to overwrite it")
+    return used + 1, None
+
+
+def record(vdir, key, rnd, out, grant=None):
+    """Write history, the current verdict and the count together; other subjects' counts are reread."""
+    with rounds_lock(vdir) as path:
+        rounds = goal.read_json(path)
+        (vdir / "history").mkdir(exist_ok=True)
+        with open(vdir / "history" / f"{key}-r{rnd}.md", "x") as fh:  # history is never overwritten
+            fh.write(out)
+        (vdir / f"{key}.md").write_text(out)
+        rounds[key] = rnd
         if grant is not None:
-            rounds.get("founder_grants", {}).pop(key, None)
-            if not rounds.get("founder_grants", True):
-                rounds.pop("founder_grants")
-        save(rounds)
+            rounds["founder_grants"] = {**rounds.get("founder_grants", {}), key: grant}
+        path.write_text(json.dumps(rounds, indent=2) + "\n")
 
 
 def run_judge(vendor, persona, variant, packet, root, timeout):
@@ -289,25 +288,21 @@ def review(a, ctx, timeout=3600):
             raise ReviewError("acceptance refused: the working tree is not clean; commit first:\n  "
                               + "\n  ".join(dirty[:10]))
     tree = git(ctx.root, "rev-parse", "HEAD^{tree}")
-    rnd, refusal = admit(vdir, key, cap, grant, reserve=not a.dry_run)
-    if refusal:
-        print(f"review: refused — {refusal}")
+    lock = subject_lock(vdir, key)
+    if lock is None:
+        print(f"review: refused — {key} is already being reviewed")
         return 1
-    try:
-        code = judge_round(a, ctx, key, rnd, cap + (grant is not None), persona, variant, vendor, chief,
+    with lock:  # held for admission, the judge call and the writes: one round of key in flight
+        rnd, refusal = admit(vdir, key, cap, grant)
+        if refusal:
+            print(f"review: refused — {refusal}")
+            return 1
+        return judge_round(a, ctx, key, rnd, cap + (grant is not None), persona, variant, vendor, chief,
                            tree, vdir, timeout)
-    except BaseException:
-        if not a.dry_run:
-            release(vdir, key, rnd, grant)
-        raise
-    if code is None:
-        release(vdir, key, rnd, grant)
-        return 2
-    return code
 
 
 def judge_round(a, ctx, key, rnd, cap, persona, variant, vendor, chief, tree, vdir, timeout):
-    """Run the reserved round; None when the judge call failed and the reservation is returned."""
+    """Run round rnd of key; a failed judge call writes and consumes nothing."""
     diff_path = None
     if a.kind == "acceptance" or a.kind in TASK_KINDS or a.diff:
         order = [m["id"] for m in ctx.plan["milestones"]]
@@ -343,7 +338,7 @@ def judge_round(a, ctx, key, rnd, cap, persona, variant, vendor, chief, tree, vd
         route, text, usage, err, quota = run_judge(vendor, persona, variant, packet, ctx.root, timeout)
     if err:
         print(f"review.py: judge call failed ({vendor}): {err}", file=sys.stderr)
-        return None
+        return 2
     m = VERDICT_RE.search(text)
     verdict = m.group(1) if m else "INVALID"
     if verdict == "ADVICE" and a.kind not in ("advisor", "council") or \
@@ -354,13 +349,13 @@ def judge_round(a, ctx, key, rnd, cap, persona, variant, vendor, chief, tree, vd
             "round": rnd, "founder-grant": a.founder_grant, "subject": key, "persona": persona,
             "fallback": fallback, "usage": usage}
     out = f"VERDICT: {verdict}\n" + "".join(f"{k}: {v}\n" for k, v in head.items() if v) + "\n" + body + "\n"
-    (vdir / "history").mkdir(parents=True, exist_ok=True)
-    with open(vdir / "history" / f"{key}-r{rnd}.md", "x") as fh:  # history is never overwritten
-        fh.write(out)
-    (vdir / f"{key}.md").write_text(out)
+    record(vdir, key, rnd, out, a.founder_grant)
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with open(ctx.runs / "progress.md", "a") as fh:
-        fh.write(f"{stamp} review {key} r{rnd} {verdict} verdicts/{key}.md · usage: {usage}\n")
+    try:  # best-effort: the round is already recorded and is never undone
+        with open(ctx.runs / "progress.md", "a") as fh:
+            fh.write(f"{stamp} review {key} r{rnd} {verdict} verdicts/{key}.md · usage: {usage}\n")
+    except OSError as exc:
+        print(f"review.py: warning: progress.md not updated: {exc}", file=sys.stderr)
     print(f"review: {verdict} · {key} round {rnd} · {vendor} {route['model']} {route['effort']}"
           f" · {vdir / (key + '.md')}")
     return 0 if verdict in ("PASS", "ADVICE") else 1

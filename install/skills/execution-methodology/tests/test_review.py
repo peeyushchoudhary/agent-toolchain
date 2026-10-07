@@ -223,7 +223,7 @@ class ConcurrentRoundTest(ReviewCase):
     def counts(self):
         return goal.read_json(self.vdir / "rounds.json")
 
-    def test_two_subjects_reviewed_concurrently_both_keep_their_counts(self):
+    def test_two_subjects_reviewed_in_parallel_both_keep_their_counts(self):
         self.block_on = "Lens: design"
         t, result = self.in_background("--kind", "design", "--subject", "docs/design.md")
         self.assertEqual(self.run_review("--kind", "plan", "--subject", "docs/plan.md"), 1)
@@ -232,26 +232,32 @@ class ConcurrentRoundTest(ReviewCase):
         self.assertEqual(result["code"], 1)
         self.assertEqual(self.counts(), {"design": 1, "plan": 1})
 
-    def test_two_calls_on_one_subject_at_the_cap_cannot_both_run(self):
-        self.assertEqual(self.run_review("--kind", "plan"), 1)
+    def test_a_held_subject_lock_refuses_a_second_review_of_that_subject(self):
         self.block_on = "Lens: plan"
         t, result = self.in_background("--kind", "plan")
-        self.assertEqual(self.counts(), {"plan": 2})  # reserved before the judge runs
-        self.assertEqual(self.run_review("--kind", "plan"), 1)
+        self.assertEqual(self.run_review("--kind", "plan"), 1)  # refused: round 1 is in flight
         self.go.set()
         t.join(30)
-        self.assertEqual(result["code"], 1)
-        self.assertEqual(len(self.calls), 2)
-        self.assertEqual(self.counts(), {"plan": 2})
+        self.assertEqual((result["code"], len(self.calls), self.counts()), (1, 1, {"plan": 1}))
+        held = review.subject_lock(self.vdir, "design")
+        self.addCleanup(held.close)
+        self.assertEqual(self.run_review("--kind", "design"), 1)
+        self.assertEqual((len(self.calls), self.counts()), (1, {"plan": 1}))
 
-    def test_a_failed_judge_call_releases_its_reservation(self):
+    def test_a_failed_judge_call_consumes_no_round(self):
         self.assertEqual(self.run_review("--kind", "plan", "--note", "FAIL"), 2)
         self.assertEqual(self.counts(), {})
+        self.assertFalse((self.vdir / "history").exists())
+        self.assertEqual([self.run_review("--kind", "plan") for _ in range(3)], [1, 1, 1])
+        self.assertEqual((len(self.calls), self.counts()), (3, {"plan": 2}))  # two rounds, then the cap
+
+    def test_a_failing_progress_append_keeps_the_round(self):
+        (self.ctx.runs / "progress.md").mkdir(parents=True)  # appending to it raises OSError
         self.assertEqual(self.run_review("--kind", "plan"), 1)
         self.assertEqual(self.counts(), {"plan": 1})
-        self.assertEqual(review.admit(self.vdir, "plan", 2)[0], 2)  # a second reservation...
-        review.release(self.vdir, "plan", 2)  # ...is returned by its failed call
-        self.assertEqual(self.counts(), {"plan": 1})
+        self.assertTrue((self.vdir / "history" / "plan-r1.md").is_file())
+        self.assertEqual(self.run_review("--kind", "plan"), 1)  # the rereview is still admitted
+        self.assertEqual(self.counts(), {"plan": 2})
 
     def test_an_existing_history_file_is_not_overwritten(self):
         old = self.vdir / "history" / "plan-r1.md"
