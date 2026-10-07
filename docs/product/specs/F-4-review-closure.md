@@ -32,7 +32,8 @@ F-3's evidence, from `.runs/F-3/verdicts/rounds.json` and the plan's Decisions:
 
 - M3 acceptance needed 5 rounds per partition, 3 of them founder-granted.
 - T9's security review needed 4 rounds, 2 of them founder-granted.
-- v6 targets two founder touchpoints per milestone: goal approval and merge. F-3 added five
+- M4 acceptance needed 4 rounds on one defect family, 2 of them founder-granted.
+- v6 targets two founder touchpoints per milestone: goal approval and merge. F-3 added seven
   founder decisions to admit extra rounds.
 
 ## Outcome

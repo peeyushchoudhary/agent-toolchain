@@ -54,9 +54,12 @@ input that tells a packet's author what else relies on that code. F-4's Keep lis
 ## Journeys
 
 1. **Session start, either harness.** The session hook reports at most one line per problem:
-   - graphify is missing although the project has a graph;
+   - graphify is missing although the project has a graph, with the install command
+     (`uv tool install graphifyy`, or `pipx install graphifyy`);
    - the graph is behind HEAD, with the count of changed code files and `graphify update .`;
-   - the graph's refresh hooks are missing where git runs hooks, with `install_hooks.py .`;
+   - the graph's refresh hooks are missing, with `install_hooks.py .` when `core.hooksPath` is
+     unset. When it is configured, the installer cannot place them (F-3 Q7), so the line says
+     so and gives the manual refresh, `graphify update <graph root>`;
    - graphify is installed but the project has no graph, with the build command.
 
    With a current graph and its hooks in place, the hook prints only the lessons digest, as today.
@@ -81,11 +84,11 @@ input that tells a packet's author what else relies on that code. F-4's Keep lis
 | ID | Criterion | Proof |
 | --- | --- | --- |
 | AC-1 | `install/hooks/graphify-session.py` replaces `graphify-session-lessons.sh` and keeps its lessons digest. It reports the four conditions in Journey 1, each as one line with its fixing command. It reads `built_at_commit` from `graph.json`, locates the hooks with `git rev-parse --git-path hooks`, and runs with no inherited `GIT_*` variables. It writes nothing outside `graphify-out/`, and that only through `graphify reflect --if-stale`, as today. It never blocks and exits 0 on any error. | `test_graphify_session.py` |
-| AC-2 | `install.sh` registers the graphify session hook and the query advisor for Codex as it does for Claude Code, retires `graphify-session-lessons.sh`, and the installer tests cover both harnesses. | `install/tests` |
-| AC-3 | A new `references/context.md` holds the route- and graph-backed dispatch, update and acceptance steps of Journeys 2–6. `references/run.md` points to it from its dispatch step, word-neutrally. | full gate; acceptance review |
+| AC-2 | `install.sh` registers the graphify session hook, `disclosure-check.sh` and the query advisor for Codex as it does for Claude Code. The advisor is registered for Codex without a matcher, as Codex's PreToolUse hooks are, and ignores payloads that carry no shell command. `install.sh` retires `graphify-session-lessons.sh`. The installer tests cover both harnesses, and a real-harness smoke shows each hook's output reaching a Claude Code session and a Codex session. | `install/tests`; e2e |
+| AC-3 | The route steps hold on every run. `references/run.md`'s dispatch step lists the scoped entry files and area guides for the task's folders, word-neutrally. `references/review.md`'s acceptance names the guides for touched folders. The graph steps of Journeys 3 and 6 live in a new `references/context.md`, which is loaded only when a graph exists. Every graphify call in those steps is bounded by a 60-second timeout, and on timeout falls back to the route and grep. | full gate; acceptance review |
 | AC-4 | `docs/product/measurements.md` records the following, dated, on this repository in a temporary copy: the `graphify update` wall time, the node and edge counts, and the size of `affected` output for three symbols. `lean-execution.md` and `decisions.md` state the graph's role as current state. | full gate; acceptance review |
 | AC-5 | The size budgets in `install/tests/test_size.py` hold, and the repository gate passes. | full gate |
-| AC-6 | `validate_disclosure.py` reports `stale-guide` (WARN) for an area guide whose folder has commits to non-doc files after the guide's last commit. The report names the guide, the folder and the commit count. `disclosure-check.sh` surfaces it at session start, and both run for Codex as for Claude Code. `references/context.md` makes the route the first part of every packet's context, and the acceptance note names the guides for touched folders. `references/planning.md` puts a folder's area guide in the `writes` of any task that changes what the guide states. | `test_validate_disclosure*.py`; `install/tests`; full gate |
+| AC-6 | `validate_disclosure.py` reports `stale-guide` (WARN) for an area guide whose folder has commits to non-doc files after the guide's last commit. The report names the guide, the folder and the commit count. `disclosure-check.sh` surfaces it at session start, and both run for Codex as for Claude Code. `references/run.md` makes the route the first part of every packet's context, and `references/review.md` has the acceptance note name the guides for touched folders. `references/planning.md` puts a folder's area guide in the `writes` of any task that changes what the guide states. | `test_validate_disclosure*.py`; `install/tests`; full gate |
 
 ## Non-goals
 
@@ -106,4 +109,7 @@ input that tells a packet's author what else relies on that code. F-4's Keep lis
 
 - Python 3.10+, standard library only. Every graphify call is optional, bounded by a timeout,
   and fails silently to the no-graph path.
-- `run.md` stays within the 3,000-word role-load budget together with F-4's additions.
+- Without a graph, every role's load stays within the 3,000-word budget, with F-4's additions.
+- With a graph, the dispatching or accepting chief also loads `context.md`, at most 450 words, for
+  about 3,450 words in all. This exception is approved here, and it is paid only when a graph
+  exists.

@@ -35,16 +35,21 @@ Input:
   duplicated in eight lines because the hook must run without the skill.
 
 Every git call runs with `cwd` at the project root, every inherited `GIT_*` variable dropped, and
-a timeout of 5 s.
+a timeout of 5 s. `graphify reflect --if-stale` runs with a timeout of 20 s. A timeout drops that
+check or the digest silently.
 
 Checks, in order. Each produces at most one line:
 
 | Condition | Line |
 | --- | --- |
-| a graph exists, `graphify` is not on PATH | `graph present but graphify is not installed; graph answers will go stale` |
+| a graph exists, `graphify` is not on PATH | `graph present but graphify is not installed; install with: uv tool install graphifyy (or pipx install graphifyy)` |
 | `graphify` on PATH, no graph | `no graphify graph; build one with /graphify (LLM cost), or ignore` |
 | the graph's `built_at_commit` is not HEAD, and code files changed since | `graph is N code file(s) behind HEAD; refresh with: graphify update <graph root>` |
-| a graph exists, and the hooks dir from `git rev-parse --git-path hooks` has no `# graphify-hook-start` in `post-commit` | `graph refresh hooks missing; install with: python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py .` |
+| a graph exists, `core.hooksPath` is unset, and `.git/hooks/post-commit` has no `# graphify-hook-start` | `graph refresh hooks missing; install with: python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py .` |
+| a graph exists, and `core.hooksPath` is configured (`git config --get` does not exit 1) | `graph refresh hooks cannot be installed while core.hooksPath is configured; refresh by hand with: graphify update <graph root>` |
+
+The hooks rule matches `install_hooks.py`: refresh hooks are installed only when `core.hooksPath`
+is unset (F-3 M4).
 
 **"Code files"** are the paths in `git diff --name-only <built_at_commit> HEAD` with a source-code
 suffix. graphify's `update` re-extracts code only. A missing or unknown `built_at_commit` counts
@@ -79,27 +84,32 @@ repository, and for a guide that has never been committed. Expected size: about 
 - `("SessionStart", None, …, "hooks/disclosure-check.sh")`, which surfaces `stale-guide` with the
   other route findings;
 - `("SessionStart", None, …, "hooks/graphify-session.py")`;
-- `("PreToolUse", "<shell tool name>", …, "hooks/graphify-query-advisor.py")`.
+- `("PreToolUse", None, …, "hooks/graphify-query-advisor.py")`.
 
-The matcher is Codex's own name for its shell tool. T2 reads it from a Codex hook payload and
-fixes it in a test. If Codex exposes no PreToolUse event for its shell tool, the advisor stays
-Claude-only, and T2 records why in Decisions.
+The advisor entry has no matcher, as Codex's PreToolUse hooks on this machine already do, so it
+fires for every tool. The advisor reads the shell command from the payload and exits silently when
+there is none. T2 confirms the shape of Codex's payload in the real-harness smoke and fixes it in a
+test.
 
 `graphify-session-lessons.sh` joins the retire list.
 
 ## Rules text
 
-`references/context.md` is a new reference, loaded only when dispatching or accepting with a
-graph, so it adds nothing to the other roles. In about 400 words, it covers:
+**On every run, with or without a graph:**
+- **`run.md`'s dispatch step:** for each folder in the task's writes, the packet lists the nearest
+  scoped entry file and the area guide it routes to. If `stale-guide` names one of those guides,
+  the chief checks it against the code before relying on it, then fixes it inside the task if the
+  writes allow, or queues the fix. This replaces words trimmed elsewhere in `run.md`.
+- **`review.md`'s Acceptance section:** the acceptance note names the guides for the touched
+  folders, so the judge checks that they are still true.
+- **`planning.md`:** a task that changes a folder's layout, commands, interfaces or invariants
+  carries that folder's area guide in its `writes`. A task that adds a source folder carries the new
+  scoped pair. This is one sentence.
 
-- **The route first, with or without a graph.** For each folder in the task's writes, list the
-  nearest scoped entry file and the area guide it routes to. If `stale-guide` names one of those
-  guides, check it against the code, using `graphify explain` when a graph exists, before relying
-  on it. Then either fix it inside the task, if its writes allow, or queue the fix.
-- **The update rule.** A task that changes a folder's layout, commands, interfaces or invariants
-  carries that folder's area guide in its `writes`. A task that adds a source folder carries the
-  new scoped pair. `planning.md` gains this rule in one sentence. The acceptance note names the
-  guides for the touched folders, so the judge checks that they are still true.
+**Only with a graph:** `references/context.md`, a new reference of at most 450 words, covers:
+
+- **Bounded calls.** Every graphify command runs with a 60-second bound, the shell tool's timeout.
+  On timeout, fall back to the route and grep.
 - **Freshness first.** Read `built_at_commit`. When the graph is behind HEAD on code files, run
   `graphify update <graph root>` before using it. `update` needs no LLM. Doc staleness is
   reported, not rebuilt.
@@ -114,13 +124,12 @@ graph, so it adds nothing to the other roles. In about 400 words, it covers:
   acceptance note. A judge reads it; judges never run graphify.
 - **No graph, or graphify missing.** Read and grep as before. Nothing blocks on the graph.
 
-`run.md`'s dispatch step gains one sentence pointing to `context.md`, offset by a trim.
+`run.md`'s dispatch step also points to `context.md` for the graph case.
 
-**Load.** A chief dispatching with a graph reads `context.md` alongside `run.md`, about 3,400
-words. That exceeds the 3,000-word role-load figure, which `test_size.py` measures per single
-reference. The excess is accepted because it is paid only when a graph exists, and it is stated
-here rather than hidden by how the test measures. Folding `context.md` into `run.md` would put the
-cost on every run, including the many without a graph.
+**Load.** Without a graph, every role stays within the 3,000-word budget. With a graph, the
+dispatching or accepting chief also reads `context.md`, about 3,450 words in all. The spec approves
+this exception explicitly. Folding `context.md` into `run.md` would put the cost on every run,
+including the many without a graph.
 
 ## Smallest-sufficient-change trace
 

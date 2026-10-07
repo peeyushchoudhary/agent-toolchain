@@ -7,7 +7,7 @@ status: draft
 updated: 2026-10-08
 gate: rc=0; for d in execution-methodology agent-personas progressive-disclosure; do [ -d install/skills/$d/tests ] || continue; python3 -m unittest discover -s install/skills/$d/tests -t install/skills/$d/tests || rc=1; done; python3 -m unittest discover -s install/tests -t install/tests || rc=1; exit $rc
 full_gate: cd install && ./install.sh --dry-run && ./verify.sh
-e2e: python3 install/skills/execution-methodology/tests/smoke_goal.py --harness claude && python3 install/skills/execution-methodology/tests/smoke_goal.py --harness codex
+e2e: python3 install/skills/execution-methodology/tests/smoke_goal.py --harness claude && python3 install/skills/execution-methodology/tests/smoke_goal.py --harness codex && python3 install/tests/smoke_graph_hooks.py --harness claude && python3 install/tests/smoke_graph_hooks.py --harness codex
 run: {network: true, session_hours: 2}
 grants: [local-commit]
 ---
@@ -29,6 +29,7 @@ acceptance: [all]
 proofs:
 - AC-1: python3 -m unittest discover -s install/tests -t install/tests -p 'test_graphify_session.py'
 - AC-2: python3 -m unittest discover -s install/tests -t install/tests -p 'test_install.py'
+- AC-1, AC-2: e2e
 - AC-6: python3 -m unittest discover -s install/skills/progressive-disclosure/tests -t install/skills/progressive-disclosure/tests -p 'test_validate_disclosure*.py'
 - AC-3, AC-4, AC-5: full_gate
 
@@ -56,7 +57,7 @@ a temporary HOME and a stub `graphify` on PATH. They cover:
 harnesses, and executes git and graphify there.
 
 ### [ ] T2 — both harnesses get the graph hooks
-- writes: install/install.sh, install/verify.sh, install/README.md, install/tests/test_install.py, docs/agents/what-gets-installed.md, install/hooks/graphify-session-lessons.sh
+- writes: install/install.sh, install/verify.sh, install/README.md, install/tests/test_install.py, install/tests/smoke_graph_hooks.py, install/hooks/graphify-query-advisor.py, docs/agents/what-gets-installed.md, install/hooks/graphify-session-lessons.sh
 - needs: T1
 - covers: AC-2, AC-6
 - risk: boundary
@@ -67,24 +68,39 @@ Do the following:
 - Register `disclosure-check.sh` for Codex at SessionStart, as Claude Code already has it.
 - Register `graphify-session.py` for both harnesses, replacing `graphify-session-lessons.sh` in
   the Claude list and adding it to the Codex list.
-- Add `graphify-query-advisor.py` to the Codex `PreToolUse` list under Codex's shell-tool name.
-  Find that name from a real Codex hook payload in the trusted smoke fixture, without writing
-  `~/.codex`, and record the evidence in the task report. If Codex has no such event, keep the
-  advisor Claude-only and record why.
+- Add `graphify-query-advisor.py` to the Codex `PreToolUse` list with no matcher. Make the advisor
+  read the shell command from both harnesses' payload shapes, and exit silently on any other
+  tool.
+- Write `install/tests/smoke_graph_hooks.py`, the real-harness proof.
+  - For each harness, it builds a fixed fixture under `~/.cache/graph-smoke/<harness>`: a git
+    repository with a `graph.json` that is behind HEAD, and project-level hooks registering the
+    session hook and the advisor.
+  - It runs one short real session and asserts three things: the status line reached the
+    session's context, the lessons digest was injected, and a prose `graphify query` drew the
+    advisor's ladder.
+  - `--prepare` builds the Codex fixture and prints the one-time trust step, as `smoke_goal.py`
+    does. That step is the founder's (see Grants).
 - Delete `graphify-session-lessons.sh` and add it to the retire list.
 - Update the installer tests for both harnesses, and the two docs that list installed hooks.
 
 `risk: boundary` applies because the installer writes the founder's harness configuration.
 
 ### [ ] T3 — the dispatch and acceptance steps
-- writes: install/skills/execution-methodology/references/context.md, install/skills/execution-methodology/references/run.md, install/skills/execution-methodology/references/planning.md
+- writes: install/skills/execution-methodology/references/context.md, install/skills/execution-methodology/references/run.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/review.md
 - needs: T1, T5
 - covers: AC-3, AC-5, AC-6
 - risk: none
 - builder: routine
 - tests-may-change: —
 
-Write `context.md` from the design's Rules-text section, in about 450 words, with the route first and the graph after it. Add the update rule to `planning.md` in one sentence. Then, and add the one
+Write the design's Rules-text section:
+- the route step in `run.md`'s dispatch step, plus a pointer to `context.md`, word-neutrally;
+- the guides sentence in `review.md`'s Acceptance section;
+- the update rule in `planning.md`, as one sentence;
+- `context.md` itself, graph-only, at most 450 words, including the 60-second bound and the
+  fallback.
+
+Without a graph, every role's load must stay at or under 3,000 words. Then, and add the one
 pointer sentence to `run.md`'s dispatch step. That sentence must be offset by a trim in `run.md`,
 which F-4 left at the budget. Verify with `install/tests/test_size.py`.
 
@@ -134,6 +150,9 @@ Record them dated under "graphify on this repository".
 ## Grants requested
 
 - `local-commit` on `v6-followups`.
+- **A founder action, once:** trust the Codex graph-smoke fixture's hooks in Codex
+  (`smoke_graph_hooks.py --harness codex --prepare` prints the step). This is the same kind of
+  step as F-3 Q1. Until it is done, the Codex half of the e2e stops early with that instruction.
 
 ## Decisions
 

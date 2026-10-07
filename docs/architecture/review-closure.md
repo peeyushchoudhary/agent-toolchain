@@ -34,8 +34,14 @@ It is admitted only when all of these hold:
 1. The subject's current verdict (`verdicts/<key>.md`) exists, and its first line is
    `VERDICT: BLOCK`.
 2. The subject has used no confirmation yet (`rounds.json` → `confirmations[key]` is absent).
-3. Every named path exists in the working tree, and its SHA-256 differs from the digest recorded
-   for that path at the subject's last round, or the path was not recorded then.
+3. Every named path exists in the working tree, and its SHA-256 differs from its content at the
+   subject's last round. That content is:
+   - the digest recorded for the path at that round, when the round recorded it;
+   - otherwise, the blob at that path in that round's verdict `tree`, because a path the round did
+     not record did not differ from the round's base;
+   - otherwise, nothing: the path did not exist then, so a new file counts as changed.
+
+   An unchanged tracked test outside the last round's diff is therefore refused.
 
 A refused confirmation exits 1 with the reason and consumes nothing. Like every round, an admitted
 confirmation runs under the subject's lock. It is not counted in `rounds[key]`, and it is recorded
@@ -45,7 +51,8 @@ Round numbers stay sequential, so a confirmation is round n+1 in history and in 
 
 **Per-round file digests.** Each round of a subject writes `review/<key>-r<n>.files.json`, mapping
 every changed path to its SHA-256. The changed paths are those `git diff --name-only` reports for
-the round's range, plus untracked files for a task review. This is the only new state.
+the round's range, plus untracked files for a task review. A deleted path maps to `null`, so a
+review of a deletion still completes. This is the only new state.
 
 It closes a gap that the verdict's `tree` cannot cover. A task review's work stays uncommitted
 across rounds, so every round of a task review records the same HEAD tree.

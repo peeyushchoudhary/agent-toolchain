@@ -7,7 +7,7 @@ status: draft
 updated: 2026-10-07
 gate: rc=0; for d in execution-methodology agent-personas progressive-disclosure; do [ -d install/skills/$d/tests ] || continue; python3 -m unittest discover -s install/skills/$d/tests -t install/skills/$d/tests || rc=1; done; exit $rc
 full_gate: cd install && ./install.sh --dry-run && ./verify.sh
-e2e: python3 install/skills/execution-methodology/tests/smoke_goal.py --harness claude && python3 install/skills/execution-methodology/tests/smoke_goal.py --harness codex
+e2e: python3 install/skills/execution-methodology/tests/smoke_goal.py --harness claude && python3 install/skills/execution-methodology/tests/smoke_goal.py --harness codex && python3 install/skills/execution-methodology/tests/smoke_review_closure.py
 run: {network: true, session_hours: 2}
 grants: [local-commit]
 ---
@@ -27,6 +27,7 @@ edit.
 criteria: AC-1, AC-2, AC-3, AC-4, AC-5
 acceptance: [all]
 proofs:
+- AC-3: e2e
 - AC-2, AC-3: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_review*.py'
 - AC-1, AC-4, AC-5: full_gate
 
@@ -35,7 +36,7 @@ rule changes, and splitting them further would add only dispatch overhead. No wa
 needed: T1 is proven by its unit tests, and T2 and T3 are text.
 
 ### [ ] T1 — `review.py`: test-closed confirmation and the family question
-- writes: install/skills/execution-methodology/scripts/review.py, install/skills/execution-methodology/tests/test_review_closure.py
+- writes: install/skills/execution-methodology/scripts/review.py, install/skills/execution-methodology/tests/test_review_closure.py, install/skills/execution-methodology/tests/smoke_review_closure.py
 - needs: —
 - covers: AC-2, AC-3, AC-4
 - risk: boundary
@@ -55,10 +56,25 @@ The new tests go in `test_review_closure.py` and cover:
 - each refusal: no verdict, a PASS verdict, a second confirmation, a test unchanged since the last
   round, a missing path, and use together with `--founder-grant`;
 - the record in `rounds.json` and in the header;
+- an unchanged tracked test outside the last round's diff, which is refused;
+- a deleted path, recorded as `null`, whose review still completes;
+- history numbering staying sequential across a confirmation;
+- the counted rounds left after a confirmation;
+- the founder grant still admitting exactly one round past the cap after a confirmation;
 - the family sentence in a round-2 packet and its absence in round 1;
 - confirmation under the subject lock.
 
-Every test uses a stub judge; none calls a real CLI. The existing tests stay unchanged and green.
+Every unit test uses a stub judge, and none calls a real CLI. The existing tests stay unchanged and
+green.
+
+`smoke_review_closure.py` is the end-to-end proof, and it runs the real cross-vendor judge.
+- It builds a temporary fixture repository with one planted defect, and runs round 1, which must
+  BLOCK.
+- It applies a fix and a test that reproduces the defect, then runs `--closed-by` with that test.
+- It asserts that the confirmation is recorded and uncounted, and that the judge saw the named
+  tests.
+
+It costs two real judge calls.
 The methodology and persona code stays at or under 2,500 lines, with about 127 lines of headroom.
 
 `risk: boundary` applies because `review.py`'s flags, `rounds.json` and the verdict header are
@@ -96,8 +112,13 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. Veri
 - **`decisions.md`:** a new decision, D28, gives the reason (F-3's five founder grants for extra
   rounds, and the M4 regression) and the alternatives it beat (cap 3, advisor grants, pre-fix test
   execution), in a few lines.
-- **`measurements.md`:** an "F-3 review rounds — 2026-10-07" section. It gives the rounds per
-  subject and the grants, from `.runs/F-3/verdicts/rounds.json` and the F-3 plan's Decisions.
+- **`measurements.md`:** an "F-3 review rounds — 2026-10-08" section. `.runs/` is not committed,
+  so the source is the F-3 plan's Decisions and this goal's spec. Give these numbers:
+  - M3 acceptance: 5 rounds per partition, 3 of them founder-granted;
+  - T9 security: 4 rounds, 2 founder-granted;
+  - M4 acceptance: rounds 1–3 on the same defect family, 2 founder-granted;
+  - founder grants for extra rounds: 7 in all.
+
   Use no private identifiers.
 
 ## Grants requested
