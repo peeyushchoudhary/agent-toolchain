@@ -83,10 +83,27 @@ class CommandTest(ReviewCase):
         self.assertEqual(call["name"], "claude")
         self.assertEqual(call["argv"][:-1], ["-p", "--model", r["model"], "--effort", r["effort"], "--tools",
                                              "Read,Grep,Glob", "--strict-mcp-config", "--setting-sources", "project,local",
-                                             "--output-format", "json"])
+                                             "--settings", '{"disableAllHooks": true}', "--output-format", "json"])
         self.assertIn("security-reviewer", call["argv"][-1])
         self.assertIn("src/a/x.py", self.repo.read(".runs/F-9/review/T1-security-r1.diff"))
         self.assertEqual(self.verdict("T1-security")[0], "BLOCK")
+
+    def test_acceptance_on_a_dirty_checkout_is_refused(self):
+        self.repo.finish_m1()
+        self.repo.write("src/a/x.py", "A = 2  # uncommitted fix\n")
+        res = self.review("--kind", "acceptance", "--milestone", "M1", "--chief", "claude")
+        self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+        self.assertIn("acceptance refused: the working tree is not clean", res.stderr)
+        self.assertIn("src/a/x.py", res.stderr)
+        self.repo.git("checkout", "src/a/x.py")
+        self.repo.write("notes.txt", "untracked\n")
+        self.assertIn("not clean", self.review("--kind", "acceptance", "--milestone", "M1",
+                                               "--chief", "claude").stderr)
+        self.assertEqual(self.fake.calls(), [])
+        self.assertFalse(self.repo.path(".runs/F-9/verdicts/M1-acceptance.md").exists())
+        self.repo.path("notes.txt").unlink()
+        self.repo.write(".runs/F-9/scratch.txt", "run state is not part of the tree\n")
+        self.assertEqual(self.review("--kind", "acceptance", "--milestone", "M1", "--chief", "claude").returncode, 0)
 
     def test_block_acceptance_keeps_the_milestone_not_done(self):
         self.repo.finish_m1()

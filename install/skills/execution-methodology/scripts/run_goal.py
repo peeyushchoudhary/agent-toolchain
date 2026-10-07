@@ -8,9 +8,10 @@ Each iteration selects the active milestone (the first without a goal/<G>/M<n> t
 chief session with the resume prompt, and ends it when the envelope (run.session_hours) expires.
 When the session's milestone gets tagged, the envelope is closed so the Stop hook lets the session
 end and the next milestone starts fresh. Progress is newly completed tasks (ticked, committed and
-guard-clean) or a new milestone tag. Exit codes: 0 goal done, 3 every remaining task parked or
-queued, 4 stalled (two sessions without progress) or session limit, 5 quota exhausted after
-backoff, 2 usage or internal error.
+guard-clean) or a new milestone tag. Exit codes: 0 goal done, 1 every milestone tagged but
+re-verification against the tags failed, 3 every remaining task parked or queued, 4 stalled (two
+sessions without progress) or session limit, 5 quota exhausted after backoff, 2 usage or internal
+error, including a Codex project without goal hooks in .codex/hooks.json.
 """
 from __future__ import annotations
 
@@ -62,16 +63,55 @@ def hooks_config(ctx):
 
 
 def claude_settings(ctx):
-    """Write .runs/<goal>/claude-settings.json: the chief's allow rules and its two hooks."""
+    """Write .runs/<goal>/claude-settings.json: the chief's allow rules, its two hooks and, when
+    run.network is false, deny rules for the web tools. Without an OS sandbox, shell network access
+    (curl, package managers) is not blocked by these rules."""
     meta = ctx.plan["meta"]
     allow = ["Bash(git add:*)", "Bash(git commit:*)", f"Bash(git tag goal/{ctx.goal}/:*)"]
     paths = [str(SCRIPTS / name) for name in ("goal.py", "gate.py", "review.py")]
     allow += [f"Bash(python3 {form}:*)" for p in paths for form in dict.fromkeys((p, shlex.quote(p), f'"{p}"'))]
     allow += [f"Bash({meta[k]})" for k in ("gate", "full_gate", "e2e") if meta.get(k)]
+    permissions = {"allow": allow}
+    if not (meta.get("run") or {}).get("network"):
+        permissions["deny"] = ["WebFetch", "WebSearch"]
     path = ctx.runs / "claude-settings.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"permissions": {"allow": allow}, "hooks": hooks_config(ctx)}, indent=2) + "\n")
+    path.write_text(json.dumps({"permissions": permissions, "hooks": hooks_config(ctx)}, indent=2) + "\n")
     return path
+
+
+def codex_hooks_ready(root):
+    """Refuse a Codex run whose project registers no goal hooks; warn when they are not trusted.
+
+    The global hooks step aside under GOAL_HARNESS and the driver registers nothing for Codex, so
+    the project's .codex/hooks.json must carry the Stop and SessionStart hooks (references/migrate.md).
+    """
+    path = Path(root) / ".codex" / "hooks.json"
+    try:
+        hooks = (json.loads(path.read_text()).get("hooks") or {})
+    except (OSError, ValueError, AttributeError):
+        hooks = {}
+
+    def commands(event):
+        groups = hooks.get(event) if isinstance(hooks, dict) else None
+        return [h.get("command", "") for g in groups or [] if isinstance(g, dict)
+                for h in g.get("hooks") or [] if isinstance(h, dict)]
+    missing = []
+    if not any("goal.py" in c and "stop-hook" in c for c in commands("Stop")):
+        missing.append("a Stop hook running goal.py stop-hook")
+    if not any(c.strip() for c in commands("SessionStart")):
+        missing.append("a SessionStart hook")
+    if missing:
+        raise goal.PlanError(f"{path} does not register {' and '.join(missing)}; a Codex run would have no "
+                             "goal hooks. Write them as references/migrate.md step 4 describes, then trust them.")
+    config = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "config.toml"
+    try:
+        trusted = f"{path}:" in config.read_text()
+    except OSError:
+        trusted = False
+    if not trusted:
+        print(f"run_goal.py: warning: {config} has no hooks.state entry for {path}; the hooks are not trusted "
+              "yet and Codex will silently skip them (references/migrate.md step 4)", file=sys.stderr)
 
 
 def session_command(harness, route, prompt, settings=None, network=False, extra=()):
@@ -179,6 +219,8 @@ def drive(args):
     if (root / goal.RUNTIME_PIN).exists():
         print(f"run_goal.py: {goal.MIGRATE_NOTICE}", file=sys.stderr)
         return 2
+    if args.harness == "codex":
+        codex_hooks_ready(root)
     plan = args.plan or f"docs/product/goals/{args.goal}/plan.md"
     active = goal.read_json(root / ".runs" / "active")
     if active and active.get("goal") != args.goal:
@@ -196,7 +238,14 @@ def drive(args):
         ctx = goal.find_ctx(argparse.Namespace(plan=None, goal=None), cwd=str(root))
         mid = ctx.active()
         if mid is None:
-            log(ctx, f"driver: goal {ctx.goal} done, every milestone tagged")
+            # The same re-verification `goal.py done` runs: every tag's receipts, acceptance and guards.
+            unmet = goal.done(ctx)[0]
+            if unmet:
+                for u in unmet:
+                    log(ctx, f"driver: not done: {u}")
+                log(ctx, f"driver: goal {ctx.goal} NOT DONE; every milestone is tagged but re-verification failed")
+                return 1
+            log(ctx, f"driver: goal {ctx.goal} done, every milestone tagged and verified")
             return 0
         if waiting(ctx, mid):
             log(ctx, f"driver: {mid} has only parked or queued tasks left; waiting for the founder")

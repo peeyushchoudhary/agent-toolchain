@@ -162,19 +162,22 @@ class Run:
 
 
 def judge_attempt(root: Path, harness: str):
-    """One judge call in the same harness, asked to write a file, with a logging Stop hook."""
+    """One judge call in the same harness, asked to write a file, with a logging Stop hook that the
+    judge's disableAllHooks setting must keep from running."""
     hook_log = root / ".runs" / GOAL_ID / "judge-hook.log"
     hook_log.parent.mkdir(parents=True, exist_ok=True)
     hook = (f"(echo GOAL_ROLE=$GOAL_ROLE; python3 '{SCRIPTS / 'goal.py'}' stop-hook) >> '{hook_log}' 2>&1")
-    settings = root / ".runs" / GOAL_ID / "judge-settings.json"
-    settings.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": hook}]}]}}))
     original = review.judge_command
 
     def with_hook(vendor, *a):
         cmd = original(vendor, *a)
-        # Test-side only: the judge also loads a Stop hook that logs the role it sees.
-        return cmd[:-1] + ["--settings", str(settings), cmd[-1]] \
-            if vendor == "claude" else cmd
+        if vendor != "claude":
+            return cmd
+        # Test-side only: add a logging Stop hook to the judge's own settings, next to disableAllHooks.
+        k = cmd.index("--settings") + 1
+        settings = json.loads(cmd[k])
+        settings["hooks"] = {"Stop": [{"hooks": [{"type": "command", "command": hook}]}]}
+        return cmd[:k] + [json.dumps(settings)] + cmd[k + 1:]
     review.judge_command = with_hook
     args = review.parser().parse_args(["--kind", "plan", "--subject", "docs/plan.md", "--vendor", harness,
                                        "--chief", harness, "--note", WRITE_ATTEMPT])
@@ -261,9 +264,11 @@ class SmokeTest(unittest.TestCase):
             self.assertIn(Run.judge.get("code"), (0, 1), "the judge call failed")
             self.assertEqual(Run.judge.get("hooks_log", ""), "", "a project hook ran in the judge session")
             return
-        log = Run.judge.get("hook_log", "")
-        self.assertIn("GOAL_ROLE=judge", log, "the judge's Stop hook did not run")
-        self.assertNotIn('"decision"', log)
+        # The Claude judge runs with disableAllHooks: neither the logging Stop hook in its own
+        # settings nor any project hook ran during the call.
+        self.assertIn(Run.judge.get("code"), (0, 1), "the judge call failed")
+        self.assertEqual(Run.judge.get("hook_log", ""), "", "a hook ran in the judge session")
+        self.assertEqual(Run.judge.get("hooks_log", ""), "", "a project hook ran in the judge session")
 
     def test_driver_finished_the_goal(self):
         self.assertFalse(Run.error, Run.error)

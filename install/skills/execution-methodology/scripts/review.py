@@ -32,7 +32,7 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(SKILL.parent / "agent-personas" / "scripts"))
 import goal  # noqa: E402
 import sync_personas  # noqa: E402
-from gate import git  # noqa: E402
+from gate import dirty_paths, git  # noqa: E402
 
 VENDORS = ("claude", "codex")
 KINDS = ("design", "plan", "acceptance", "security", "boundary", "data", "advisor", "council")
@@ -41,6 +41,7 @@ CAP = {"advisor": 1, "council": 1}  # every other kind: 2 rounds
 QUOTA_RE = re.compile(r"usage limit|rate[ _-]?limit|quota|limit reached|too many requests|\b429\b"
                       r"|exceeded your|try again (?:at|in|later)", re.I)
 VERDICT_RE = re.compile(r"^[\s*_`#>]*VERDICT:\s*\**\s*(PASS|BLOCK|ADVICE)\b", re.M)
+JUDGE_SETTINGS = json.dumps({"disableAllHooks": True})
 ID_RE = {"milestone": r"M\d+", "task": r"T\d+", "item": r"[TMQ]\d+", "partition": r"[a-z0-9][\w-]*"}
 
 
@@ -57,8 +58,10 @@ def judge_command(vendor, model, effort, packet, root):
     if vendor == "codex":
         return ["codex", "exec", "-s", "read-only", "--ignore-user-config", "--ignore-rules",
                 "-m", model, "-c", f"model_reasoning_effort={effort}", "--json", "-C", str(root), packet]
+    # disableAllHooks: no project or local hook (SessionStart, Stop, ...) runs inside the judge.
     return ["claude", "-p", "--model", model, "--effort", effort, "--tools", "Read,Grep,Glob",
-            "--strict-mcp-config", "--setting-sources", "project,local", "--output-format", "json", packet]
+            "--strict-mcp-config", "--setting-sources", "project,local", "--settings", JUDGE_SETTINGS,
+            "--output-format", "json", packet]
 
 
 def parse_output(vendor, out):
@@ -223,6 +226,12 @@ def review(a, ctx, timeout=3600):
         print(f"review: refused — {key} already had {cap} round(s); a subject still blocked after its "
               "rereview goes to the founder with the advisor's recommendation (references/review.md)")
         return 1
+    if a.kind == "acceptance":
+        dirty = dirty_paths(ctx.root)
+        if dirty:
+            # The verdict names HEAD's tree, so the judge must not read uncommitted files.
+            raise ReviewError("acceptance refused: the working tree is not clean; commit first:\n  "
+                              + "\n  ".join(dirty[:10]))
     tree = git(ctx.root, "rev-parse", "HEAD^{tree}")
     diff_path = None
     if a.kind == "acceptance" or a.kind in TASK_KINDS or a.diff:

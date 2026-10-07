@@ -18,7 +18,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.goal_fixture import FULL, Repo, env, plan_text  # noqa: E402
+from fixtures.goal_fixture import E2E, FULL, GATE, PROOF3, Repo, env, plan_text  # noqa: E402
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 RUN_GOAL = SCRIPTS / "run_goal.py"
@@ -62,6 +62,14 @@ for step in steps:
         Path(path).write_text("y = 2\n")
         git("add", "-A")
         git("commit", "-qm", f"[{tid}] untick work")
+    elif kind == "receipt":
+        subprocess.run([sys.executable, os.environ["FAKE_GATE"], "receipt", "--goal", "F-9", "--cmd", arg],
+                       check=True, capture_output=True)
+    elif kind == "verdict":
+        tree = subprocess.run(["git", "rev-parse", "HEAD^{tree}"], capture_output=True, text=True).stdout.strip()
+        v = Path(f".runs/F-9/verdicts/{arg}.md")
+        v.parent.mkdir(parents=True, exist_ok=True)
+        v.write_text(f"VERDICT: PASS\nvendor: fake\ntree: {tree}\n\nNo findings.\n")
     elif kind == "tag":
         git("tag", f"goal/F-9/{arg}")
     elif kind == "sleep":
@@ -90,8 +98,17 @@ else:
                                                           "output_tokens": 3, "reasoning_output_tokens": 1}}))
 '''
 
-HAPPY = [["task:T1:src/a/x.py", "task:T2:src/b/y.py", "tag:M1", "waitclose"],
-         ["task:T3:src/c/z.py", "tag:M2"]]
+def close(mid, commands, verdicts):
+    """Fake steps that close a milestone the way the chief does: receipts, acceptance verdicts, tag."""
+    return [f"receipt:{c}" for c in commands] + [f"verdict:{v}" for v in verdicts] + [f"tag:{mid}"]
+
+
+HAPPY = [["task:T1:src/a/x.py", "task:T2:src/b/y.py", *close("M1", [FULL, E2E], ["M1-acceptance"]),
+          "waitclose"],
+         ["task:T3:src/c/z.py", *close("M2", [FULL, E2E, PROOF3], ["M2-acceptance-alpha", "M2-acceptance-beta"])]]
+# Tags without receipts or verdicts: every milestone ends up tagged, but nothing proves it done.
+TAG_ONLY = [["task:T1:src/a/x.py", "task:T2:src/b/y.py", "tag:M1", "waitclose"],
+            ["task:T3:src/c/z.py", "tag:M2"]]
 
 
 class FakeHarness:
@@ -106,7 +123,8 @@ class FakeHarness:
 
     def env(self, script=(), **extra):
         base = {"PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}", "FAKE_DIR": str(self.dir),
-                "FAKE_SCRIPT": json.dumps(list(script))}
+                "FAKE_SCRIPT": json.dumps(list(script)), "FAKE_GATE": str(GATE),
+                "CODEX_HOME": str(self.dir / "codex-home")}
         base.update(extra)
         return base
 
@@ -144,6 +162,21 @@ class DriverCase(unittest.TestCase):
     def progress(self):
         return self.repo.read(".runs/F-9/progress.md")
 
+    def codex_hooks(self, hooks=None, trusted=True):
+        """Commit the project's .codex/hooks.json as migration writes it, and optionally trust it."""
+        import goal
+        import run_goal
+        if hooks is None:
+            hooks = run_goal.hooks_config(goal.Ctx(self.repo.dir, self.repo.dir / "docs/plan.md"))
+        self.repo.write(".codex/hooks.json", json.dumps({"hooks": hooks}, indent=2))
+        self.repo.commit("F-9: codex hooks")
+        self.repo.git("tag", "-f", "goal/F-9/approved")
+        if trusted:
+            config = self.fake.dir / "codex-home" / "config.toml"
+            config.parent.mkdir(parents=True, exist_ok=True)
+            config.write_text(f'[hooks.state."{self.repo.dir / ".codex" / "hooks.json"}:stop:0:0"]\n'
+                              'trusted_hash = "x"\n')
+
 
 class DriveTest(DriverCase):
     def test_two_milestones_in_fresh_claude_sessions(self):
@@ -167,11 +200,21 @@ class DriveTest(DriverCase):
         self.assertEqual(json.loads(self.repo.read(".runs/active"))["goal"], "F-9")
         progress = self.progress()
         self.assertEqual(progress.count("usage: claude in=15 out=7 cost=$0.0100"), 2)
-        self.assertIn("driver: goal F-9 done", progress)
+        self.assertIn("driver: goal F-9 done, every milestone tagged and verified", progress)
+
+    def test_tags_without_evidence_do_not_finish_the_goal(self):
+        res = self.drive(TAG_ONLY)
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        progress = self.progress()
+        self.assertIn("driver: not done: M1 (tag goal/F-9/M1): no full_gate receipt", progress)
+        self.assertIn("driver: not done: M2 (tag goal/F-9/M2): no acceptance verdict (alpha)", progress)
+        self.assertIn("driver: goal F-9 NOT DONE", progress)
+        self.assertNotIn("driver: goal F-9 done", progress)
 
     def test_settings_file_registers_hooks_and_allows_the_gates(self):
         self.drive(HAPPY)
         data = json.loads(self.repo.read(".runs/F-9/claude-settings.json"))
+        self.assertEqual(data["permissions"]["deny"], ["WebFetch", "WebSearch"])  # run.network is false
         stop = data["hooks"]["Stop"][0]["hooks"][0]["command"]
         start = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         self.assertIn(f"{SCRIPTS / 'goal.py'}' stop-hook | tee -a", stop)
@@ -181,10 +224,19 @@ class DriveTest(DriverCase):
                      f"Bash(python3 {SCRIPTS / 'gate.py'}:*)", f"Bash(python3 {SCRIPTS / 'review.py'}:*)"):
             self.assertIn(rule, allow)
 
+    def test_web_tools_are_not_denied_when_network_is_on(self):
+        self.repo.write("docs/plan.md", plan_text().replace("network: false", "network: true"))
+        self.repo.commit("F-9: network on")
+        self.repo.git("tag", "-f", "goal/F-9/approved")
+        self.drive(HAPPY)
+        data = json.loads(self.repo.read(".runs/F-9/claude-settings.json"))
+        self.assertNotIn("deny", data["permissions"])
+
     def test_codex_profile_with_network(self):
         self.repo.write("docs/plan.md", plan_text().replace("network: false", "network: true"))
         self.repo.commit("F-9: network on")
         self.repo.git("tag", "-f", "goal/F-9/approved")
+        self.codex_hooks()
         res = self.drive(HAPPY, "codex")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         route = sync_personas.routing(sync_personas.load("chief")[0])["codex"]
@@ -196,11 +248,39 @@ class DriveTest(DriverCase):
         self.assertFalse((self.repo.dir / ".runs/F-9/claude-settings.json").exists())
 
     def test_codex_profile_without_network_and_extra_args(self):
+        self.codex_hooks()
         res = self.drive(HAPPY, "codex", "--harness-arg=--ignore-rules")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertNotIn("not trusted yet", res.stderr)
         argv = self.fake.calls()[0]["argv"]
         self.assertNotIn("sandbox_workspace_write.network_access=true", argv)
         self.assertEqual(argv[-3:-1], ["--json", "--ignore-rules"])
+
+    def test_codex_run_without_project_goal_hooks_is_refused(self):
+        res = self.drive(HAPPY, "codex")
+        self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+        self.assertIn("references/migrate.md", res.stderr)
+        self.assertIn("a Stop hook running goal.py stop-hook and a SessionStart hook", res.stderr)
+        self.assertEqual(self.fake.calls(), [])
+        self.assertFalse(self.repo.path(".runs/active").exists())
+
+    def test_codex_run_with_only_a_session_hook_is_refused(self):
+        import goal
+        import run_goal
+        hooks = run_goal.hooks_config(goal.Ctx(self.repo.dir, self.repo.dir / "docs/plan.md"))
+        hooks["Stop"][0]["hooks"][0]["command"] = "echo stop"
+        self.codex_hooks(hooks)
+        res = self.drive(HAPPY, "codex")
+        self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+        self.assertIn("does not register a Stop hook running goal.py stop-hook;", res.stderr)
+        self.assertEqual(self.fake.calls(), [])
+
+    def test_untrusted_codex_hooks_warn(self):
+        self.codex_hooks(trusted=False)
+        res = self.drive(HAPPY, "codex")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("no hooks.state entry", res.stderr)
+        self.assertIn("not trusted yet", res.stderr)
 
     def test_codex_command_never_bypasses_hook_trust(self):
         import run_goal
