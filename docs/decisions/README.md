@@ -1,31 +1,24 @@
 # Decisions
 
-**Authority: current.** Accepted decision records: each settled choice against the alternative it
-was chosen over.
+**Authority: current.** The accepted decisions that are in force, each against the alternative it was
+chosen over. A decision that no longer applies is removed and git holds it, so the identifiers of the
+rest do not change.
 
 | Document | What it holds |
 | --- | --- |
-| [decisions.md](decisions.md) | Every accepted decision, D1 onward, newest last |
+| [decisions.md](decisions.md) | The decisions in force, with their reasons; a gap in the numbering is a removed decision |
 
-## Why this directory holds ONE file and not one file per decision
+How goals run is a design matter and lives in
+[lean-execution.md](../architecture/lean-execution.md), with the numbers in
+[measurements.md](../product/measurements.md).
 
-The standard requires a DIRECTORY here, and this repository had a FILE. Splitting `decisions.md`
-into a file per record was rejected, and renaming it to `README.md` was rejected; both were
-measured rather than argued.
+## Why this directory holds one file
 
-`validate_disclosure.py` exempts a RECORD from the word budget by FILENAME —
-`^(measurements|benchmarks|decisions|adr|rulings|improvements|changelog|history)(?:[-_][a-z0-9]+)?\.md$`,
-tested against the basename alone. `decisions.md` matches; `README.md` does not. The rename would
-therefore have stripped the exemption from a file sitting at 1,185 words of a 1,200-word budget —
-two decisions from the wall `measurements.md` hit first, which is the incident the exemption was
-written for. The class name travels with the basename, so the basename stays.
+The standard requires a directory here. The record stays one file named `decisions.md`.
 
-A file per decision would have escaped the budget too, by sharding. That is the exit the same
-source comment records as GAMING the metric rather than answering it: "answered by sharding
-lessons.md into two compliant files with more total text, not shorter text". A decision record
-accretes by definition — a decision that stops being listed stops being findable — and splitting it
-also breaks every `decisions.md#dNN` anchor cited from the operating model, the measurements and
-`AGENTS.md`.
-
-So: the directory is real, this README states its purpose and authority, and the record keeps its
-name. When the record does outgrow one sitting, the honest move is `../archive/`, not a shard.
+`validate_disclosure.py` exempts an accreting record from the word budget by file name, tested
+against the basename alone, and `decisions.md` matches where `README.md` does not. Renaming the file
+to `README.md` would strip the exemption. Splitting it into a file per decision would escape the
+budget by sharding, which the validator's source treats as gaming the metric, and it would break the
+`decisions.md#dNN` anchors that other documents cite. If the record outgrows one sitting, move
+decisions that no longer apply out; do not shard it.

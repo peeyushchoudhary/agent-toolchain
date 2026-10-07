@@ -24,15 +24,15 @@ document by adding its row here in the same commit.
 | How work is sequenced, and what "done" means | [architecture/operating-model.md](architecture/operating-model.md) | Current |
 | The four disclosure layers and the validator | [agents/progressive-disclosure.md](agents/progressive-disclosure.md) | Current |
 | How the route works in this repository | [agents/disclosure.md](agents/disclosure.md) | Current, standard v1.2 |
-| What earlier agents learned here, newest last | [agents/lessons.md](agents/lessons.md) | Current — a record: entries accrete |
+| What earlier agents learned here, still applying | [agents/lessons.md](agents/lessons.md) | Current — curated; what stops applying is removed |
 | Where files belong; migrating an existing repo | [architecture/repository-standard.md](architecture/repository-standard.md) | Current, v1.1 |
 | Forge rules, the push guard, zero-cost posture | [runbooks/github.md](runbooks/github.md) | Current |
 | The Codex side, and what it does not get | [runbooks/codex.md](runbooks/codex.md) | Current |
 | Updating the private global instruction files for v6 | [runbooks/global-instructions.md](runbooks/global-instructions.md) | Current |
 | The persona roster and its routing | [agents/agent-personas.md](agents/agent-personas.md) | Current |
 | Every file the installer places, and why | [agents/what-gets-installed.md](agents/what-gets-installed.md) | Current |
-| Decisions, each against its rejected alternative | [decisions/decisions.md](decisions/decisions.md) | Current — a record: entries accrete |
-| Measurements the decisions rest on | [product/measurements.md](product/measurements.md) | **Dated** — re-derive when prices move |
+| Decisions in force, each against its rejected alternative | [decisions/decisions.md](decisions/decisions.md) | Current — identifiers are stable |
+| The numbers the decisions and the v6 design cite | [product/measurements.md](product/measurements.md) | **Dated** — re-derive when prices move |
 | The weekly improvement record, newest first | [product/improvements-weekly.md](product/improvements-weekly.md) | Current — a record: entries accrete, never rewritten |
 | Front-page diagram description and visual sources | [assets/readme/README.md](assets/readme/README.md) | Current |
 | Lean goal execution (methodology v6) definition | [product/specs/F-3-lean-execution.md](product/specs/F-3-lean-execution.md) | Approved 2026-10-06; in implementation |
@@ -63,6 +63,6 @@ Its absence from `install/skills/` is the recorded decision, not drift.
 
 1. The tooling in `install/` — it is what actually runs.
 2. These documents.
-3. Any number older than the date at the top of `measurements.md`.
+3. Any measurement older than the date its section states in `measurements.md`.
 
 When a document and the tooling disagree, the tooling is right.

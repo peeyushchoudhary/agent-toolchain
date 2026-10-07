@@ -25,5 +25,4 @@ No `personas/`. The standard lists it, and it would be empty here: the persona p
 required directory must not become "empty ceremony". Create it the day this repository needs a
 specialist of its own.
 
-`lessons.md` IS here, and it was not created empty — see [lessons.md](lessons.md). It carries what
-this migration measured.
+`lessons.md` IS here, as a curated list of what still applies. See [lessons.md](lessons.md).

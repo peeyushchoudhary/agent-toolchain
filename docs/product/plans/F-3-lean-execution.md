@@ -260,7 +260,7 @@ proofs:
 **Sizing exception.** M4 has two tasks, below the minimum. It is kept separate because it can merge
 independently of M3 and carries no criterion M3 needs.
 
-### [ ] T8 — records hold current decisions only
+### [x] T8 — records hold current decisions only
 - writes: docs/decisions/**, docs/product/measurements.md, docs/product/improvements-weekly.md, docs/agents/lessons.md, docs/README.md, docs/agents/README.md
 - needs: T7
 - covers: AC-10
@@ -484,9 +484,25 @@ secret and identifier behaviour; the security reviewer confirms it.
   tooling review of that diff, applied by clearing the used grant record (logged), and a scoped
   retirement confirmation on the new tree.
 
+- 2026-10-07: M3 closed. `goal.py done` passed on tree `4b05935`, and `goal/F-3/M3` is at `0222799`.
+  Both partitions passed in round 4 under the founder's grants. The pushed branch is not updated:
+  the machine's installed v5.1 pre-push guard rejects the frozen spec's dated heading "Founder
+  decisions (2026-10-06)". The v6 guard no longer runs that check, and installing v6 is the
+  founder's action.
+
+- 2026-10-07: founder decision on T8. `docs/product/improvements-weekly.md` stays in place and
+  unchanged for now. Its inbound links in `README.md` and `docs/product/README.md` are outside T8's
+  writes, and widening those writes would need a replay that voids M3's tag, receipts and
+  acceptance. It is deleted after F-3 merges (Queue Q2). Methodology lesson: write sets cannot be
+  amended after a milestone is tagged without re-closing that milestone.
+
 ## Queue
 
 - Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now
   proven. The founder trusted the fixed fixture's hooks by hand once, and the Codex smoke passed 9
   of 9: the premature stop was blocked, the session hook ran, and the judge was not held by the Stop
   hook.
+
+- Q2 (2026-10-07, blocks nothing in F-3): after F-3 merges, delete
+  `docs/product/improvements-weekly.md` and repair its links in `README.md`, `docs/README.md` and
+  `docs/product/README.md`.
