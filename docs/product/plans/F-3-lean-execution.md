@@ -201,12 +201,12 @@ minimal repair. Content rewrites belong to T7, and the condensing of `decisions.
 reviewer confirms that the guard's behaviour on commit ranges and staged content is unchanged.
 
 ### [ ] T6 — installer and repository gate
-- writes: install/install.sh, install/README.md, install/verify.sh, install/preserve_selftest.sh, install/tests/**
+- writes: install/install.sh, install/README.md, install/verify.sh, install/preserve_selftest.sh, install/tests/**, install/skills/progressive-disclosure/scripts/check_toolchain.py, install/skills/progressive-disclosure/scripts/migrate_to_standard.py, install/skills/progressive-disclosure/scripts/migrate_to_standard_selftest.py, install/skills/progressive-disclosure/tests/test_check_toolchain.py
 - needs: T5
 - covers: AC-9, AC-10, AC-11, AC-12
 - risk: boundary
 - builder: judgement
-- tests-may-change: install/preserve_selftest.sh
+- tests-may-change: install/preserve_selftest.sh, install/skills/progressive-disclosure/scripts/migrate_to_standard_selftest.py, install/skills/progressive-disclosure/tests/test_check_toolchain.py
 
 **`install.sh`.** It installs:
 - the four skills;
@@ -368,5 +368,12 @@ secret and identifier behaviour; the security reviewer confirms it.
   inbound links including `docs/product/README.md`, and repairs that one README link (T6 still
   rewrites the file). No criterion or goal scope changed. The approval
   tag moved to this commit, and T1–T4 were replayed on top of it.
+
+- 2026-10-07: amendment before T1 (founder-approved). Seven retired-name mentions remain in
+  progressive-disclosure (`check_toolchain.py`, `migrate_to_standard.py` and their tests), which only
+  T9 could edit, so M3's AC-10 could not pass. T6 now also cleans those mentions; T9 still slims
+  the files. The founder also granted standing authority for amendments that only move files between
+  task write sets within the approved scope; each is logged here and listed at merge. The approval
+  tag moved to this commit, and T1–T5 were replayed on top of it.
 
 ## Queue
