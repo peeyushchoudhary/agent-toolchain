@@ -531,6 +531,13 @@ secret and identifier behaviour; the security reviewer confirms it.
   skipped unless `git rev-parse --git-path hooks` resolves to the project's `.git/hooks`. One
   founder-granted scoped acceptance round (round 3) follows.
 
+- 2026-10-08: founder decision on M4 acceptance round 3, which blocked on three path-comparison
+  cases in the same family: a trailing space, a missing path component, and a case-insensitive
+  filesystem. All were verified locally. The founder chose the unset-only rule under T9: the graph
+  hook is installed only when `core.hooksPath` is unset at every level (`git config --get` exits
+  1). Any value means an honest skip, so no path comparison remains. One founder-granted scoped
+  acceptance round (round 4) follows.
+
 ## Queue
 
 - Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now

@@ -666,6 +666,12 @@ def remove_graph_blocks(root: Path) -> bool:
     return True
 
 
+REPO_LOCATION_ENV = {
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_PREFIX"}
+
+
 def install_graph_hook(root: Path, *, no_graph: bool) -> bool:
     """The post-commit and post-checkout graph refresh: rendered by `graphify`, written by us.
 
@@ -681,18 +687,17 @@ def install_graph_hook(root: Path, *, no_graph: bool) -> bool:
     if not graphify_available():
         print("  post-commit graph refresh skipped — graphify is not installed")
         return False
-    # Ask git where it runs hooks, not what core.hooksPath says: an empty value moves them too.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    # Install only when core.hooksPath is unset at every level (exit 1); any other outcome skips.
+    # Drop only the repository-location variables; git's config variables still apply.
+    env = {k: v for k, v in os.environ.items() if k not in REPO_LOCATION_ENV}
     try:
-        done = subprocess.run(["git", "rev-parse", "--git-path", "hooks"], cwd=root, env=env,
-                              capture_output=True, text=True, timeout=30)
-        out = done.stdout.strip() if done.returncode == 0 else ""
-        where = (root / out).resolve() if out else None
+        unset = subprocess.run(["git", "config", "--get", "core.hooksPath"], cwd=root, env=env,
+                               capture_output=True, text=True, timeout=30).returncode == 1
     except (OSError, subprocess.SubprocessError):
-        where = None
-    if where != (root / ".git" / "hooks").resolve():
-        print(f"  post-commit graph refresh skipped — git runs hooks from "
-              f"{where or 'an unknown directory'}, not .git/hooks")
+        unset = False
+    if not unset:
+        print("  post-commit graph refresh skipped — core.hooksPath is configured; "
+              "git may not run hooks in .git/hooks")
         return False
     try:
         for path, content in _graph_edits(root, _render_graphify_blocks()):

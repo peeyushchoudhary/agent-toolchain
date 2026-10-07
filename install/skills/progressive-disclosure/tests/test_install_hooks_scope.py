@@ -331,7 +331,7 @@ class ScopedHooksTest(unittest.TestCase):
                        check=True)
         proc = self.invoke()
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertIn("graph refresh skipped \u2014 git runs hooks from", proc.stdout)
+        self.assertIn("graph refresh skipped \u2014 core.hooksPath is configured", proc.stdout)
         self.assertNotIn("graph refresh installed", proc.stdout)
         self.assert_graphify_blocks(present=False)
         self.assertEqual(self.graphify_calls(log), [])
@@ -346,20 +346,29 @@ class ScopedHooksTest(unittest.TestCase):
         self.assertEqual(list((self.repo / ".hooks").iterdir()), [])
         self.assertEqual(self.graphify_calls(log), [])
 
-    def test_graph_hook_follows_where_git_runs_hooks(self) -> None:
-        """The decision is git's answer (`rev-parse --git-path hooks`), not the config value: an
-        empty core.hooksPath also stops git running .git/hooks, and an inherited GIT_DIR must not
-        redirect the answer."""
+    def test_graph_hook_installs_only_when_hooks_path_is_unset_everywhere(self) -> None:
+        """Any core.hooksPath, empty or spelled to look like .git/hooks, skips; no path
+        comparison. An inherited GIT_DIR or a global-only value must not change the decision."""
         log = self.stub_graphify()
         graph = self.repo / "graphify-out" / "graph.json"
         graph.parent.mkdir(); graph.write_text("{}\n", encoding="utf-8")
         (self.repo / ".hooks").mkdir()
         other = self.tmp / "other"
         subprocess.run(["git", "init", "-q", str(other)], check=True)
-        own = str((self.repo / ".git" / "hooks").resolve())
-        cases = [("empty", "", {}, False), ("relative", ".hooks", {}, False),
-                 ("own-absolute", own, {}, True), ("unset", None, {}, True),
+        subprocess.run(["git", "-C", str(other), "config", "core.hooksPath", "elsewhere"],
+                       check=True)
+        gcfg = self.tmp / "global.gitconfig"
+        own = str(self.repo / ".git" / "hooks")
+        cases = [("unset", None, {}, True),
                  ("inherited-git-dir", None, {"GIT_DIR": str(other / ".git")}, True),
+                 ("empty", "", {}, False), ("relative", ".hooks", {}, False),
+                 ("trailing-space", ".git/hooks ", {}, False),
+                 ("missing-component", ".git/missing/../hooks", {}, False),
+                 ("case-variant", ".git/HOOKS", {}, False),
+                 ("own-absolute", own, {}, False),
+                 ("global-only", None, {"GIT_CONFIG_GLOBAL": str(gcfg)}, False),
+                 ("config-env", None, {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.hooksPath",
+                                       "GIT_CONFIG_VALUE_0": ".hooks"}, False),
                  ("inherited-git-dir-empty", "", {"GIT_DIR": str(other / ".git")}, False)]
         for label, value, extra, installed in cases:
             with self.subTest(label):
@@ -367,6 +376,10 @@ class ScopedHooksTest(unittest.TestCase):
                 subprocess.run(cfg + ["--unset-all", "core.hooksPath"])
                 if value is not None:
                     subprocess.run(cfg + ["core.hooksPath", value], check=True)
+                if label == "global-only":
+                    gcfg.write_text("[core]\n\thooksPath = /nonexistent-hooks\n", encoding="utf-8")
+                else:
+                    gcfg.write_text("", encoding="utf-8")
                 log.unlink(missing_ok=True)
                 proc = self.invoke(**extra)
                 self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
@@ -375,7 +388,8 @@ class ScopedHooksTest(unittest.TestCase):
                     self.assert_graphify_blocks(present=True)
                     self.assert_never_ran_in_project(log)
                 else:
-                    self.assertIn("graph refresh skipped \u2014 git runs hooks from", proc.stdout)
+                    self.assertIn("graph refresh skipped \u2014 core.hooksPath is configured",
+                                  proc.stdout)
                     self.assertNotIn("graph refresh installed", proc.stdout)
                     self.assert_graphify_blocks(present=False)
                     self.assertEqual(self.graphify_calls(log), [])
