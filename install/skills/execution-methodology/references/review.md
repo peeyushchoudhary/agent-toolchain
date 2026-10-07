@@ -67,6 +67,8 @@ models follow that literally and under-report. Each finding carries a class:
 
 Each subject gets at most one correction and one scoped rereview. `review.py` refuses a third round
 on a subject, and no escalation buys an extra round. A renamed attempt is the same subject.
+Only the founder can grant one round past the cap, once per subject (`--founder-grant`), and the
+grant is recorded with the verdict.
 The cap is what guarantees a review loop ends; earlier runs without one looped on the same
 subject.
 

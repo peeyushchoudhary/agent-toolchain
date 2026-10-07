@@ -34,17 +34,17 @@ lets the chief edit, commit and run the declared gates with no human present.
 
 | Harness | Command shape | Permissions |
 | --- | --- | --- |
-| Claude Code | `claude -p --model <m> --effort <e> --permission-mode auto --settings .runs/<goal>/claude-settings.json --output-format json "<resume prompt>"` | The settings file allows `git add`, `git commit`, the plan's gate commands and the skill's scripts, and registers the Stop and SessionStart hooks. Auto mode's reviewer decides the rest. A denial is logged, never retried blindly. |
+| Claude Code | `claude -p --model <m> --effort <e> --permission-mode auto --settings .runs/<goal>/claude-settings.json --output-format json "<resume prompt>"` | The settings file allows `git add`, `git commit`, the plan's gate commands and the skill's scripts, and registers the Stop and SessionStart hooks. It is added on top of normal settings precedence: user, project, local and managed settings stay in effect. Auto mode's reviewer decides the rest. A denial is logged, never retried blindly. |
 | Codex | `codex exec --approve-for-me -m <m> -c model_reasoning_effort=<e> --json "<resume prompt>"`, adding `-c sandbox_workspace_write.network_access=true` when `run.network` is true | `--approve-for-me` runs in the workspace-write sandbox, which covers the repository; the CLI rejects an explicit `-s` alongside it. Automatic approval review handles the rest. Hooks come from the project's `.codex/hooks.json`, which migration writes and the founder trusts once in Codex (see [migrate.md](migrate.md), step 4). The driver refuses a Codex run, exit 2, when that file does not register a Stop hook running `goal.py stop-hook` and a SessionStart hook, and warns when `$CODEX_HOME/config.toml` (default `~/.codex`) has no `hooks.state` entry for it. |
 
 What each profile fixes:
 
 | | Claude Code | Codex |
 | --- | --- | --- |
-| Sandbox | None. The driver enables no OS-level sandbox. | The workspace-write sandbox, through `--approve-for-me`. |
-| Approval | Auto mode plus the settings file's allow rules are the boundary. | Automatic approval review, through `--approve-for-me`. |
-| Writable paths | The working directory, under Claude Code's default permission scope; no additional directories are added. | The workspace (the repository) under workspace-write; no extra writable roots are added. |
-| Network | Follows `run.network`. When it is false the settings file denies `WebFetch` and `WebSearch`. Without a sandbox, shell network access (for example `curl` or a package manager) is not blocked. | Off in the sandbox unless `run.network` is true, which adds `-c sandbox_workspace_write.network_access=true`. |
+| Sandbox | None added; an inherited `sandbox` setting still applies. | The workspace-write sandbox, through `--approve-for-me`. |
+| Approval | Auto mode plus the settings file's allow rules (and deny rules when network is off). Inherited rules still apply. | Automatic approval review, through `--approve-for-me`. |
+| Writable paths | The working directory; none added. An inherited `permissions.additionalDirectories` still applies. | The workspace (the repository) under workspace-write; no extra writable roots are added. |
+| Network | When `run.network` is false the settings file denies `WebFetch` and `WebSearch`. Shell network access (`curl`, package managers) is restricted only by an inherited sandbox. | Off in the sandbox unless `run.network` is true, which adds `-c sandbox_workspace_write.network_access=true`. |
 
 The session environment sets `GOAL_ROLE=chief`. Judge and advisor calls set `GOAL_ROLE=judge`, which
 exempts them from the Stop hook.
