@@ -463,6 +463,19 @@ secret and identifier behaviour; the security reviewer confirms it.
   because `install_hooks.py` imports it; T9 may remove it. The retirement partition's optional
   finding on D27 goes to T8.
 
+- 2026-10-07: M3 acceptance round 2 (scoped rereview). Tooling PASS on tree `754da62`.
+  Retirement still BLOCK, so its review loop ended: the Claude launch profile in `run.md` omits
+  that inherited user, project and local settings, such as `sandbox` and `additionalDirectories`,
+  still apply. The controller also found that parallel partition reviews race on `rounds.json`,
+  which mislabelled retirement's second review as round 1. The extra round was not used. The
+  advisor (Codex, high confidence, reversible) recommended a docs-only fix for `run.md` and an M3
+  fix for round accounting.
+
+  The founder decided: fix both, refresh the receipts and e2e, then grant one final cross-vendor
+  review per partition, scoped to the fix diff. If either still blocks, M3 returns to the founder.
+  The grant is applied through `review.py --founder-grant`, which admits one round past the cap,
+  once per subject, and stamps the verdict. The fix adds that option.
+
 ## Queue
 
 - Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now
