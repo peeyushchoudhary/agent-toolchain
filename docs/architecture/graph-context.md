@@ -18,6 +18,7 @@ updated: 2026-10-08
 | Codex route check | `install/install.sh` | Codex also gets `disclosure-check.sh` at SessionStart |
 | Planning rule | `execution-methodology/references/planning.md` | a task that changes what a guide states writes the guide |
 | Refresh hooks in git | `progressive-disclosure/scripts/install_hooks.py` (unchanged) | it already installs the graph refresh where git runs hooks; the status line points to it |
+| Bounded graph calls | `graph-navigation/scripts/graph_view.py` (new) | one command for the chief in either harness: freshness, refresh, then `explain` and `affected`, each under an in-process timeout |
 | Use in a goal run | `execution-methodology/references/context.md` (new), `references/run.md` (pointer) | the dispatch and acceptance steps |
 | Records | `lean-execution.md`, `decisions.md`, `measurements.md` | current state, and the numbers |
 
@@ -34,8 +35,9 @@ Input:
   root, holding `graphify-out/graph.json`. This is the same rule as `install_hooks.graphify_root`,
   duplicated in eight lines because the hook must run without the skill.
 
-Every git call runs with `cwd` at the project root, every inherited `GIT_*` variable dropped, and
-a timeout of 5 s. `graphify reflect --if-stale` runs with a timeout of 20 s. A timeout drops that
+Every git call runs with `cwd` at the project root, with a timeout of 5 s, and with the
+repository-location variables dropped (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR` and the
+like). git's config-environment variables are kept, matching `install_hooks.py`. `graphify reflect --if-stale` runs with a timeout of 20 s. A timeout drops that
 check or the digest silently.
 
 Checks, in order. Each produces at most one line:
@@ -45,7 +47,7 @@ Checks, in order. Each produces at most one line:
 | a graph exists, `graphify` is not on PATH | `graph present but graphify is not installed; install with: uv tool install graphifyy (or pipx install graphifyy)` |
 | `graphify` on PATH, no graph | `no graphify graph; build one with /graphify (LLM cost), or ignore` |
 | the graph's `built_at_commit` is not HEAD, and code files changed since | `graph is N code file(s) behind HEAD; refresh with: graphify update <graph root>` |
-| a graph exists, `core.hooksPath` is unset, and `.git/hooks/post-commit` has no `# graphify-hook-start` | `graph refresh hooks missing; install with: python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py .` |
+| a graph exists, `core.hooksPath` is unset, and `post-commit` in git's hooks directory (`git rev-parse --git-path hooks`, which is the shared directory in a linked worktree) has no `# graphify-hook-start` | `graph refresh hooks missing; install with: python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py <main checkout>`. `<main checkout>` is the project root, or, in a linked worktree, the parent of `git rev-parse --git-common-dir`, because `install_hooks.py` installs from the main checkout only. |
 | a graph exists, and `core.hooksPath` is configured (`git config --get` does not exit 1) | `graph refresh hooks cannot be installed while core.hooksPath is configured; refresh by hand with: graphify update <graph root>` |
 
 The hooks rule matches `install_hooks.py`: refresh hooks are installed only when `core.hooksPath`
@@ -80,6 +82,19 @@ It uses the existing scoped-file discovery and link parsing. It is skipped outsi
 repository, and for a guide that has never been committed. Expected size: about 30 lines, inside
 `progressive-disclosure`'s AC-13 headroom of 131 lines.
 
+**`graph_view.py`.** Usage: `graph_view.py --root <project> --out <dir> <Symbol> ...`.
+- It finds the graph root by the rule above, and reads `built_at_commit`.
+- When code files changed since that commit, it runs `graphify update <graph root>`, with a
+  120-second timeout.
+- Per symbol, it runs `graphify explain` and `graphify affected --depth 2`, each with a 60-second
+  timeout, and writes `<out>/<Symbol>.txt`.
+- It prints one line per output path, or one line naming why it fell back: no graph, graphify
+  missing, timeout or error.
+- It exits 0 in every case, because the fallback is the route.
+- It writes only under `<out>` and, through `update`, under `graphify-out/`.
+- Python 3.10+, standard library only. It sits in the published `graph-navigation` skill, outside
+  the methodology's code budget.
+
 **`install.sh`, Codex.** The Codex `WANT` list gains:
 - `("SessionStart", None, …, "hooks/disclosure-check.sh")`, which surfaces `stale-guide` with the
   other route findings;
@@ -108,8 +123,9 @@ test.
 
 **Only with a graph:** `references/context.md`, a new reference of at most 450 words, covers:
 
-- **Bounded calls.** Every graphify command runs with a 60-second bound, the shell tool's timeout.
-  On timeout, fall back to the route and grep.
+- **Bounded calls.** The chief runs graphify only through `graph_view.py`, never directly. A
+  shell tool's own limit is not a process timeout; Codex's, for one, only yields. `graph_view.py`
+  enforces the bounds in-process, and a timeout means falling back to the route and grep.
 - **Freshness first.** Read `built_at_commit`. When the graph is behind HEAD on code files, run
   `graphify update <graph root>` before using it. `update` needs no LLM. Doc staleness is
   reported, not rebuilt.

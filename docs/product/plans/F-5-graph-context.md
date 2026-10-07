@@ -31,6 +31,7 @@ proofs:
 - AC-2: python3 -m unittest discover -s install/tests -t install/tests -p 'test_install.py'
 - AC-1, AC-2: e2e
 - AC-6: python3 -m unittest discover -s install/skills/progressive-disclosure/tests -t install/skills/progressive-disclosure/tests -p 'test_validate_disclosure*.py'
+- AC-3: python3 -m unittest discover -s install/skills/graph-navigation/tests -t install/skills/graph-navigation/tests
 - AC-3, AC-4, AC-5: full_gate
 
 ### [ ] T1 — the graphify session hook
@@ -75,9 +76,11 @@ Do the following:
   - For each harness, it builds a fixed fixture under `~/.cache/graph-smoke/<harness>`: a git
     repository with a `graph.json` that is behind HEAD, and project-level hooks registering the
     session hook and the advisor.
-  - It runs one short real session and asserts three things: the status line reached the
-    session's context, the lessons digest was injected, and a prose `graphify query` drew the
-    advisor's ladder.
+  - The fixture also has a source folder without a scoped entry file, so `disclosure-check.sh`
+    has a finding to report.
+  - It runs one short real session and asserts four things: the graph status line reached the
+    session's context, `disclosure-check.sh`'s route finding reached it, the lessons digest was
+    injected, and a prose `graphify query` drew the advisor's ladder.
   - `--prepare` builds the Codex fixture and prints the one-time trust step, as `smoke_goal.py`
     does. That step is the founder's (see Grants).
 - Delete `graphify-session-lessons.sh` and add it to the retire list.
@@ -87,7 +90,7 @@ Do the following:
 
 ### [ ] T3 — the dispatch and acceptance steps
 - writes: install/skills/execution-methodology/references/context.md, install/skills/execution-methodology/references/run.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/review.md
-- needs: T1, T5
+- needs: T1, T5, T6
 - covers: AC-3, AC-5, AC-6
 - risk: none
 - builder: routine
@@ -97,12 +100,11 @@ Write the design's Rules-text section:
 - the route step in `run.md`'s dispatch step, plus a pointer to `context.md`, word-neutrally;
 - the guides sentence in `review.md`'s Acceptance section;
 - the update rule in `planning.md`, as one sentence;
-- `context.md` itself, graph-only, at most 450 words, including the 60-second bound and the
-  fallback.
+- `context.md` itself, graph-only, at most 450 words: graph calls go only through
+  `graph_view.py`, and a fallback line from it means the route and grep.
 
-Without a graph, every role's load must stay at or under 3,000 words. Then, and add the one
-pointer sentence to `run.md`'s dispatch step. That sentence must be offset by a trim in `run.md`,
-which F-4 left at the budget. Verify with `install/tests/test_size.py`.
+Without a graph, every role's load must stay at or under 3,000 words. Verify with
+`install/tests/test_size.py`.
 
 ### [ ] T5 — the `stale-guide` warning
 - writes: install/skills/progressive-disclosure/scripts/validate_disclosure.py, install/skills/progressive-disclosure/tests/test_validate_disclosure_stale_guide.py
@@ -124,9 +126,29 @@ The tests use temporary git repositories and cover:
 
 `progressive-disclosure` stays at or under its AC-13 ceiling of 5,470 lines.
 
+### [ ] T6 — the bounded graph runner
+- writes: install/skills/graph-navigation/scripts/graph_view.py, install/skills/graph-navigation/tests/test_graph_view.py, install/skills/graph-navigation/SKILL.md
+- needs: —
+- covers: AC-3
+- risk: none
+- builder: routine
+- tests-may-change: —
+
+Implement the design's `graph_view.py` interface. Its tests use temporary repositories and a stub
+`graphify`, and cover:
+- a fresh graph, which writes a file per symbol;
+- a stale graph, where `update` runs first;
+- no graph, and graphify missing, each of which prints a fallback line;
+- a hanging `update`, and a hanging `affected`, each of which times out and falls back, with the
+  timeouts shortened for the test;
+- exit 0 in every case;
+- no writes outside `--out`.
+
+Add one line to `SKILL.md` naming the runner for goal runs.
+
 ### [ ] T4 — measurements and records
 - writes: docs/product/measurements.md, docs/decisions/decisions.md, docs/architecture/lean-execution.md
-- needs: T2, T3, T5
+- needs: T2, T3, T5, T6
 - covers: AC-4
 - risk: none
 - builder: routine
