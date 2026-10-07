@@ -200,7 +200,7 @@ minimal repair. Content rewrites belong to T7, and the condensing of `decisions.
 `risk: safety` applies because the push guard protects this public repository. The security
 reviewer confirms that the guard's behaviour on commit ranges and staged content is unchanged.
 
-### [ ] T6 — installer and repository gate
+### [x] T6 — installer and repository gate
 - writes: install/install.sh, install/README.md, install/verify.sh, install/preserve_selftest.sh, install/tests/**, install/skills/progressive-disclosure/scripts/check_toolchain.py, install/skills/progressive-disclosure/scripts/migrate_to_standard.py, install/skills/progressive-disclosure/scripts/migrate_to_standard_selftest.py, install/skills/progressive-disclosure/tests/test_check_toolchain.py, install/skills/agent-personas/scripts/sync_personas.py, install/skills/agent-personas/tests/**
 - needs: T5
 - covers: AC-9, AC-10, AC-11, AC-12
@@ -423,6 +423,21 @@ secret and identifier behaviour; the security reviewer confirms it.
   push-guard and identifier-guard selftest harnesses gained a one-line module-registration fix; their
   remaining failures (push guard 11, identifier guard 12f and 13) are environmental, because they
   expect the copy installed in `~/.claude`.
+
+- 2026-10-07: T6 boundary review. Round 1 BLOCK: a plain install replaced each published skill
+  wholesale, so it deleted the v5.1 files inside them. Corrected once: install now carries forward
+  installed files that the package lacks, and `--retire-v5` deletes only the named list of 64. The
+  renderer skips retired persona sources with a warning and keeps their rendered agents while each
+  source exists. The scoped rereview passed. Known limitations, all non-blocking:
+  - the global Codex goal hooks step aside whenever the project's `.codex/hooks.json` names the
+    hook, even when that hook is untrusted and so does not run;
+  - a symlinked `settings.json` or `hooks.json` becomes a regular file when merged;
+  - `verify.sh --installed` counts carried installed-only files as drift, so it reports drift until
+    `--retire-v5`, and afterwards still flags five unlisted carried test files;
+  - no test pins that a stale v6 render beside a retired source is still rewritten (it holds by
+    construction).
+
+  Two Stop hooks over one goal are avoided because the global hooks exit when `GOAL_HARNESS` is set.
 
 ## Queue
 

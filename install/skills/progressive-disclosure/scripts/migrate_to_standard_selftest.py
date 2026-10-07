@@ -21,8 +21,8 @@ it fail. Cases 1 and 2 below both reproduce behaviour that was LIVE in the shipp
 
 WHAT THESE CASES DO NOT COVER, said plainly because an overstated coverage claim in a break-test is
 the same failure the tool has: none of them run against a real repository. The real-corpus numbers
-(64 renames, 140 relinks, 102,901 body words before and after, 1,254 links and 0 broken, spec_check
-0 -> 64 documents read) were measured by hand on a COPY of one repository and are NOT asserted here.
+(64 renames, 140 relinks, 102,901 body words before and after, 1,254 links and 0 broken, the spec
+checker 0 -> 64 documents read) were measured by hand on a COPY of one repository and are NOT asserted here.
 Case 9 checks the refusal, not the backup: the backup path is exercised by every --apply case
 above it, but no case asserts that the backup is RESTORABLE. That is untested.
 

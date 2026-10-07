@@ -73,7 +73,7 @@ CLAIM_DENIALS = ("not a clean", "not clean", "no verdict", "cannot be read as cl
 # `sync_personas.py` exposes — and pinning the real thirteen names into this file would be the
 # second copy of the roster that TC-41 forbids. That the mechanism reads the REAL sets is asserted
 # separately and against the real module, by `test_persona_names_come_from_sync_personas`.
-FIXTURE_BASE = ("reviewer", "developer", "docs-steward")
+FIXTURE_BASE = ("reviewer", "developer", "docs-writer")
 FIXTURE_JUDGING = ("reviewer",)
 
 

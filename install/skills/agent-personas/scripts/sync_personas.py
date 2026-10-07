@@ -222,16 +222,28 @@ def render_codex(meta: dict, body: str) -> str:
     return "\n".join(out) + "\n"
 
 
+def _all_sources() -> list[Path]:
+    return sorted(p for p in POOL.glob("*.md") if p.name.lower() != "readme.md")
+
+
 def pool_sources() -> list[Path]:
-    """The base pool, which must be exactly BASE_PERSONA_NAMES."""
-    sources = sorted(p for p in POOL.glob("*.md") if p.name.lower() != "readme.md")
-    names = {p.stem for p in sources}
-    if names != BASE_PERSONA_NAMES:
+    """The base pool: exactly the BASE_PERSONA_NAMES sources. A missing one is an error.
+
+    Any other source is ignored here and reported by retired_sources(): an installed skill keeps
+    the v5.1 sources until `install.sh --retire-v5`, and they must not stop the v6 pool rendering.
+    """
+    sources = [p for p in _all_sources() if p.stem in BASE_PERSONA_NAMES]
+    missing = BASE_PERSONA_NAMES - {p.stem for p in sources}
+    if missing:
         raise PersonaError(
-            f"base persona pool must be exactly {', '.join(sorted(BASE_PERSONA_NAMES))} "
-            f"(missing: {', '.join(sorted(BASE_PERSONA_NAMES - names)) or 'none'}; "
-            f"unexpected: {', '.join(sorted(names - BASE_PERSONA_NAMES)) or 'none'})")
+            f"base persona pool must hold {', '.join(sorted(BASE_PERSONA_NAMES))} "
+            f"(missing: {', '.join(sorted(missing))})")
     return sources
+
+
+def retired_sources() -> list[Path]:
+    """Pool sources outside BASE_PERSONA_NAMES; never parsed, validated or rendered."""
+    return [p for p in _all_sources() if p.stem not in BASE_PERSONA_NAMES]
 
 
 def load(name: str) -> tuple[dict, str]:
@@ -419,6 +431,14 @@ def build(repo: Path | None, scope: str):
             findings.append(str(e))
 
     include_global = scope in ("global", "all")
+    for src in retired_sources():
+        warnings.append(f"retired persona source {src.stem} ({src}); nothing is rendered from it — "
+                        f"run install.sh --retire-v5")
+        # Its earlier render is kept, not pruned: v5.1 files go only through --retire-v5, which
+        # removes the source and the render together.
+        if include_global:
+            expected.update({(CLAUDE_AGENTS / f"{src.stem}.md").resolve(),
+                             (CODEX_AGENTS / f"{src.stem}.toml").resolve()})
     for src in pool_sources():
         try:
             meta, body = parse(src)

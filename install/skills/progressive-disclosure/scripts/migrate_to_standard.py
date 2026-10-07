@@ -414,7 +414,7 @@ def rewrite_links(root: Path, moves: list[tuple[Path, Path]], apply: bool) -> li
 
 
 # --- docs/product/ mode ---------------------------------------------------------------------
-# The schema in `spec_check.py` binds feature specs by ONE path glob, `docs/product/specs/F-*.md`.
+# The feature-spec schema binds feature specs by ONE path glob, `docs/product/specs/F-*.md`.
 # A repository that writes `docs/product/specs/<slug>/spec.md` — a real and reasonable layout — has
 # every one of its specs walked, matched by no rule, and reported as a clean exit 0. Measured on one
 # real corpus: 233 documents under `docs/product/specs/`, 0 bound, 0 findings, three times mistaken
@@ -429,7 +429,7 @@ def rewrite_links(root: Path, moves: list[tuple[Path, Path]], apply: bool) -> li
 # real repository actually uses — one corpus cites these 2,056 times across 239 files, including SQL
 # migrations, a Java source file and CI config. IT MUST SURVIVE THE MIGRATION, so it is kept verbatim
 # in the title and lowercased into the filename slug. The `id:` value is `F-<n>` for one reason only:
-# `spec_check.ID_RE` is `^F-\d+[A-Z]?$` and refuses everything else.
+# the feature-spec schema's id pattern is `^F-\d+[A-Z]?$` and refuses everything else.
 AREA_ID_RE = re.compile(r"^(?P<id>[A-Z][A-Z0-9]{1,7}-[A-Z]{0,3}\d+[A-Z]?)\s*[—–:-]\s*(?P<title>.+?)\s*$")
 H1_RE = re.compile(r"^#\s+(?P<text>.+?)\s*$", re.MULTILINE)
 # The document's own statement of its parent. Read, never invented.
@@ -533,7 +533,7 @@ def spec_shaped(path: Path, root: Path) -> bool:
 
 
 def next_free_id(root: Path) -> int:
-    """Continue the corpus's own numbering. Ids are never reused — `spec_check` rule B3 says so."""
+    """Continue the corpus's own numbering. Ids are never reused, as the feature-spec schema requires."""
     highest = 0
     specs = root / "docs" / "product" / "specs"
     for path in sorted(specs.glob("F-*.md")) if specs.is_dir() else []:
@@ -693,9 +693,9 @@ def print_product_plan(root: Path, moves: list[SpecMove], skipped: list[SpecMove
               "Nothing was invented to fill them.")
     if moves:
         print("  NOTE: `updated:` is each file's OWN last commit date, as the document's history "
-              "states it. Once you COMMIT this migration, `spec_check` rule A4 compares that value "
-              "against the migration commit and will disagree. Either re-date the header in the "
-              "same commit or expect A4 to name every file once.")
+              "states it. Once you COMMIT this migration, a spec checker that compares `updated:` "
+              "against the last commit will disagree. Either re-date the header in the "
+              "same commit or expect such a check to name every file once.")
 
 
 def run_product(root: Path, args: argparse.Namespace) -> int:

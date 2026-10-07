@@ -788,7 +788,7 @@ def _describe_vendored(skill: str, rel_path: str) -> str:
     """Name what a relative path inside `skill` is, for a --vendored finding.
 
     Persona files get named by persona, since that is the unit a human recognizes — not the raw
-    path `personas/chief-of-staff.md`.
+    path `personas/builder.md`.
 
     Exactly two parts, not a prefix match: `personas/README.md` is an index and not a persona, and
     `personas/archive/scout.md` is a retired copy that must not render identically to the live
