@@ -24,6 +24,7 @@ a push.
  16  a SHA-256 repository's 64-zero null oid  first push still exits 0, and still gets scanned
  17  the repo declares its own files binary   exit 1  <- the scan switched off from INSIDE the repo
  18  the pattern set cannot load, or is empty exit 2  <- a crash and an empty set, both before main()
+ 19  a push from a bare repository            exit 2  <- only the surviving repo_root() probe keeps it
 
 Cases 8 and 17 are the in-repository class: they attack the guard with content that arrives with a
 clone, rather than with something the founder's machine controls (argv, stdin, PATH, the object
@@ -896,6 +897,19 @@ def case_pattern_set_unusable() -> None:
           "pre-push BLOCKED" in out and "did not run" in out, out[:300])
 
 
+def case_bare_repository() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        repo = new_repo(Path(td))
+        bare = Path(td) / "bare.git"
+        sh("git", "clone", "-q", "--bare", str(repo), str(bare), cwd=Path(td))
+        head = sh("git", "rev-parse", "HEAD", cwd=bare).strip()
+        proc = subprocess.run([sys.executable, str(GUARD), "origin", "git@github.com:example/repo.git"],
+                              cwd=bare, input=f"refs/heads/feature {head} refs/heads/feature {ZERO}\n",
+                              capture_output=True, text=True)
+        check("19a a push from a bare repository is not a clean scan", proc.returncode == 2,
+              f"got {proc.returncode}: {(proc.stdout + proc.stderr)[:300]}")
+
+
 def main() -> int:
     if not GUARD.exists():
         print(f"push_guard.py not found at {GUARD}", file=sys.stderr)
@@ -912,7 +926,7 @@ def main() -> int:
                  case_scan_command_fails_inside_a_valid_range, case_object_store_unreadable,
                  case_crash_and_interrupt_fail_closed, case_direct_push_to_default_branch,
                  case_sha256_repository, case_repo_controlled_binary_classification,
-                 case_pattern_set_unusable):
+                 case_pattern_set_unusable, case_bare_repository):
         case()
 
     print()

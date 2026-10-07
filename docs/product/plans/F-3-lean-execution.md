@@ -274,7 +274,7 @@ independently of M3 and carries no criterion M3 needs.
 - **`improvements-weekly.md`:** delete it.
 - **`lessons.md`:** turn it into a curated current list.
 
-### [ ] T9 — progressive-disclosure slimming
+### [x] T9 — progressive-disclosure slimming
 - writes: install/skills/progressive-disclosure/**, install/tests/test_size.py
 - needs: T8
 - covers: AC-13
@@ -496,6 +496,26 @@ secret and identifier behaviour; the security reviewer confirms it.
   acceptance. It is deleted after F-3 merges (Queue Q2). Methodology lesson: write sets cannot be
   amended after a milestone is tagged without re-closing that milestone.
 
+- 2026-10-07: M3 re-closed after the founder-approved replay for T9's amendment. `goal.py done`
+  passed on tree `abe8f81`, and `goal/F-3/M3` is at `143bae8`. All five receipts passed, and both
+  partitions passed scoped confirmations in round 5 under the founder's grant. The e2e receipt was
+  taken from the main checkout, because the Codex fixture's trusted hooks carry that checkout's
+  path (Queue Q6).
+
+- 2026-10-07: founder decision on T9's security review, which blocked in both rounds on
+  `install_hooks.py` hook writes that can leave the project. Round 1's plain-path gap was fixed.
+  Round 2 found two graphify paths that predate T9: `post-checkout` is not destination-checked, and
+  graph discovery follows a symlinked child directory. Both are fixed in T9, and one
+  founder-granted scoped rereview (round 3) follows.
+
+- 2026-10-07: founder decision on T9's security review round 3, which blocked on a third graphify
+  path: graphify follows an inherited `GIT_DIR` to another repository's hooks. The founder's
+  answer: "Graphify should work. Figure out a way." So the graphify git hook stays, and
+  `install_hooks.py` stops delegating hook writes to graphify. graphify renders its hook blocks
+  inside a throwaway sandbox repository, and `install_hooks.py` writes them through its own
+  destination-checked path. Uninstall strips graphify's marker blocks itself. One scoped
+  rereview (round 4) follows under this decision.
+
 ## Queue
 
 - Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now
@@ -506,3 +526,19 @@ secret and identifier behaviour; the security reviewer confirms it.
 - Q2 (2026-10-07, blocks nothing in F-3): after F-3 merges, delete
   `docs/product/improvements-weekly.md` and repair its links in `README.md`, `docs/README.md` and
   `docs/product/README.md`.
+
+- Q3 (2026-10-07, blocks nothing in F-3): after F-3 merges, bring the `check_toolchain.py` row in
+  `docs/agents/what-gets-installed.md` in line with T9's renderer-parity scope. Also add
+  `progressive-disclosure/scripts/promote_lesson.py` to `install.sh`'s retire list: an installed
+  copy is otherwise carried forward forever and `verify.sh --installed` reports it as drift.
+- Q4 (2026-10-07, founder decision, blocks nothing in F-3): the installed pre-push hook skips
+  silently when the push-guard file is missing. Decide whether it should block instead.
+- Q5 (2026-10-07, blocks nothing in F-3): after F-3 merges, make
+  `test_run_goal.DriveTest.test_settings_file_registers_hooks_and_allows_the_gates` independent of
+  the checkout path. It asserts the shell-quoted form of the `goal.py` path, and that form exists
+  only when the path contains a space, so the test fails in a checkout whose path has none.
+- Q6 (2026-10-07, blocks nothing in F-3): after F-3 merges, make the Codex smoke's fixture
+  independent of the checkout path, and make its trust pre-check compare the stored hook hash.
+  The fixture's hook command carries the absolute `scripts` path, so a run from any other checkout
+  changes the hooks Codex trusted. Codex then skips them silently, while the pre-check, which
+  matches only the key, still reports them trusted.
