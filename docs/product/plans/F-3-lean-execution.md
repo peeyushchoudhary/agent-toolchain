@@ -178,7 +178,7 @@ and the skill refuse execution in an unmigrated project (AC-12).
 - covers: AC-10, AC-12
 - risk: safety
 - builder: judgement
-- tests-may-change: install/skills/execution-methodology/tests/test_check_review_budget.py, install/skills/execution-methodology/tests/test_milestone_seal.py, install/skills/execution-methodology/tests/test_onboarding_adoption.py, install/skills/execution-methodology/tests/test_plan_waves.py, install/skills/execution-methodology/tests/test_plan_waves_milestone.py, install/skills/execution-methodology/tests/test_ratio_meter.py, install/skills/execution-methodology/tests/test_repo_sync.py, install/skills/execution-methodology/tests/test_runtime_status.py, install/skills/execution-methodology/tests/test_spec_check.py, install/skills/execution-methodology/tests/test_sync_preview.py, install/skills/execution-methodology/tests/test_trace_check.py, install/skills/execution-methodology/tests/test_validate_card.py, install/skills/execution-methodology/tests/test_verify_junit.py, install/skills/execution-methodology/tests/test_weekly_review.py, install/skills/execution-methodology/scripts/*_selftest.py, install/skills/gate-sandbox/**, install/skills/project-conformance/**, install/skills/progressive-disclosure/tests/**, install/skills/progressive-disclosure/scripts/*_selftest.py
+- tests-may-change: install/skills/execution-methodology/tests/smoke_goal.py, install/skills/execution-methodology/tests/test_check_review_budget.py, install/skills/execution-methodology/tests/test_milestone_seal.py, install/skills/execution-methodology/tests/test_onboarding_adoption.py, install/skills/execution-methodology/tests/test_plan_waves.py, install/skills/execution-methodology/tests/test_plan_waves_milestone.py, install/skills/execution-methodology/tests/test_ratio_meter.py, install/skills/execution-methodology/tests/test_repo_sync.py, install/skills/execution-methodology/tests/test_runtime_status.py, install/skills/execution-methodology/tests/test_spec_check.py, install/skills/execution-methodology/tests/test_sync_preview.py, install/skills/execution-methodology/tests/test_trace_check.py, install/skills/execution-methodology/tests/test_validate_card.py, install/skills/execution-methodology/tests/test_verify_junit.py, install/skills/execution-methodology/tests/test_weekly_review.py, install/skills/execution-methodology/scripts/*_selftest.py, install/skills/gate-sandbox/**, install/skills/project-conformance/**, install/skills/progressive-disclosure/tests/**, install/skills/progressive-disclosure/scripts/*_selftest.py
 
 **Deletions.** Delete:
 - the v5.1 scripts, schema and selftests in `execution-methodology`, keeping T1 and T4's new
@@ -356,5 +356,10 @@ secret and identifier behaviour; the security reviewer confirms it.
   in `.codex/hooks.json` and need a one-time trust step; only the Codex smoke run passes
   `--dangerously-bypass-hook-trust`, on its own throwaway fixture. The approval tag moved to this
   commit, and T1–T3 were replayed on top of it.
+
+- 2026-10-07: amendment before T1 (founder-approved through the Codex hook-trust choice). The founder
+  chose to trust the Codex fixture's hooks by hand, so the smoke run's Codex fixture moves to one
+  fixed path that is rebuilt identically on every run. That edits `smoke_goal.py`, which T5 may now
+  change. The approval tag moved to this commit, and T1–T4 were replayed on top of it.
 
 ## Queue
