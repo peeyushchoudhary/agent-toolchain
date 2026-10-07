@@ -201,12 +201,12 @@ minimal repair. Content rewrites belong to T7, and the condensing of `decisions.
 reviewer confirms that the guard's behaviour on commit ranges and staged content is unchanged.
 
 ### [ ] T6 — installer and repository gate
-- writes: install/install.sh, install/README.md, install/verify.sh, install/preserve_selftest.sh, install/tests/**, install/skills/progressive-disclosure/scripts/check_toolchain.py, install/skills/progressive-disclosure/scripts/migrate_to_standard.py, install/skills/progressive-disclosure/scripts/migrate_to_standard_selftest.py, install/skills/progressive-disclosure/tests/test_check_toolchain.py
+- writes: install/install.sh, install/README.md, install/verify.sh, install/preserve_selftest.sh, install/tests/**, install/skills/progressive-disclosure/scripts/check_toolchain.py, install/skills/progressive-disclosure/scripts/migrate_to_standard.py, install/skills/progressive-disclosure/scripts/migrate_to_standard_selftest.py, install/skills/progressive-disclosure/tests/test_check_toolchain.py, install/skills/agent-personas/scripts/sync_personas.py, install/skills/agent-personas/tests/**
 - needs: T5
 - covers: AC-9, AC-10, AC-11, AC-12
 - risk: boundary
 - builder: judgement
-- tests-may-change: install/preserve_selftest.sh, install/skills/progressive-disclosure/scripts/migrate_to_standard_selftest.py, install/skills/progressive-disclosure/tests/test_check_toolchain.py
+- tests-may-change: install/preserve_selftest.sh, install/skills/progressive-disclosure/scripts/migrate_to_standard_selftest.py, install/skills/progressive-disclosure/tests/test_check_toolchain.py, install/skills/agent-personas/tests/**
 
 **`install.sh`.** It installs:
 - the four skills;
@@ -375,5 +375,11 @@ secret and identifier behaviour; the security reviewer confirms it.
   the files. The founder also granted standing authority for amendments that only move files between
   task write sets within the approved scope; each is logged here and listed at merge. The approval
   tag moved to this commit, and T1–T5 were replayed on top of it.
+
+- 2026-10-07: amendment before T1 (standing authority). A plain install now keeps v5.1 files inside
+  published skills until `--retire-v5`. The carried v5.1 persona sources would make the installed
+  renderer exit 2, which would break `validate_disclosure` in every project until retirement. T6
+  therefore also changes `sync_personas.py`: it renders only the v6 pool and reports other sources
+  as a warning. The approval tag moved to this commit, and T1–T5 were replayed on top of it.
 
 ## Queue
