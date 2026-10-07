@@ -445,6 +445,24 @@ secret and identifier behaviour; the security reviewer confirms it.
   `check_toolchain.py` uses to find the mirrored block; T9 owns any change to that check. T7 carries
   risk none, so it has no task review; the milestone acceptance covers it.
 
+- 2026-10-07: M3 acceptance correction (round 1 of 1), one commit per owning task:
+  - T1: a clean-tree `check` invalidates the receipt it reruns; a nonzero exit must match the
+    baseline's exit; exit 0 with counted failures or a FAIL verdict line fails; a moved HEAD
+    fails; more test layouts are protected; `done` re-verifies every tagged milestone.
+  - T4: acceptance refuses a dirty checkout; Claude judges run with `disableAllHooks`, proven by a
+    real probe; a Codex run refuses a project without goal hooks and warns when they are untrusted;
+    `run.network: false` denies the web tools; the driver re-verifies the tags before reporting
+    done.
+  - T2: `run.md` specifies the sandbox, approval, writable paths and network for both harnesses.
+  - T3: the persona suite runs on Python 3.10 with a strict fallback for the renderer's TOML subset.
+  - T6: the toolchain check no longer flags the mirrored persona tests, and the 3.10 floor is
+    pinned.
+
+  Raising the floor to 3.11 was considered and rejected, because the spec fixes Python 3.10+.
+  Every suite passed on a real Python 3.10. The now-empty `CLAUDE_ONLY_IN_MIRROR` mechanism stays
+  because `install_hooks.py` imports it; T9 may remove it. The retirement partition's optional
+  finding on D27 goes to T8.
+
 ## Queue
 
 - Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now
