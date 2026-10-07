@@ -60,7 +60,7 @@ receipted and judged done before any prose changes.
 - covers: AC-3, AC-4, AC-5
 - risk: none
 - builder: judgement
-- tests-may-change: —
+- tests-may-change: install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/test_gate.py
 
 **Scope.** Implement the plan parser, the `lint`, `status`, `next`, `guard`, `done`, `stop-hook`
 and `evidence` subcommands, and `gate.py check` and `gate.py receipt`, exactly as specified by the
@@ -137,7 +137,7 @@ reviewer checks the renderer diff.
 - covers: AC-2, AC-6, AC-12
 - risk: none
 - builder: judgement
-- tests-may-change: —
+- tests-may-change: install/skills/execution-methodology/tests/test_review.py, install/skills/execution-methodology/tests/test_run_goal.py, install/skills/execution-methodology/tests/smoke_goal.py
 
 **`review.py`.** It runs judges read-only by construction:
 - `codex exec -s read-only --ignore-user-config --ignore-rules`;
@@ -206,7 +206,7 @@ reviewer confirms that the guard's behaviour on commit ranges and staged content
 - covers: AC-9, AC-10, AC-11, AC-12
 - risk: boundary
 - builder: judgement
-- tests-may-change: install/preserve_selftest.sh, install/skills/progressive-disclosure/scripts/migrate_to_standard_selftest.py, install/skills/progressive-disclosure/tests/test_check_toolchain.py, install/skills/agent-personas/tests/**
+- tests-may-change: install/preserve_selftest.sh, install/skills/progressive-disclosure/scripts/migrate_to_standard_selftest.py, install/skills/progressive-disclosure/tests/test_check_toolchain.py, install/skills/agent-personas/tests/**, install/tests/**
 
 **`install.sh`.** It installs:
 - the four skills;
@@ -386,5 +386,11 @@ secret and identifier behaviour; the security reviewer confirms it.
   `install/skills/progressive-disclosure/tests/test_readme_diagram.py`. Its corpus test mutates a
   literal row of the v5.x front-page diagram, so rewriting the README to v6 breaks it. The criteria
   and scope are unchanged.
+
+- 2026-10-07: amendment (founder-approved). M3 acceptance round 1 returned BLOCK on both partitions,
+  with eleven tooling findings and one retirement finding, all reachable and small. Their regression
+  tests belong in test files that T1, T4 and T6 created, so T1 (`test_goal.py`, `test_gate.py`), T4
+  (`test_review.py`, `test_run_goal.py`, `smoke_goal.py`) and T6 (`install/tests/**`) may now modify
+  them, for the acceptance correction. The criteria, scope and guard semantics are unchanged.
 
 ## Queue
