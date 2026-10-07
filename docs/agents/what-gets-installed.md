@@ -1,155 +1,113 @@
 # What gets installed
 
 Every file the installer places outside a project, what each does, and how they interact. The
-vendored sources live in `../install/`.
+authored sources live in `../../install/`, and the installed files are the authority: when this
+document disagrees with them, they win. The full procedure is in
+[install/README.md](../../install/README.md).
 
-The installed files are the authority; when this document disagrees, they win.
+`install/` is the only source. Nothing is copied back from `~/.claude` or `~/.codex`, so an edit
+made to an installed file is overwritten by the next install.
 
-## Re-vendoring: what is left behind on purpose
-
-**The `agent-personas` test directory is not vendored. Do not restore it.** Its preflight resolves
-the human record of the judging roster as a sibling of the skill tree, which under `install/` does
-not exist and should not. Measured, and weighed against the alternative, in
-[D24](../decisions/decisions.md).
-
-`check_toolchain.py --vendored <repo>` is clean immediately after `./install.sh` when the documented
-exclusions apply. [D25](../decisions/decisions.md) carries the history and
-[D26](../decisions/decisions.md) the exclusions.
-
-**`project-conformance` ships tests and they are vendored.** Publishing and mirroring are separate
-decisions; [D21](../decisions/decisions.md) and [D22](../decisions/decisions.md) carry the evidence.
-
-## Claude Code — `~/.claude/`
+## Claude Code, in `~/.claude/`
 
 ### Skills
 
+The four skills named in `install/skills/.gitignore`. The installer derives the set from that
+allowlist rather than carrying its own count, and a declared skill missing from the package is a
+failure.
+
 | Path | Purpose |
 |---|---|
-| `skills/progressive-disclosure/` | The route standard, validator, migrator, hook installer, GitHub checker, push guard |
-| `skills/agent-personas/` | Fourteen persona definitions and their generator; normal selection exposes eleven active roles and retains three compatibility definitions |
-| `skills/agent-persona-factory/` | Derives project specialists from PRD + architecture + guardrails |
-| `skills/execution-methodology/` | The pipeline from product spec to sealed milestone, with one scheduling owner, bounded Gate 2 execution authority, compact resume state, and its renderer |
-| `skills/methodology-management/` | Explicit coordination for assessment, setup, repair, product-document migration and upgrades |
-| `skills/project-onboarding/` | Explicit compatibility route to the management setup procedure. Named when a project is uninitialised, never started automatically |
+| `skills/execution-methodology/` | The chief's rules, one reference per kind of work, the goal and gate tools, read-only review, the driver |
+| `skills/agent-personas/` | Five persona sources and the renderer |
+| `skills/progressive-disclosure/` | The route standard, validator, hooks installer, GitHub checker, push guard |
 | `skills/graph-navigation/` | The symbol-first ladder for querying a graphify graph |
-| `skills/gate-sandbox/` | Isolated runner for write-producing gates against frozen copies |
-| `skills/project-conformance/` | Implicitly selectable read-only assessment. An explicitly requested repair routes to methodology management |
-| `skills/project-migration/` | Explicit compatibility route to management's product-document migration procedure |
-| `skills/graphify/` | Vendor skill, not published by this repository. Hidden from model-initiated listing (see below) |
 
-`install.sh` derives the published set from `install/skills/.gitignore` rather than carrying its own
-count. `graphify` is listed because the installed layer may have it, but this repository does not
-publish or manage it.
+`graphify` may also be present. It is a vendor skill that this repository neither publishes nor
+manages.
 
 ### Scripts
 
 | Script | Does |
 |---|---|
-| `progressive-disclosure/scripts/validate_disclosure.py` | Route, README, taxonomy, and persona-drift checks |
+| `execution-methodology/scripts/goal.py` | Parses a plan; reports status, next task, guard, done, evidence; runs the Stop hook |
+| `execution-methodology/scripts/gate.py` | Runs a gate, parses counts, writes receipts bound to tree and command |
+| `execution-methodology/scripts/review.py` | Builds a review packet and makes a one-shot read-only call to a judge |
+| `execution-methodology/scripts/run_goal.py` | Drives a multi-session run, one fresh session per milestone or envelope |
+| `agent-personas/scripts/sync_personas.py` | Scoped persona preview, check and apply; roster listing; routing |
+| `progressive-disclosure/scripts/validate_disclosure.py` | Route, README, taxonomy and persona-drift checks |
 | `progressive-disclosure/scripts/migrate_to_standard.py` | Plans and applies the taxonomy migration |
-| `progressive-disclosure/scripts/install_hooks.py` | Plans/checks/applies hooks and synchronization with explicit project/global/all scopes |
-| `progressive-disclosure/scripts/check_github.py` | Repo stored / private / pushed / quiet; `--sweep` for the fleet |
+| `progressive-disclosure/scripts/install_hooks.py` | Plans, checks and applies git hooks with explicit scopes |
+| `progressive-disclosure/scripts/check_github.py` | Repo stored, private, pushed, quiet; `--sweep` for the fleet |
 | `progressive-disclosure/scripts/push_guard.py` | pre-push: secrets, oversized files, direct main pushes |
-| `progressive-disclosure/scripts/check_toolchain.py` | Machine-global drift: persona pool vs generated agents, mirrored instruction blocks, Codex skills copy |
-| `agent-personas/scripts/sync_personas.py` | Scoped persona preview/check/apply and derived roster listing |
-| `execution-methodology/scripts/sync_methodology.py` | Rendering, runtime inventory and structured readiness |
-| `execution-methodology/scripts/check_review_budget.py` | Bans workspace debris classes; the round count is advisory |
-| `project-conformance/scripts/check_conformance.py` | Nine checks against one onboarded repository, each owned by the checker that already answers it. Exit 0/1/2, where 2 is "could not be checked" |
+| `progressive-disclosure/scripts/check_toolchain.py` | Machine-global drift: generated agents, mirrored instruction blocks, the Codex skills copy, plugin surface. Reports only |
 
-### Session hooks — wired in `~/.claude/settings.json`
+### Hooks, registered in `~/.claude/settings.json`
+
+Every script in `install/hooks/` is copied to `~/.claude/hooks/`, overwriting older copies. The
+settings file is merged, never replaced: entries are appended only when their command is absent, a
+file that is not valid JSON is refused, and a backup is taken before the first change.
 
 | Event | Script | Behaviour |
 |---|---|---|
-| `SessionStart` | `hooks/disclosure-check.sh` | Reports GitHub state, **global toolchain drift**, a broken route, a missing pre-commit hook, a stale graph, and the presence of `lessons.md`. **Reports, never writes** |
-| `SessionStart` | `hooks/graphify-session-lessons.sh` | Runs `graphify reflect --if-stale`, injects `LESSONS.md` (4,000 char cap) |
-| `PreToolUse` (Bash) | `hooks/graphify-query-advisor.py` | Advisory: injects the symbol-first ladder when a prose `graphify query` is about to run |
-| `SessionStart` | `hooks/preflight.sh` | Machine-fact checks for the environment-failure class, run against the session's directory; also standalone before a long gate. **Reports, never writes** |
+| `SessionStart` | `hooks/disclosure-check.sh` | Reports GitHub state, toolchain drift, a broken route, a stale graph. Reports, never writes |
+| `SessionStart` | `hooks/graphify-session-lessons.sh` | Injects the graph's lessons file, capped |
+| `SessionStart` | `hooks/preflight.sh` | Machine-fact checks for environment failures. Reports, never writes |
+| `SessionStart` | `hooks/goal-session.sh` | Prints the active goal's state, or the migrate-first notice in an unmigrated project |
+| `PreToolUse` (Bash) | `hooks/graphify-query-advisor.py` | Injects the symbol-first ladder when a prose graph query is about to run |
+| `Stop` | `goal.py stop-hook` | Keeps a goal session working until done, blocked, or the stall cap |
 
-`skillOverrides: {"graphify": "user-invocable-only"}` — the vendor skill is hidden from
-model-initiated invocation so `graph-navigation` owns queries. `/graphify` still works for the user.
-
-Session hooks report and never create files: they fire in every directory a session starts in,
-including repositories that are not yours.
+The two goal hooks stay silent when `GOAL_HARNESS` is set: the driver registers its own for the
+sessions it starts, and two Stop hooks over one goal would defeat the stall cap. Session hooks
+report and never create files, because they fire in every directory a session starts in.
 
 ### Generated agents
 
-`~/.claude/agents/` — 14 `.md` files, one per definition. Eleven are active choices; three remain
-generated for compatibility, carry descriptions against new dispatch, and remain callable by
-explicit name. Generated by `sync_personas.py`. Do not edit.
+`~/.claude/agents/` holds one `.md` per spawnable persona, generated by `sync_personas.py`. Do not
+edit them.
 
 ### Instructions
 
-`~/.claude/CLAUDE.md` carries the shared global route. `install/AGENTS.md` and
-`install/CLAUDE.md` are repository contracts, never global templates.
+`~/.claude/CLAUDE.md` is private and untouched by the installer. The replacement text for its
+execution section is in the [global-instructions runbook](../runbooks/global-instructions.md).
 
-## Codex — `~/.codex/`
+## Codex, in `~/.codex/`
+
+Skipped when the Codex home is absent.
 
 | Path | Purpose |
 |---|---|
-| `AGENTS.md` | Codex global instructions carrying the shared execution/maintenance route |
-| `agents/` | 14 generated `.toml` definitions; normal dispatch uses the eleven active definitions. Any pre-existing hand-written worker is preserved in addition |
-| `skills/` | The authored subset named by `MIRRORED_SKILLS`, refreshed by `install_hooks.py` or `install.sh`. Published and mirrored are separate decisions. `graphify` may also be present through its vendor and is not managed here |
-| `config.toml` | `[agents]` block: `enabled = true`, default subagent `gpt-5.6-terra` at `medium`, max 6 concurrent threads |
+| `skills/` | The same four skills |
+| `hooks/goal-session.sh`, `hooks.json` | The same SessionStart and Stop hooks with absolute paths, merged |
+| `agents/` | The spawnable personas as `.toml`; hand-written workers are preserved |
+| `config.toml` | An `[agents]` block, appended only if none exists |
+| `AGENTS.md` | Private, untouched; see the runbook above |
 
-The `[agents]` block leaves parent session settings untouched; it sets only what spawned agents
-default to when a persona file specifies neither. `config.toml` is backed up before editing.
-A pre-existing hand-written worker such as `grok_worker.toml` lacks the generation banner, so
-`sync_personas.py` leaves it alone. A fresh installation does not create one.
+Codex runs a user-level hook only after the user trusts it. The installer never writes trust state,
+so trust the two goal hooks once after the first install and again whenever their entries change.
 
-## Per-repository (not global, but installed by these tools)
+## Per-repository
 
-Git hooks are never cloned, so each clone needs an explicit project-scoped preview and apply:
+Git hooks are never cloned, so each clone needs an explicit preview and apply:
 
 ```bash
 python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py <repo> --scope project --preview --json
 python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py <repo> --scope project
 ```
 
-| Hook | Behaviour |
-|---|---|
-| `pre-commit` | Validates the route; fails the commit when broken. Bypass: `git commit --no-verify` |
-| `pre-push` | Blocks secrets, files >10 MB, direct pushes to main |
-| `post-commit` | Re-extracts changed **code** into the graph (installed by `graphify hook install`) |
+`pre-commit` validates the route and fails the commit when it is broken; `pre-push` blocks secrets,
+files over 10 MB and direct pushes to main. Both skip silently when their tool is absent.
 
-All three skip silently when their tool is absent, so they install safely anywhere.
-
-## Verifying the installation
+## Verifying
 
 ```bash
-cd install && ./verify.sh
+cd install && ./verify.sh              # the repository gate
+cd install && ./verify.sh --installed  # adds a read-only parity check against the installed copies
 ```
 
-Piecemeal:
+## Retiring v5.1
 
-```bash
-python3 ~/.claude/skills/agent-personas/scripts/sync_personas.py --list --format markdown
-python3 ~/.claude/skills/progressive-disclosure/scripts/check_github.py --sweep <projects-dir>
-python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py <repo> --scope project --check
-python3 ~/.claude/skills/execution-methodology/scripts/sync_methodology.py --repo <repo> --status-json
-```
-
-## Keeping it in sync
-
-Three pieces of machine-global state have no per-repo owner; `check_toolchain.py` watches them and
-the session hook runs in **every** project:
-
-| State | Drifts when | Fix |
-|---|---|---|
-| Persona pool → `~/.claude/agents` + `~/.codex/agents` | A persona is edited without a sync | `sync_personas.py --scope global --preview --json`, then the same scope without preview |
-| Mirrored instruction blocks | One harness's global file is edited alone | Edit the other to match |
-| `~/.codex/skills/` | A skill is added, or edited without an install run | `install_hooks.py --scope global --preview --json`, then the same scope without preview |
-
-A new skill goes in **one** list to be watched and mirrored: `MIRRORED_SKILLS` in
-`check_toolchain.py`, which `sync_codex()` imports rather than restating. The second copy that once
-lived there is how `execution-methodology` came to be checked but never copied.
-
-Before this check existed, all three were invisible. Persona drift was caught only in a repository
-with overlays — one in thirteen — so an unsynced pool edit ran stale everywhere else, silently.
-
-Harness-specific preambles may differ. The rule-bearing `# Execution and maintenance route` block
-must match. It binds ordinary work to the project's approved runtime inventory, including an
-approved older bundle; global-source drift is a finding, not a fallback or automatic upgrade.
-
-```bash
-python3 ~/.claude/skills/progressive-disclosure/scripts/check_toolchain.py
-```
+A plain install removes nothing. `install.sh --retire-v5` deletes only the paths in the marked list
+at the top of `install.sh`, and `--dry-run` prints exactly that set first. Run it once every project
+is migrated; see the
+[migration reference](../../install/skills/execution-methodology/references/migrate.md).

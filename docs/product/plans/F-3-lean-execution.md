@@ -227,7 +227,7 @@ reports anything else. A plain install removes nothing.
 
 `risk: boundary` applies because the installer writes into the founder's harness configuration.
 
-### [ ] T7 — repository documentation to v6
+### [x] T7 — repository documentation to v6
 - writes: README.md, AGENTS.md, install/AGENTS.md, install/CLAUDE.md, docs/README.md, docs/agents/**, docs/architecture/README.md, docs/architecture/operating-model.md, docs/architecture/repository-standard.md, docs/architecture/goal-directed-execution.md, docs/runbooks/**, docs/assets/readme/**, docs/product/README.md, docs/product/specs/F-1-methodology-efficiency-vendoring.md, docs/product/specs/F-2-goal-directed-autonomy.md, docs/product/plans/F-1-methodology-efficiency-vendoring.md, docs/product/plans/F-2-goal-directed-autonomy.md, docs/product/plans/goal-directed-autonomy-task-boundaries.md, docs/product/milestones/**, install/skills/progressive-disclosure/tests/test_readme_diagram.py
 - needs: T6
 - covers: AC-1, AC-10
@@ -439,9 +439,15 @@ secret and identifier behaviour; the security reviewer confirms it.
 
   Two Stop hooks over one goal are avoided because the global hooks exit when `GOAL_HARNESS` is set.
 
+- 2026-10-07: T7. Two README images showed v5.1 machinery and could not be regenerated here, so
+  they are deleted. The front page now draws the architecture as a Mermaid diagram with a stage
+  table. `docs/runbooks/global-instructions.md` keeps the heading and the closing sentence that
+  `check_toolchain.py` uses to find the mirrored block; T9 owns any change to that check. T7 carries
+  risk none, so it has no task review; the milestone acceptance covers it.
+
 ## Queue
 
-- Q1 (2026-10-07, blocks M3 close only): prove the Codex Stop and SessionStart hooks for AC-2. The
-  options are a permission rule that lets the smoke run pass the hook-trust bypass on its own
-  fixture, trusting a fixed fixture path by hand once, or accepting AC-2's hook proof for Claude
-  only.
+- Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now
+  proven. The founder trusted the fixed fixture's hooks by hand once, and the Codex smoke passed 9
+  of 9: the premature stop was blocked, the session hook ran, and the judge was not held by the Stop
+  hook.

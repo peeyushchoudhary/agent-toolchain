@@ -5,8 +5,9 @@ worked.
 
 | Document | What it holds |
 | --- | --- |
-| [methodology-management.md](methodology-management.md) | Maintenance entry and compatibility mapping |
-| [onboarding-a-project.md](onboarding-a-project.md) | Public interface for the management-owned setup procedure |
-| [full-adoption.md](full-adoption.md) | Compatibility route for older adoption links |
+| [global-instructions.md](global-instructions.md) | The v6 text for the private global instruction files, and what to remove |
 | [codex.md](codex.md) | The Codex side, and what it does not get |
 | [github.md](github.md) | Storage-only forge rules, the push guard, zero-cost posture |
+
+Moving a project off v5.1 is in the
+[migration reference](../../install/skills/execution-methodology/references/migrate.md).
