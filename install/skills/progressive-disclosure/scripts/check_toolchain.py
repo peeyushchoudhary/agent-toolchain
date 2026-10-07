@@ -508,22 +508,16 @@ def tree(root: Path, pattern: str = "**/*") -> tuple[dict[str, bytes], list[tupl
 # name repeatedly — the reader runs the command, sees the finding survive, and learns to skip both
 # it and the real ones beside it.
 #
-# THE ONE ENTRY. `agent-personas/tests` resolves the human record at `<skill>/../../docs/`. That
-# path exists under ~/.claude and does not exist under ~/.codex, so a mirrored copy could not run;
-# the suite fails loudly on a partial tree rather than passing weakly, which is the behaviour that
-# makes copying it there actively worse than not having it.
+# NO ENTRY TODAY. The persona tests are hermetic and mirror into both harnesses, so the list is
+# empty; `agent-personas/tests` was declared here while they read `<skill>/../../docs/`. The
+# mechanism stays only because `install_hooks.py` imports the name.
 #
 # IT IS EXEMPT FROM THE DIFF, NOT FROM THE CHECK, and the difference matters. Absent on the Codex
 # side is the declared state and is silent. PRESENT on the Codex side is a finding — something
 # copied it where it cannot work — so the exemption fails CLOSED in the direction it is not making
 # a claim about. An exemption that silenced both directions would be the fail-open shape this file
 # exists to remove.
-CLAUDE_ONLY_IN_MIRROR: dict[str, str] = {
-    "agent-personas/tests": "the persona suite resolves the human record at `<skill>/../../docs/`, "
-                            "a path that exists under ~/.claude and not under ~/.codex, so a "
-                            "mirrored copy could not run and install_hooks.py cannot ever clear "
-                            "the difference; it is permanent by construction, not drift.",
-}
+CLAUDE_ONLY_IN_MIRROR: dict[str, str] = {}
 
 
 def check_skills() -> list[tuple[str, str]]:

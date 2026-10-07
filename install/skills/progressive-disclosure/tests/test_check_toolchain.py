@@ -1048,7 +1048,6 @@ class CodexMirrorRemedyTest(unittest.TestCase):
         nobody audits. Two is one more than today's single legitimate entry."""
         declared = toolchain.CLAUDE_ONLY_IN_MIRROR
         self.assertIsInstance(declared, dict)
-        self.assertGreaterEqual(len(declared), 1, "an empty list makes the exemption vacuous")
         self.assertLessEqual(len(declared), 2, sorted(declared))
         for rel, why in declared.items():
             self.assertIn("/", rel, f"`{rel}` must be <skill>/<path within it>, not a bare name — "
@@ -1093,6 +1092,21 @@ class CodexMirrorRemedyTest(unittest.TestCase):
         self.assertEqual(assigned, [],
                          f"install_hooks.py RESTATES the declaration at line(s) {assigned} rather "
                          f"than importing it — the second-copy defect its own comment describes")
+
+    def test_persona_tests_identical_on_both_sides_are_not_a_finding(self) -> None:
+        """The installer mirrors `agent-personas/tests` into both harnesses on purpose, so an
+        identical Codex copy must not be reported as Claude-only content to delete."""
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            with self.mirror(tmp) as (claude, codex):
+                toolchain.MIRRORED_SKILLS = ("agent-personas",)
+                for side in (claude, codex):
+                    (side / "agent-personas" / "tests").mkdir(parents=True)
+                    (side / "agent-personas" / "tests" / "test_x.py").write_text(
+                        "x\n", encoding="utf-8")
+                findings = toolchain.check_skills()
+
+            self.assertEqual(findings, [], findings)
 
     def test_ordinary_drift_still_prescribes_install_hooks(self) -> None:
         """The remedy that DOES work must survive the split, unchanged."""

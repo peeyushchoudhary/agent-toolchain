@@ -138,6 +138,18 @@ class InstallTest(InstallCase):
         for n in names:
             self.assertIn(GENERATED, (self.claude / "agents" / f"{n}.md").read_text())
 
+    def test_python_3_9_is_refused_because_the_floor_is_3_10(self):
+        stub = self.home / "stub-bin"
+        self.write(stub / "python3", '#!/bin/sh\n'
+                                     'case "$2" in *"print("*) echo 3.9; exit 0;; esac\n'
+                                     'exit 1\n')
+        (stub / "python3").chmod(0o755)
+        self.env["PATH"] = f"{stub}{os.pathsep}{self.env['PATH']}"
+        r = self.install(ok=False)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("python3 3.9 found; 3.10 or newer is required", r.stderr)
+        self.assertFalse((self.claude / "skills").exists(), "a refused install wrote skills")
+
     def test_dry_run_writes_nothing_and_a_second_install_changes_nothing(self):
         before = snapshot(self.home)
         out = self.install("--dry-run").stdout
