@@ -228,12 +228,12 @@ reports anything else. A plain install removes nothing.
 `risk: boundary` applies because the installer writes into the founder's harness configuration.
 
 ### [ ] T7 — repository documentation to v6
-- writes: README.md, AGENTS.md, install/AGENTS.md, install/CLAUDE.md, docs/README.md, docs/agents/**, docs/architecture/README.md, docs/architecture/operating-model.md, docs/architecture/repository-standard.md, docs/architecture/goal-directed-execution.md, docs/runbooks/**, docs/assets/readme/**, docs/product/README.md, docs/product/specs/F-1-methodology-efficiency-vendoring.md, docs/product/specs/F-2-goal-directed-autonomy.md, docs/product/plans/F-1-methodology-efficiency-vendoring.md, docs/product/plans/F-2-goal-directed-autonomy.md, docs/product/plans/goal-directed-autonomy-task-boundaries.md, docs/product/milestones/**
+- writes: README.md, AGENTS.md, install/AGENTS.md, install/CLAUDE.md, docs/README.md, docs/agents/**, docs/architecture/README.md, docs/architecture/operating-model.md, docs/architecture/repository-standard.md, docs/architecture/goal-directed-execution.md, docs/runbooks/**, docs/assets/readme/**, docs/product/README.md, docs/product/specs/F-1-methodology-efficiency-vendoring.md, docs/product/specs/F-2-goal-directed-autonomy.md, docs/product/plans/F-1-methodology-efficiency-vendoring.md, docs/product/plans/F-2-goal-directed-autonomy.md, docs/product/plans/goal-directed-autonomy-task-boundaries.md, docs/product/milestones/**, install/skills/progressive-disclosure/tests/test_readme_diagram.py
 - needs: T6
 - covers: AC-1, AC-10
 - risk: none
 - builder: routine
-- tests-may-change: —
+- tests-may-change: install/skills/progressive-disclosure/tests/test_readme_diagram.py
 
 **Rewrites.** Rewrite these to describe v6:
 - the front page's current-state section and visual descriptions;
@@ -381,5 +381,10 @@ secret and identifier behaviour; the security reviewer confirms it.
   renderer exit 2, which would break `validate_disclosure` in every project until retirement. T6
   therefore also changes `sync_personas.py`: it renders only the v6 pool and reports other sources
   as a warning. The approval tag moved to this commit, and T1–T5 were replayed on top of it.
+
+- 2026-10-07: amendment (standing authority). T7 may change
+  `install/skills/progressive-disclosure/tests/test_readme_diagram.py`. Its corpus test mutates a
+  literal row of the v5.x front-page diagram, so rewriting the README to v6 breaks it. The criteria
+  and scope are unchanged.
 
 ## Queue
