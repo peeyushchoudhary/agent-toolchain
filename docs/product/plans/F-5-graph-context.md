@@ -143,8 +143,8 @@ Write the design's Rules-text section:
 - the guides sentence in `review.md`'s Acceptance section;
 - the update rule in `planning.md`, as one sentence;
 - `context.md` itself, graph-only, at most 450 words: graph calls go only through
-  `graph_view.py`, `view` applies the trust rule and its forced refresh, and a fallback line from
-  it means the route and grep.
+  `graph_view.py`, `view` applies the completeness contract and its forced refresh, and a
+  fallback line from it means the route and grep.
 
 **Word budget.** `run.md`'s role load is 2,999 of 3,000 words at `goal/F-4/M1`. Every word T3 adds
 to `run.md` is offset by a trim in `run.md` that loses no rule. The builder's report lists each
@@ -187,91 +187,111 @@ code.
 - tests-may-change: —
 
 Implement the design's `graph_view.py setup` and `graph_view.py view` interfaces: the step order
-(guard first, the ignore check, then trust), the trust rule, the stamp, the pending marker, and
-the command (cwd at the graph root, `update . --force`, every `GRAPHIFY_*` dropped). Add
+(hooks, the ignore check, then freshness), the completeness contract P1–P6, `--no-bound`, and the
+command (cwd at the graph root, `update . --force`, every `GRAPHIFY_*` dropped). Add
 `/graphify-out/` to this repository's `.gitignore`, beside `/.runs/`, with a one-line reason;
 setup requires the graph directory to be ignored.
 
 The stub-`graphify` tests use temporary repositories, a temporary HOME, and a stub that records
-its cwd, argv and environment. Like graphify, it writes its path argument into `.graphify_root`
-before it writes `graph.json`.
-Simpler than graphify, it refuses with exit 1 any graph with fewer nodes than the existing one
-unless `--force` is given; the oracle test below pins graphify's real rule. Like graphify, it
-exits 0 and leaves `graph.json` untouched when the code graph is unchanged.
+its cwd, argv and environment. Like graphify 0.8.49, it writes its path argument into
+`.graphify_root` before it writes `graph.json`, it can be told to hang or fail after that write,
+and it exits 0 leaving `graph.json` untouched when the code graph is unchanged. Simpler than
+graphify, it refuses with exit 1 any graph with fewer nodes than the existing one unless
+`--force` is given; the oracle test below records graphify's real rule. A "legacy partial graph"
+below is a parsing `graph.json` whose `built_at_commit` is HEAD and that has no stamp.
 
-`setup` tests cover:
+**Property-to-test matrix.** Every round-5 finding maps to a property and a named test in
+`test_graph_view.py`. Each test asserts a rebuild, or no rebuild where the property makes that
+correct.
+
+| Round-5 finding (trigger) | Property | Test | Asserts |
+|---|---|---|---|
+| design 1: another worktree installed the shared guard; this worktree keeps a legacy partial graph | P1, P3, P6 | `test_guard_from_another_worktree_is_not_completeness` | rebuild, then stamp |
+| design 4: `core.hooksPath` configured, legacy partial graph at HEAD | P1, P3, P6 | `test_hookspath_legacy_partial_graph_rebuilds` | rebuild by setup, and by `view` |
+| plan 4: the full installer guarded before the first setup | P1, P3, P6 | `test_installer_guard_before_first_setup_rebuilds` | rebuild |
+| design 2, plan 2: setup stopped at the ignore check; the printed entry is added without moving HEAD | P1, P3, P5 | `test_ignore_added_later_rebuilds_unstamped_graph` | nothing written before; rebuild after |
+| design 3, plan 1: a retry times out, or fails, after graphify reset `.graphify_root` to `.`; twice in a row | P1, P3 | `test_timeout_after_root_reset_writes_no_stamp` | no stamp; the next setup rebuilds |
+| plan 3: stamped at A, a hook rebuilt at B, checkout back to A with the hook skipped (`GRAPHIFY_OUT` set) | P2 | `test_stamp_does_not_vouch_for_replaced_graph` | rebuild (the sha256 differs) |
+| design 5: `view` on an unignored directory holding tracked graph artifacts | P5 | `test_view_unignored_writes_nothing` | no rebuild, no stamp, tree unchanged, fallback output |
+| design 6: a semantic node's source becomes excluded by `.gitignore` or `.graphifyignore` | AC-1 narrowed | `test_oracle_records_force_rebuild` | records survival; asserts none |
+| plan 5: a non-AST node merged away in canonicalisation | AC-1 narrowed | `test_oracle_records_force_rebuild` | records survival; asserts none |
+| plan 6: "re-extracts everything" contradicted by graphify's cache | AC-1 narrowed | none: a prose correction; T4's measurement records warm and cold costs | — |
+| pre-round-6: `graph.json` deleted, stamp kept; an unguarded hook under `core.hooksPath` rebuilds a partial graph at HEAD | P2 (a) needs P4's premise | `test_deleted_graph_rebuilt_by_unguarded_hook_under_hookspath` | rebuild |
+| pre-round-6: the same with a child graph | P2 (a) needs P4's premise | `test_deleted_child_graph_rebuilt_by_unguarded_hook` | rebuild |
+| pre-round-6 control: guard present, a stamped graph that a hook refreshed to HEAD | P2 (a), P4 | `test_hook_refreshed_graph_stays_fresh` | no rebuild |
+
+The contract's correct no-rebuild cases are tested too:
+- `test_stamped_fresh_graph_is_trusted`: a stamped graph at HEAD is not rebuilt and setup prints
+  `graph ready`;
+- `test_unchanged_graph_after_noncode_commit_rebuilds_once`: after a non-code commit, where the
+  stub exits 0 and leaves `graph.json` unchanged, the first use rebuilds and stamps, and the next
+  does not rebuild (P2's second branch);
+- `test_hook_refreshed_graph_stays_fresh`: with the guard present and `core.hooksPath` unset, a
+  stamped graph that a hook-style write moved to HEAD is not rebuilt (P2 (a), P4); the same graph
+  is rebuilt once `core.hooksPath` is set;
+- `test_ignored_check_precedes_every_write`: setup on an unignored directory still installs the
+  guard but writes nothing under the graph directory (P5, P6).
+
+The other `setup` tests cover:
 - graphify missing, which prints its line and does nothing else;
-- no graph, which runs `update . --force` with its cwd at the worktree root; a `graph.json` that
-  does not parse, which counts as no graph;
-- the trust rule: a HEAD-built graph with the guard in place, which builds nothing and prints
-  `graph ready`; `built_at_commit` not HEAD, which rebuilds; `.graphify_root` absent, which trusts,
-  and `.graphify_root` holding an absolute path or `sub`, which rebuilds;
+- no graph, and a `graph.json` that does not parse, each rebuilt with `update . --force` and its
+  cwd at the worktree root;
+- `.graphify_root` holding an absolute path or `sub`, which rebuilds, and absent, which does not;
 - a child graph, rebuilt with its cwd at the child and `.` as the path, never `<child>`;
-- the guard missing, then the rebuild: with a HEAD-built graph and unguarded hooks,
-  `install_hooks.py --graph-only` runs before the rebuild, and the rebuild runs whatever the graph
-  says; a second setup then finds the guard and builds nothing;
-- the pending marker: a guard-forced rebuild that times out leaves `.graphify_root` reading
-  `rebuild-pending` and `graph.json` unchanged, also when the stub replaced the marker with `.`
-  before hanging, and the next setup rebuilds; a guard-forced rebuild that succeeds leaves `.`,
-  and the next setup builds nothing; `view` over a marked graph whose refresh fails leaves the
-  marker;
-- `graphify-out/` not ignored, at the root and for a child graph: setup prints the entry, builds
-  nothing and exits 0; the test then adds exactly the printed entry to `.gitignore`, reruns setup,
-  and the line is gone (planning.md's tested-fix-command rule). Every other test's repository
-  ignores `graphify-out/`;
 - missing or unguarded refresh hooks, which run `install_hooks.py --graph-only` on the main
-  checkout, from the main checkout and from a linked worktree;
-- `core.hooksPath` configured, and a child graph, which print their lines, install nothing and
-  never fire the guard trigger;
-- a hanging build, which times out (the bound shortened for the test), prints the manual line and
-  continues; a failing build, which prints its line;
-- the printed fix command: after a timed-out build, running `graphify update . --force` in the
-  printed directory over a graph that shrank, then setup again, prints `graph ready`
-  (planning.md's tested-fix-command rule); over a graph the command leaves unchanged, the next
-  setup rebuilds once and writes the stamp, and the setup after it prints `graph ready`;
-- the stamp: after a non-code commit, where the stub exits 0 and leaves `graph.json` and
-  `built_at_commit` unchanged, setup rebuilds once and writes `.graph_view_head` holding HEAD's
-  full commit id, and the next setup trusts the graph without rebuilding; `view` does the same;
-  a failed or timed-out rebuild writes no stamp, and the next setup rebuilds;
+  checkout, from the main checkout and from a linked worktree; `core.hooksPath` configured, and a
+  child graph, which print their lines and install nothing;
+- the ignore line at the root and for a child graph; the test adds exactly the printed entry to
+  `.gitignore`, reruns setup, and the line is gone (planning.md's tested-fix-command rule). Every
+  other test's repository ignores `graphify-out/`;
+- a hanging build, which times out (the bound shortened for the test) and prints the timeout line;
+  the test then runs the printed `setup --no-bound`, which stamps the graph, and a further setup
+  prints `graph ready` (tested-fix-command rule); a failing build prints its line, and its printed
+  retry, once the stub is fixed, stamps the graph;
 - every inherited `GRAPHIFY_*` variable, `GRAPHIFY_OUT` among them, absent from the stub's
   environment;
 - an inherited `GIT_DIR` pointing elsewhere, and `GIT_CONFIG` pointing at an empty file while
   `GIT_CONFIG_COUNT` sets `core.hooksPath`, which do not change the answer;
 - exit 0 in every case.
 
-`view` tests cover:
+The other `view` tests cover:
 - a fresh graph, which writes a file per symbol;
-- a stale graph, where `update . --force` runs first from the graph root;
+- a stale graph, where `update . --force` runs first from the graph root and then stamps;
 - `view` stale with a shrink: a new commit whose rebuild has fewer nodes, which the stub refuses
-  without `--force`; the refresh writes the smaller graph, `built_at_commit` is HEAD, and the next
-  `view` runs no `update`;
+  without `--force`; the refresh writes the smaller graph and stamps it, and the next `view` runs
+  no `update`;
 - no graph, and graphify missing, each of which prints a fallback line;
 - a hanging `update`, and a hanging `affected`, each of which times out and falls back, with the
-  timeouts shortened for the test;
+  timeouts shortened for the test; the hanging `update` writes no stamp;
 - exit 0 in every case;
-- no writes outside `--out` and `graphify-out/`.
+- no writes outside `--out` and an ignored `graphify-out/`.
 
-**Oracle test** (planning.md's oracle-test rule). When the real `graphify` is on PATH, one test
-runs it under setup's environment (cwd at the graph root, `GRAPHIFY_*` dropped, a temporary HOME)
-in a temporary git repository. It builds a graph, injects a node without `_origin` into
-`graph.json`, and runs `graphify update . --force`. It asserts that the node survives, that
-`.graphify_root` reads `.`, and that `built_at_commit` is HEAD. It then builds a rebuild that
-graphify's shrink check refuses, and asserts that `update .` without `--force` exits 1 and leaves
-`graph.json` unchanged, while `update . --force` writes the smaller graph. In graphify 0.8.49 a
-deleted file does not trip the check (`_check_shrink` exempts explicit deletions and nodes of
-re-extracted files); an injected node marked `_origin: ast` whose `source_file` is an existing
-non-code file does. It writes `rebuild-pending` into `.graphify_root`, runs `update . --force`,
-and asserts that `.graphify_root` reads `.` afterwards. It commits a change to a non-code file,
-runs `graph_view.py setup`, and asserts that `update . --force` exits 0 with `built_at_commit`
-unchanged (the reproduction in Decisions), that `.graph_view_head` holds HEAD's full commit id,
-and that a second setup prints `graph ready`. It finally runs the timeout line's command and
-shows the next setup ends trusted, as the stub test does. Without graphify, it prints a skip line
-naming why.
+**Oracle test** (planning.md's oracle-test rule), `test_oracle_records_force_rebuild`. When the
+real `graphify` is on PATH, it runs graphify under setup's environment (cwd at the graph root,
+`GRAPHIFY_*` dropped, a temporary HOME) in a temporary git repository that ignores
+`/graphify-out/`. It asserts only what setup and `view` rely on:
+- after `update . --force`, `.graphify_root` reads `.` and, when the code graph changed,
+  `built_at_commit` is HEAD;
+- a rebuild that the shrink check refuses exits 1 without `--force` and leaves `graph.json`
+  unchanged, while `update . --force` writes the smaller graph. In 0.8.49 a deleted file does not
+  trip the check (`_check_shrink` exempts explicit deletions and nodes of re-extracted files); an
+  injected node marked `_origin: ast` whose `source_file` is an existing non-code file does;
+- after a commit to a non-code file, `update . --force` exits 0 with `built_at_commit` unchanged
+  (the reproduction in Decisions), and `graph_view.py setup` writes a stamp whose `head` is HEAD
+  and whose `sha256` matches `graph.json`; a second setup prints `graph ready`;
+- P4: with the guarded hooks installed by `install_hooks.py --graph-only`, a code commit's
+  background `post-commit` refresh (polled for up to 60 s) leaves a graph whose `built_at_commit`
+  is HEAD and which keeps the unchanged file's nodes, and a second setup does not rebuild.
+
+It records, without asserting, whether an injected node without `_origin` survives a forced
+rebuild, printing one line with graphify's version. Without graphify, it prints a skip line naming
+why.
 
 Add one line to `SKILL.md` naming `setup` and `view` for goal runs.
 
-Expected size: `graph_view.py` about 265 lines. No ceiling in `test_size.py` covers
-`graph-navigation`.
+Expected size: `graph_view.py` about 260 lines, about the same as the previous estimate. No
+ceiling in
+`test_size.py` covers `graph-navigation`.
 
 ### [ ] T4 — measurements and records
 - writes: docs/product/measurements.md, docs/decisions/decisions.md, docs/architecture/lean-execution.md
@@ -312,7 +332,7 @@ No LLM tokens are used; the cost is wall-clock time and memory.
 
 **Records.**
 - `decisions.md`: D29, folder routes kept true plus graph-backed context, with its reason and the
-  alternatives it beat. It states setup's guard-first trust rule, and that this repository
+  alternatives it beat. It states setup's completeness contract, and that this repository
   ignores `graphify-out/` wholesale while D11's split stays a project's option.
 - **Also measure:** `stale-guide` findings on this repository at HEAD, as a count.
 - `lean-execution.md`: the graph's place in dispatch and acceptance, as current state.
@@ -371,11 +391,13 @@ No LLM tokens are used; the cost is wall-clock time and memory.
   - **Trust rule.** Setup rebuilds only when the graph is missing, its `built_at_commit` is not
     HEAD, or `.graphify_root` is neither absent nor `.`, and the rebuild passes `--force`. This
     replaces "setup always runs a full update": a full update costs 44–59 s on a large repository,
-    and without `--force` it can exit 1 without writing.
+    and without `--force` it can exit 1 without writing. (The rebuild condition is superseded
+    below by round 5's completeness contract; `--force` stays.)
   - **Partial-graph protection.** Setup checks and installs the guard first. A guard missing at
     this setup forces one full rebuild, whatever the graph says; later setups trust a HEAD-built
     graph. This keeps the protection the round-4 "always" correction gave, because a partial graph
-    left by an older unguarded hook has `built_at_commit` equal to HEAD.
+    left by an older unguarded hook has `built_at_commit` equal to HEAD. (Superseded below by
+    round 5: guard history is no longer evidence of completeness.)
   - **`.gitignore`.** This repository ignores `/graphify-out/` wholesale, and `migrate.md`'s step 4
     adds it next to `/.runs/`. D11's split stays an option for projects that want it. Without the
     ignore, setup's `graphify-out/` makes every receipt "tree not clean" and every guard "outside
@@ -388,15 +410,15 @@ No LLM tokens are used; the cost is wall-clock time and memory.
   and inside the outcome.
   - (default) Every graphify call runs with its cwd at the graph root, argv `update . --force` for
     a rebuild, and every `GRAPHIFY_*` dropped, over passing the root's path: graphify writes the
-    path as typed into `.graphify_root`. AC-1's fix command is `graphify update . --force`, over
-    one that can exit 1 on a shrink.
-  - (default) `view`'s refresh uses the same trust rule and forced command (AC-3), over a plain
+    path as typed into `.graphify_root`.
+  - (default) `view`'s refresh uses setup's freshness rule and forced command (AC-3), over a plain
     `update` that can leave every `view` failing for the rest of the goal.
-  - (default) `--force` keeps semantic nodes; T6's oracle test checks it against real graphify and
-    skips with a line without it. The plan pins graphify 0.8.49's shrink rule in that test, after
-    finding that a plain deletion is exempt from the check.
-  - (default) The design's cache and incremental statements are removed; the spec's Journey 1,
-    AC-1, the design's Structure row and step table, and T6 state one rule.
+  - (default) T6's oracle test runs real graphify and skips with a line without it. It pins
+    graphify 0.8.49's shrink rule, after finding that a plain deletion is exempt from the check.
+    Node survival under `--force` is recorded, not asserted (round 5, decision 2).
+  - (default) The design's "incremental refresh" statement is removed, and the cache sentence
+    states the measured fact (round 5, decision 2); the spec's Journey 1, AC-1, the design's
+    Structure row and step table, and T6 state one rule.
   - (default) The rebuild-cost measurements go into `measurements.md` through T4's text.
   - (default) The `gate:` loop includes `graph-navigation`.
   - (default) The `e2e` receipt is run from the main checkout, detached at F-5's head, and copied
@@ -407,30 +429,26 @@ No LLM tokens are used; the cost is wall-clock time and memory.
     merge. The milestone-close `e2e` runs from the main checkout instead, and the hash-comparing
     trust pre-check stays, so a stale trust is reported, not skipped.
   - (default) `.gitignore` goes in T6, which brings in setup; T6's builder is `judgement`, over
-    `routine`, because it carries the trust rule and an oracle test.
+    `routine`, because it carries the completeness contract and an oracle test.
   - (default) T3 offsets every `run.md` addition with a trim that loses no rule; `run.md` is at
     2,999 of 3,000 words.
   - (default) Setup prints `graph rebuilt: <reason>` on a rebuild and a failure line on a nonzero
-    exit, and its fix line names the graph root it must run in.
+    exit.
+  - (default) The timeout line's fix command is `python3 <graph_view.py> setup --no-bound`, over
+    `graphify update . --force`. A by-hand graphify build writes no completion stamp, so the next
+    bounded setup would rebuild and could time out again, and the printed command would not clear
+    the condition (planning.md's tested-fix-command rule). `--no-bound` lifts only the bound, and
+    the rebuild it runs stamps the graph.
   - (default) Under `core.hooksPath`, or with a child graph, setup installs nothing and applies the
-    trust rule alone; hooks under `core.hooksPath` stay F-3 Queue Q7's.
-  - (default, corrected by the controller) Before a rebuild forced by a missing guard, setup
-    writes `rebuild-pending` into `.graphify_root`. A finished rebuild leaves `.`, so an unfinished
-    one is retried by the next setup and skipped by the hook guard. graphify replaces
-    `.graphify_root` before it writes the graph, so setup, and `view` when it read the marker,
-    write it again after a timeout or failure.
-  - (default, adopted by the controller) After a rebuild that exits 0, setup and `view` write
-    HEAD's full commit id to `graphify-out/.graph_view_head`. The stale trigger becomes "neither
-    `built_at_commit` nor the stamp equals HEAD"; the guard, no-graph and `.graphify_root`
-    triggers (`rebuild-pending` included) are unchanged. A timeout or failure writes no stamp.
-    This was chosen over trusting `built_at_commit` alone and over diffing extracted files since
-    it. In graphify 0.8.49, a forced update that finds the code graph unchanged does not advance
-    `built_at_commit`, so trusting it alone rebuilds at every setup after a non-code commit.
-    Diffing still loops after prose-only Markdown edits, which graphify extracts as code. The
-    stamp records that this checkout's graph was rebuilt, or confirmed, at HEAD. It lives in the
-    ignored `graphify-out/`. Evidence, 2026-10-08: in a throwaway repository with a temporary HOME,
-    after a commit to a non-code file, `graphify update . --force` exited 0 and `built_at_commit`
-    stayed at the earlier commit.
+    completeness contract alone; hooks under `core.hooksPath` stay F-3 Queue Q7's.
+  - The `rebuild-pending` marker and the `.graph_view_head` stamp, earlier defaults of this
+    amendment, are superseded by round 5's completeness contract below. Their evidence stands:
+    - graphify 0.8.49 writes `.graphify_root` after extraction but before clustering and the graph
+      write (`watch.py`, about lines 671–677), so a run cut off late has already replaced it;
+    - 2026-10-08, in a throwaway repository with a temporary HOME: after a commit to a non-code
+      file, `graphify update . --force` exited 0 and `built_at_commit` stayed at the earlier
+      commit, because a forced update that finds the code graph unchanged leaves `graph.json` as
+      it was.
   - (default, corrected by the controller) Setup runs `git check-ignore -q` on the graph root's
     `graphify-out/`. When it is not ignored, setup prints the `.gitignore` entry to add, builds
     nothing and exits 0.
@@ -440,6 +458,36 @@ No LLM tokens are used; the cost is wall-clock time and memory.
   The sequence is: the amendment commits; the founder-granted design and plan review runs;
   the founder re-approves; `goal/F-5/approved` goes on the re-approved commit; a baseline is
   recorded; F-5 starts.
+
+- 2026-10-08: founder decisions on the amendment review's round 5. The granted design and plan
+  reviews blocked with six findings each; ten were one family, completeness inferred from guard
+  history, which fails whenever the guard came from elsewhere.
+  1. **Completeness: trust only setup's own build.** The guard-history trigger, the
+     `rebuild-pending` marker and the HEAD stamp give way to the design's completeness contract,
+     P1–P6. A graph is complete only with `graphify-out/.graph_view_complete`, which holds HEAD
+     and `graph.json`'s sha256 and is written only after a full forced update by setup or `view`
+     exits 0 within its bound. Setup and `view` rebuild exactly when a graph is not fresh. Guarded
+     hooks keep a complete graph complete (graphify's `hooks.py` and `watch.py`, cited in the
+     design). Nothing is written under an unignored graph directory. The guard keeps hooks
+     refreshing and is never evidence of completeness. T6 maps each round-5 finding to a property
+     and a named test.
+  2. **Narrow AC-1.** AC-1 and the design promise only what setup controls: the command and its
+     cwd, the `GRAPHIFY_*` drop, the stamp, `.graphify_root`, the printed lines and exit 0. Which
+     nodes survive `--force` is graphify's behaviour, which the oracle test records and does not
+     guarantee. The cache sentence states the measured fact: warm and cold full updates cost the
+     same, although graphify reuses cached extractions for unchanged files.
+  3. **Round 6.** One more granted design and plan review follows this correction; the controller
+     runs it. Re-approval and the tag follow its pass, in the sequence above.
+
+- 2026-10-08, before round 6: (default, from the controller) P2's branch (a), `built_at_commit`
+  equal to HEAD, now also requires P4's premise to hold at the time of the check:
+  `core.hooksPath` unset, the graph not under a child directory, and the guard immediately before
+  graphify's `post-commit` block. A guarded hook never creates a graph, so with the guard in place
+  a deleted graph cannot reappear partial at HEAD. Without it, only the stamp branch (b) counts.
+  This closes the drafted assumption that a graph deleted while its stamp was kept, then rebuilt
+  by an unguarded hook, would pass P2. The guard enables branch (a) only and never establishes
+  completeness (P6). T6 adds the deleted-graph cases, under `core.hooksPath` and with a child
+  graph, and a guarded control.
 
 ## Queue
 
@@ -453,4 +501,4 @@ No LLM tokens are used; the cost is wall-clock time and memory.
   hook-refreshed graph refuses some shrinks and goes stale: 44 of 1,928 in a real log. Options:
   `migrate.md`'s step 4 advises `GRAPHIFY_FORCE=1` in the hook environment; or rely on setup and
   `view` forcing. Recommendation: rely on setup and `view`, because a refused refresh leaves
-  `built_at_commit` behind HEAD, which their trust rule already rebuilds.
+  `built_at_commit` behind HEAD, so the graph is not fresh and their contract already rebuilds it.
