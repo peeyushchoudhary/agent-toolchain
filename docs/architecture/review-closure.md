@@ -54,8 +54,11 @@ Round numbers stay sequential, so a confirmation is round n+1 in history and in 
 
 **Per-round file digests.** Each round of a subject writes `review/<key>-r<n>.files.json`, mapping
 every changed path to its SHA-256. The changed paths are those `git diff --name-only` reports for
-the round's range, plus untracked files for a task review. A deleted path maps to `null`, so a
-review of a deletion still completes. This is the only new state.
+the round's range, plus every path whose working-tree content differs from the round's verdict
+tree, plus untracked files, whatever the range. An unrecorded path is therefore identical to the
+verdict tree at that round. A deleted path maps to `null`, so a review of a deletion still
+completes. When the comparison cannot be made (the verdict tree is missing, or a git call fails),
+`--closed-by` refuses. This is the only new state.
 
 It closes a gap that the verdict's `tree` cannot cover. A task review's work stays uncommitted
 across rounds, so every round of a task review records the same HEAD tree.

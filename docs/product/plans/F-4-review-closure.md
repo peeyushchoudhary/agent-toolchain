@@ -162,6 +162,21 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
   `core.hooksPath` resolves inside each worktree. Re-approval goes to the founder.
 - 2026-10-08: the founder re-approved F-4 as corrected, without a further review round.
 
+- 2026-10-08, T1 (default): for `--closed-by`, a test path the last round did not record counts as
+  changed exactly when git says so (`git diff --quiet <verdict tree> -- <path>` exits 1), with git's
+  filters applied; recorded paths compare raw-byte SHA-256 as designed. Chosen over a
+  re-implemented blob hash, which T1's boundary review round 1 showed disagrees with git under
+  `core.autocrlf`. A line-ending-only change git ignores does not admit a confirmation.
+
+- 2026-10-08: founder decision on T1's boundary review round 2, which blocked on two repeats of
+  round 1's findings, both marked `family:` by the judge: a round with `--diff HEAD..HEAD` did not
+  record a test with uncommitted edits, and a pruned verdict tree read as "path absent". The class
+  fix: every round records every path that differs from its verdict tree, plus untracked files,
+  whatever the range, so an unrecorded path is identical to the verdict tree; a missing tree or a
+  failed git call refuses. The founder approved the one-sentence design change (Interfaces,
+  per-round digests) and one founder-granted scoped boundary round (round 3);
+  `goal/F-4/approved` moves to this commit.
+
 ## Queue
 
 - Q2 (blocks nothing): carry a PASS forward to a new tree when the change misses a partition's
