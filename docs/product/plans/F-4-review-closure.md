@@ -185,6 +185,14 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
   turn and expects that refusal. Then one founder-granted boundary round (round 4). The grants
   used so far are archived as `verdicts/history/founder-grants-used-1.json`.
 
+- 2026-10-08: founder decision on T1's boundary review round 4, which blocked on one new finding
+  confirmed by the controller: `--closed-by` combined with an empty or advisor-kind
+  `--founder-grant` exits 2, not AC-3's 1, because grant validation runs before the
+  `--closed-by` refusal. The structural fix held. The fix puts the refusal first, with a test,
+  then one founder-granted boundary round (round 5) under the current rules; the uncounted
+  confirmation is not used on its own task. The round-4 grant is archived as
+  `verdicts/history/founder-grants-used-2.json`.
+
 - 2026-10-08: founder decision on F-5's setup step, recorded here because F-5 has not started.
   A measurement on clones found that a full `graphify update` costs 44–59 s on a large repository
   and, without `--force`, exits 1 without writing when the rebuild has fewer nodes than the
