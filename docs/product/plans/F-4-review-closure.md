@@ -3,7 +3,7 @@ goal: F-4
 title: Review closure that ends in fixes, not in grants
 spec: docs/product/specs/F-4-review-closure.md
 design: docs/architecture/review-closure.md
-status: draft
+status: approved
 updated: 2026-10-08
 gate: rc=0; for d in execution-methodology agent-personas progressive-disclosure; do [ -d install/skills/$d/tests ] || continue; python3 -m unittest discover -s install/skills/$d/tests -t install/skills/$d/tests || rc=1; done; exit $rc
 full_gate: cd install && ./install.sh --dry-run && ./verify.sh
@@ -160,6 +160,7 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
   refusal is dropped, because existing fixtures judge clean trees and the coverage line already
   shows an empty diff; D28 quotes the final counts; the hooks lesson says a relative
   `core.hooksPath` resolves inside each worktree. Re-approval goes to the founder.
+- 2026-10-08: the founder re-approved F-4 as corrected, without a further review round.
 
 ## Queue
 

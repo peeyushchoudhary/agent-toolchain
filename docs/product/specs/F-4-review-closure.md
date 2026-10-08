@@ -2,7 +2,7 @@
 id: F-4
 title: Review closure that ends in fixes, not in grants
 prd: docs/product/README.md
-status: draft
+status: approved
 updated: 2026-10-08
 milestone: M1
 edge_cases: [repeated-failure, founder-unavailable]
