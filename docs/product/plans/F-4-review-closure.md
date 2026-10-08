@@ -36,7 +36,7 @@ rule changes, and splitting them further would add only dispatch overhead. No wa
 needed: T1 is proven by its unit tests, and T2 and T3 are text.
 
 ### [ ] T1 — `review.py`: test-closed confirmation, the family question and acceptance coverage
-- writes: install/skills/execution-methodology/scripts/review.py, install/skills/execution-methodology/tests/test_review_closure.py, install/skills/execution-methodology/tests/smoke_review_closure.py
+- writes: install/skills/execution-methodology/scripts/review.py, install/skills/execution-methodology/tests/test_review_closure.py, install/skills/execution-methodology/tests/smoke_review_closure.py, install/skills/execution-methodology/tests/test_review_closure_race.py
 - needs: —
 - covers: AC-2, AC-3, AC-4, AC-7
 - risk: boundary
