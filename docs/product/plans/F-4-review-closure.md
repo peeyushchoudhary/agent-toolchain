@@ -225,6 +225,15 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
   snapshot costs 0.03 s, 0.17 s and 0.72 s on small, medium and large repositories (114, 1,240
   and 5,120 paths), taken twice per round.
 
+- 2026-10-08: founder decision on T1's boundary review round 6. The full snapshot and drift check
+  held. Two findings were confirmed by the controller: a test force-tracked under the ignored
+  `.runs/` slipped past the snapshot, and a tracked directory replaced by a file raised
+  `NotADirectoryError` instead of recording `null`. The fix refuses named tests under `.runs/`
+  and treats `NotADirectoryError` as missing, with tests. The controller verifies the gates and
+  T1 commits without another boundary round. M1's cross-vendor acceptance review judges T1 again
+  before merge. The round-6 grant is archived as `verdicts/history/founder-grants-used-4.json`.
+  Findings per round ran 4, 2, 2, 1, 3, 2.
+
 - 2026-10-08: founder decision on F-5's setup step, recorded here because F-5 has not started.
   A measurement on clones found that a full `graphify update` costs 44–59 s on a large repository
   and, without `--force`, exits 1 without writing when the rebuild has fewer nodes than the
