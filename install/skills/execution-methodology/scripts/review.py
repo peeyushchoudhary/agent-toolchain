@@ -235,10 +235,6 @@ def subject_lock(vdir, key):
     return fh
 
 
-def changed(root, rng, *paths):
-    return [p for p in git(root, "diff", "--name-only", "-z", *rng.split(), "--", *paths).split("\0") if p]
-
-
 def probe(root, what, *args, ok=(0,), missing=Unmade):
     """The one door for every git call and file read of a --closed-by comparison ("git", or "text", "bytes",
     "json", "list", "lstat" of a path); any failure raises Unmade, and an expected-absent file returns missing=."""
@@ -249,9 +245,7 @@ def probe(root, what, *args, ok=(0,), missing=Unmade):
                 raise Unmade(f"git {args[0]} exited {proc.returncode}")
             return proc.returncode, proc.stdout.decode()
         path = root / args[0]
-        if what == "text":
-            return path.read_bytes().decode()
-        return {"bytes": Path.read_bytes, "list": os.listdir, "lstat": os.lstat,
+        return {"bytes": Path.read_bytes, "list": os.listdir, "lstat": os.lstat, "text": lambda q: q.read_bytes().decode(),
                 "json": lambda q: json.loads(q.read_bytes())}[what](path)
     except (OSError, subprocess.TimeoutExpired, ValueError) as exc:  # ValueError: bad JSON or UTF-8
         if isinstance(exc, (FileNotFoundError, NotADirectoryError)) and missing is not Unmade:  # absent
@@ -260,8 +254,7 @@ def probe(root, what, *args, ok=(0,), missing=Unmade):
 
 
 def digests(root, tree):
-    """Full snapshot: {path: sha256 of its working-tree bytes, or None when not a regular file} for every
-    path git lists (cached, or untracked and unignored) and every path in the verdict tree."""
+    """Full snapshot of every path git lists and every verdict-tree path: sha256 of its bytes, or None."""
     names = {p for p in (probe(root, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")[1] + "\0"
                          + probe(root, "git", "ls-tree", "-r", "-z", "--name-only", tree)[1]).split("\0")
              if p and p.split("/")[0] != ".runs"}  # comparison() refuses exactly these .runs/ names
@@ -269,19 +262,18 @@ def digests(root, tree):
     return {p: hashlib.sha256(probe(root, "bytes", p)).hexdigest() if p in regular else None for p in sorted(names)}
 
 
-def closure_refusal(vdir, key, last, tests, root):
+def closure_refusal(vdir, key, last, tests, root, snap):
     """Why --closed-by is refused for key after round last, or None when every named test changed."""
     try:
-        return comparison(vdir, key, last, tests, root)
+        return comparison(vdir, key, last, tests, root, snap)
     except Unmade as exc:
         return f"the comparison with round {last} cannot be made: {exc}"
 
 
-def comparison(vdir, key, last, tests, root):
+def comparison(vdir, key, last, tests, root, snap):
     lines = probe(root, "text", vdir / f"{key}.md", missing="").splitlines()
-    head = dict(l.split(":", 1) for l in lines[1:20] if ":" in l)
     verdict = lines[0][8:].strip() if lines and lines[0].startswith("VERDICT:") else None
-    tree = head.get("tree", "").strip()
+    tree = dict(l.split(":", 1) for l in lines[1:20] if ":" in l).get("tree", "").strip()
     if verdict != "BLOCK" or not tree:
         return f"--closed-by needs a BLOCK verdict naming its tree; {key} has {verdict or 'none'}"
     before = probe(root, "json", vdir.parent / "review" / f"{key}-r{last}.files.json", missing=None)
@@ -297,10 +289,12 @@ def comparison(vdir, key, last, tests, root):
         parts = Path(p).parts
         exact = p in known.split("\0") and all(n in probe(root, "list", Path(*parts[:i]), missing=())
                                           for i, n in enumerate(parts))
-        if not exact or not stat.S_ISREG(probe(root, "lstat", p).st_mode):
+        if not exact or snap.get(p) is None or not stat.S_ISREG(probe(root, "lstat", p).st_mode):
             return f"{test} is not a regular, tracked or new unignored file in the working tree"
         if p in before:
-            same = before[p] == hashlib.sha256(probe(root, "bytes", p)).hexdigest()
+            if hashlib.sha256(probe(root, "bytes", p)).hexdigest() != snap[p]:
+                raise Unmade(f"{p} changed after this round's snapshot")
+            same = before[p] == snap[p]
         else:  # an unrecorded path equalled the round's tree; absent when the tree lists nothing for it
             listed = probe(root, "git", "ls-tree", "-z", tree, "--", p)[1]
             same = bool(listed) and probe(root, "git", "diff", "--quiet", tree, "--", p, ok=(0, 1))[0] == 0
@@ -309,7 +303,7 @@ def comparison(vdir, key, last, tests, root):
     return None
 
 
-def admit(vdir, key, cap, grant=None, closed=None, root=None):
+def admit(vdir, key, cap, grant=None, closed=None, root=None, snap=None):
     """Check the cap, the founder grant or a confirmation, reserving nothing: (round, limit, None) or
     (None, None, refusal). A confirmation is numbered in sequence but not counted in rounds[key]."""
     with rounds_lock(vdir) as path:
@@ -318,7 +312,7 @@ def admit(vdir, key, cap, grant=None, closed=None, root=None):
     confirmed = rounds.get("confirmations", {})
     rnd = used + (key in confirmed) + 1
     refusal = closed and (f"{key} already used its confirmation (round {confirmed[key]})" if key in confirmed
-                          else closure_refusal(vdir, key, rnd - 1, closed, root))
+                          else closure_refusal(vdir, key, rnd - 1, closed, root, snap))
     if refusal:
         return None, None, refusal
     if not closed and grant is None and used >= cap:
@@ -402,14 +396,21 @@ def review(a, ctx, timeout=3600):
         print(f"review: refused — {key} is already being reviewed")
         return 1
     with lock:  # held for admission, the judge call and the writes: one round of key in flight
-        rnd, limit, refusal = admit(vdir, key, cap, grant, a.closed_by, ctx.root)
+        try:  # one snapshot: its bytes admit a confirmation, are recorded and are drift-checked
+            files = digests(ctx.root, tree)
+        except Unmade as exc:  # before admission on --closed-by, a snapshot that cannot be taken is a refusal
+            if not a.closed_by:
+                raise
+            print(f"review: refused — the comparison cannot be made: {exc}")
+            return 1
+        rnd, limit, refusal = admit(vdir, key, cap, grant, a.closed_by, ctx.root, files)
         if refusal:
             print(f"review: refused — {refusal}")
             return 1
-        return judge_round(a, ctx, key, rnd, limit, persona, variant, vendor, chief, tree, vdir, timeout)
+        return judge_round(a, ctx, key, rnd, limit, persona, variant, vendor, chief, tree, vdir, timeout, files)
 
 
-def judge_round(a, ctx, key, rnd, cap, persona, variant, vendor, chief, tree, vdir, timeout):
+def judge_round(a, ctx, key, rnd, cap, persona, variant, vendor, chief, tree, vdir, timeout, files):
     """Run round rnd of key; a failed judge call writes and consumes nothing."""
     diff_path, cover, rng = None, "", "HEAD"
     if a.kind == "acceptance" or a.kind in TASK_KINDS or a.diff:
@@ -425,8 +426,9 @@ def judge_round(a, ctx, key, rnd, cap, persona, variant, vendor, chief, tree, vd
         paths = [p for p in a.subject if not p.startswith(".runs/")] if narrow else []
         diff = git(ctx.root, "diff", *rng.split(), "--", *paths) if not a.dry_run else ""
         if a.kind == "acceptance":
-            cover = (f"diff covers {len(changed(ctx.root, rng, *paths))} of {len(changed(ctx.root, rng))}"
-                     f" files changed in {a.milestone}")
+            n, m = (len([p for p in git(ctx.root, "diff", "--name-only", "-z", *rng.split(), "--", *ps).split("\0")
+                         if p]) for ps in (paths, []))
+            cover = f"diff covers {n} of {m} files changed in {a.milestone}"
         if rng == "HEAD":
             untracked = git(ctx.root, "ls-files", "--others", "--exclude-standard")
             diff += "\n# untracked files (read them directly):\n" + untracked if untracked else ""
@@ -443,7 +445,6 @@ def judge_round(a, ctx, key, rnd, cap, persona, variant, vendor, chief, tree, vd
                                                    ctx.root)}, indent=2))
         print(packet)
         return 0
-    files = digests(ctx.root, tree)  # a full snapshot before the judge call; compared again after it
     a.admitted = True  # main(): from here a --closed-by invocation is admitted, not refused
     route, text, usage, err, quota = run_judge(vendor, persona, variant, packet, ctx.root, timeout)
     fallback = "explicitly requested same vendor as the chief" if a.vendor and a.vendor == chief else ""
