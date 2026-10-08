@@ -2,7 +2,7 @@
 id: F-5
 title: Folder routes and graph-backed context for goal runs
 spec: docs/product/specs/F-5-graph-context.md
-status: draft
+status: approved
 updated: 2026-10-08
 ---
 
@@ -66,12 +66,14 @@ Steps, in order. Each prints at most one line:
 | Step | Condition | Action, or line |
 | --- | --- | --- |
 | 1 | `graphify` not on PATH | `graphify not installed; graph context off (install with: uv tool install graphifyy)`; stop |
-| 2 | no `graphify-out/graph.json` that parses, at the worktree root or under one child (the `install_hooks.graphify_root` rule, duplicated in about eight lines so `graph-navigation` stays independent of the skill) | run `graphify update .` under an in-process 600-second bound. On timeout: `graph build timed out after 600 s; build by hand with: graphify update .`, then continue |
+| 2 | always: the graph root is the directory holding a parsing `graphify-out/graph.json`, at the worktree root or under one child (the `install_hooks.graphify_root` rule, duplicated in about eight lines so `graph-navigation` stays independent of the skill), else the worktree root | run `graphify update <graph root>` under an in-process 600-second bound. An existing graph is refreshed too, because a graph left by an older unguarded hook can be partial while its `built_at_commit` equals HEAD, and only a full update makes it whole; graphify's cache keeps the refresh cheap. On timeout: `graph build timed out after 600 s; build by hand with: graphify update .`, then continue |
 | 3 | `core.hooksPath` configured (`git config --get` does not exit 1) | `graph refresh hooks not installed while core.hooksPath is configured; graph_view.py refreshes the graph before each use`; stop |
 | 4 | the graph is under a child directory | `graph under <child>/ is not refreshed by git hooks; graph_view.py refreshes it before each use`; stop |
 | 5 | `post-commit` in `git rev-parse --git-path hooks` lacks `# graph-guard-start` immediately before `# graphify-hook-start` | run `install_hooks.py --graph-only <main checkout>` under a 120-second bound, where `<main checkout>` is the worktree root, or in a linked worktree the parent of `git rev-parse --git-common-dir`; print its result line |
 
-With nothing to do, it prints `graph ready`. It exits 0 in every case and never blocks a goal
+Every graphify call from `setup` and `view` runs with every inherited `GRAPHIFY_*` variable
+dropped, so graphify writes only the default `graphify-out/` under the graph root, which is also
+the only output the hook guard refreshes. With nothing else to do, it prints `graph ready`. It exits 0 in every case and never blocks a goal
 start. Its writes are graphify's own `graphify-out/` (step 2) and, through `install_hooks.py`,
 the graph blocks and their guards (step 5).
 
@@ -99,8 +101,9 @@ hook runs at the worktree root. F-5 relies on all of this and changes two things
   existing blocks and its checked-path writes, and touches no other hook. It cannot be combined
   with `--uninstall`, `--check`, `--scope` or `--public`.
 
-Expected size: about 15 non-test lines. Together with `stale-guide`, that fits `progressive-disclosure`'s AC-13 headroom,
-112 lines at `goal/F-3/M4` (5,358 of 5,470).
+Expected size: about 15 non-test lines. With `stale-guide` (about 30), `progressive-disclosure`
+reaches about 5,500 of its AC-13 ceiling. F-3 M4's guard work left 5,453 of 5,470, so the founder
+raised the ceiling to 5,520 (2026-10-08); T5 changes `test_size.py` accordingly.
 
 **`stale-guide`, in `validate_disclosure.py`.** For each scoped entry file in a directory `D`:
 - take the area guides it links to;
@@ -111,8 +114,8 @@ When `n > 0`, it reports one WARN: `stale-guide <guide>: <n> commit(s) to <D> si
 changed`. It never raises an ERROR.
 
 It uses the existing scoped-file discovery and link parsing. It is skipped outside a git
-repository, and for a guide that has never been committed. Expected size: about 30 lines, which
-fits the AC-13 headroom together with the guard.
+repository, and for a guide that has never been committed. Expected size: about 30 lines, within the
+raised AC-13 ceiling of 5,520 together with T7.
 
 **`graph_view.py view`.** Usage: `graph_view.py view --root <project> --out <dir> <Symbol> ...`.
 - It finds the graph root by the rule above, and reads `built_at_commit`.

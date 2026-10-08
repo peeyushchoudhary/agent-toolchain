@@ -3,7 +3,7 @@ goal: F-5
 title: Folder routes and graph-backed context for goal runs
 spec: docs/product/specs/F-5-graph-context.md
 design: docs/architecture/graph-context.md
-status: draft
+status: approved
 updated: 2026-10-08
 gate: rc=0; for d in execution-methodology agent-personas progressive-disclosure; do [ -d install/skills/$d/tests ] || continue; python3 -m unittest discover -s install/skills/$d/tests -t install/skills/$d/tests || rc=1; done; python3 -m unittest discover -s install/tests -t install/tests || rc=1; exit $rc
 full_gate: cd install && ./install.sh --dry-run && ./verify.sh
@@ -72,7 +72,7 @@ Do the following:
 `risk: boundary` applies because the installer writes the founder's harness configuration.
 
 ### [ ] T7 — hooks install without a graph in the main checkout, and `--graph-only`
-- writes: install/skills/progressive-disclosure/scripts/install_hooks.py, install/skills/progressive-disclosure/tests/test_install_hooks_scope.py, install/skills/progressive-disclosure/tests/test_install_hooks_graph_only.py
+- writes: install/skills/progressive-disclosure/scripts/install_hooks.py, install/skills/progressive-disclosure/tests/test_install_hooks_scope.py, install/skills/progressive-disclosure/tests/test_install_hooks_graph_only.py, install/skills/progressive-disclosure/tests/test_install_hooks_guard.py
 - needs: —
 - covers: AC-1, AC-7, AC-5
 - risk: safety
@@ -133,12 +133,12 @@ Write the design's Rules-text section:
 role's load must stay at or under 3,000 words. Verify with `install/tests/test_size.py`.
 
 ### [ ] T5 — the `stale-guide` warning
-- writes: install/skills/progressive-disclosure/scripts/validate_disclosure.py, install/skills/progressive-disclosure/tests/test_validate_disclosure_stale_guide.py
+- writes: install/skills/progressive-disclosure/scripts/validate_disclosure.py, install/skills/progressive-disclosure/tests/test_validate_disclosure_stale_guide.py, install/tests/test_size.py
 - needs: —
 - covers: AC-6, AC-5
 - risk: none
 - builder: routine
-- tests-may-change: —
+- tests-may-change: install/tests/test_size.py
 
 Implement the design's `stale-guide` interface. It reuses the existing scoped-entry discovery and
 link parsing.
@@ -150,7 +150,8 @@ The tests use temporary git repositories and cover:
 - an uncommitted guide, and a directory outside a git repository, which are both skipped;
 - that the check never raises an ERROR and never changes the exit code by itself.
 
-`progressive-disclosure` stays at or under its AC-13 ceiling of 5,470 lines, together with T7.
+`test_size.py`'s AC-13 ceiling changes from 5,470 to 5,520, and only that number changes; with
+T7, `progressive-disclosure` stays at or under it.
 
 ### [ ] T6 — the bounded graph runner and graph setup
 - writes: install/skills/graph-navigation/scripts/graph_view.py, install/skills/graph-navigation/tests/test_graph_view.py, install/skills/graph-navigation/SKILL.md
@@ -246,5 +247,15 @@ Record them dated under "graphify on this repository".
   installs refresh hooks through a new `install_hooks.py --graph-only` (T7), because the full
   installer also rewrites the other hooks, which migration owns. The round-4 confirmation review
   of design and plan is still pending before approval.
+
+- 2026-10-08: founder decisions on design and plan round 4, which blocked on a partial graph left
+  by an older unguarded hook (setup trusted it), on `GRAPHIFY_OUT` reaching graphify from setup,
+  on T7's write set missing the guard test, and on the line budget (17 lines of headroom after F-3
+  M4, not 112). Corrections: setup always runs a full `graphify update`; graphify calls drop
+  `GRAPHIFY_*`; T7 writes the guard test. The founder raised `progressive-disclosure`'s AC-13
+  ceiling to 5,520 (T5 changes `test_size.py`) and approved F-5 as corrected, without a further
+  round. `goal/F-5/approved` is placed when F-5 starts, on the commit after `goal/F-4/M1`, because
+  F-5 runs after F-4 on this branch and its frozen-input base must follow F-4's commits; F-5's
+  documents are unchanged in between.
 
 ## Queue
