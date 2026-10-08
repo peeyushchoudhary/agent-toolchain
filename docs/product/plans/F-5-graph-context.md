@@ -97,7 +97,7 @@ Do the following:
 
 `risk: boundary` applies because the installer writes the founder's harness configuration.
 
-### [ ] T7 — hooks install without a graph in the main checkout, and `--graph-only`
+### [x] T7 — hooks install without a graph in the main checkout, and `--graph-only`
 - writes: install/skills/progressive-disclosure/scripts/install_hooks.py, install/skills/progressive-disclosure/tests/test_install_hooks_scope.py, install/skills/progressive-disclosure/tests/test_install_hooks_graph_only.py, install/skills/progressive-disclosure/tests/test_install_hooks_guard.py
 - needs: —
 - covers: AC-1, AC-7, AC-5
@@ -595,6 +595,14 @@ No LLM tokens are used; the cost is wall-clock time and memory.
   (AC-1, AC-3, Journeys 1 and 3, the four new `edge_cases`). `goal/F-5/approved` goes on this
   commit, then the baseline, then `goal.py start`. The founder trusts the Codex graph-smoke
   fixture's hooks once, when T2 lands; the controller asks at that point.
+
+- 2026-10-08: T7 defaults (controller; security review round 1 PASS). `--graph-only` also refuses
+  `--standard`, which affects only `pre-commit`; `--graph-only --no-graph` is allowed and only
+  guards existing blocks; `--scope project` is not widened, because without a graph it would make
+  every scope apply fail where graphify is installed, and setup uses `--graph-only`. Beyond Q8,
+  `test_install_hooks_guard.py` drops its "no root graph" skip row, now an install case in
+  `test_install_hooks_graph_only.py`, and its mode matrix runs with graphify off PATH, which still
+  exercises guarding and stripping.
 
 ## Queue
 

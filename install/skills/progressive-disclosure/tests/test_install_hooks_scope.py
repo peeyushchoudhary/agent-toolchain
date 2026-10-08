@@ -308,9 +308,14 @@ class ScopedHooksTest(unittest.TestCase):
         (self.repo / "linked").symlink_to(outside, target_is_directory=True)
         proc = self.invoke()
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(self.graphify_calls(log), [])
+        # No graph of its own is no skip (F-5 AC-7): the guarded blocks go into the root's hooks.
+        self.assertNotIn("the graph is under linked/", proc.stdout)
+        self.assert_never_ran_in_project(log)
         self.assertEqual(sorted(p.name for p in (outside / ".git" / "hooks").iterdir()), outside_hooks)
-        self.assert_graphify_blocks(present=False)
+        self.assert_graphify_blocks(present=True)
+        for name in self.STUB_BLOCKS:
+            (self.repo / ".git" / "hooks" / name).unlink()
+        log.unlink()
         # A real child's graph is found but not claimed: the hook runs at the worktree root, so it
         # could never refresh it (M4 fix 5). The skip names it; nothing is written or run.
         (self.repo / "sub" / "graphify-out").mkdir(parents=True)

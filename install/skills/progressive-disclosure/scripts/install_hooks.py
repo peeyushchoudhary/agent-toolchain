@@ -48,6 +48,7 @@ Usage:
   install_hooks.py [ROOT] --standard   # pre-commit also enforces the structure standard
   install_hooks.py [ROOT] --public     # DECLARE this repository public, once (public repos ONLY)
   install_hooks.py [ROOT] --scope project [--preview [--json]]   # one inspectable plan
+  install_hooks.py [ROOT] --graph-only # only the guarded post-commit/post-checkout graph blocks
 """
 
 from __future__ import annotations
@@ -743,35 +744,34 @@ def hooks_path_unset(root: Path) -> bool:
         return False
 
 
-def install_graph_hook(root: Path, *, no_graph: bool) -> bool:
+def install_graph_hook(root: Path, *, no_graph: bool) -> bool | None:
     """The post-commit and post-checkout graph refresh: rendered by `graphify`, written by us.
 
     Its dependency is a BINARY ON PATH, not a script inside a hook block, so `graphify_available()`
     is the equivalent check and it runs before any claim. Graphify blocks already in the hooks are
     guarded first, whenever git would run them, even if this run then installs nothing. The hooks
-    refresh only the default graphify-out/ at the worktree root, never while GRAPHIFY_OUT is set.
+    refresh only the default graphify-out/ at the worktree root, never while GRAPHIFY_OUT is set,
+    so they install whether or not the main checkout has a graph (each worktree keeps its own).
+    True: installed; None: skipped; False: failed.
     """
     if unset := hooks_path_unset(root):
         guard_existing_graph_blocks(root)
     if no_graph:
         print("  post-commit graph refresh skipped (--no-graph)")
-        return False
-    if (graph_dir := graphify_root(root)) is None:
-        print("  post-commit graph refresh skipped — no graphify-out/graph.json in this repo")
-        return False
-    if graph_dir != root:
+        return None
+    if (graph_dir := graphify_root(root)) not in (None, root):
         # The hook runs at the worktree root, so it could never refresh this graph; claim nothing.
         child = graph_dir.relative_to(root).as_posix()
         print(f"  post-commit graph refresh skipped — the graph is under {child}/ and git hooks run "
               f"at the repository root; refresh by hand with: graphify update {child}")
-        return False
+        return None
     if not graphify_available():
         print("  post-commit graph refresh skipped — graphify is not installed")
-        return False
+        return None
     if not unset:
         print("  post-commit graph refresh skipped — core.hooksPath is configured; "
               "git may not run hooks in .git/hooks")
-        return False
+        return None
     try:
         for path, content in _graph_edits(root, _render_graphify_blocks()):
             _commit_hook(path, content)
@@ -1148,7 +1148,12 @@ def main() -> int:
     ap.add_argument("--preview", action="store_true",
                     help="show the complete scoped operation plan and write nothing")
     ap.add_argument("--json", action="store_true", help="emit preview as one JSON object")
+    ap.add_argument("--graph-only", action="store_true",
+                    help="only the graph step: write the guarded graphify blocks, no other hook")
     args = ap.parse_args()
+    if args.graph_only and (clash := [f"--{n}" for n in ("uninstall", "check", "scope", "public",
+                                                         "standard") if getattr(args, n)]):
+        ap.error(f"--graph-only cannot be combined with {', '.join(clash)}")
 
     root = Path(args.root).resolve()
     if args.json and not args.preview:
@@ -1176,6 +1181,8 @@ def main() -> int:
             print(f"  REFUSED: {message}")
         print("  Nothing was written. Make .git/hooks a real directory inside this repository.")
         return 1
+    if args.graph_only:  # pre-commit, commit-msg and pre-push stay as they are (migration owns them)
+        return 1 if install_graph_hook(root, no_graph=args.no_graph) is False else 0
 
     if args.check:
         state = "present" if BEGIN in read(pre) else "ABSENT"

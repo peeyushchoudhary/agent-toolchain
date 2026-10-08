@@ -257,7 +257,6 @@ class StubGraphifyGuardTest(HermeticRepo):
 
     def test_skipping_runs_still_guard_existing_blocks(self) -> None:
         cases = {
-            "no root graph": ((), None, "no graphify-out/graph.json in this repo"),
             "child graph": ((), "sub", "the graph is under sub/"),
             "--no-graph": (("--no-graph",), ".", "skipped (--no-graph)"),
             "graphify absent": ((), ".", "graphify is not installed"),
@@ -317,7 +316,8 @@ class StubGraphifyGuardTest(HermeticRepo):
             out = self.run_hook("post-commit", site).stdout
             self.assertEqual(reached in out, runs, repr(content))
 
-    # The mode matrix: existing unguarded graphify blocks, no graph to install, stub never needed.
+    # The mode matrix: existing graphify blocks, graphify off PATH, so nothing is rendered and the
+    # stub is never needed. `guarded` starts each cell from guarded blocks, as after an install.
     INSTALL = (("plain install", ()), ("scope apply", ("--scope", "project")))
     UNINSTALL = (("plain uninstall", ("--uninstall",)),
                  ("scope uninstall", ("--scope", "project", "--uninstall")))
@@ -325,11 +325,15 @@ class StubGraphifyGuardTest(HermeticRepo):
             ("scope preview", ("--scope", "project", "--preview")),
             ("scope preview json", ("--scope", "project", "--preview", "--json")))
 
-    def matrix(self, modes, check) -> None:
+    def matrix(self, modes, check, *, guarded: bool = False) -> None:
+        self.without_graphify_on_path()
         for label, flags in modes:
             for extra in ((), ("--no-graph",)):
                 with self.subTest(label, no_graph=bool(extra)):
                     expected = self.existing_unguarded()
+                    for name, text in expected.items() if guarded else ():
+                        self.hook(name).write_text(text, encoding="utf-8")
+                        self.assertIn("# graph-guard-start", self.hook(name).read_text("utf-8"))
                     before = {n: self.hook(n).read_bytes() for n in self.STUB}
                     proc = self.invoke(*flags, *extra)
                     check(label, proc, expected, before)
@@ -348,8 +352,7 @@ class StubGraphifyGuardTest(HermeticRepo):
             for name in self.STUB:
                 self.assertEqual(self.hook(name).read_text(encoding="utf-8"),
                                  "#!/bin/sh\necho mine\n", (label, name))
-        self.invoke("--no-graph")  # start from guarded blocks, as after an install
-        self.matrix(self.UNINSTALL, check)
+        self.matrix(self.UNINSTALL, check, guarded=True)
 
     def test_check_and_preview_modes_show_the_guard_and_write_nothing(self) -> None:
         def check(label, proc, _expected, before):
@@ -376,7 +379,7 @@ class StubGraphifyGuardTest(HermeticRepo):
                 self.assertEqual(self.hook(name).read_text(encoding="utf-8"),
                                  "#!/bin/sh\necho mine\n", (label, name))
         self.matrix(self.INSTALL, untouched)
-        self.matrix(self.UNINSTALL, stripped)
+        self.matrix(self.UNINSTALL, stripped, guarded=True)
 
 
 if __name__ == "__main__":
