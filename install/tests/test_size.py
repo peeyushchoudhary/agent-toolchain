@@ -19,7 +19,8 @@ CODE_LINES = 2_500         # execution-methodology + agent-personas, non-test co
 PERSONA_SOURCES = 5
 PD = SKILLS / "progressive-disclosure"
 PD_BASELINE_LINES = 10_941  # non_test_lines(PD) at goal/F-3/approved, before T9
-PD_LINES = PD_BASELINE_LINES // 2  # AC-13: at least half removed, so at most 5,470
+# AC-13 ceiling: founder decision 2026-10-08 (F-5 AC-5) raised it from 5,470 (half the baseline).
+PD_LINES = 5_520
 
 
 def words(path: Path) -> int:

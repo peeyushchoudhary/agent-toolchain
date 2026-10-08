@@ -167,7 +167,7 @@ role's load must stay at or under 3,000 words, and so must `context.md`'s own lo
 
 T3 adds no code: `execution-methodology` plus `agent-personas` stays at 2,500 of 2,500 lines.
 
-### [ ] T5 — the `stale-guide` warning
+### [x] T5 — the `stale-guide` warning
 - writes: install/skills/progressive-disclosure/scripts/validate_disclosure.py, install/skills/progressive-disclosure/tests/test_validate_disclosure_stale_guide.py, install/tests/test_size.py
 - needs: —
 - covers: AC-6, AC-5
@@ -604,6 +604,11 @@ No LLM tokens are used; the cost is wall-clock time and memory.
   `test_install_hooks_graph_only.py`, and its mode matrix runs with graphify off PATH, which still
   exercises guarding and stripping.
 
+- 2026-10-08: T5 defaults (controller). `stale-guide`'s git calls pass no environment, as the
+  file's existing git calls do: the design asks for no `GIT_*` handling here, and
+  `test_there_is_no_opt_out` forbids `os.environ` in the validator. The check is 38 lines, not
+  the design's 30; `progressive-disclosure` is at 5,498 of 5,520.
+
 ## Queue
 
 - (a) (blocks nothing; founder decides later) In adopting projects that commit
@@ -618,3 +623,9 @@ No LLM tokens are used; the cost is wall-clock time and memory.
   label and `--refresh`. Recommendation: rely on the label, because a refused refresh leaves
   `built_at_commit` behind HEAD, the label shows how many commits behind, and the chief runs
   `view --refresh` when that distance matters.
+- (c) (blocks nothing; founder decides later) `validate_disclosure.py`'s `tracked_files` and
+  `stale-guide` run git with the inherited environment, so under a git hook that sets `GIT_DIR`
+  for another repository they read that repository. Options: drop the repository-location
+  variables through a helper that `test_there_is_no_opt_out` allows; or leave it, since the
+  validator's hooks run in the repository they check. Recommendation: leave it until a hook path
+  shows the fault.

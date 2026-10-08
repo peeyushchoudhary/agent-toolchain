@@ -945,6 +945,43 @@ def check_stale_paths(root: Path, depth: dict[Path, int], files: list[Path], rep
             report.warn("stale-path", str(rel), f"cites `{path}`, which resolves nowhere")
 
 
+def check_stale_guides(root: Path, seeds: list[Path], report: Report) -> None:
+    """Warn when a folder's area guide predates commits to the folder's non-doc files.
+
+    Only scoped entry files count (`D` is their folder), and only guides they link under `D`.
+    A guide never committed, or any git failure, is skipped. A WARN, never an ERROR.
+    """
+    base, seen = root.resolve(), set()
+
+    def git(*args: str) -> str:
+        try:
+            r = subprocess.run(["git", "-C", str(base), *args], capture_output=True, text=True,
+                               timeout=30)
+        except (subprocess.SubprocessError, FileNotFoundError):
+            return ""
+        return r.stdout.strip() if r.returncode == 0 else ""
+
+    for entry in seeds:
+        d = entry.resolve().parent
+        if d == base or not entry.is_file():
+            continue
+        stripped = strip_code(read_doc(entry, root))
+        for t in MD_IMPORT.findall(stripped) + MD_LINK.findall(stripped):
+            guide = resolve(entry, t)
+            if (guide is None or guide.suffix.lower() != ".md" or not guide.is_file()
+                    or guide == entry.resolve() or not guide.is_relative_to(d)
+                    or (guide, d) in seen):
+                continue
+            seen.add((guide, d))
+            g = git("log", "-1", "--format=%H", "--", str(guide))
+            rel = d.relative_to(base).as_posix()
+            n = g and git("rev-list", "--count", f"{g}..HEAD", "--", f":(literal){rel}",
+                          ":(exclude,glob)**/*.md")
+            if n.isdigit() and int(n) > 0:
+                report.warn("stale-guide", str(guide.relative_to(base)),
+                            f"{n} commit(s) to {rel} since the guide last changed")
+
+
 def collect(args: argparse.Namespace, root: Path) -> tuple[Report, list[Path]]:
     """Run every check and return what was found. Raises `Unexaminable` and does not catch it.
 
@@ -989,6 +1026,7 @@ def collect(args: argparse.Namespace, root: Path) -> tuple[Report, list[Path]]:
     check_commands(root, list(depth), report)
     check_orphans(root, depth, files, report)
     check_scoped_coverage(root, files, depth, report)
+    check_stale_guides(root, seeds, report)
     check_stale_paths(root, depth, files, report)
     check_personas(root, report)
     # THE OPT-IN FAMILIES, and the one place their absence is recorded. Each flag-gated `check_*`
