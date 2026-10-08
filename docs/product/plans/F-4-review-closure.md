@@ -127,4 +127,15 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. Veri
 
 ## Decisions
 
+- 2026-10-08, T3 (default): `measurements.md` records F-3's final counts, not the counts this plan
+  quoted before F-3 M4 closed. M4 acceptance ran 5 rounds, 3 of them founder-granted, and rounds 2–4
+  blocked on one defect family: deciding where git runs hooks. F-3 had 8 founder decisions for
+  extra rounds, admitting 11 granted rounds across 4 subjects. The spec's Why is left as approved;
+  Q1 asks the founder whether to correct it.
+
 ## Queue
+
+- Q1 (blocks nothing): the spec's Why quotes F-3's counts as of M4 round 3 ("M4 4 rounds, 2
+  granted; 7 founder decisions"). Options: re-approve a one-line correction to the final counts
+  (M4 5 rounds, 3 granted; 8 decisions), or leave it, since `measurements.md` records the final
+  numbers. Recommendation: correct it at merge.
