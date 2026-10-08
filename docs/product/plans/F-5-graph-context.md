@@ -50,7 +50,8 @@ a temporary HOME and a stub `graphify` on PATH. They cover:
 - a missing or unknown `built_at_commit`;
 - doc-only changes, which are not counted as code;
 - an inherited `GIT_DIR` pointing elsewhere, which does not change the answer;
-- a hooks dir moved by `core.hooksPath`;
+- a hooks dir moved by `core.hooksPath`, including one set through `GIT_CONFIG_COUNT` while
+  `GIT_CONFIG` points at an empty file;
 - malformed `graph.json`, which prints nothing and exits 0;
 - the timeout path.
 

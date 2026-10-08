@@ -17,7 +17,7 @@ updated: 2026-10-08
 | Stale area guides | `progressive-disclosure/scripts/validate_disclosure.py` | a new `stale-guide` WARN beside `unscoped-dir`, which runs at commit, in the gate and at session start |
 | Codex route check | `install/install.sh` | Codex also gets `disclosure-check.sh` at SessionStart |
 | Planning rule | `execution-methodology/references/planning.md` | a task that changes what a guide states writes the guide |
-| Refresh hooks in git | `progressive-disclosure/scripts/install_hooks.py` (unchanged) | it already installs the graph refresh where git runs hooks; the status line points to it |
+| Refresh hooks in git | `progressive-disclosure/scripts/install_hooks.py` (unchanged) | it already installs the graph refresh only when `core.hooksPath` is unset; the status line points to it |
 | Bounded graph calls | `graph-navigation/scripts/graph_view.py` (new) | one command for the chief in either harness: freshness, refresh, then `explain` and `affected`, each under an in-process timeout |
 | Use in a goal run | `execution-methodology/references/context.md` (new), `references/run.md` (pointer) | the dispatch and acceptance steps |
 | Records | `lean-execution.md`, `decisions.md`, `measurements.md` | current state, and the numbers |
@@ -37,7 +37,9 @@ Input:
 
 Every git call runs with `cwd` at the project root, with a timeout of 5 s, and with the
 repository-location variables dropped (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR` and the
-like). git's config-environment variables are kept, matching `install_hooks.py`. `graphify reflect --if-stale` runs with a timeout of 20 s. A timeout drops that
+like) and `GIT_CONFIG`, which only `git config` reads. git's other config-environment variables
+are kept, so the hooks query sees what a running git sees, matching `install_hooks.py`.
+`graphify reflect --if-stale` runs with a timeout of 20 s. A timeout drops that
 check or the digest silently.
 
 Checks, in order. Each produces at most one line:
