@@ -193,6 +193,20 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
   confirmation is not used on its own task. The round-4 grant is archived as
   `verdicts/history/founder-grants-used-2.json`.
 
+- 2026-10-08, T1 (council, at the founder's request; `verdicts/T1-council-1..3.md`): before
+  round 5, close the exit family by construction instead of moving single checks. All three
+  members chose one admission contract over A alone, B (committed-only comparison) and D (split
+  `--closed-by` out). Under that contract, an invocation carrying `--closed-by` that is not
+  admitted exits 1. This covers parsing, context, argument checks, comparison and preparation
+  before the judge call. It calls no judge and leaves rounds, grants, confirmations, history and
+  digests unchanged. Before correction 5, members reproduced paths that still exited 2, such as a
+  missing or unknown task, acceptance with `--diff` or on a dirty tree, and a missing plan or
+  chief. After admission, behaviour is unchanged: a failed judge call still exits 2, and partial
+  persistence is not newly promised. A property test through `main()` covers argument
+  combinations and injected faults, and it tells refusal, judge failure and an admitted BLOCK
+  apart. The round-5 note maps each AC-3 property to its test, and the judge still reports
+  anything else it finds. This changes no criterion: AC-3 already says exit 1.
+
 - 2026-10-08: founder decision on F-5's setup step, recorded here because F-5 has not started.
   A measurement on clones found that a full `graphify update` costs 44–59 s on a large repository
   and, without `--force`, exits 1 without writing when the rebuild has fewer nodes than the
