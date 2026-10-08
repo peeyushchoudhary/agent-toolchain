@@ -2,25 +2,28 @@
 id: F-4
 title: Review closure that ends in fixes, not in grants
 spec: docs/product/specs/F-4-review-closure.md
-status: approved
-updated: 2026-10-07
+status: draft
+updated: 2026-10-08
 ---
 
 # F-4 design — review closure
 
 ## Structure
 
-There are three small changes, each made where the behaviour lives:
+There are six small changes, each made where the behaviour lives:
 
 | Gap | Where | Kind |
 | --- | --- | --- |
 | Keep list in correction packets (AC-1) | `references/run.md`, the dispatch step | rules text |
 | Defect family (AC-2) | `scripts/review.py`, the rereview packet; `references/review.md`, the closure rules | one packet sentence, plus rules text |
 | Test-closed confirmation (AC-3) | `scripts/review.py`, `--closed-by`, admission and recording; `references/review.md` | code, plus rules text |
+| Class correction at the first open-input finding (AC-2) | `references/review.md`, the closure rules | rules text |
+| Oracle tests and tested fix commands (AC-6) | `references/planning.md`, Writing tasks | rules text |
+| Acceptance packet coverage (AC-7) | `scripts/review.py`, the diff and the packet | code |
 
 `methodology.md` changes by one sentence in its Review paragraph. `docs/architecture/lean-execution.md`,
 `docs/decisions/decisions.md` and `docs/product/measurements.md` are updated to current state
-(AC-5).
+(AC-5), and `docs/agents/lessons.md` gains the git hook-location facts.
 
 ## Interfaces
 
@@ -65,6 +68,17 @@ across rounds, so every round of a task review records the same HEAD tree.
 - Every rereview packet (round > 1) adds one instruction: for each blocking finding, state whether
   it is a new instance of a finding under rereview, written as `family: same as <finding path>`.
 
+**Acceptance diff and coverage.** For acceptance, the diff range stays `<base>..HEAD`. Its path
+filter comes only from a declared partition: when the milestone's `acceptance:` list names more
+than one partition, the chief passes that partition's paths with `--subject` and `--partition`.
+For a single partition (`[all]`), `--subject` paths are reading context and never filter the
+diff. The packet adds one line, `diff covers <n> of <m> files changed in <milestone>`, with both
+counts from `git diff --name-only`.
+
+**Empty diff.** An acceptance or task review whose diff is empty (no changed path and, for a task
+review, no untracked file) is refused with exit 1 before the judge is called, and consumes
+nothing.
+
 **Cap arithmetic.** `admit()` counts only non-confirmation rounds against `cap`. Without a founder
 grant, a subject is limited to at most `cap + 1` judge calls. The founder grant still admits
 exactly one round past the cap, once per subject.
@@ -81,6 +95,17 @@ exactly one round past the cap, once per subject.
   - A new step covers families. When a rereview marks a finding `family: same as …`, the next
     correction targets the family: the mechanism, not the path. It is recorded in Decisions. A
     family fix that changes the design, the scope or a durable interface is queued for the founder.
+- **`review.md` Closure, open input.** A new step before the family step. A blocking finding whose
+  trigger lies in an open input space (environment or configuration, filesystem paths, an
+  external tool's behaviour, concurrency) is corrected at the class on the first round. The packet
+  states the invariant, or the narrower claim, that makes the class impossible, and lists the
+  sibling triggers the chief considered. The builder tests each of them. Narrowing the claim, for
+  example to an honest skip, is a valid class fix.
+- **`planning.md` Writing tasks.** Two rules, about 80 words:
+  - code that predicts an external tool's behaviour carries an oracle test, which runs the tool
+    under the same environment over the setups the code must handle and compares the decisions;
+  - a design or task that prints a fix command (in a status line, a refusal or an error) carries a
+    test that runs the command and shows that the condition clears.
 - **`methodology.md` Review paragraph.** One sentence names both rules, word-neutral across
   `SKILL.md`, `methodology.md` and `run.md`.
 
@@ -96,6 +121,15 @@ exactly one round past the cap, once per subject.
   confirmation that does not count, bounded at one per subject and admitted only against a
   changed test, makes step 1 real. The loop still terminates.
 
+- **AC-2, open input:** six of F-3's eleven blocking rounds were further instances of a family
+  already found, all in open input spaces. Correcting the class on the first finding costs one
+  packet paragraph; waiting for the repeat costs a round each time.
+- **AC-6:** M4's rounds 2–4 were each a locally reproducible test away, and F-5's three design
+  blocks were each a command run away. Two planning rules move that discovery before review.
+- **AC-7:** one wasted round came from a `--subject` that silently filtered the acceptance diff.
+  Taking the filter from the declared partition, refusing an empty diff and stating the coverage
+  close it in a few lines.
+
 ## Rejected options
 
 - **Raise the cap to 3:** it spends the extra round on any correction, not only a test-proven one.
@@ -108,5 +142,13 @@ exactly one round past the cap, once per subject.
   uncommitted task review, so the check would always pass.
 - **Parse `family:` lines in code:** the chief acts on them, and parsing would add a format that
   can drift. Prose suffices.
+- **Rate findings by likelihood or impact:** a rare but real correctness finding could then be
+  queued instead of fixed. Class correction removes most of the cost, and the founder declined
+  it (2026-10-08).
+- **Carry a PASS forward when the change misses a partition's paths:** F-3 spent four PASS rounds
+  on re-closes, but carrying a verdict across trees needs its own design and a measurement first.
+  It is queued.
+- **Prove the oracle in code (`review.py` runs the tests):** the judge reads the test against the
+  finding, as for `--closed-by`; a runner per language is more machinery than it saves.
 - **An LLM wiki, or graphify as the primary context:** out of scope here. The route and task packets
   stay; see the spec's Non-goals.

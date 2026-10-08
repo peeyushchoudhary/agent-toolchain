@@ -3,8 +3,8 @@ goal: F-4
 title: Review closure that ends in fixes, not in grants
 spec: docs/product/specs/F-4-review-closure.md
 design: docs/architecture/review-closure.md
-status: approved
-updated: 2026-10-07
+status: draft
+updated: 2026-10-08
 gate: rc=0; for d in execution-methodology agent-personas progressive-disclosure; do [ -d install/skills/$d/tests ] || continue; python3 -m unittest discover -s install/skills/$d/tests -t install/skills/$d/tests || rc=1; done; exit $rc
 full_gate: cd install && ./install.sh --dry-run && ./verify.sh
 e2e: python3 install/skills/execution-methodology/tests/smoke_goal.py --harness claude && python3 install/skills/execution-methodology/tests/smoke_goal.py --harness codex && python3 install/skills/execution-methodology/tests/smoke_review_closure.py
@@ -24,21 +24,21 @@ edit.
 
 ## M1 — corrections keep reasons, fix families, and confirm test-closed fixes without a grant
 
-criteria: AC-1, AC-2, AC-3, AC-4, AC-5
+criteria: AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7
 acceptance: [all]
 proofs:
 - AC-3: e2e
-- AC-2, AC-3: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_review*.py'
-- AC-1, AC-4, AC-5: full_gate
+- AC-2, AC-3, AC-7: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_review*.py'
+- AC-1, AC-4, AC-5, AC-6: full_gate
 
 **Sizing exception.** M1 has three tasks, below the minimum of four. The goal is three small
 rule changes, and splitting them further would add only dispatch overhead. No walking skeleton is
 needed: T1 is proven by its unit tests, and T2 and T3 are text.
 
-### [ ] T1 — `review.py`: test-closed confirmation and the family question
+### [ ] T1 — `review.py`: test-closed confirmation, the family question and acceptance coverage
 - writes: install/skills/execution-methodology/scripts/review.py, install/skills/execution-methodology/tests/test_review_closure.py, install/skills/execution-methodology/tests/smoke_review_closure.py
 - needs: —
-- covers: AC-2, AC-3, AC-4
+- covers: AC-2, AC-3, AC-4, AC-7
 - risk: boundary
 - builder: judgement
 - tests-may-change: —
@@ -49,7 +49,9 @@ Implement the design's Interfaces section:
   `confirmation:` in the verdict header;
 - the per-round `review/<key>-r<n>.files.json` digests;
 - the packet text that names the tests;
-- the rereview family instruction, for every round above 1.
+- the rereview family instruction, for every round above 1;
+- the acceptance diff filtered only by a declared partition, the empty-diff refusal, and the
+  coverage line in the acceptance packet.
 
 The new tests go in `test_review_closure.py` and cover:
 - admission at the cap;
@@ -62,7 +64,12 @@ The new tests go in `test_review_closure.py` and cover:
 - the counted rounds left after a confirmation;
 - the founder grant still admitting exactly one round past the cap after a confirmation;
 - the family sentence in a round-2 packet and its absence in round 1;
-- confirmation under the subject lock.
+- confirmation under the subject lock;
+- a single-partition acceptance with `--subject` paths, whose diff still covers the whole
+  milestone and whose packet lists the paths as reading context;
+- a multi-partition acceptance, whose diff is filtered to the partition's paths;
+- the coverage line's two counts;
+- an empty acceptance diff and an empty task diff, each refused with nothing consumed.
 
 Every unit test uses a stub judge, and none calls a real CLI. The existing tests stay unchanged and
 green.
@@ -75,31 +82,34 @@ green.
   tests.
 
 It costs two real judge calls.
-The methodology and persona code stays at or under 2,500 lines, with about 127 lines of headroom.
+The methodology and persona code stays at or under 2,500 lines, with about 127 lines of headroom;
+the coverage and empty-diff changes are expected to take about 15 of them.
 
 `risk: boundary` applies because `review.py`'s flags, `rounds.json` and the verdict header are
 interfaces that the driver, `goal.py` and every later goal depend on.
 
-### [ ] T2 — rules text: Keep list, family closure and confirmation
-- writes: install/skills/execution-methodology/methodology.md, install/skills/execution-methodology/references/run.md, install/skills/execution-methodology/references/review.md
+### [ ] T2 — rules text: Keep list, class and family closure, confirmation, oracle tests
+- writes: install/skills/execution-methodology/methodology.md, install/skills/execution-methodology/references/run.md, install/skills/execution-methodology/references/review.md, install/skills/execution-methodology/references/planning.md
 - needs: T1
-- covers: AC-1, AC-2, AC-3, AC-4
+- covers: AC-1, AC-2, AC-3, AC-4, AC-6
 - risk: none
 - builder: routine
 - tests-may-change: —
 
 Write the design's Rules-text section:
 - the `run.md` dispatch step gains the Keep list and the builder's stop rule;
-- the `review.md` Closure section makes step 1 executable with `--closed-by`, adds the family step,
-  and restates the cap arithmetic;
+- the `review.md` Closure section makes step 1 executable with `--closed-by`, adds the
+  open-input class step and the family step, and restates the cap arithmetic;
+- `planning.md`'s Writing tasks section gains the oracle-test and tested-fix-command rules;
 - the `methodology.md` Review paragraph gets one sentence.
 
 The text must match T1's flags and file names exactly. `run.md` is at the 3,000-word role-load
-budget, so the additions are offset by trims in `run.md` that lose no rule. Verify with
+budget, so the additions are offset by trims in `run.md` that lose no rule. `review.md` and
+`planning.md` have about 600 and 390 words of role-load headroom. Verify with
 `install/tests/test_size.py`.
 
 ### [ ] T3 — records to current state
-- writes: docs/architecture/lean-execution.md, docs/decisions/decisions.md, docs/product/measurements.md
+- writes: docs/architecture/lean-execution.md, docs/decisions/decisions.md, docs/product/measurements.md, docs/agents/lessons.md
 - needs: T2
 - covers: AC-5
 - risk: none
@@ -116,10 +126,19 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. Veri
   so the source is the F-3 plan's Decisions and this goal's spec. Give these numbers:
   - M3 acceptance: 5 rounds per partition, 3 of them founder-granted;
   - T9 security: 4 rounds, 2 founder-granted;
-  - M4 acceptance: rounds 1–3 on the same defect family, 2 founder-granted;
-  - founder grants for extra rounds: 7 in all.
+  - M4 acceptance: 5 rounds, 3 founder-granted, rounds 2–4 one defect family;
+  - blocking rounds: 11, of which 6 were further instances of a family already found and 1 a
+    correction that removed an earlier fix;
+  - founder decisions admitting extra rounds: 8, for 11 rounds past the cap.
 
   Use no private identifiers.
+- **`lessons.md`:** two durable facts, each with its evidence.
+  - git runs hooks from the directory `git rev-parse --git-path hooks` names, which `core.hooksPath`
+    moves and which linked worktrees share. `GIT_CONFIG` changes only what `git config` reads. A
+    claim about where hooks run is safest narrowed to "`core.hooksPath` is unset".
+  - git runs a hook from the root of the worktree that ran the command, so graphify's hook
+    refreshes only that worktree's untracked graph. In a worktree without a graph, graphify's
+    post-commit hook creates one holding only the changed files.
 
 ## Grants requested
 
@@ -127,15 +146,18 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. Veri
 
 ## Decisions
 
-- 2026-10-08, T3 (default): `measurements.md` records F-3's final counts, not the counts this plan
-  quoted before F-3 M4 closed. M4 acceptance ran 5 rounds, 3 of them founder-granted, and rounds 2–4
-  blocked on one defect family: deciding where git runs hooks. F-3 had 8 founder decisions for
-  extra rounds, admitting 11 granted rounds across 4 subjects. The spec's Why is left as approved;
-  Q1 asks the founder whether to correct it.
+- 2026-10-08, T3 (default, superseded the same day by the amendment below): `measurements.md`
+  records F-3's final counts rather than those quoted before F-3 M4 closed.
+- 2026-10-08: founder decisions after the review-round analysis. F-4 is amended with four
+  learnings before execution: class correction at the first open-input finding (AC-2), oracle
+  tests and tested fix commands (AC-6), and acceptance coverage with the empty-diff refusal
+  (AC-7); the spec's counts are corrected to F-3's final numbers. The amendment gets one
+  founder-granted review round of design and plan, then re-approval. Likelihood or impact rating
+  of findings is declined. `goal/F-4/approved` moves to the re-approved commit.
 
 ## Queue
 
-- Q1 (blocks nothing): the spec's Why quotes F-3's counts as of M4 round 3 ("M4 4 rounds, 2
-  granted; 7 founder decisions"). Options: re-approve a one-line correction to the final counts
-  (M4 5 rounds, 3 granted; 8 decisions), or leave it, since `measurements.md` records the final
-  numbers. Recommendation: correct it at merge.
+- Q2 (blocks nothing): carry a PASS forward to a new tree when the change misses a partition's
+  paths. F-3 spent four PASS rounds on re-closes. Options: design it as its own goal after a
+  measurement of re-close cost across goals; or keep re-closing. Recommendation: measure first,
+  over F-4 and F-5.
