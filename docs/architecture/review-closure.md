@@ -40,8 +40,8 @@ It is admitted only when all of these hold:
 3. Every named path exists in the working tree, and its SHA-256 differs from its content at the
    subject's last round. That content is:
    - the digest recorded for the path at that round, when the round recorded it;
-   - otherwise, the blob at that path in that round's verdict `tree`, because a path the round did
-     not record did not differ from the round's base;
+   - otherwise, the blob at that path in that round's verdict `tree`, for a path the round did not
+     record;
    - otherwise, nothing: the path did not exist then, so a new file counts as changed.
 
    An unchanged tracked test outside the last round's diff is therefore refused.
@@ -52,13 +52,17 @@ as `confirmations[key] = <round number>`.
 
 Round numbers stay sequential, so a confirmation is round n+1 in history and in the verdict.
 
-**Per-round file digests.** Each round of a subject writes `review/<key>-r<n>.files.json`, mapping
-every changed path to its SHA-256. The changed paths are those `git diff --name-only` reports for
-the round's range, plus every path whose working-tree content differs from the round's verdict
-tree, plus untracked files, whatever the range. An unrecorded path is therefore identical to the
-verdict tree at that round. A deleted path maps to `null`, so a review of a deletion still
-completes. When the comparison cannot be made (the verdict tree is missing, or a git call fails),
-`--closed-by` refuses. This is the only new state.
+**Per-round file digests.** Each round of a subject writes `review/<key>-r<n>.files.json`, a full
+snapshot of the working state. It maps the SHA-256 of the working-tree bytes of every path
+`git ls-files --cached --others --exclude-standard` lists, plus every path in the round's verdict
+tree, so a path absent from disk maps to `null`. The snapshot is not derived from `git diff`.
+Renames, index flags such as `assume-unchanged` and `skip-worktree`, and diff options therefore
+cannot hide a path. The verdict-tree tier of the comparison is reached only for an ignored path,
+which `--closed-by` refuses anyway. A review of a deletion still completes. After the judge
+returns, the round takes the snapshot again. If it differs, the round is not recorded: no verdict,
+count, grant or confirmation is written, it exits 2, and it must be rerun, because the judge may
+have read bytes the snapshot does not hold. When the comparison cannot be made (the verdict tree
+is missing, or a git call fails), `--closed-by` refuses. This is the only new state.
 
 It closes a gap that the verdict's `tree` cannot cover. A task review's work stays uncommitted
 across rounds, so every round of a task review records the same HEAD tree.

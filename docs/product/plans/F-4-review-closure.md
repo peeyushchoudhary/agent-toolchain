@@ -207,6 +207,17 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
   apart. The round-5 note maps each AC-3 property to its test, and the judge still reports
   anything else it finds. This changes no criterion: AC-3 already says exit 1.
 
+- 2026-10-08: founder decision on T1's boundary review round 5. The council's exit contract held.
+  Two findings, both reproduced by the controller, were new members of the round 1–2 class: the
+  snapshot derived from `git diff` omitted a staged rename's source and an `assume-unchanged`
+  file. The third was a test edited while the judge ran. The founder chose a full snapshot, every
+  path `git ls-files --cached --others --exclude-standard` lists plus every path in the verdict
+  tree, hashed from disk, so AC-3's tiers stay as written. The founder also chose a drift check: a
+  round whose snapshot changes while the judge runs is not recorded and exits 2. The design's
+  per-round digests paragraph changes accordingly. Then one founder-granted boundary round
+  (round 6); `goal/F-4/approved` moves to this commit. The round-5 grant is archived as
+  `verdicts/history/founder-grants-used-3.json`.
+
 - 2026-10-08: founder decision on F-5's setup step, recorded here because F-5 has not started.
   A measurement on clones found that a full `graphify update` costs 44–59 s on a large repository
   and, without `--force`, exits 1 without writing when the rebuild has fewer nodes than the
