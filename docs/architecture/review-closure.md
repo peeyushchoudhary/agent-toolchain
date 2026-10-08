@@ -2,7 +2,7 @@
 id: F-4
 title: Review closure that ends in fixes, not in grants
 spec: docs/product/specs/F-4-review-closure.md
-status: draft
+status: approved
 updated: 2026-10-07
 ---
 

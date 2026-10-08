@@ -3,7 +3,7 @@ goal: F-4
 title: Review closure that ends in fixes, not in grants
 spec: docs/product/specs/F-4-review-closure.md
 design: docs/architecture/review-closure.md
-status: draft
+status: approved
 updated: 2026-10-07
 gate: rc=0; for d in execution-methodology agent-personas progressive-disclosure; do [ -d install/skills/$d/tests ] || continue; python3 -m unittest discover -s install/skills/$d/tests -t install/skills/$d/tests || rc=1; done; exit $rc
 full_gate: cd install && ./install.sh --dry-run && ./verify.sh
