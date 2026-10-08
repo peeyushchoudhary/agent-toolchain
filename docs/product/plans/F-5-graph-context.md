@@ -27,7 +27,7 @@ edit.
 criteria: AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7
 acceptance: [all]
 proofs:
-- AC-1: python3 -m unittest discover -s install/skills/graph-navigation/tests -t install/skills/graph-navigation/tests
+- AC-1, AC-7: python3 -m unittest discover -s install/skills/graph-navigation/tests -t install/skills/graph-navigation/tests
 - AC-2: python3 -m unittest discover -s install/tests -t install/tests -p 'test_install.py'
 - AC-1, AC-7: python3 -m unittest discover -s install/skills/progressive-disclosure/tests -t install/skills/progressive-disclosure/tests -p 'test_install_hooks_*.py'
 - AC-1, AC-2, AC-7: e2e
@@ -43,7 +43,7 @@ committed tree at that commit.
 
 ### [ ] T2 — both harnesses get the graph hooks
 - writes: install/install.sh, install/verify.sh, install/README.md, install/tests/test_install.py, install/tests/smoke_graph_hooks.py, install/hooks/graphify-query-advisor.py, docs/agents/what-gets-installed.md
-- needs: T6, T7
+- needs: T5, T6, T7
 - covers: AC-1, AC-2, AC-6, AC-7
 - risk: boundary
 - builder: judgement
@@ -60,11 +60,22 @@ Do the following:
   - For each harness, it builds a fixed fixture under `~/.cache/graph-smoke/<harness>`: a git
     repository with a `graph.json` and saved lessons, and project-level hooks registering
     `disclosure-check.sh`, `graphify-session-lessons.sh` and the advisor.
-  - The fixture also has a source folder without a scoped entry file, so `disclosure-check.sh`
-    has a finding to report.
-  - It runs one short real session and asserts three things: `disclosure-check.sh`'s route
-    finding reached the session's context, the lessons digest was injected, and a prose
-    `graphify query` drew the advisor's ladder.
+  - The fixture also has a source folder whose scoped entry file links an area guide, with one
+    commit to a non-doc file in that folder after the guide's last commit, so this tree's
+    `stale-guide` has a finding to report.
+  - **This checkout's validator, by a HOME override inside the hook command.**
+    `disclosure-check.sh` loads its validator from `$HOME/.claude/skills/progressive-disclosure/`,
+    so an installed copy that predates T5 would answer instead of this tree. At every run the
+    smoke copies this checkout's `install/skills/progressive-disclosure/` afresh to
+    `<fixture-home>/.claude/skills/progressive-disclosure/`, and the fixture registers the hook
+    as `env HOME=<fixture-home> bash <checkout>/install/hooks/disclosure-check.sh`. Only the hook
+    process sees that HOME; the harness keeps its own, so its login is untouched, and the command
+    string stays fixed, so Codex's stored trust hash still matches.
+  - It runs one short real session and asserts three things: the line
+    `stale-guide <guide>: 1 commit(s) to <folder> since the guide last changed` reached the
+    session's context, the lessons digest was injected, and a prose `graphify query` drew the
+    advisor's ladder. No pre-existing route warning satisfies the first assertion, because no
+    validator before T5 prints `stale-guide`.
   - When the real `graphify` is on PATH, it also checks AC-1 and AC-7 against graphify itself,
     and is the only owner of the cross-worktree check. In a throwaway repository that ignores
     `/graphify-out/`, with a graph in
@@ -182,39 +193,54 @@ code.
 ### [ ] T6 — the bounded graph runner and graph setup
 - writes: install/skills/graph-navigation/scripts/graph_view.py, install/skills/graph-navigation/tests/test_graph_view.py, install/skills/graph-navigation/SKILL.md, .gitignore
 - needs: T7
-- covers: AC-1, AC-3
-- risk: none
+- covers: AC-1, AC-3, AC-7
+- risk: safety
 - builder: judgement
 - tests-may-change: —
 
 Implement the design's `graph_view.py setup` and `graph_view.py view` interfaces: the step order
-(hooks, the ignore check, then the build), the advisory contract A1–A6, `--no-bound`, `view`'s
-label and `--refresh`, and the command (cwd at the graph root, `update . --force`, every
-`GRAPHIFY_*` dropped). Add `/graphify-out/` to this repository's `.gitignore`, beside `/.runs/`,
-with a one-line reason; setup requires the graph directory to be ignored.
+(hooks, the ignore check, then the build), the advisory contract A1–A6, the printed commands and
+the one failure line, `--no-bound`, `view`'s label, single read and `--refresh`, and the command
+(cwd at the graph root, `update . --force`, every `GRAPHIFY_*` dropped). Add `/graphify-out/` to
+this repository's `.gitignore`, beside `/.runs/`, with a one-line reason; setup requires the
+graph directory to be ignored. `risk: safety` applies because a build writes through any
+symlinked artifact, which A5's refusal closes.
 
 The stub-`graphify` tests use temporary repositories, a temporary HOME, and a stub that records
 its cwd, argv and environment. Like graphify 0.8.49, it writes its path argument into
-`.graphify_root` and `built_at_commit` into `graph.json`, and it can be told to hang or fail.
-Simpler than graphify, it refuses with exit 1 any graph with fewer nodes than the existing one
-unless `--force` is given; the oracle test below records graphify's real rule.
+`.graphify_root` first, then `graph.json` with `built_at_commit` and `GRAPH_REPORT.md`, writing
+through symlinks as `Path.write_text` does, and it can be told to hang or fail after writing
+`.graphify_root`. Its `explain` and `affected` honour `--graph <path>` and print the
+`built_at_commit` they read. Simpler than graphify, it refuses with exit 1 any graph with fewer
+nodes than the existing one unless `--force` is given; the oracle test below records graphify's
+real rule.
 
 Tests in `test_graph_view.py`, each named:
 - **Labels (A4).**
-  - `test_label_behind_by_n`: a graph built at A with three commits since prints
+  - `test_label_behind_by_n`: a graph built at an ancestor with three commits since prints
     `graph built at <A> (3 commits behind HEAD); advisory — confirm with grep`, on stdout and as
     the first line of every output file.
+  - `test_label_ahead_of_head`: a graph built at a descendant of HEAD (HEAD checked out two
+    commits back) prints `(0 commits behind HEAD, 2 ahead)`.
+  - `test_label_diverged`: a graph built on a branch with two commits HEAD lacks, HEAD three
+    commits past the merge base, prints `(3 commits behind HEAD, 2 ahead)`.
   - `test_label_unknown_commit`: `built_at_commit` missing, and set to a commit git does not know,
     each print `graph build commit unknown; advisory — confirm with grep`.
   - `test_label_full_build_at_head`: a stamp whose `head` is HEAD and whose `sha256` matches adds
     `full build by setup at HEAD`; a mismatched sha256, or a stamp at an older commit, does not.
+- **One read (A4).** `test_view_single_read`: the stub's `explain` replaces `graph.json` with a
+  graph built at another commit before it answers; the label, the stamp comparison and every
+  result still name the first read's `built_at_commit`, the stub received `--graph` naming a
+  snapshot outside the repository, and the snapshot is gone after `view` exits.
 - **No automatic rebuild (A4).** `test_view_never_rebuilds_on_its_own`: over a graph 50 commits
   behind, an unparsable stamp and a missing stamp, `view` runs no `update` and writes no stamp.
 - **`--refresh` (A4).** `test_view_refresh_rebuilds_and_stamps`: runs one `update . --force` from
   the graph root, writes the stamp, and the label then adds `full build by setup at HEAD`; with
-  no symbols it only refreshes. `test_view_refresh_timeout`: a hanging refresh (bound shortened)
-  writes no stamp, prints the timeout line and goes on with the existing graph; running the
-  printed `view --refresh --no-bound` writes the stamp (planning.md's tested-fix-command rule).
+  no symbols it only refreshes. `test_view_refresh_failure_line`: a hanging refresh (bound
+  shortened), and separately a failing one, each delete the old stamp, write none, print
+  `graph build <reason>; retry with: python3 <graph_view.py> view --root <worktree> --refresh
+  --out <dir> <Symbol> --no-bound` and go on with the existing graph; running the printed
+  command writes the stamp and the symbol's file (planning.md's tested-fix-command rule).
 - **A2's triggers, each building once and stamping:** `test_setup_builds_without_graph`,
   `test_setup_builds_unparsable_graph`, `test_setup_builds_foreign_graphify_root` (an absolute
   path, and `sub`), `test_setup_builds_without_stamp` (a parsing graph at HEAD with no stamp, and
@@ -222,11 +248,34 @@ Tests in `test_graph_view.py`, each named:
 - **The no-build control.** `test_setup_no_build_with_stamp`: a parsing graph, `.graphify_root`
   absent or `.`, and a stamp, even with the graph 20 commits behind HEAD and a sha256 that no
   longer matches; setup runs no `update` and prints `graph ready`.
-- **Timeout and fix (A2).** `test_setup_timeout_writes_no_stamp`: a hanging build (bound
-  shortened) writes no stamp and prints the `setup --no-bound` line; running that printed command
-  writes the stamp, and a further setup prints `graph ready` (tested-fix-command rule).
-  `test_setup_failure_line`: a failing build prints its retry line; the retry, once the stub is
-  fixed, writes the stamp.
+- **The one failure line (A2, design's Printed commands).** `test_setup_timeout_writes_no_stamp`:
+  a hanging build (bound shortened) writes no stamp and prints
+  `graph build timed out after <s> s; retry with: python3 <graph_view.py> setup --root
+  <worktree> --no-bound`; running that printed command writes the stamp, and a further setup
+  prints `graph ready` (tested-fix-command rule). `test_setup_failure_line`: a failing build
+  prints the same line with `failed (exit <n>)` and the same retry command; the retry, once the
+  stub is fixed, writes the stamp.
+- **Stale stamp after a failed build (A2).** `test_failed_build_deletes_old_stamp`: a valid stamp
+  from an earlier build and a foreign `.graphify_root` start a build; the stub writes `.` into
+  `.graphify_root` and then fails, once with a nonzero exit and once by hanging past the bound.
+  Each time no stamp remains, and the next setup builds again (its reason names the missing
+  stamp) instead of printing `graph ready`.
+- **`--root` in the fix line.** `test_fix_line_repeats_root`: `setup --root B`, run from worktree
+  A, times out on B's build; the printed command names `--root <B>`, running it from A writes B's
+  stamp, and A's graph directory is unchanged. The same holds for the ignore line and the symlink
+  line, each run from A with `--root B`.
+- **Symlinked artifacts (A5).** `test_symlinked_artifact_refused`: `graphify-out/GRAPH_REPORT.md`
+  is a symlink to a tracked file. Setup, and `view --refresh`, each print
+  `graph build refused: <path> is a symlink; remove it, then rerun: <rerun>`, run no `update`,
+  leave the old stamp and the tracked file byte for byte, and exit 0; the tree is clean. The same
+  refusal holds when `graphify-out/` itself is a symlink to a directory outside the repository,
+  with `.gitignore` ignoring `/graphify-out` so the ignore check passes, and nothing is written in
+  the target. Removing the symlink and running the printed command builds and writes the stamp
+  (tested-fix-command rule).
+- **Both hooks checked (A3, AC-7).** `test_setup_checks_post_checkout_guard`: `post-commit`
+  carries the guard immediately before graphify's block while `post-checkout` has graphify's
+  block unguarded; setup runs `install_hooks.py --graph-only`, and both hooks then carry the
+  guard. With both guarded, setup installs nothing.
 - **Ignore check (A5), both commands.** `test_setup_unignored_writes_nothing` and
   `test_view_unignored_writes_nothing`, at the root and for a child graph: each prints the entry
   line, writes nothing under the graph directory, leaves tracked graph artifacts byte for byte,
@@ -254,7 +303,8 @@ The other `view` tests cover:
 - no graph, and graphify missing, each of which prints a fallback line;
 - a hanging `affected`, which times out and falls back, with the timeout shortened for the test;
 - exit 0 in every case;
-- no writes outside `--out` and, with `--refresh`, an ignored `graphify-out/`.
+- no writes outside `--out`, the removed snapshot and, with `--refresh`, an ignored
+  `graphify-out/`.
 
 **Oracle test** (planning.md's oracle-test rule), `test_oracle_setup_build_then_label`. When the
 real `graphify` is on PATH, it runs graphify under setup's environment (cwd at the graph root,
@@ -277,8 +327,9 @@ printing one line with graphify's version. Without graphify, it prints a skip li
 
 Add one line to `SKILL.md` naming `setup` and `view` for goal runs.
 
-Expected size: `graph_view.py` about 230 lines, down from about 260. No ceiling in
-`test_size.py` covers `graph-navigation`.
+Expected size: `graph_view.py` about 260 lines: the advisory label saves about 30 against the
+freshness rule, and the symlink check, the single read and the printed-command builder add about
+30. No ceiling in `test_size.py` covers `graph-navigation`.
 
 ### [ ] T4 — measurements and records
 - writes: docs/product/measurements.md, docs/decisions/decisions.md, docs/architecture/lean-execution.md
@@ -418,17 +469,17 @@ No LLM tokens are used; the cost is wall-clock time and memory.
     trust pre-check stays, so a stale trust is reported, not skipped.
   - (default) `.gitignore` goes in T6, which brings in setup; T6's builder is `judgement`, over
     `routine`, because it carries the advisory contract, its label and an oracle test.
+    Round 7 sets T6's `risk: safety`, for A5's symlink refusal.
   - (default) T3 offsets every `run.md` addition with a trim that loses no rule; `run.md` is at
     2,999 of 3,000 words.
-  - (default) Setup prints `graph built: <reason>` on a build, a failure line on a nonzero exit,
-    and `graph ready` when it builds nothing.
-  - (default) The timeout line's fix command is `python3 <graph_view.py> setup --no-bound`, over
+  - (default) Setup prints `graph built: <reason>` on a build, the failure line on a timeout or a
+    nonzero exit, and `graph ready` when it builds nothing.
+  - (default) The failure line's fix command is the invocation itself with `--no-bound`, over
     `graphify update . --force`. A by-hand graphify build writes no completion stamp, so the next
     bounded setup would rebuild and could time out again, and the printed command would not clear
     the condition (planning.md's tested-fix-command rule). `--no-bound` lifts only the bound, and
-    the build it runs writes the stamp.
-  - (default, round 6) `view --refresh`'s timeout line names
-    `python3 <graph_view.py> view --root <root> --refresh --no-bound`, for the same reason.
+    the build it runs writes the stamp. Round 7 made it one line for both causes, carrying the
+    invocation's own `--root` and arguments, for setup and `view --refresh` alike.
   - (default, round 6) A stamp that does not parse counts as missing, so setup builds.
   - (default) Under `core.hooksPath`, or with a child graph, setup installs nothing and builds only
     under A2's conditions; hooks under `core.hooksPath` stay F-3 Queue Q7's.
@@ -505,7 +556,39 @@ No LLM tokens are used; the cost is wall-clock time and memory.
      completeness claim, no automatic rebuild). Every criterion that promised a fresh or complete
      graph is withdrawn in that wording.
   3. **Round 7.** One more granted design and plan review follows this correction; the controller
-     runs it. Re-approval and the tag follow its pass, in the sequence above.
+     runs it. Re-approval and the tag follow its pass, in the sequence above. (Superseded by
+     round 7 below: re-approval follows the controller's verification, not a pass.)
+
+- 2026-10-08: founder decisions on the amendment review's round 7. Design and plan blocked on
+  eight findings, three on the design and five on the plan.
+  1. **Fix all eight, each with a planned test.** The design's A-list and Interfaces carry each
+     fix, and T6, or the named task, names its test:
+     - a failed or timed-out build leaves no stamp, because setup and `view --refresh` delete it
+       before any build (A2; `test_failed_build_deletes_old_stamp`);
+     - setup and `view --refresh` refuse to build when `graphify-out/` or an entry directly in it
+       is a symlink (A5; `test_symlinked_artifact_refused`), so T6 is `risk: safety`;
+     - the label counts both sides, `<B> commits behind HEAD, <A> ahead` (A4;
+       `test_label_ahead_of_head`, `test_label_diverged`, `test_label_behind_by_n`);
+     - `view` reads `graph.json` once and derives the label and every result from those bytes
+       through a `--graph` snapshot (A4; `test_view_single_read`);
+     - every printed command repeats the invocation's own `--root` and arguments (Printed
+       commands; `test_fix_line_repeats_root`);
+     - setup checks `post-checkout` as well as `post-commit` for the guard (step 5;
+       `test_setup_checks_post_checkout_guard`);
+     - T2's smoke runs this checkout's `validate_disclosure.py` and `disclosure-check.sh` through
+       a HOME override inside the fixture's hook command, and asserts the `stale-guide` line
+       (T2; T2 now needs T5);
+     - one failure line for a timeout and a nonzero exit, whose retry is `<rerun> --no-bound` in
+       both (One failure line; `test_setup_timeout_writes_no_stamp`, `test_setup_failure_line`,
+       `test_view_refresh_failure_line`).
+  2. **Verification, then re-approval, with no round 8.** The controller verifies the fixes;
+     re-approval and the tag follow, in the sequence above. T6's task review and M1's
+     cross-vendor acceptance re-judge each of the eight against the code.
+  3. **Criteria changes.** AC-1 (both hooks, the symlink refusal, stamp deletion, the one failure
+     line, `<rerun>`) and AC-3 (the two-sided label, the single read, `view --refresh`'s failure
+     line) change with these fixes, as the founder's decision to fix all eight requires; the
+     spec's `edge_cases` add diverged-build-commit, concurrent-refresh,
+     failed-build-after-stamp and symlinked-artifact.
 
 ## Queue
 
