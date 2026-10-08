@@ -110,8 +110,9 @@ Cross-vendor review runs at design, plan and milestone acceptance; the security 
 tasks get no per-task review, because the gate, guards and acceptance already cover them and
 per-task review measured little yield. Only `correctness`, `safety` or `requirement` findings with a
 reachable trigger and an observable consequence block. Each subject gets at most one correction and
-one scoped rereview. Details, judge isolation and acceptance partitions are in
-[references/review.md](references/review.md).
+one scoped rereview; a test-closed fix is confirmed with `--closed-by` without spending the cap.
+Corrections list what to keep and fix the defect family. Details, judge isolation and acceptance
+partitions are in [references/review.md](references/review.md).
 
 ## Decisions during a run
 

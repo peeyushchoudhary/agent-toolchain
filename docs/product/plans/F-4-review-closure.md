@@ -87,7 +87,7 @@ the coverage changes are expected to take about 10 of them.
 `risk: boundary` applies because `review.py`'s flags, `rounds.json` and the verdict header are
 interfaces that the driver, `goal.py` and every later goal depend on.
 
-### [ ] T2 — rules text: Keep list, class and family closure, confirmation, oracle tests
+### [x] T2 — rules text: Keep list, class and family closure, confirmation, oracle tests
 - writes: install/skills/execution-methodology/methodology.md, install/skills/execution-methodology/references/run.md, install/skills/execution-methodology/references/review.md, install/skills/execution-methodology/references/planning.md
 - needs: T1
 - covers: AC-1, AC-2, AC-3, AC-4, AC-6

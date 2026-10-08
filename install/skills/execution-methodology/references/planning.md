@@ -130,3 +130,9 @@ not schedule two tasks whose writes overlap. Put the test a task adds inside its
 in `tests-may-change` exactly the existing tests a task may change, with the reason in its notes;
 a broad entry hides the tampering the guard exists to catch. Mark `risk` honestly: it is the only
 thing that buys a task-level review.
+
+- Code that predicts an external tool's behaviour carries an oracle test. It runs the tool under
+  the same environment over the setups the code must handle, and compares the decisions. A test
+  that asserts the code's own guess proves nothing.
+- A design or task that prints a fix command (in a status line, a refusal or an error) carries a
+  test that runs the command and shows the condition clears.

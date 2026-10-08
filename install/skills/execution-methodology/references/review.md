@@ -57,18 +57,38 @@ models follow that literally and under-report. Each finding carries a class:
 ## Closure
 
 1. Where it can, turn a blocking finding into a test that fails before the fix and passes after
-   it. The gate then proves closure and no rereview is needed.
-2. Otherwise run one scoped rereview of the correction: the finding, the fix, nothing else.
-3. If the subject is still blocked after that rereview, the loop ends:
+   it. The gate then proves closure. A subject that needs a fresh PASS is confirmed when every
+   blocking finding of the last round is closed by a named test the correction added or changed:
+   rerun with `review.py ... --closed-by TEST ...` (each `path` or `path::name`). The packet names
+   the tests, and the judge checks that they reproduce the findings. The confirmation is
+   admitted only when the subject's last verdict is BLOCK and every named path differs, byte for
+   byte, from its content at that round (a new file counts). It is recorded in `rounds.json` under
+   `confirmations` and as `confirmation: closed-by <TEST ...>` in the verdict header, and it is
+   not counted toward the cap. A subject gets one confirmation, never with `--founder-grant`. A
+   refusal exits 1 and consumes nothing.
+2. **Open input.** When a blocking finding's trigger lies in an open input space (environment or
+   configuration, filesystem paths, an external tool's behaviour, concurrency), correct the class
+   on the first round. The packet states the invariant, or the narrower claim, that makes the class
+   impossible, and lists the sibling triggers the chief considered. The builder tests each one.
+   Narrowing the claim, for example to an honest skip, is a valid class fix.
+3. Otherwise run one scoped rereview of the correction: the finding, the fix, nothing else. The
+   packet asks the judge to mark each blocking finding that is a new instance of a finding under
+   rereview, the same mechanism on a different path, as `family: same as <finding path>`.
+4. **Family.** The next correction targets the marked family, the mechanism and not the path, and
+   is recorded in Decisions. A family fix that changes the design, the scope or a durable
+   interface is queued for the founder.
+5. If the subject is still blocked after that rereview, the loop ends:
    - **design or plan:** the issue goes to the founder at approval;
    - **risk review:** the task is parked;
    - **acceptance:** the milestone is NOT READY and is queued for the founder with the advisor's
      recommendation attached.
 
-Each subject gets at most one correction and one scoped rereview. `review.py` refuses a third round
-on a subject, and no escalation buys an extra round. A renamed attempt is the same subject.
-Only the founder can grant one round past the cap, once per subject (`--founder-grant`), and the
-grant is recorded with the verdict.
+Each subject gets at most one correction and one scoped rereview, the two counted rounds.
+Without a founder grant, `review.py` admits at most one further, uncounted confirmation, so a
+subject takes at most three judge calls, and it refuses any other round. No escalation buys an
+extra round. A renamed attempt is the same subject. Only the founder can grant one round past the
+cap, once per subject (`--founder-grant`), and the grant is recorded with the verdict.
+A round whose files change while the judge runs is not recorded and exits 2; rerun it.
 The cap is what guarantees a review loop ends; earlier runs without one looped on the same
 subject.
 
@@ -93,5 +113,6 @@ Verdicts are written under `.runs/<goal>/verdicts/`:
 
 The first line is `VERDICT: PASS` or `VERDICT: BLOCK`. Header lines follow as `key: value`:
 `vendor`, `model`, `effort`, `tree` and `round`, plus the fallback reason when the same vendor
-judged. The findings come after, each with its class, trigger, consequence and the path it
-concerns. `goal.py done` and `goal.py evidence` read the first line and the header.
+judged and `confirmation` for a test-closed confirmation. The findings come after, each with its
+class, trigger, consequence and the path it concerns. `goal.py done` and `goal.py evidence` read the
+first line and the header.
