@@ -50,8 +50,8 @@ Implement the design's Interfaces section:
 - the per-round `review/<key>-r<n>.files.json` digests;
 - the packet text that names the tests;
 - the rereview family instruction, for every round above 1;
-- the acceptance diff filtered only by a declared partition, the empty-diff refusal, and the
-  coverage line in the acceptance packet.
+- the acceptance diff filtered only by a declared partition, and the coverage line in the
+  acceptance packet.
 
 The new tests go in `test_review_closure.py` and cover:
 - admission at the cap;
@@ -68,8 +68,7 @@ The new tests go in `test_review_closure.py` and cover:
 - a single-partition acceptance with `--subject` paths, whose diff still covers the whole
   milestone and whose packet lists the paths as reading context;
 - a multi-partition acceptance, whose diff is filtered to the partition's paths;
-- the coverage line's two counts;
-- an empty acceptance diff and an empty task diff, each refused with nothing consumed.
+- the coverage line's two counts, including `0 of <m>` for an empty diff.
 
 Every unit test uses a stub judge, and none calls a real CLI. The existing tests stay unchanged and
 green.
@@ -83,7 +82,7 @@ green.
 
 It costs two real judge calls.
 The methodology and persona code stays at or under 2,500 lines, with about 127 lines of headroom;
-the coverage and empty-diff changes are expected to take about 15 of them.
+the coverage changes are expected to take about 10 of them.
 
 `risk: boundary` applies because `review.py`'s flags, `rounds.json` and the verdict header are
 interfaces that the driver, `goal.py` and every later goal depend on.
@@ -119,9 +118,10 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
 - **`lean-execution.md`:** the review section states the Keep list, family closure and the
   uncounted test-closed confirmation as current state. It names the per-round digests in the
   `review.py` row.
-- **`decisions.md`:** a new decision, D28, gives the reason (F-3's five founder grants for extra
-  rounds, and the M4 regression) and the alternatives it beat (cap 3, advisor grants, pre-fix test
-  execution), in a few lines.
+- **`decisions.md`:** a new decision, D28, gives the reason (F-3's eight founder decisions admitting
+  11 rounds past the cap, six blocking rounds that were further instances of a known family, and
+  the M4 regression) and the alternatives it beat (cap 3, advisor grants, pre-fix test execution,
+  impact rating), in a few lines.
 - **`measurements.md`:** an "F-3 review rounds — 2026-10-08" section. `.runs/` is not committed,
   so the source is the F-3 plan's Decisions and this goal's spec. Give these numbers:
   - M3 acceptance: 5 rounds per partition, 3 of them founder-granted;
@@ -133,9 +133,10 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
 
   Use no private identifiers.
 - **`lessons.md`:** two durable facts, each with its evidence.
-  - git runs hooks from the directory `git rev-parse --git-path hooks` names, which `core.hooksPath`
-    moves and which linked worktrees share. `GIT_CONFIG` changes only what `git config` reads. A
-    claim about where hooks run is safest narrowed to "`core.hooksPath` is unset".
+  - git runs hooks from the directory `git rev-parse --git-path hooks` names. With `core.hooksPath`
+    unset, linked worktrees share the main checkout's hooks directory; a relative `core.hooksPath`
+    resolves inside each worktree. `GIT_CONFIG` changes only what `git config` reads. A claim about
+    where hooks run is safest narrowed to "`core.hooksPath` is unset".
   - git runs a hook from the root of the worktree that ran the command, so graphify's hook
     refreshes only that worktree's untracked graph. In a worktree without a graph, graphify's
     post-commit hook creates one holding only the changed files.
@@ -150,10 +151,15 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
   records F-3's final counts rather than those quoted before F-3 M4 closed.
 - 2026-10-08: founder decisions after the review-round analysis. F-4 is amended with four
   learnings before execution: class correction at the first open-input finding (AC-2), oracle
-  tests and tested fix commands (AC-6), and acceptance coverage with the empty-diff refusal
+  tests and tested fix commands (AC-6), and acceptance coverage
   (AC-7); the spec's counts are corrected to F-3's final numbers. The amendment gets one
   founder-granted review round of design and plan, then re-approval. Likelihood or impact rating
   of findings is declined. `goal/F-4/approved` moves to the re-approved commit.
+- 2026-10-08: the amendment's review round (round 3) blocked on four findings, all corrected
+  without changing scope: AC-3's wording now matches the design's admission rule; the empty-diff
+  refusal is dropped, because existing fixtures judge clean trees and the coverage line already
+  shows an empty diff; D28 quotes the final counts; the hooks lesson says a relative
+  `core.hooksPath` resolves inside each worktree. Re-approval goes to the founder.
 
 ## Queue
 

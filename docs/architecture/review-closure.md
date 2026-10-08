@@ -75,10 +75,6 @@ For a single partition (`[all]`), `--subject` paths are reading context and neve
 diff. The packet adds one line, `diff covers <n> of <m> files changed in <milestone>`, with both
 counts from `git diff --name-only`.
 
-**Empty diff.** An acceptance or task review whose diff is empty (no changed path and, for a task
-review, no untracked file) is refused with exit 1 before the judge is called, and consumes
-nothing.
-
 **Cap arithmetic.** `admit()` counts only non-confirmation rounds against `cap`. Without a founder
 grant, a subject is limited to at most `cap + 1` judge calls. The founder grant still admits
 exactly one round past the cap, once per subject.
@@ -127,8 +123,7 @@ exactly one round past the cap, once per subject.
 - **AC-6:** M4's rounds 2–4 were each a locally reproducible test away, and F-5's three design
   blocks were each a command run away. Two planning rules move that discovery before review.
 - **AC-7:** one wasted round came from a `--subject` that silently filtered the acceptance diff.
-  Taking the filter from the declared partition, refusing an empty diff and stating the coverage
-  close it in a few lines.
+  Taking the filter from the declared partition and stating the coverage close it in a few lines.
 
 ## Rejected options
 
@@ -148,6 +143,9 @@ exactly one round past the cap, once per subject.
 - **Carry a PASS forward when the change misses a partition's paths:** F-3 spent four PASS rounds
   on re-closes, but carrying a verdict across trees needs its own design and a measurement first.
   It is queued.
+- **Refuse an empty diff before the judge call:** existing review fixtures judge clean trees, and
+  the coverage line already shows `0 of <m>`; the refusal would add a rule for a case the line
+  makes visible.
 - **Prove the oracle in code (`review.py` runs the tests):** the judge reads the test against the
   finding, as for `--closed-by`; a runner per language is more machinery than it saves.
 - **An LLM wiki, or graphify as the primary context:** out of scope here. The route and task packets

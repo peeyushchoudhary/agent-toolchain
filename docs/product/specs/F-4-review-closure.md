@@ -89,9 +89,8 @@ The cap still guarantees that every review loop ends.
    code must handle, and compares. A design or task that prints a fix command carries a test that
    runs the command and shows the condition clears.
 5. **Acceptance packet.** The chief runs acceptance for a milestone. Paths passed with
-   `--subject` are reading context; only a declared partition narrows the diff. An empty diff is
-   refused before a judge is called. The packet states how many of the milestone's changed files
-   the diff covers.
+   `--subject` are reading context; only a declared partition narrows the diff. The packet states how many of the milestone's
+   changed files the diff covers, so a narrowed or empty diff is visible to the chief and the judge.
 6. **Test-closed confirmation.** Every blocking finding of the last round is closed by a named test
    that the correction added or changed. The chief runs the rereview with `--closed-by` and those
    tests. `review.py` checks the claim and records the round as a confirmation that does not count
@@ -103,11 +102,11 @@ The cap still guarantees that every review loop ends.
 | --- | --- | --- |
 | AC-1 | `references/run.md` requires every correction packet to carry a Keep list: behaviours established by earlier verdicts, Decisions or tests in the code the correction touches, each with its reason. A builder who must remove a Keep item stops and reports instead. | full gate; acceptance review of the rules text |
 | AC-2 | A rereview packet asks the judge to mark each blocking finding that is a new instance of a finding under rereview. `references/review.md` says the next correction then targets the family, records it in Decisions, and goes to the founder when it changes the design, the scope or a durable interface. It also says that a first finding whose trigger lies in an open input space (environment or configuration, filesystem paths, an external tool's behaviour, concurrency) is corrected at the class: the packet states the invariant or narrower claim and the sibling triggers, and the builder tests them. | `test_review*.py`; acceptance review of the rules text |
-| AC-3 | `review.py --closed-by TEST...` admits a rereview that does not count toward the cap, at most once per subject, only when (a) the subject's last verdict is BLOCK and (b) every named test file differs from its content in that verdict's tree. The confirmation is recorded in `rounds.json` and the verdict header, and the packet names the tests. Anything else is refused with exit 1, and the founder grant is unchanged. | `test_review*.py` |
+| AC-3 | `review.py --closed-by TEST...` admits a rereview that does not count toward the cap, at most once per subject, only when (a) the subject's last verdict is BLOCK and (b) every named test file differs from its content at the subject's last round: the digest that round recorded for it, else the blob in that round's verdict tree, else absence (a new file). The confirmation is recorded in `rounds.json` and the verdict header, and the packet names the tests. Anything else is refused with exit 1, and the founder grant is unchanged. | `test_review*.py` |
 | AC-4 | The size budgets in `install/tests/test_size.py` hold unchanged (rules ≤ 1,500 words, any one role's load ≤ 3,000, methodology and persona code ≤ 2,500 lines), and the repository gate passes. | full gate |
 | AC-5 | `docs/decisions/decisions.md` records the decision, its reason and the alternative it beat. `docs/product/measurements.md` records F-3's round and grant counts with date and source. `docs/architecture/lean-execution.md` states the new closure rules as current state. `docs/agents/lessons.md` records how git locates hooks and what graphify's hook does in a linked worktree, as F-3 and F-5 established them. | full gate; acceptance review |
 | AC-6 | `references/planning.md` requires an oracle test for code that predicts an external tool's behaviour (the tool run under the same environment over the setups the code must handle) and a test for every fix command a design or task prints (it runs the command and shows the condition clears). | full gate; acceptance review of the rules text |
-| AC-7 | For acceptance, `review.py` narrows the diff only to a declared partition's paths; other `--subject` paths are reading context. It refuses an acceptance or task review whose diff is empty, with exit 1 and nothing consumed. Every acceptance packet states how many of the milestone's changed files its diff covers. | `test_review*.py` |
+| AC-7 | For acceptance, `review.py` narrows the diff only to a declared partition's paths; other `--subject` paths are reading context. Every acceptance packet states how many of the milestone's changed files its diff covers. | `test_review*.py` |
 
 ## Non-goals
 
