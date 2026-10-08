@@ -5,7 +5,7 @@ prd: docs/product/README.md
 status: draft
 updated: 2026-10-08
 milestone: M1
-edge_cases: [first-run, unmigrated-project, harness-switch, partial-graph, shrinking-rebuild, timeout, unignored-graph, hook-replaced-graph]
+edge_cases: [first-run, unmigrated-project, harness-switch, partial-graph, stale-graph, unknown-build-commit, shrinking-rebuild, timeout, unignored-graph]
 ---
 
 # F-5 — Folder routes and graph-backed context for goal runs
@@ -49,66 +49,72 @@ input that tells a packet's author what else relies on that code. F-4's Keep lis
 - Folder routes stay true. A task that changes what a folder's area guide says updates the guide in
   the same commit, and a guide that falls behind its folder's code is reported.
 - A packet's context starts at the route, from the folder's entry file to its area guide, and
-  adds the graph's dependency view where a current graph exists.
-- Where a current graph exists, task packets and acceptance carry its dependency view.
-- Where it does not, nothing changes. graphify stays optional to the core.
+  adds the graph's dependency view where a graph exists.
+- Where a graph exists, task packets and acceptance carry its dependency view as advisory
+  context. Each view states how far the graph is behind HEAD, and the agent confirms what it uses
+  with grep or by reading the code. F-5 never claims a graph is complete or current.
+- Where no graph exists, nothing changes. graphify stays optional to the core.
 
 ## Actors
 
 - **Founder:** installed graphify, and decides per project whether to build an LLM-backed graph
   (`/graphify`).
-- **Chief:** runs graph setup at goal start, refreshes a stale graph before use, and puts graph
-  output into packets.
+- **Chief:** runs graph setup at goal start, refreshes the graph when it chooses to, and puts
+  labelled graph output into packets.
 - **Builders:** read the paths in their packet.
 - **Judges:** read the dependency view the chief attaches. They never run graphify themselves.
 
 ## Journeys
 
 1. **Setup, at migration and at every goal start.** The chief runs `graph_view.py setup`. With
-   graphify on PATH, it keeps the hooks refreshing and then decides whether to trust the graph:
+   graphify on PATH, it:
    - **Hooks.** When the guarded refresh hooks are missing where git runs hooks and
      `core.hooksPath` is unset, it installs them, touching only `post-commit` and `post-checkout`.
      From a linked worktree, it installs them in the main checkout, whose hooks directory the
      worktrees share. When `core.hooksPath` is configured, it says that hooks will not refresh the
-     graph and that `graph_view.py` refreshes it before each use. Hooks are never evidence that a
-     graph is complete; guarded hooks only let a stamped graph stay fresh as they refresh it.
+     graph and that `graph_view.py view --refresh` refreshes it on request. Hooks keep the graph
+     roughly current; they are not evidence of anything.
    - **Ignore.** When the graph directory is not ignored by git, it names the `.gitignore` entry
      to add and writes nothing under it.
-   - **Trust.** It trusts only a graph it, or `view`, built itself. A finished
-     `graphify update . --force` leaves a completion stamp beside the graph. A graph without that
-     stamp is rebuilt, however current it looks, because an older unguarded hook can leave a
-     partial graph that records HEAD. A stamped graph is rebuilt when it no longer matches HEAD.
-   - **Rebuild.** The rebuild is `graphify update . --force`, run from the graph root, code only
-     and with no LLM.
+   - **Build once per checkout.** It runs a full `graphify update . --force` from the graph root,
+     code only and with no LLM, when there is no graph, the graph does not parse, its
+     `.graphify_root` is neither absent nor `.`, or setup has not yet recorded a full build of it.
+     Otherwise it builds nothing, however far behind HEAD the graph is. It claims nothing about
+     the graph's completeness.
 
    Without graphify, it prints one line and does nothing else. It never blocks the goal start.
-   Between goal starts, nothing checks per session: `graph_view.py` refreshes a stale graph before
-   every use. The project ignores `graphify-out/`; migration adds that line to its `.gitignore`,
-   and setup names the missing entry and builds nothing until it is there.
+   Between goal starts, nothing checks per session. The project ignores `graphify-out/`;
+   migration adds that line to its `.gitignore`, and setup names the missing entry and builds
+   nothing until it is there.
 2. **Dispatch.** For each folder in the task's writes, the packet lists the nearest scoped
    entry file and the area guide it routes to, as paths. This happens with or without a graph.
    If one of those guides is reported behind its folder's code, the chief first confirms it
    against the code, or the graph's `explain` output, and adds it to the task's update list.
-3. **Dispatch with a graph.** Before writing a packet, the chief checks the graph:
-   - if the graph is not fresh, `graph_view.py view` rebuilds it with `graphify update . --force`,
-     which needs no LLM;
-   - for the symbols the task or correction changes, the same command runs `graphify explain` and
-     `graphify affected` and saves the output under `.runs/<goal>/context/`;
-   - the packet passes those paths, and the dependents seed F-4's Keep list.
+3. **Dispatch with a graph.** Before writing a packet, the chief runs `graph_view.py view`:
+   - for the symbols the task or correction changes, it runs `graphify explain` and
+     `graphify affected` and saves the output under `.runs/<goal>/context/`, each file headed by
+     a label saying when the graph was built, how many commits it is behind HEAD, and that it is
+     advisory;
+   - it never rebuilds on its own; the chief adds `--refresh` when the label shows the graph too
+     far behind to be useful, which runs a full build that needs no LLM;
+   - the packet passes those paths, and the dependents seed F-4's Keep list as candidates. The
+     chief and the builder confirm each one with grep or by reading the code before relying on
+     it.
 4. **Dispatch without a graph.** The route as above, then the chief reads and greps.
 5. **Update.** A task that changes a folder's layout, commands, interfaces or invariants
    updates that folder's area guide in the same commit. A task that adds a source folder adds
    its scoped entry pair. The plan puts those files in the task's `writes`.
 6. **Acceptance with a graph.** The chief saves `affected` output for the milestone's changed
-   symbols and names that file in the acceptance note. The judge reads it.
+   symbols and names that file in the acceptance note. The judge reads it as advisory, under its
+   label, and checks what it relies on against the code.
 
 ## Acceptance criteria
 
 | ID | Criterion | Proof |
 | --- | --- | --- |
-| AC-1 | `graph-navigation/scripts/graph_view.py setup` does Journey 1. With graphify on PATH, `core.hooksPath` unset and the graph not under a child directory, when `post-commit` in `git rev-parse --git-path hooks` lacks `# graph-guard-start` before `# graphify-hook-start`, it runs `install_hooks.py --graph-only <main checkout>` (the parent of `git rev-parse --git-common-dir`), which writes only the graph blocks and their guards. With `core.hooksPath` configured, it prints the manual-refresh line and installs nothing. Guard state never establishes completeness; it only lets a stamped graph's hook refresh count as fresh. When `git check-ignore -q <graph root>/graphify-out/`, run with the same dropped `GIT_*` variables, does not exit 0, it prints `graphify-out/ is not ignored; add /<graph root>/graphify-out/ to .gitignore, then rerun setup` (`/graphify-out/` for the worktree root), writes nothing under that directory and exits 0; adding that entry clears the line. Otherwise it rebuilds exactly when the graph is not fresh. A graph is fresh when the stamp `graphify-out/.graph_view_complete` parses as `{"head": <full commit id>, "sha256": <hex>}`, `graph.json` parses, `.graphify_root` is absent or exactly `.`, and either (a) `built_at_commit` is HEAD while `core.hooksPath` is unset, the graph is not under a child directory and `post-commit` carries the guard immediately before graphify's block, or (b) the stamp's `head` is HEAD and its `sha256` is that of the current `graph.json` bytes. So where hooks are unguarded, under `core.hooksPath` or with a child graph, any graph setup did not stamp is rebuilt. The rebuild is `graphify update . --force`, run from the graph root (the worktree root when there is no graph) under an in-process 600-second bound. Only when it exits 0 within the bound does setup write the stamp, with HEAD and the new `graph.json`'s sha256; a timeout or failure writes nothing and leaves an existing stamp as it was. On timeout it prints `graph build timed out after 600 s; finish it with: python3 <graph_view.py> setup --no-bound` and continues; on a nonzero exit, `graph build failed (exit <n>); retry with: python3 <graph_view.py> setup`, where `<graph_view.py>` is the script's absolute path. Running the printed command builds without the bound and stamps the graph, after which setup prints `graph ready`. A graph built by hand with graphify alone has no stamp, so the next setup rebuilds it once. Without graphify, one line. Its git queries drop the repository-location `GIT_*` variables and `GIT_CONFIG` and keep git's other config variables. Every graphify call it and `view` make runs with its cwd at the graph root and `.` as its path argument, and drops every inherited `GRAPHIFY_*` variable, so the only output location graphify is given is the default `graphify-out/` under the graph root, and the path it records in `.graphify_root` is `.`. Which nodes survive a forced rebuild is graphify's behaviour, which the oracle test records and F-5 does not guarantee. It exits 0 in every case. `references/run.md`'s Starting steps and `references/migrate.md`'s step 4 run it, and step 4 adds `/graphify-out/` to the project's `.gitignore` next to `/.runs/`. This repository's `.gitignore` ignores `/graphify-out/`. No SessionStart hook reports graph status. | `test_graph_view.py`, with its oracle test against real graphify; `test_install_hooks_*.py`; e2e |
+| AC-1 | `graph-navigation/scripts/graph_view.py setup` does Journey 1. With graphify on PATH, `core.hooksPath` unset and the graph not under a child directory, when `post-commit` in `git rev-parse --git-path hooks` lacks `# graph-guard-start` before `# graphify-hook-start`, it runs `install_hooks.py --graph-only <main checkout>` (the parent of `git rev-parse --git-common-dir`), which writes only the graph blocks and their guards. With `core.hooksPath` configured, it prints the manual-refresh line and installs nothing. The guard keeps hooks refreshing the graph and plays no part in any claim. When `git check-ignore -q <graph root>/graphify-out/`, run with the same dropped `GIT_*` variables, does not exit 0, it prints `graphify-out/ is not ignored; add /<graph root>/graphify-out/ to .gitignore, then rerun setup` (`/graphify-out/` for the worktree root), writes nothing under that directory and exits 0; adding that entry clears the line. Otherwise it runs `graphify update . --force` from the graph root (the worktree root when there is no graph), under an in-process 600-second bound, only when there is no graph, `graph.json` does not parse, `.graphify_root` is neither absent nor exactly `.`, or the stamp `graphify-out/.graph_view_complete` is missing or does not parse. In every other case it builds nothing, however far behind HEAD the graph is, and prints `graph ready`. After the build exits 0 within the bound, it writes the stamp as `{"head": <HEAD's full commit id>, "sha256": <hex of graph.json's bytes>}`, a record of setup's last full build and not a trust signal; a timeout or failure writes no stamp. On timeout it prints `graph build timed out after 600 s; finish it with: python3 <graph_view.py> setup --no-bound` and continues; on a nonzero exit, `graph build failed (exit <n>); retry with: python3 <graph_view.py> setup`, where `<graph_view.py>` is the script's absolute path. Running the printed command builds without the bound and writes the stamp, after which setup prints `graph ready`. Nothing setup prints claims the graph is complete or current. Without graphify, one line. Its git queries drop the repository-location `GIT_*` variables and `GIT_CONFIG` and keep git's other config variables. Every graphify call it and `view` make runs with its cwd at the graph root and `.` as its path argument, and drops every inherited `GRAPHIFY_*` variable, so the only output location graphify is given is the default `graphify-out/` under the graph root, and the path it records in `.graphify_root` is `.`. Which nodes a forced build keeps is graphify's behaviour, which the oracle test records and F-5 does not guarantee. It exits 0 in every case. `references/run.md`'s Starting steps and `references/migrate.md`'s step 4 run it, and step 4 adds `/graphify-out/` to the project's `.gitignore` next to `/.runs/`. This repository's `.gitignore` ignores `/graphify-out/`. No SessionStart hook reports graph status. | `test_graph_view.py`, with its oracle test against real graphify; `test_install_hooks_*.py`; e2e |
 | AC-2 | `install.sh` registers `disclosure-check.sh`, the existing `graphify-session-lessons.sh` and the query advisor for Codex as it does for Claude Code. The advisor is registered for Codex without a matcher, as Codex's PreToolUse hooks are, and ignores payloads that carry no shell command. The installer tests cover both harnesses, and a real-harness smoke shows each hook's output reaching a Claude Code session and a Codex session. | `install/tests`; e2e |
-| AC-3 | The route steps hold on every run. `references/run.md`'s dispatch step lists the scoped entry files and area guides for the task's folders, word-neutrally. `references/review.md`'s acceptance names the guides for touched folders. The graph steps of Journeys 3 and 6 live in a new `references/context.md`, which is loaded only when a graph exists. Those steps call graphify only through `graph-navigation/scripts/graph_view.py`. `view` uses setup's freshness rule, stamp and command: when the graph is not fresh, it runs `graphify update . --force` from the graph root before `explain` and `affected`, and stamps the graph only when that exits 0 within its bound. A rebuild that graphify would refuse as a shrink therefore does not leave the graph stale for the rest of the goal. When the graph directory is not ignored, `view` prints setup's ignore line, writes nothing under it and falls back to its no-graph output. It enforces a 120-second bound on `update` and a 60-second bound on each `explain` and `affected` in-process, the same in both harnesses, and on timeout falls back to the route and grep. `test_graph_view.py` proves the bounds, the fallback, the ignore check, a stale graph whose refresh shrinks it, and a commit that leaves the code graph unchanged costing one refresh. | `test_graph_view.py`; full gate; acceptance review |
+| AC-3 | The route steps hold on every run. `references/run.md`'s dispatch step lists the scoped entry files and area guides for the task's folders, word-neutrally. `references/review.md`'s acceptance names the guides for touched folders. The graph steps of Journeys 3 and 6 live in a new `references/context.md`, which is loaded only when a graph exists and says that graph output is advisory and is checked against the code before it is relied on. Those steps call graphify only through `graph-navigation/scripts/graph_view.py`. `view` never rebuilds on its own, however stale the graph. It first prints, and heads every output file with, the label `graph built at <short built_at_commit> (<N> commits behind HEAD); advisory — confirm with grep`, where N is `git rev-list --count <built_at_commit>..HEAD`. When `built_at_commit` is missing or unknown to git, the label reads `graph build commit unknown; advisory — confirm with grep`. When the stamp's `head` is HEAD and its `sha256` matches the current `graph.json`, the label adds `full build by setup at HEAD`. `view --refresh` first runs the same full forced build as setup, under a 120-second bound unless `--no-bound`, and writes the stamp after an exit 0; on timeout it prints `graph refresh timed out after 120 s; finish it with: python3 <graph_view.py> view --root <root> --refresh --no-bound`, writes no stamp, and goes on with the existing graph. Without a graph, `view` prints its no-graph line. When the graph directory is not ignored, `view` prints setup's ignore line, writes nothing under it and falls back to its no-graph output. It enforces a 60-second bound on each `explain` and `affected` in-process, the same in both harnesses, and on timeout falls back to the route and grep. `test_graph_view.py` proves the labels, the absence of an automatic rebuild, `--refresh`, the bounds, the fallback and the ignore check. | `test_graph_view.py`; full gate; acceptance review |
 | AC-4 | `docs/product/measurements.md` records the following, dated, on this repository in a temporary copy: the `graphify update` wall time, the node and edge counts, and the size of `affected` output for three symbols. It also records, dated and with repositories named only as small, medium or large, the cost of a full `graphify update` and of a freshness check, and the peak memory of the update. `lean-execution.md` and `decisions.md` state the graph's role as current state. | full gate; acceptance review |
 | AC-5 | The size budgets in `install/tests/test_size.py` hold, with `progressive-disclosure`'s AC-13 ceiling raised from 5,470 to 5,520 non-test lines by founder decision (2026-10-08), and the repository gate passes. | full gate |
 | AC-6 | `validate_disclosure.py` reports `stale-guide` (WARN) for an area guide whose folder has commits to non-doc files after the guide's last commit. The report names the guide, the folder and the commit count. `disclosure-check.sh` surfaces it at session start, and both run for Codex as for Claude Code. `references/run.md` makes the route the first part of every packet's context, and `references/review.md` has the acceptance note name the guides for touched folders. `references/planning.md` puts a folder's area guide in the `writes` of any task that changes what the guide states. | `test_validate_disclosure*.py`; `install/tests`; full gate |
@@ -122,9 +128,13 @@ input that tells a packet's author what else relies on that code. F-4's Keep lis
   code graph, which needs no LLM, and only at migration or goal start. AC-7's guard keeps git
   hooks from creating a graph at all.
 - A per-session status check. Setup belongs to methodology setup (founder, 2026-10-08), and
-  `graph_view.py` refreshes a stale graph before every use.
+  `view` labels how far behind the graph is at every use.
+- Claiming a graph is complete or current. A skipped hook refresh leaves a gap that later
+  refreshes never fill, and no state F-5 can read proves otherwise (founder, 2026-10-08). Graph
+  output stays advisory.
+- Rebuilding automatically before a use. `view` rebuilds only on `--refresh`.
 - Refreshing a graph that is not at the worktree root from a hook: a child-directory graph, or one
-  redirected by `.graphify_root`, is refreshed by hand or by `graph_view.py`.
+  redirected by `.graphify_root`, is refreshed by hand or by `view --refresh`.
 - Keeping per-worktree graph state, or key-symbol lines, in folder `.md` files. Area guides stay
   route and intent.
 - Running graphify's own platform installers (`graphify install`, `graphify claude install`),
