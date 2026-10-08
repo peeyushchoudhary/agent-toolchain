@@ -3,7 +3,7 @@ goal: F-5
 title: Folder routes and graph-backed context for goal runs
 spec: docs/product/specs/F-5-graph-context.md
 design: docs/architecture/graph-context.md
-status: draft
+status: approved
 updated: 2026-10-08
 gate: rc=0; for d in execution-methodology agent-personas progressive-disclosure graph-navigation; do [ -d install/skills/$d/tests ] || continue; python3 -m unittest discover -s install/skills/$d/tests -t install/skills/$d/tests || rc=1; done; python3 -m unittest discover -s install/tests -t install/tests || rc=1; exit $rc
 full_gate: cd install && ./install.sh --dry-run && ./verify.sh
@@ -589,6 +589,12 @@ No LLM tokens are used; the cost is wall-clock time and memory.
      line) change with these fixes, as the founder's decision to fix all eight requires; the
      spec's `edge_cases` add diverged-build-commit, concurrent-refresh,
      failed-build-after-stamp and symlinked-artifact.
+
+- 2026-10-08: founder re-approval of the corrected amendment. The founder re-approved the spec,
+  design and plan as corrected after round 7, and confirmed the criteria changes listed above
+  (AC-1, AC-3, Journeys 1 and 3, the four new `edge_cases`). `goal/F-5/approved` goes on this
+  commit, then the baseline, then `goal.py start`. The founder trusts the Codex graph-smoke
+  fixture's hooks once, when T2 lands; the controller asks at that point.
 
 ## Queue
 

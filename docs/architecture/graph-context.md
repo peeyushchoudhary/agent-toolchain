@@ -2,7 +2,7 @@
 id: F-5
 title: Folder routes and graph-backed context for goal runs
 spec: docs/product/specs/F-5-graph-context.md
-status: draft
+status: approved
 updated: 2026-10-08
 ---
 

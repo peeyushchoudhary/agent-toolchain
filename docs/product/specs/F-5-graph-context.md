@@ -2,7 +2,7 @@
 id: F-5
 title: Folder routes and graph-backed context for goal runs
 prd: docs/product/README.md
-status: draft
+status: approved
 updated: 2026-10-08
 milestone: M1
 edge_cases: [first-run, unmigrated-project, harness-switch, partial-graph, stale-graph, unknown-build-commit, diverged-build-commit, concurrent-refresh, failed-build-after-stamp, shrinking-rebuild, timeout, unignored-graph, symlinked-artifact]
