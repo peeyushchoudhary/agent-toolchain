@@ -24,12 +24,13 @@ edit.
 
 ## M1 — folder routes stay true, every session knows the graph's state, and goal runs use both
 
-criteria: AC-1, AC-2, AC-3, AC-4, AC-5, AC-6
+criteria: AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7
 acceptance: [all]
 proofs:
 - AC-1: python3 -m unittest discover -s install/tests -t install/tests -p 'test_graphify_session.py'
 - AC-2: python3 -m unittest discover -s install/tests -t install/tests -p 'test_install.py'
-- AC-1, AC-2: e2e
+- AC-7: python3 -m unittest discover -s install/skills/progressive-disclosure/tests -t install/skills/progressive-disclosure/tests -p 'test_install_hooks_*.py'
+- AC-1, AC-2, AC-7: e2e
 - AC-6: python3 -m unittest discover -s install/skills/progressive-disclosure/tests -t install/skills/progressive-disclosure/tests -p 'test_validate_disclosure*.py'
 - AC-3: python3 -m unittest discover -s install/skills/graph-navigation/tests -t install/skills/graph-navigation/tests
 - AC-3, AC-4, AC-5: full_gate
@@ -44,7 +45,10 @@ proofs:
 
 Implement the design's `graphify-session.py` interface. Its tests use a temporary git repository,
 a temporary HOME and a stub `graphify` on PATH. They cover:
-- each of the four status lines;
+- each status line, including "no graph in this worktree" with `graphify update .`, hooks that
+  carry graphify's block but no guard, which are reported as unguarded, and a linked worktree
+  whose main checkout has no graph, whose install command still names the main checkout;
+- a graph only under a child directory, which gets the stale line but no hooks line;
 - the silent clean case;
 - the lessons digest, kept;
 - a missing or unknown `built_at_commit`;
@@ -60,8 +64,8 @@ harnesses, and executes git and graphify there.
 
 ### [ ] T2 — both harnesses get the graph hooks
 - writes: install/install.sh, install/verify.sh, install/README.md, install/tests/test_install.py, install/tests/smoke_graph_hooks.py, install/hooks/graphify-query-advisor.py, docs/agents/what-gets-installed.md, install/hooks/graphify-session-lessons.sh
-- needs: T1
-- covers: AC-2, AC-6
+- needs: T1, T7
+- covers: AC-2, AC-6, AC-7
 - risk: boundary
 - builder: judgement
 - tests-may-change: install/tests/test_install.py
@@ -82,12 +86,54 @@ Do the following:
   - It runs one short real session and asserts four things: the graph status line reached the
     session's context, `disclosure-check.sh`'s route finding reached it, the lessons digest was
     injected, and a prose `graphify query` drew the advisor's ladder.
+  - When the real `graphify` is on PATH, it also checks AC-7 against graphify itself. It installs
+    the guarded hooks with `install_hooks.py` into a throwaway repository with two linked
+    worktrees, using a temporary HOME, and builds a graph in the main checkout and in one
+    worktree. A commit in that worktree changes only its own graph, and a commit in the graphless
+    worktree creates no `graphify-out/`. Without graphify, this part prints a skip line and
+    passes.
   - `--prepare` builds the Codex fixture and prints the one-time trust step, as `smoke_goal.py`
     does. That step is the founder's (see Grants).
 - Delete `graphify-session-lessons.sh` and add it to the retire list.
 - Update the installer tests for both harnesses, and the two docs that list installed hooks.
 
 `risk: boundary` applies because the installer writes the founder's harness configuration.
+
+### [ ] T7 — hooks install without a graph in the main checkout
+- writes: install/skills/progressive-disclosure/scripts/install_hooks.py, install/skills/progressive-disclosure/tests/test_install_hooks_scope.py, install/skills/progressive-disclosure/tests/test_install_hooks_worktrees.py
+- needs: —
+- covers: AC-7, AC-5
+- risk: safety
+- builder: judgement
+- tests-may-change: install/skills/progressive-disclosure/tests/test_install_hooks_scope.py
+
+Drop `install_graph_hook`'s requirement that the main checkout has a graph at its root; F-3 M4's
+guard makes the blocks no-ops wherever no graph exists. The child-graph skip stays: with a graph
+only under a child, nothing is installed.
+
+Keep, unchanged, each for its F-3 reason:
+- writes only through `_commit_hook`, `_destination_error` and `_commit_file` (T9 security,
+  rounds 1–2);
+- rendering in the sandbox with `GIT_*` dropped (T9 security, round 3);
+- install only when `core.hooksPath` is unset, with the query dropping the repository-location
+  variables and `GIT_CONFIG` (M4, rounds 3–4);
+- the guard before every graphify block, existing blocks guarded in place, and the child-graph
+  skip (M4, after the tag);
+- `--uninstall` stripping through the checked path whatever `core.hooksPath` says;
+- `graphify_root`'s exclusions;
+- our own pre-commit, commit-msg and pre-push hooks, untouched (F-3 Q7).
+
+`test_install_hooks_scope.py` changes only where it asserts "skipped — no graph". The new
+`test_install_hooks_worktrees.py` uses real git, a temporary HOME and a stub `graphify` whose
+rendered blocks write a marker under the cwd's `graphify-out/`. It covers:
+- a commit in worktree A, which changes only A's graph, leaving worktree B's and the main
+  checkout's unchanged;
+- a commit in a worktree without a graph, which creates no `graphify-out/`;
+- installing from a main checkout without a graph, which writes the guarded blocks;
+- the child-graph skip, still installing nothing.
+
+The change is about 5 non-test lines. `risk: safety` applies because the change widens where git
+hooks are written: every project with graphify installs them.
 
 ### [ ] T3 — the dispatch and acceptance steps
 - writes: install/skills/execution-methodology/references/context.md, install/skills/execution-methodology/references/run.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/review.md
@@ -125,7 +171,7 @@ The tests use temporary git repositories and cover:
 - an uncommitted guide, and a directory outside a git repository, which are both skipped;
 - that the check never raises an ERROR and never changes the exit code by itself.
 
-`progressive-disclosure` stays at or under its AC-13 ceiling of 5,470 lines.
+`progressive-disclosure` stays at or under its AC-13 ceiling of 5,470 lines, together with T7.
 
 ### [ ] T6 — the bounded graph runner
 - writes: install/skills/graph-navigation/scripts/graph_view.py, install/skills/graph-navigation/tests/test_graph_view.py, install/skills/graph-navigation/SKILL.md
@@ -183,5 +229,20 @@ Record them dated under "graphify on this repository".
   founder-granted confirmation review (round 3) of the round-2 corrections and of the edit that
   aligns the hooks query with F-3 M4 (`GIT_CONFIG` dropped); approval follows if both pass. The
   with-graph role-load exception (about 3,450 words) stated in the spec is accepted.
+
+- 2026-10-08: founder decisions on design round 3, which blocked because the install command did
+  not work from a linked worktree whose main checkout had no graph.
+  - The founder chose the per-worktree model, verified with graphify 0.8.49 and git 2.54: each
+    worktree keeps its own untracked graph, and the shared hooks refresh only the committing
+    worktree's graph.
+  - Hooks refresh only an existing graph at the worktree root, through a guard that
+    `install_hooks.py` writes before graphify's blocks. This closes the partial-graph hazard the
+    verification found. On the founder's instruction the guard moved into F-3 M4 the same day,
+    because M4's installer already writes graphify's blocks; F-5's T7 keeps only installing
+    without a graph in the main checkout (AC-7).
+  - The installer installs without a graph in the main checkout, which closes the round-3 finding.
+  - Area guides stay route and intent, with no key-symbol lines and no per-worktree state.
+  - Design and plan each get one more founder-granted confirmation review (round 4) before
+    approval.
 
 ## Queue
