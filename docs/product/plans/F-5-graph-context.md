@@ -77,7 +77,7 @@ Do the following:
 - covers: AC-1, AC-7, AC-5
 - risk: safety
 - builder: judgement
-- tests-may-change: install/skills/progressive-disclosure/tests/test_install_hooks_scope.py
+- tests-may-change: install/skills/progressive-disclosure/tests/test_install_hooks_scope.py, install/skills/progressive-disclosure/tests/test_install_hooks_guard.py
 
 Drop `install_graph_hook`'s requirement that the main checkout has a graph at its root; F-3 M4's
 guard makes the blocks no-ops wherever no graph exists. The child-graph skip stays: with a graph
@@ -109,6 +109,9 @@ covers:
 The cross-worktree check is T2's smoke, against real graphify. The change is about 15 non-test
 lines. `risk: safety` applies because the change widens where git
 hooks are written: every project with graphify installs them.
+
+It also closes F-3 Queue Q8: the uninstall cells of `test_install_hooks_guard.py`'s mode matrix
+start from a guarded fixture too, so they prove an existing guard is removed.
 
 ### [ ] T3 — the setup, dispatch and acceptance steps
 - writes: install/skills/execution-methodology/references/context.md, install/skills/execution-methodology/references/run.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/review.md, install/skills/execution-methodology/references/migrate.md
