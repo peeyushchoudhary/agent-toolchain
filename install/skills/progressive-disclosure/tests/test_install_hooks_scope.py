@@ -359,6 +359,12 @@ class ScopedHooksTest(unittest.TestCase):
                        check=True)
         gcfg = self.tmp / "global.gitconfig"
         own = str(self.repo / ".git" / "hooks")
+        # GIT_CONFIG changes what `git config` reads, not what a running git applies.
+        empty_cfg, only_cfg = self.tmp / "empty.gitconfig", self.tmp / "only.gitconfig"
+        empty_cfg.write_text("", encoding="utf-8")
+        only_cfg.write_text("[core]\n\thooksPath = .hooks\n", encoding="utf-8")
+        shadow = {"GIT_CONFIG": str(empty_cfg), "GIT_CONFIG_COUNT": "1",
+                  "GIT_CONFIG_KEY_0": "core.hooksPath", "GIT_CONFIG_VALUE_0": ".hooks"}
         cases = [("unset", None, {}, True),
                  ("inherited-git-dir", None, {"GIT_DIR": str(other / ".git")}, True),
                  ("empty", "", {}, False), ("relative", ".hooks", {}, False),
@@ -369,7 +375,9 @@ class ScopedHooksTest(unittest.TestCase):
                  ("global-only", None, {"GIT_CONFIG_GLOBAL": str(gcfg)}, False),
                  ("config-env", None, {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.hooksPath",
                                        "GIT_CONFIG_VALUE_0": ".hooks"}, False),
-                 ("inherited-git-dir-empty", "", {"GIT_DIR": str(other / ".git")}, False)]
+                 ("inherited-git-dir-empty", "", {"GIT_DIR": str(other / ".git")}, False),
+                 ("git-config-shadows-env", None, shadow, False),
+                 ("git-config-file-only", None, {"GIT_CONFIG": str(only_cfg)}, True)]
         for label, value, extra, installed in cases:
             with self.subTest(label):
                 cfg = ["git", "-C", str(self.repo), "config"]
@@ -381,6 +389,11 @@ class ScopedHooksTest(unittest.TestCase):
                 else:
                     gcfg.write_text("", encoding="utf-8")
                 log.unlink(missing_ok=True)
+                if label.startswith("git-config-"):  # what a running git would use
+                    hooks_dir = subprocess.run(
+                        ["git", "rev-parse", "--git-path", "hooks"], cwd=self.repo, check=True,
+                        capture_output=True, text=True, env={**os.environ, **extra}).stdout.strip()
+                    self.assertEqual(hooks_dir == ".git/hooks", installed, hooks_dir)
                 proc = self.invoke(**extra)
                 self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
                 if installed:

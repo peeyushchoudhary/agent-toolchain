@@ -688,8 +688,9 @@ def install_graph_hook(root: Path, *, no_graph: bool) -> bool:
         print("  post-commit graph refresh skipped — graphify is not installed")
         return False
     # Install only when core.hooksPath is unset at every level (exit 1); any other outcome skips.
-    # Drop only the repository-location variables; git's config variables still apply.
-    env = {k: v for k, v in os.environ.items() if k not in REPO_LOCATION_ENV}
+    # The query must see the configuration a running git sees: drop the repository-location
+    # variables and GIT_CONFIG, which only `git config` reads; every other config variable applies.
+    env = {k: v for k, v in os.environ.items() if k not in REPO_LOCATION_ENV | {"GIT_CONFIG"}}
     try:
         unset = subprocess.run(["git", "config", "--get", "core.hooksPath"], cwd=root, env=env,
                                capture_output=True, text=True, timeout=30).returncode == 1

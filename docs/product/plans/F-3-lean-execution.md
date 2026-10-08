@@ -538,6 +538,14 @@ secret and identifier behaviour; the security reviewer confirms it.
   1). Any value means an honest skip, so no path comparison remains. One founder-granted scoped
   acceptance round (round 4) follows.
 
+- 2026-10-08: founder decision on M4 acceptance round 4, which blocked on one finding, verified
+  locally: with `GIT_CONFIG` set, `git config --get core.hooksPath` reads only that file and reports
+  unset, while a running git ignores `GIT_CONFIG` and still applies `GIT_CONFIG_COUNT` and the other
+  config sources. git documents `GIT_CONFIG` as affecting only the `git config` command, so it is
+  the one variable that separates the query from the runtime. The founder chose the fix under T9:
+  drop `GIT_CONFIG` from the query's environment, with a test using the reviewer's trigger. One
+  founder-granted scoped acceptance round (round 5) follows; the round-4 grant is archived.
+
 ## Queue
 
 - Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now
