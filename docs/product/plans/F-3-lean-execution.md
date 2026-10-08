@@ -600,3 +600,7 @@ secret and identifier behaviour; the security reviewer confirms it.
   `core.hooksPath` is set, in which case git never runs them, the push guard included. This
   predates F-3. Decide whether the installer should refuse, warn, or install into
   `core.hooksPath` when it resolves inside the project.
+- Q8 (blocks nothing in F-3): M4 acceptance round 7's non-blocking note. The uninstall cells of
+  `test_install_hooks_guard.py`'s mode matrix recreate an unguarded fixture before each run, so
+  they never prove that an existing guard is removed. Recommendation: F-5's T7, which already
+  edits these tests, adds a guarded fixture to the uninstall cells.
