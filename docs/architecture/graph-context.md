@@ -86,10 +86,10 @@ half-done at every goal start, which the founder's direction rules out.
 
 **The guard, from F-3 M4.** `install_hooks.py` already writes its own marked block,
 `# graph-guard-start` … `# graph-guard-end`, immediately before each of graphify's `post-commit`
-and `post-checkout` blocks, and adds it to existing unguarded blocks. In the hook's cwd the guard
-requires `${GRAPHIFY_OUT:-graphify-out}/graph.json`, and a `.graphify_root` that is absent or
-exactly `.`; otherwise it runs `exit 0`. graphify's blocks stay byte for byte, and `--uninstall`
-strips the guards with them. A graph under a child directory gets an honest skip, because the
+and `post-checkout` blocks, and adds it to existing unguarded blocks in every install mode. The
+guard exits whenever `GRAPHIFY_OUT` is set, to any value; otherwise, in the hook's cwd, it
+requires the default `graphify-out/graph.json` and a `.graphify_root` that is absent or exactly
+`.`. graphify's blocks stay byte for byte, and every uninstall mode strips the guards with them. A graph under a child directory gets an honest skip, because the
 hook runs at the worktree root. F-5 relies on all of this and changes two things.
 
 - `install_graph_hook` stops requiring a graph. With graphify on PATH and `core.hooksPath` unset,
