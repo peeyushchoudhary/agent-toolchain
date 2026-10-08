@@ -310,12 +310,15 @@ class ScopedHooksTest(unittest.TestCase):
         self.assertEqual(self.graphify_calls(log), [])
         self.assertEqual(sorted(p.name for p in (outside / ".git" / "hooks").iterdir()), outside_hooks)
         self.assert_graphify_blocks(present=False)
-        # A real child's graph still installs the refresh, into this repository's own hooks.
+        # A real child's graph is found but not claimed: the hook runs at the worktree root, so it
+        # could never refresh it (M4 fix 5). The skip names it; nothing is written or run.
         (self.repo / "sub" / "graphify-out").mkdir(parents=True)
         (self.repo / "sub" / "graphify-out" / "graph.json").write_text("{}\n", encoding="utf-8")
         proc = self.invoke()
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assert_graphify_blocks(present=True)
+        self.assertIn("the graph is under sub/", proc.stdout)
+        self.assert_graphify_blocks(present=False)
+        self.assertEqual(self.graphify_calls(log), [])
         self.assert_never_ran_in_project(log)
         self.assertEqual(sorted(p.name for p in (outside / ".git" / "hooks").iterdir()), outside_hooks)
 

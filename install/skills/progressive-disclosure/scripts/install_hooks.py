@@ -8,7 +8,8 @@ Git hooks are not shared through git, so every clone needs this run once:
   commit-msg   declaring repositories only: scans the commit MESSAGE for private identifiers
   pre-push     blocks secrets, files over the size limit, and direct pushes to the default branch
   post-commit  re-extracts changed code into the Graphify graph (with post-checkout): the blocks
-               `graphify hook install` renders in a sandbox repository, written here by us
+               `graphify hook install` renders in a sandbox repository, written here by us, each
+               behind our guard so it refreshes only an existing graph at the worktree root
 
 Each hook is written as a marked block, so an existing hook is preserved and a re-run replaces only
 our block. The pre-commit route check skips silently when the repository has no route yet.
@@ -566,7 +567,8 @@ def remove_hook_block(path: Path) -> str:
 
 
 def graphify_root(root: Path) -> Path | None:
-    """Directory whose graphify-out/graph.json is the repository's graph (root, or one level down)."""
+    """Directory whose graphify-out/graph.json is the repository's graph (root, or one level down).
+    Only the root's graph gets the git refresh; a child's is found so the skip can name it."""
     if (root / "graphify-out" / "graph.json").is_file():
         return root
     canonical = root.resolve()
@@ -593,6 +595,35 @@ GRAPHIFY_MARKERS = {
     "post-commit": ("# graphify-hook-start", "# graphify-hook-end"),
     "post-checkout": ("# graphify-checkout-hook-start", "# graphify-checkout-hook-end"),
 }
+
+# Ours, written immediately before each graphify block, which stays byte for byte. Linked worktrees
+# share these hooks and git runs a hook from the root of the worktree that ran the command, while
+# graphify's post-commit never checks that a graph exists: without this, a commit in a worktree with
+# no graph builds one holding only the committed files, and it reads as current. `exit 0` skips the
+# rest of the hook, as graphify's own rebase and merge skips do.
+GUARD_BEGIN, GUARD_END = "# graph-guard-start", "# graph-guard-end"
+GRAPH_GUARD = GUARD_BEGIN + """
+# install_hooks.py: refresh only an existing graph at this worktree's root; otherwise skip the rest.
+_gg_out="${GRAPHIFY_OUT:-graphify-out}"
+[ -f "$_gg_out/graph.json" ] || exit 0
+if [ -e "$_gg_out/.graphify_root" ] || [ -L "$_gg_out/.graphify_root" ]; then
+  _gg_root=$(cat "$_gg_out/.graphify_root" 2>/dev/null; printf x)
+  case "$_gg_root" in
+    .x|".
+x") ;;
+    *) exit 0 ;;
+  esac
+fi
+""" + GUARD_END
+
+
+def _without_guard(text: str) -> str:
+    """`text` with our guard and the newline after it removed; ValueError if the guard is malformed."""
+    if (guard := _marked_block(text, GUARD_BEGIN, GUARD_END)) is None:
+        return text
+    start = text.index(guard)
+    stop = start + len(guard) + (text[start + len(guard):].startswith("\n"))
+    return text[:start] + text[stop:]
 
 
 def _marked_block(text: str, begin: str, end: str) -> str | None:
@@ -630,28 +661,50 @@ def _render_graphify_blocks() -> dict[str, str]:
 
 
 def _graph_edits(root: Path, blocks: dict[str, str] | None) -> list[tuple[Path, str | None]]:
-    """Project hook contents that add `blocks`, or strip graphify's blocks when None (None content:
-    delete). Every hook is read and checked before the caller writes any; malformed raises."""
+    """Project hook contents that add `blocks`, each behind our guard, or strip graphify's blocks and
+    our guards when None (None content: delete). A hook missing from `blocks` keeps its existing
+    block, which gains its guard. Every hook is read and checked before the caller writes any;
+    malformed raises."""
     edits: list[tuple[Path, str | None]] = []
     for name, (begin, end) in GRAPHIFY_MARKERS.items():
         path = hook_path(root, name)
         current = read(path)
-        old = _marked_block(current, begin, end)
+        unguarded = _without_guard(current)
+        old = _marked_block(unguarded, begin, end)
         if blocks is None:
-            if old is not None:
-                rest = strip_block(current, begin, end)
+            if old is not None or unguarded != current:
+                rest = strip_block(unguarded, begin, end).strip("\n")
                 edits.append((path, None if rest.strip() in ("", "#!/bin/sh", "#!/bin/bash")
                               else rest + "\n"))
-        elif old != blocks[name] or not os.access(path, os.X_OK):
-            if old is not None:
-                text = current.replace(old, blocks[name])
-            elif current.strip() in ("", "#!/bin/sh"):
-                text = "#!/bin/sh\n" + blocks[name] + "\n"
-            else:
-                text = (("" if current.startswith("#!") else "#!/bin/sh\n")
-                        + current.rstrip("\n") + "\n\n" + blocks[name] + "\n")
+            continue
+        if (block := blocks.get(name, old)) is None:
+            continue
+        new = GRAPH_GUARD + "\n" + block
+        if old is not None:
+            text = unguarded.replace(old, new)
+        elif unguarded.strip() in ("", "#!/bin/sh"):
+            text = "#!/bin/sh\n" + new + "\n"
+        else:
+            text = (("" if unguarded.startswith("#!") else "#!/bin/sh\n")
+                    + unguarded.rstrip("\n") + "\n\n" + new + "\n")
+        if text != current or (name in blocks and not os.access(path, os.X_OK)):
             edits.append((path, text))
     return edits
+
+
+def guard_existing_graph_blocks(root: Path) -> None:
+    """Put our guard before graphify blocks already in the hooks, whatever this run installs.
+    Nothing is rendered, so graphify is not needed; an already-guarded block is not rewritten."""
+    try:
+        edits = _graph_edits(root, {})
+        for path, content in edits:
+            _commit_hook(path, content)
+    except (OSError, ValueError) as exc:
+        print(f"  existing graphify hook blocks NOT guarded — {exc}")
+        return
+    if edits:
+        print("  guarded the existing graphify hook blocks; they refresh only an existing graph at "
+              "the worktree root")
 
 
 def remove_graph_blocks(root: Path) -> bool:
@@ -676,17 +729,9 @@ def install_graph_hook(root: Path, *, no_graph: bool) -> bool:
     """The post-commit and post-checkout graph refresh: rendered by `graphify`, written by us.
 
     Its dependency is a BINARY ON PATH, not a script inside a hook block, so `graphify_available()`
-    is the equivalent check and it runs before any claim.
+    is the equivalent check and it runs before any claim. Graphify blocks already in the hooks are
+    guarded first, whenever git would run them, even if this run then installs nothing.
     """
-    if no_graph:
-        print("  post-commit graph refresh skipped (--no-graph)")
-        return False
-    if graphify_root(root) is None:
-        print("  post-commit graph refresh skipped — no graphify-out/graph.json in this repo")
-        return False
-    if not graphify_available():
-        print("  post-commit graph refresh skipped — graphify is not installed")
-        return False
     # Install only when core.hooksPath is unset at every level (exit 1); any other outcome skips.
     # The query must see the configuration a running git sees: drop the repository-location
     # variables and GIT_CONFIG, which only `git config` reads; every other config variable applies.
@@ -696,6 +741,23 @@ def install_graph_hook(root: Path, *, no_graph: bool) -> bool:
                                capture_output=True, text=True, timeout=30).returncode == 1
     except (OSError, subprocess.SubprocessError):
         unset = False
+    if unset:
+        guard_existing_graph_blocks(root)
+    if no_graph:
+        print("  post-commit graph refresh skipped (--no-graph)")
+        return False
+    if (graph_dir := graphify_root(root)) is None:
+        print("  post-commit graph refresh skipped — no graphify-out/graph.json in this repo")
+        return False
+    if graph_dir != root:
+        # The hook runs at the worktree root, so it could never refresh this graph; claim nothing.
+        child = graph_dir.relative_to(root).as_posix()
+        print(f"  post-commit graph refresh skipped — the graph is under {child}/ and git hooks run "
+              f"at the repository root; refresh by hand with: graphify update {child}")
+        return False
+    if not graphify_available():
+        print("  post-commit graph refresh skipped — graphify is not installed")
+        return False
     if not unset:
         print("  post-commit graph refresh skipped — core.hooksPath is configured; "
               "git may not run hooks in .git/hooks")
@@ -706,7 +768,8 @@ def install_graph_hook(root: Path, *, no_graph: bool) -> bool:
     except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as exc:
         print(f"  post-commit graph refresh FAILED: {exc}")
         return False
-    print("  post-commit graph refresh installed")
+    print("  post-commit graph refresh installed (only where graphify-out/graph.json is at the "
+          "worktree root)")
     print("    note: it re-extracts changed CODE only. Documentation changes still need a")
     print("    semantic rebuild — `graphify extract . --mode deep --backend <backend>`.")
     return True
@@ -995,7 +1058,7 @@ def _scoped_plan(root: Path, *, uninstall: bool, standard: bool, public_flag: bo
             op = _file_operation(msg, _desired_removed_hook(msg), executable=True)
             if op:
                 files.append(op)
-    if not no_graph and graphify_root(root) is not None and graphify_available():
+    if not no_graph and graphify_root(root) == root and graphify_available():
         findings.append({"code": "graph-operation-unpreviewable",
                          "message": "graphify hook install has no write-equivalent preview"})
     safe: list[PlannedFile] = []

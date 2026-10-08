@@ -546,6 +546,18 @@ secret and identifier behaviour; the security reviewer confirms it.
   drop `GIT_CONFIG` from the query's environment, with a test using the reviewer's trigger. One
   founder-granted scoped acceptance round (round 5) follows; the round-4 grant is archived.
 
+- 2026-10-08: founder decision after M4 was tagged ("take care of this"). A test in a throwaway
+  repository with real git 2.54 and graphify 0.8.49 showed that graphify's post-commit block,
+  which the installer writes unchanged into the hooks directory linked worktrees share, creates a
+  graph holding only the committed files in a worktree that has no graph, with `built_at_commit`
+  at HEAD. The fix is under T9, at the class: the installer writes its own guard before each
+  graphify block, so a hook refreshes only an existing graph at the hook's worktree root; and a
+  graph found under a child directory gets an honest skip, because git runs the hook at the
+  worktree root and the child's graph was never refreshed. A scan of this machine's projects
+  found no graphify hooks installed and no partial graph. The round-5 grant is archived; one
+  founder-granted scoped acceptance round (round 6) follows, and `goal/F-3/M4` moves to the
+  re-closed commit.
+
 ## Queue
 
 - Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now
