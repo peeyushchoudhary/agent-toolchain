@@ -218,6 +218,13 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
   (round 6); `goal/F-4/approved` moves to this commit. The round-5 grant is archived as
   `verdicts/history/founder-grants-used-3.json`.
 
+- 2026-10-08, T1 (default, supersedes the earlier T1 default on unrecorded paths): under the full
+  snapshot every listed path is recorded, so raw-byte SHA-256 decides for every named test. AC-3
+  compares content: a line-ending-only change is a content change and admits a confirmation, and
+  a mode-only change is not and is refused. git's filters no longer enter the comparison. The
+  snapshot costs 0.03 s, 0.17 s and 0.72 s on small, medium and large repositories (114, 1,240
+  and 5,120 paths), taken twice per round.
+
 - 2026-10-08: founder decision on F-5's setup step, recorded here because F-5 has not started.
   A measurement on clones found that a full `graphify update` costs 44–59 s on a large repository
   and, without `--force`, exits 1 without writing when the rebuild has fewer nodes than the
