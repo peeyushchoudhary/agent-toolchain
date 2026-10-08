@@ -241,6 +241,17 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
   founder decisions admitted 13 rounds past the cap. M3 and T9 are unchanged. The spec's Why keeps
   the counts as of approval, and the merge explainer reports the difference.
 
+- 2026-10-08: founder decision on M1's acceptance round 1, which blocked on one finding confirmed by
+  the controller: a named test restored to its last-round bytes between the `--closed-by`
+  comparison and the drift snapshot was admitted unchanged. The fix takes one snapshot before
+  admission, and that snapshot admits, is recorded and is drift-checked. Its tests go in a new
+  file, `tests/test_review_closure_race.py`, so existing tests stay untouched. The founder chose to
+  add that file to T1's writes. The writes change sits on the approval commit, with the later
+  commits replayed onto it, so every task commit stays in `goal.py done`'s range;
+  `goal/F-4/approved` moves 4a5c771 → c91431f. Round 2 is the counted scoped rereview, not a
+  `--closed-by` confirmation, because the mechanism under repair is the admission path. T1's code
+  is now at the 2,500-line ceiling.
+
 - 2026-10-08: founder decision on F-5's setup step, recorded here because F-5 has not started.
   A measurement on clones found that a full `graphify update` costs 44–59 s on a large repository
   and, without `--force`, exits 1 without writing when the rebuild has fewer nodes than the
