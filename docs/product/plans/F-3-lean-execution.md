@@ -558,6 +558,17 @@ secret and identifier behaviour; the security reviewer confirms it.
   founder-granted scoped acceptance round (round 6) follows, and `goal/F-3/M4` moves to the
   re-closed commit.
 
+- 2026-10-08: founder decision on M4 acceptance round 6, which blocked on four findings in the
+  guard work: `GRAPHIFY_OUT=''` made the guard check the default directory while graphify wrote at
+  the root; `--scope project --no-graph` left existing blocks unguarded; `--scope project
+  --uninstall --no-graph` left blocks installed; the real-graphify tests inherited
+  `GRAPHIFY_OUT`. The founder chose the class fix under T9: hooks refresh only the default
+  `graphify-out/` at the worktree root and skip whenever `GRAPHIFY_OUT` is set, so the guard no
+  longer emulates graphify's output rules; every installer mode guards (install), strips
+  (uninstall) or leaves untouched (check and preview) existing graph blocks, proven by a mode
+  matrix; tests drop inherited `GRAPHIFY_*` variables. One founder-granted scoped acceptance round
+  (round 7) follows; the round-6 grant is archived.
+
 ## Queue
 
 - Q1 (2026-10-07, resolved 2026-10-07): the Codex Stop and SessionStart hooks for AC-2 are now

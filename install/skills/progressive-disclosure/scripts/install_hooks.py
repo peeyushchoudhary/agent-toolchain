@@ -9,7 +9,9 @@ Git hooks are not shared through git, so every clone needs this run once:
   pre-push     blocks secrets, files over the size limit, and direct pushes to the default branch
   post-commit  re-extracts changed code into the Graphify graph (with post-checkout): the blocks
                `graphify hook install` renders in a sandbox repository, written here by us, each
-               behind our guard so it refreshes only an existing graph at the worktree root
+               behind our guard so it refreshes only an existing default graphify-out/ at the
+               worktree root, never while GRAPHIFY_OUT is set; every mode guards, strips or
+               leaves existing graphify blocks alone, whatever --no-graph says
 
 Each hook is written as a marked block, so an existing hook is preserved and a re-run replaces only
 our block. The pre-commit route check skips silently when the repository has no route yet.
@@ -600,14 +602,16 @@ GRAPHIFY_MARKERS = {
 # share these hooks and git runs a hook from the root of the worktree that ran the command, while
 # graphify's post-commit never checks that a graph exists: without this, a commit in a worktree with
 # no graph builds one holding only the committed files, and it reads as current. `exit 0` skips the
-# rest of the hook, as graphify's own rebase and merge skips do.
+# rest of the hook, as graphify's own rebase and merge skips do. It does not emulate graphify's
+# output rules: only the default graphify-out/ is refreshed, never while GRAPHIFY_OUT is set at all.
 GUARD_BEGIN, GUARD_END = "# graph-guard-start", "# graph-guard-end"
 GRAPH_GUARD = GUARD_BEGIN + """
-# install_hooks.py: refresh only an existing graph at this worktree's root; otherwise skip the rest.
-_gg_out="${GRAPHIFY_OUT:-graphify-out}"
-[ -f "$_gg_out/graph.json" ] || exit 0
-if [ -e "$_gg_out/.graphify_root" ] || [ -L "$_gg_out/.graphify_root" ]; then
-  _gg_root=$(cat "$_gg_out/.graphify_root" 2>/dev/null; printf x)
+# install_hooks.py: refresh only an existing default graphify-out/ at this worktree's root, and
+# never while GRAPHIFY_OUT is set (even empty); otherwise skip the rest of this hook.
+[ -z "${GRAPHIFY_OUT+x}" ] || exit 0
+[ -f graphify-out/graph.json ] || exit 0
+if [ -e graphify-out/.graphify_root ] || [ -L graphify-out/.graphify_root ]; then
+  _gg_root=$(cat graphify-out/.graphify_root 2>/dev/null; printf x)
   case "$_gg_root" in
     .x|".
 x") ;;
@@ -660,15 +664,17 @@ def _render_graphify_blocks() -> dict[str, str]:
         return blocks
 
 
-def _graph_edits(root: Path, blocks: dict[str, str] | None) -> list[tuple[Path, str | None]]:
+def _graph_edits(root: Path, blocks: dict[str, str] | None,
+                 planned: dict[Path, str] | None = None) -> list[tuple[Path, str | None]]:
     """Project hook contents that add `blocks`, each behind our guard, or strip graphify's blocks and
     our guards when None (None content: delete). A hook missing from `blocks` keeps its existing
-    block, which gains its guard. Every hook is read and checked before the caller writes any;
-    malformed raises."""
+    block, which gains its guard. `planned` overrides what is on disk with content another operation
+    already plans for that path. Every hook is checked before the caller writes any; malformed
+    raises."""
     edits: list[tuple[Path, str | None]] = []
     for name, (begin, end) in GRAPHIFY_MARKERS.items():
         path = hook_path(root, name)
-        current = read(path)
+        current = (planned or {}).get(path, read(path))
         unguarded = _without_guard(current)
         old = _marked_block(unguarded, begin, end)
         if blocks is None:
@@ -725,23 +731,27 @@ REPO_LOCATION_ENV = {
     "GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_PREFIX"}
 
 
+def hooks_path_unset(root: Path) -> bool:
+    """True only when core.hooksPath is unset at every level (exit 1); any other outcome is False.
+    The query must see the configuration a running git sees: drop the repository-location
+    variables and GIT_CONFIG, which only `git config` reads; every other config variable applies."""
+    env = {k: v for k, v in os.environ.items() if k not in REPO_LOCATION_ENV | {"GIT_CONFIG"}}
+    try:
+        return subprocess.run(["git", "config", "--get", "core.hooksPath"], cwd=root, env=env,
+                              capture_output=True, text=True, timeout=30).returncode == 1
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def install_graph_hook(root: Path, *, no_graph: bool) -> bool:
     """The post-commit and post-checkout graph refresh: rendered by `graphify`, written by us.
 
     Its dependency is a BINARY ON PATH, not a script inside a hook block, so `graphify_available()`
     is the equivalent check and it runs before any claim. Graphify blocks already in the hooks are
-    guarded first, whenever git would run them, even if this run then installs nothing.
+    guarded first, whenever git would run them, even if this run then installs nothing. The hooks
+    refresh only the default graphify-out/ at the worktree root, never while GRAPHIFY_OUT is set.
     """
-    # Install only when core.hooksPath is unset at every level (exit 1); any other outcome skips.
-    # The query must see the configuration a running git sees: drop the repository-location
-    # variables and GIT_CONFIG, which only `git config` reads; every other config variable applies.
-    env = {k: v for k, v in os.environ.items() if k not in REPO_LOCATION_ENV | {"GIT_CONFIG"}}
-    try:
-        unset = subprocess.run(["git", "config", "--get", "core.hooksPath"], cwd=root, env=env,
-                               capture_output=True, text=True, timeout=30).returncode == 1
-    except (OSError, subprocess.SubprocessError):
-        unset = False
-    if unset:
+    if unset := hooks_path_unset(root):
         guard_existing_graph_blocks(root)
     if no_graph:
         print("  post-commit graph refresh skipped (--no-graph)")
@@ -768,8 +778,8 @@ def install_graph_hook(root: Path, *, no_graph: bool) -> bool:
     except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as exc:
         print(f"  post-commit graph refresh FAILED: {exc}")
         return False
-    print("  post-commit graph refresh installed (only where graphify-out/graph.json is at the "
-          "worktree root)")
+    print("  post-commit graph refresh installed (only an existing default graphify-out/ at the "
+          "worktree root, never while GRAPHIFY_OUT is set)")
     print("    note: it re-extracts changed CODE only. Documentation changes still need a")
     print("    semantic rebuild — `graphify extract . --mode deep --backend <backend>`.")
     return True
@@ -1058,7 +1068,20 @@ def _scoped_plan(root: Path, *, uninstall: bool, standard: bool, public_flag: bo
             op = _file_operation(msg, _desired_removed_hook(msg), executable=True)
             if op:
                 files.append(op)
-    if not no_graph and graphify_root(root) == root and graphify_available():
+    # Existing graphify blocks, whatever --no-graph says: uninstall strips them with our guards;
+    # install guards them where git runs these hooks. Pure text edits, planned like any other.
+    unset = hooks_path_unset(root)
+    if uninstall or unset:
+        planned = {op.path: op.content or "" for op in files}
+        try:
+            for path, content in _graph_edits(root, None if uninstall else {}, planned):
+                files = [op for op in files if op.path != path]
+                if op := _file_operation(path, content, executable=True):
+                    files.append(op)
+        except ValueError as exc:
+            findings.append({"code": "graph-block-malformed", "message": str(exc)})
+    if not uninstall and unset and not no_graph and graphify_root(root) == root \
+            and graphify_available():
         findings.append({"code": "graph-operation-unpreviewable",
                          "message": "graphify hook install has no write-equivalent preview"})
     safe: list[PlannedFile] = []
@@ -1097,6 +1120,8 @@ def _explicit_scope(root: Path, args) -> int:
             print(f"FINDING {finding['code']}: {finding['message']}")
         return 2
     if args.check:
+        for operation in operations:
+            print(f"{operation['action']}: {operation['path']}")
         return 1 if operations else 0
     _apply_files(files, roots)
     for operation in operations:
@@ -1166,6 +1191,13 @@ def main() -> int:
         print(f"  commit-msg private-identifier guard: {msg} (public repos only)")
         print(f"  pre-push secret/size/main guard: {push}")
         print(f"  post-commit graph refresh: {graph}")
+        try:
+            unguarded = [p.name for p, _ in _graph_edits(root, {})]
+        except ValueError as exc:
+            unguarded = [f"unreadable ({exc})"]
+        if unguarded:
+            print(f"  graphify blocks WITHOUT the worktree guard: {', '.join(unguarded)} — an "
+                  f"install adds it where core.hooksPath is unset; --uninstall strips them")
         print(f"  repo has a disclosure route: {route}")
         # BEHAVIOUR 4: a declaring repository without the guard is a finding, not a shrug.
         if decl["state"] == "active" and (ident == "ABSENT" or msg == "ABSENT"):

@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 SKILL = Path(__file__).resolve().parents[1]
@@ -38,7 +39,7 @@ def load_installer():
 
 
 class HermeticRepo(unittest.TestCase):
-    """A temporary HOME, global git config and repository; no inherited GIT_* variable."""
+    """A temporary HOME, global git config and repository; no inherited GIT_* or GRAPHIFY_*."""
 
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="hooks-guard-")).resolve()
@@ -54,7 +55,7 @@ class HermeticRepo(unittest.TestCase):
         self.git("init", "-q", str(self.repo), cwd=self.tmp)
 
     def env(self, **extra: str) -> dict[str, str]:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GRAPHIFY_"))}
         env.update(HOME=str(self.home), GIT_CONFIG_GLOBAL=str(self.gitconfig),
                    GIT_CONFIG_NOSYSTEM="1", PYTHONDONTWRITEBYTECODE="1", PATH=self.path)
         env.update(extra)
@@ -89,18 +90,41 @@ class HermeticRepo(unittest.TestCase):
 class RealGraphifyGuardTest(HermeticRepo):
     def setUp(self) -> None:
         super().setUp()
-        self.commit(self.repo, "alpha.py")
-        self.commit(self.repo, "beta.py")
-        subprocess.run(["graphify", "update", "."], cwd=self.repo, env=self.env(), check=True,
-                       capture_output=True, text=True, timeout=120)
-        self.assertTrue((self.repo / "graphify-out" / "graph.json").is_file())
-        proc = self.invoke()
-        self.assertIn("post-commit graph refresh installed", proc.stdout, proc.stdout + proc.stderr)
+        self.addCleanup(self.settle)
+        # Isolation: an inherited GRAPHIFY_OUT must not reach graphify, the installer or the hook.
+        self.outside = self.tmp / "outside-graphify-out"
+        self.outside.mkdir()
+        with unittest.mock.patch.dict(os.environ, {"GRAPHIFY_OUT": str(self.outside)}):
+            self.commit(self.repo, "alpha.py")
+            self.commit(self.repo, "beta.py")
+            subprocess.run(["graphify", "update", "."], cwd=self.repo, env=self.env(), check=True,
+                           capture_output=True, text=True, timeout=120)
+            self.assertTrue((self.repo / "graphify-out" / "graph.json").is_file())
+            proc = self.invoke()
+            self.assertIn("post-commit graph refresh installed", proc.stdout,
+                          proc.stdout + proc.stderr)
         self.worktree = self.tmp / "worktree"
         self.git("worktree", "add", "-q", "-b", "side", str(self.worktree), cwd=self.repo)
         self.commit(self.worktree, "gamma.py")
         self.assertFalse((self.worktree / "graphify-out").exists())
-        self.addCleanup(self.settle)
+
+    def test_inherited_graphify_out_does_not_reach_graphify(self) -> None:
+        with unittest.mock.patch.dict(os.environ, {"GRAPHIFY_OUT": str(self.outside)}):
+            proc = self.run_hook("post-commit", self.repo)
+        self.assertIn(LAUNCH, proc.stdout)
+        self.settle()
+        self.assertEqual(list(self.outside.iterdir()), [])
+
+    def test_any_graphify_out_stops_at_the_guard(self) -> None:
+        before = sorted(p.name for p in self.repo.iterdir())
+        for value in ("", "custom"):
+            with self.subTest(GRAPHIFY_OUT=value):
+                proc = self.run_hook("post-commit", self.repo, GRAPHIFY_OUT=value)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertNotIn(LAUNCH, proc.stdout + proc.stderr)
+                self.run_hook("post-checkout", self.repo, GRAPHIFY_OUT=value)
+                self.assertEqual(sorted(p.name for p in self.repo.iterdir()), before)
+                self.assertFalse((self.repo / "graph.json").exists())
 
     def settle(self) -> None:
         """Before cleanup only: let a launched detached rebuild finish writing into the tree."""
@@ -273,22 +297,86 @@ class StubGraphifyGuardTest(HermeticRepo):
         self.assertEqual({name: (self.hook(name).read_bytes(), self.hook(name).stat().st_ino,
                                  self.hook(name).stat().st_mtime_ns) for name in self.STUB}, before)
 
-    def test_guard_honours_graphify_out_and_graphify_root(self) -> None:
+    def test_guard_skips_on_any_graphify_out_and_checks_graphify_root(self) -> None:
         self.root_graph()
         self.invoke()
         site = self.tmp / "site"
         site.mkdir()
         reached = "stub post-commit refresh"
         self.assertNotIn(reached, self.run_hook("post-commit", site).stdout)
-        self.root_graph(site, "custom-out")
-        self.assertNotIn(reached, self.run_hook("post-commit", site).stdout)
-        self.assertIn(reached, self.run_hook("post-commit", site, GRAPHIFY_OUT="custom-out").stdout)
-        marker = site / "custom-out" / ".graphify_root"
+        self.root_graph(site)
+        self.assertIn(reached, self.run_hook("post-commit", site).stdout)
+        for value in ("", "graphify-out", "custom-out"):
+            self.root_graph(site, value or ".")
+            out = self.run_hook("post-commit", site, GRAPHIFY_OUT=value).stdout
+            self.assertNotIn(reached, out, repr(value))
+        marker = site / "graphify-out" / ".graphify_root"
         for content, runs in ((".", True), (".\n", True), (".\n\n", False), ("sub", False),
                               ("", False)):
             marker.write_text(content, encoding="utf-8")
-            out = self.run_hook("post-commit", site, GRAPHIFY_OUT="custom-out").stdout
+            out = self.run_hook("post-commit", site).stdout
             self.assertEqual(reached in out, runs, repr(content))
+
+    # The mode matrix: existing unguarded graphify blocks, no graph to install, stub never needed.
+    INSTALL = (("plain install", ()), ("scope apply", ("--scope", "project")))
+    UNINSTALL = (("plain uninstall", ("--uninstall",)),
+                 ("scope uninstall", ("--scope", "project", "--uninstall")))
+    LOOK = (("plain check", ("--check",)), ("scope check", ("--scope", "project", "--check")),
+            ("scope preview", ("--scope", "project", "--preview")),
+            ("scope preview json", ("--scope", "project", "--preview", "--json")))
+
+    def matrix(self, modes, check) -> None:
+        for label, flags in modes:
+            for extra in ((), ("--no-graph",)):
+                with self.subTest(label, no_graph=bool(extra)):
+                    expected = self.existing_unguarded()
+                    before = {n: self.hook(n).read_bytes() for n in self.STUB}
+                    proc = self.invoke(*flags, *extra)
+                    check(label, proc, expected, before)
+                    self.assertFalse(self.log.exists())
+
+    def test_install_modes_guard_existing_blocks(self) -> None:
+        def check(label, proc, expected, _before):
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            for name in self.STUB:
+                self.assertEqual(self.hook(name).read_text(encoding="utf-8"), expected[name])
+        self.matrix(self.INSTALL, check)
+
+    def test_uninstall_modes_strip_blocks_and_guards(self) -> None:
+        def check(label, proc, _expected, _before):
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            for name in self.STUB:
+                self.assertEqual(self.hook(name).read_text(encoding="utf-8"),
+                                 "#!/bin/sh\necho mine\n", (label, name))
+        self.invoke("--no-graph")  # start from guarded blocks, as after an install
+        self.matrix(self.UNINSTALL, check)
+
+    def test_check_and_preview_modes_show_the_guard_and_write_nothing(self) -> None:
+        def check(label, proc, _expected, before):
+            self.assertEqual({n: self.hook(n).read_bytes() for n in self.STUB}, before)
+            for name in self.STUB:
+                if label == "plain check":
+                    self.assertIn("graphify blocks WITHOUT the worktree guard: post-commit, "
+                                  "post-checkout", proc.stdout)
+                else:
+                    self.assertEqual(proc.returncode, 1 if label == "scope check" else 0,
+                                     proc.stdout)
+                    self.assertIn(f"update: {self.hook(name)}", proc.stdout.replace(
+                        '{"action": "update", "path": "', "update: "), (label, name))
+        self.matrix(self.LOOK, check)
+
+    def test_hooks_path_set_install_untouched_uninstall_strips(self) -> None:
+        self.git("config", "core.hooksPath", ".hooks", cwd=self.repo)
+
+        def untouched(label, proc, _expected, before):
+            self.assertEqual({n: self.hook(n).read_bytes() for n in self.STUB}, before, label)
+
+        def stripped(label, proc, _expected, _before):
+            for name in self.STUB:
+                self.assertEqual(self.hook(name).read_text(encoding="utf-8"),
+                                 "#!/bin/sh\necho mine\n", (label, name))
+        self.matrix(self.INSTALL, untouched)
+        self.matrix(self.UNINSTALL, stripped)
 
 
 if __name__ == "__main__":

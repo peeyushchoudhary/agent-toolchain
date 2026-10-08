@@ -46,7 +46,8 @@ class ScopedHooksTest(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(self.installer), str(self.repo), *flags],
             capture_output=True, text=True, timeout=60,
-            env={**os.environ, "HOME": str(self.home), "CODEX_HOME": str(self.codex_home),
+            env={**{k: v for k, v in os.environ.items() if not k.startswith("GRAPHIFY_")},
+                 "HOME": str(self.home), "CODEX_HOME": str(self.codex_home),
                  "PYTHONDONTWRITEBYTECODE": "1", **extra_env})
 
     def snapshot(self) -> dict[str, bytes]:
@@ -395,7 +396,9 @@ class ScopedHooksTest(unittest.TestCase):
                 if label.startswith("git-config-"):  # what a running git would use
                     hooks_dir = subprocess.run(
                         ["git", "rev-parse", "--git-path", "hooks"], cwd=self.repo, check=True,
-                        capture_output=True, text=True, env={**os.environ, **extra}).stdout.strip()
+                        capture_output=True, text=True,
+                        env={**{k: v for k, v in os.environ.items()
+                                if not k.startswith("GRAPHIFY_")}, **extra}).stdout.strip()
                     self.assertEqual(hooks_dir == ".git/hooks", installed, hooks_dir)
                 proc = self.invoke(**extra)
                 self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
