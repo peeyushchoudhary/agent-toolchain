@@ -179,4 +179,9 @@ Record them dated under "graphify on this repository".
 
 ## Decisions
 
+- 2026-10-08: founder decisions at the approval presentation. Design and plan each get one
+  founder-granted confirmation review (round 3) of the round-2 corrections and of the edit that
+  aligns the hooks query with F-3 M4 (`GIT_CONFIG` dropped); approval follows if both pass. The
+  with-graph role-load exception (about 3,450 words) stated in the spec is accepted.
+
 ## Queue
