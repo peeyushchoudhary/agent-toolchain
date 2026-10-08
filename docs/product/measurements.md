@@ -64,3 +64,18 @@ $20 output; GPT-6 Sol is $2, $0.20 and $10. For an illustrative 40K uncached inp
 call, Opus 5.5 costs $0.32 and Sol $0.16. These are token-mix estimates, not observed cost per
 accepted review. Sources: [Opus 5.5](https://platform.claude.com/docs/en/models/opus-5-5/overview),
 [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol).
+
+## F-3 review rounds — 2026-10-08
+
+Counted from F-3's verdict history and founder-grant records, with the F-3 plan's Decisions
+alongside; the run workspace is not committed. They cover the first goal executed under v6, on this
+repository, and are the figures behind
+[D28](../decisions/decisions.md#d28--review-closure-ends-in-fixes-not-in-grants).
+
+| Measure | Value |
+|---|---|
+| M3 acceptance | 5 rounds per partition, 3 of them founder-granted |
+| T9 security review | 4 rounds, 2 founder-granted |
+| M4 acceptance | 7 rounds, 5 founder-granted; rounds 2-4 were one defect family. Round 5 passed, a post-tag graph guard reopened the milestone, round 6 blocked and round 7 passed |
+| Blocking rounds | 12; 6 found a further instance of a family already found, and 1 was a correction that removed an earlier fix |
+| Founder decisions admitting extra rounds | 10, for 13 rounds past the cap |

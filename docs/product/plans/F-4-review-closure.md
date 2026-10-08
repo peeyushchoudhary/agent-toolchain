@@ -107,7 +107,7 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
 `planning.md` have about 600 and 390 words of role-load headroom. Verify with
 `install/tests/test_size.py`.
 
-### [ ] T3 — records to current state
+### [x] T3 — records to current state
 - writes: docs/architecture/lean-execution.md, docs/decisions/decisions.md, docs/product/measurements.md, docs/agents/lessons.md
 - needs: T2
 - covers: AC-5
@@ -233,6 +233,13 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
   T1 commits without another boundary round. M1's cross-vendor acceptance review judges T1 again
   before merge. The round-6 grant is archived as `verdicts/history/founder-grants-used-4.json`.
   Findings per round ran 4, 2, 2, 1, 3, 2.
+
+- 2026-10-08, T3 (default): the records give F-3's counts as its verdict files show them, not the
+  numbers in T3's entry. Those were taken before M4 reopened for rounds 6 and 7. The final counts:
+  M4 acceptance ran 7 rounds, 5 founder-granted; F-3 had 12 blocking rounds, 6 of them further
+  instances of a family already found and 1 a correction that removed an earlier fix; and 10
+  founder decisions admitted 13 rounds past the cap. M3 and T9 are unchanged. The spec's Why keeps
+  the counts as of approval, and the merge explainer reports the difference.
 
 - 2026-10-08: founder decision on F-5's setup step, recorded here because F-5 has not started.
   A measurement on clones found that a full `graphify update` costs 44–59 s on a large repository

@@ -263,7 +263,7 @@ The tools are standard-library Python. `execution-methodology` plus `agent-perso
 | `goal.py stop-hook` | Implements the Stop-hook behaviour above. | Sessions ending early or looping |
 | `goal.py evidence` | Writes the milestone evidence record. | Hand-written status reports |
 | `gate.py check` / `gate.py receipt` | Runs the command and records the exit status and the executed, failed and skipped counts. Counts come from unittest, pytest, Gradle or JUnit XML newer than the run start, summed across every summary in the output. Failures are identified by test id. Gradle runs must carry `--rerun-tasks`. It fails on any of: (a) a nonzero exit; (b) an exit/verdict mismatch; (c) zero executed tests, unless the command is declared `count: none`; (d) failures not in `baseline.json`; (e) a tracked file changed by the run. `receipt` additionally requires a clean committed tree, deletes any prior receipt for (tree, command) first, and writes the new one. | Unexecuted greens; cached results; misattributed pre-existing failures; gates that dirty the tree; fail-open launchers; stale receipts |
-| `review.py` | Builds the review packet from `references/review.md` and the given paths, and runs the other vendor's CLI read-only by construction, with integrations excluded and `GOAL_ROLE=judge`. It writes the verdict with a vendor/model/effort/tree/round header. It refuses a third round on a subject. | Unbounded review loops; reviewer contamination; judges triggering the Stop hook |
+| `review.py` | Builds the review packet from `references/review.md` and the given paths, and runs the other vendor's CLI read-only by construction, with integrations excluded and `GOAL_ROLE=judge`. It writes the verdict with a vendor/model/effort/tree/round header. It writes a full snapshot of file digests per round to `review/<key>-r<n>.files.json`, and a round whose files drift while the judge runs is not recorded (exit 2). It admits one uncounted `--closed-by` confirmation and refuses any other round past the cap. | Unbounded review loops; reviewer contamination; judges triggering the Stop hook |
 | `run_goal.py` | Runs the driver loop above. | Multi-day runs depending on one session's context; runaway sessions |
 
 ## Review and triage
@@ -291,15 +291,31 @@ models follow that literally and under-report. Each finding carries a class:
   listed as optional in the explainer, and the founder can promote one.
 
 **Closure.**
-- Where it can, a blocking finding becomes a test that fails before the fix and passes after it;
-  the gate then proves closure.
+- Where it can, a blocking finding becomes a test that fails before the fix and passes after it.
+  The gate proves closure. A subject that needs a fresh PASS is confirmed with
+  `review.py --closed-by TEST...`: admitted once per subject, only when the last verdict is BLOCK
+  and every named test file differs from its content at that round. The confirmation is recorded
+  in `rounds.json` and the verdict header, and it does not count toward the cap.
+- A correction packet carries a **Keep** list: the behaviours in the code it touches that earlier
+  verdicts, Decisions or tests established, each with its reason. A builder who must remove one
+  stops and reports.
+- **Open input space.** A blocking finding whose trigger lies in the environment or configuration,
+  filesystem paths, an external tool's behaviour or concurrency is corrected at the class on the
+  first round: the packet states the invariant, or the narrower claim, that makes the class
+  impossible, and lists the sibling triggers, which the builder tests.
+- **Family.** A rereview marks a blocking finding that is a new instance of a finding under
+  rereview as `family: same as <finding path>`. The next correction targets the family, is
+  recorded in Decisions, and goes to the founder when it changes the design, the scope or a
+  durable interface.
 - Otherwise one scoped rereview of the correction runs.
 - If the subject is still blocked after that rereview, the loop ends:
   - **Design or plan:** the issue returns to the founder at approval.
   - **Risk review:** the task is parked.
   - **Acceptance:** the milestone is NOT READY and is queued for the founder with the advisor's
     recommendation attached.
-- No escalation buys an extra review round. A renamed attempt is the same subject.
+- No escalation buys an extra review round. A renamed attempt is the same subject. Only the
+  founder grants one round past the cap. See
+  [D28](../decisions/decisions.md#d28--review-closure-ends-in-fixes-not-in-grants).
 
 ## Escalation
 

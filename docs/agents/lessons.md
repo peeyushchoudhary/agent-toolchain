@@ -105,3 +105,21 @@ A session audit found elapsed-time renewals, review-count exceptions and fixture
 becoming founder transactions, and overlays and narrow grants kept the stops even when the common
 prose sounded broader. A failed safety check blocks acceptance, but repairing an unchanged
 requirement is not changing it. Count what actually stopped the run before adding an approval.
+
+## Hooks run where `git rev-parse --git-path hooks` says
+
+An installer wrote graph hooks that git never ran, because it read `core.hooksPath` instead of
+asking git. M4 acceptance blocked in rounds 2-4 on the variants: an empty value, three path forms
+(a trailing space, a missing component, a case-insensitive name), then `GIT_CONFIG`. With
+`core.hooksPath` unset, linked worktrees share the main checkout's hooks directory. A relative
+`core.hooksPath` resolves inside each worktree. `GIT_CONFIG` changes only what `git config` reads,
+so a running git ignores it. Narrow any claim about where hooks run to "`core.hooksPath` is
+unset", and test the decision against git itself.
+
+## A hook refreshes only the worktree that ran the command
+
+git runs a hook from the root of the worktree that ran the command, so graphify's hook refreshes
+only that worktree's untracked graph. In a worktree without a graph, graphify's post-commit hook
+creates one holding only the changed files. A test in a throwaway repository with real git and
+graphify showed it, with `built_at_commit` at HEAD. The installer now guards each graphify block
+so it refreshes only an existing graph.

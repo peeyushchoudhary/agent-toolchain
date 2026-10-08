@@ -204,3 +204,29 @@ tokens of tool schema per call. Pruning unused MCP servers costs no lines and no
 
 **Known-wrong if:** a milestone stalls on a removed tool, or a verdict cap makes a judge drop a
 finding rather than cut prose.
+
+---
+
+## D28 — Review closure ends in fixes, not in grants
+
+**Chose:** correction packets carry a Keep list; a first finding in an open input space and a
+repeat marked `family:` are both corrected at the class; and one test-closed rereview per subject
+(`review.py --closed-by`) does not count toward the cap.
+
+**Over:** raising the cap to 3, letting an advisor grant rounds, running each test against the
+pre-fix tree, and rating findings by likelihood or impact.
+
+**Why:** F-3 took ten founder decisions that admitted 13 rounds past the cap. Six of its 12
+blocking rounds found a further instance of a family already found, and one removed an earlier fix
+(the M4 regression). Each alternative fails on its own terms.
+- **Cap 3** spends the round on any correction, not only a test-proven one.
+- **Advisor grants** are how earlier loops stopped ending; the founder keeps the grant.
+- **Pre-fix test execution** needs a checkout and a runner per language; the judge reads the test
+  against the finding instead.
+- **Impact rating** would queue a rare but real correctness defect; class correction removes most of
+  the cost, and the founder declined it.
+
+**Known-wrong if:** a subject still reaches the cap on one family, or a confirmation admits a test
+that does not reproduce its finding.
+
+Numbers: [F-3 review rounds](../product/measurements.md#f-3-review-rounds--2026-10-08).
