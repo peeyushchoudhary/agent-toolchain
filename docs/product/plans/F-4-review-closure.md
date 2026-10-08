@@ -177,6 +177,23 @@ budget, so the additions are offset by trims in `run.md` that lose no rule. `rev
   per-round digests) and one founder-granted scoped boundary round (round 3);
   `goal/F-4/approved` moves to this commit.
 
+- 2026-10-08: founder decision on T1's boundary review round 3, which blocked on two more members
+  of the same family, both confirmed by the controller: the `--closed-by` comparison discarded the
+  exit code of `git ls-files`, and an unreadable test file raised past the refusal and exited 2.
+  The structural fix: every git call and file read in the comparison goes through one helper, so
+  any failure refuses with exit 1 and consumes nothing; a fault-injection test fails each call in
+  turn and expects that refusal. Then one founder-granted boundary round (round 4). The grants
+  used so far are archived as `verdicts/history/founder-grants-used-1.json`.
+
+- 2026-10-08: founder decision on F-5's setup step, recorded here because F-5 has not started.
+  A measurement on clones found that a full `graphify update` costs 44–59 s on a large repository
+  and, without `--force`, exits 1 without writing when the rebuild has fewer nodes than the
+  existing graph. F-5 as approved drops `GRAPHIFY_*` and passes no `--force`, so the graph would
+  stay stale. Setup will rebuild only when the graph is missing, its `built_at_commit` is not
+  HEAD, or `.graphify_root` is neither absent nor `.`, and the rebuild passes `--force`. The
+  amendment lands when F-5 starts, after `goal/F-4/M1`, with one founder-granted review of design
+  and plan.
+
 ## Queue
 
 - Q2 (blocks nothing): carry a PASS forward to a new tree when the change misses a partition's
