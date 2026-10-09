@@ -12,9 +12,9 @@ An absolute home path, in any letter case, still does not.
 
 - AC1 WHEN a staged line holds a relative path through a `users/` directory, such as a file
   under `app/core/users/`, bare or inside backticks, THE SYSTEM SHALL exit 0 with no finding.
-- AC2 WHEN a staged line holds `/Users/<name>` or `/home/<name>` at the start of the line or
-  after a space, `(`, `=` or a backtick, in any letter case, THE SYSTEM SHALL exit 1 and name an
-  absolute home path.
+- AC2 WHEN a staged line holds `/Users/<name>` or `/home/<name>` at the start of the line, or
+  after a space, `(`, `=`, a backtick or a compiler flag such as `-I` or `-L`, in any letter case,
+  THE SYSTEM SHALL exit 1 and name an absolute home path.
 - AC3 WHEN `guard.py --self-test` runs THE SYSTEM SHALL pass with a package-path fixture that
   expects no finding.
 
