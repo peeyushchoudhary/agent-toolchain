@@ -143,7 +143,7 @@ backing up any existing file to `<name>.bak-<date>`; copy the skill (with `guard
 `preserve_selftest.sh` and `skills/README.md`.
 
 ### [ ] T8 — `docs/` rewritten to current state
-writes: README.md, docs/**, NOTES-break-tests.md
+writes: README.md, docs/**, NOTES-break-tests.md, install/AGENTS.md, .github/pull_request_template.md
 Target about 4,300 words: root `README.md` ≤500; `docs/README.md` one index ≤150;
 `docs/architecture/methodology.md` ≤700 (the v7 design and accepted risks, from the council papers);
 `docs/architecture/repository-standard.md` ≤300; `docs/decisions/decisions.md` with every D-id as a
@@ -261,6 +261,8 @@ the other vendor's diff review, `done` for M2, merge.
   left the installer — T9 confirms Codex builder subagents still run, or restores it. The
   dangling-name exclusions still name root `README.md`, `test_rules.py`, the diagram and the v6
   records until T8 deletes or rewrites them.
+- 2026-10-09 widening: T8 `writes` gains `install/AGENTS.md` (links to a page T8 deletes) and
+  `.github/pull_request_template.md` (names checks S-1 deleted).
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 
