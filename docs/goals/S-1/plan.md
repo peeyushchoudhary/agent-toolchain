@@ -35,7 +35,7 @@ pre-commit route check stay green; new documentation waits for T8.
 ### [ ] T1 — decision record D29, this plan, the index row
 writes: docs/decisions/decisions.md, docs/README.md, docs/goals/S-1/plan.md
 
-### [ ] T2 — `goal.py` v7; cut the review loop and the driver together
+### [x] T2 — `goal.py` v7; cut the review loop and the driver together
 writes: install/skills/execution-methodology/**, install/hooks/goal-session.sh, install/install.sh, install/verify.sh, install/README.md, install/tests/test_install.py, docs/**
 tests-may-change: install/skills/execution-methodology/tests/**, install/tests/test_install.py
 Delete together, because they import or test each other: `review.py`, `run_goal.py`,
@@ -188,6 +188,16 @@ the other vendor's diff review, `done` for M2, merge.
   is the pilot repository's own first commit, described in `migrate-v5.md`.
 - 2026-10-09 widening: T2 `writes` gains `install/README.md`, which names the driver and the session
   hook T2 deletes; the repair belongs to the deleting commit (Format notes).
+- 2026-10-09 T2 defaults: `goal.py` is 441 lines (the parser and eight rows did not fit 300); the
+  Codex session command is `codex --ask-for-approval never exec --sandbox workspace-write`; `run.sh`'s
+  Claude settings allow `Bash`, `Edit` and `Write` (an unattended session cannot otherwise act; T9
+  confirms or narrows this); `protected` entries with a `#anchor` protect a section and are skipped
+  by the path checks; `plan.md` edits inside a `[Tn]` commit are exempt from row 4 when the frozen
+  view is unchanged (so a task ticks itself); lint requires all seven frontmatter keys. Known for
+  T9: under `run.sh` the Stop hook may be registered twice (globally and by the settings file) and
+  race on `stop_state.json`; installed copies of the deleted files remain until T7's retire list.
+  Task order inside M1: T4 before T3, so the graph code in `install_hooks.py` is deleted with the
+  file instead of being cut twice.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 

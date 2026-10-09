@@ -192,12 +192,10 @@ if [ "$INSTALLED" -eq 1 ]; then
   for h in install/hooks/*; do
     cmp -s "$h" "$HOME/.claude/hooks/$(basename "$h")" || differs "$HOME/.claude/hooks/$(basename "$h")"
   done
-  [ -d "$CX" ] && { cmp -s install/hooks/goal-session.sh "$CX/hooks/goal-session.sh" || differs "$CX/hooks/goal-session.sh"; }
   for pair in "$HOME/.claude/settings.json" "$CX/hooks.json"; do
     [ "$pair" = "$CX/hooks.json" ] && [ ! -d "$CX" ] && continue
-    for want in hooks/goal-session.sh "execution-methodology/scripts/goal.py stop-hook"; do
-      grep -qF "$want" "$pair" 2>/dev/null || differs "$pair does not register $want"
-    done
+    want="execution-methodology/scripts/goal.py stop-hook"
+    grep -qF "$want" "$pair" 2>/dev/null || differs "$pair does not register $want"
   done
   mkdir -p "$TMP/render/.codex"
   HOME="$TMP/render" CODEX_HOME="$TMP/render/.codex" \

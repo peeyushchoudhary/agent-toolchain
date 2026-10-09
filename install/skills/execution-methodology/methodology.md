@@ -78,8 +78,8 @@ The procedure is in [references/run.md](references/run.md). In outline:
 3. **Milestone close.** On the clean committed tree, `gate.py receipt` for `full_gate`, `e2e` and
    every automatic proof; `goal.py evidence`; cross-vendor acceptance; `goal.py done`; tag
    `goal/<id>/M<n>`; regenerate the explainer.
-4. **Next milestone** in a fresh session on the same branch. Long runs use `scripts/run_goal.py`,
-   which starts a fresh session per milestone or envelope. A fresh window seeded from files drifts
+4. **Next milestone** in a fresh session on the same branch. Long runs use `scripts/run.sh`,
+   which starts fresh sessions until `goal.py done` holds. A fresh window seeded from files drifts
    less than a long compacted one.
 
 **Done** means `goal.py done` exits 0 for the milestone: every task ticked, every commit since the
@@ -109,16 +109,14 @@ Cross-vendor review runs at design, plan and milestone acceptance; the security 
 `risk: safety` tasks and the reviewer's matching lens on `risk: boundary` or `risk: data`. Ordinary
 tasks get no per-task review, because the gate, guards and acceptance already cover them and
 per-task review measured little yield. Only `correctness`, `safety` or `requirement` findings with a
-reachable trigger and an observable consequence block. Each subject gets at most one correction and
-one scoped rereview. Details, judge isolation and acceptance partitions are in
-[references/review.md](references/review.md).
+reachable trigger and an observable consequence block. At merge, the other vendor reviews the
+milestone diff once; a blocking finding is closed by a named test or by removing the work.
 
 ## Decisions during a run
 
 - **Reversible, inside the approved outcome:** take the smallest option consistent with existing
   patterns, append it to `Decisions`, continue.
-- **Consequential:** one advisor call, then at most one council; see
-  [references/escalation.md](references/escalation.md).
+- **Consequential:** park it for the founder with a `Parked` line and continue with other work.
 - **Never escalated:** changes to criteria, scope or a durable interface; any safety-policy change;
   any external or irreversible action, such as merge, deploy, data deletion, paid services or
   credentials. Queue these for the founder, block only the dependent tasks, and continue with the

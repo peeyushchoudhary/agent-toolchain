@@ -30,10 +30,9 @@ manages.
 
 | Script | Does |
 |---|---|
-| `execution-methodology/scripts/goal.py` | Parses a plan; reports status, next task, guard, done, evidence; runs the Stop hook |
+| `execution-methodology/scripts/goal.py` | Parses a plan; lint, status, next, resume, packet, the eight-row done; runs the Stop hook |
 | `execution-methodology/scripts/gate.py` | Runs a gate, parses counts, writes receipts bound to tree and command |
-| `execution-methodology/scripts/review.py` | Builds a review packet and makes a one-shot read-only call to a judge |
-| `execution-methodology/scripts/run_goal.py` | Drives a multi-session run, one fresh session per milestone or envelope |
+| `execution-methodology/scripts/run.sh` | Runs fresh unattended sessions until `goal.py done` holds, or stalls or parks |
 | `agent-personas/scripts/sync_personas.py` | Scoped persona preview, check and apply; roster listing; routing |
 | `progressive-disclosure/scripts/validate_disclosure.py` | Route, README, taxonomy and persona-drift checks |
 | `progressive-disclosure/scripts/migrate_to_standard.py` | Plans and applies the taxonomy migration |
@@ -53,13 +52,10 @@ file that is not valid JSON is refused, and a backup is taken before the first c
 | `SessionStart` | `hooks/disclosure-check.sh` | Reports GitHub state, toolchain drift, a broken route, a stale graph. Reports, never writes |
 | `SessionStart` | `hooks/graphify-session-lessons.sh` | Injects the graph's lessons file, capped |
 | `SessionStart` | `hooks/preflight.sh` | Machine-fact checks for environment failures. Reports, never writes |
-| `SessionStart` | `hooks/goal-session.sh` | Prints the active goal's state, or the migrate-first notice in an unmigrated project |
 | `PreToolUse` (Bash) | `hooks/graphify-query-advisor.py` | Injects the symbol-first ladder when a prose graph query is about to run |
-| `Stop` | `goal.py stop-hook` | Keeps a goal session working until done, blocked, or the stall cap |
+| `Stop` | `goal.py stop-hook` | Blocks a stop while `goal.py done` is unmet, at most three times per session |
 
-The two goal hooks stay silent when `GOAL_HARNESS` is set: the driver registers its own for the
-sessions it starts, and two Stop hooks over one goal would defeat the stall cap. Session hooks
-report and never create files, because they fire in every directory a session starts in.
+Session hooks report and never create files, because they fire in every directory a session starts in.
 
 ### Generated agents
 
@@ -78,7 +74,7 @@ Skipped when the Codex home is absent.
 | Path | Purpose |
 |---|---|
 | `skills/` | The same four skills |
-| `hooks/goal-session.sh`, `hooks.json` | The same SessionStart and Stop hooks with absolute paths, merged |
+| `hooks.json` | The same Stop hook with an absolute path, merged |
 | `agents/` | The spawnable personas as `.toml`; hand-written workers are preserved |
 | `config.toml` | An `[agents]` block, appended only if none exists |
 | `AGENTS.md` | Private, untouched; see the runbook above |

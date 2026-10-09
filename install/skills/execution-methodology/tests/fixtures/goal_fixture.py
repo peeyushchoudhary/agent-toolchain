@@ -1,13 +1,12 @@
-"""Throwaway git repositories holding a small v6 goal, for the goal.py and gate.py tests.
+"""Throwaway git repositories holding a small v7 goal, for the goal.py, gate.py and run.sh tests.
 
-The fixture goal F-9 has two milestones: M1 (T1, T2; criteria AC-1, AC-2) and M2 (T3; AC-3, with
-acceptance split into two partitions). Its gates are tiny unittest suites inside the repository,
-and `emit.py` prints canned test-runner output selected by the GATE_FIXTURE_MODE variable, so the
-same command string can be made to pass or fail without changing the committed tree.
+The fixture goal F-9 (docs/goals/F-9/plan.md) has two milestones: M1 (T1, T2) and M2 (T3). Its
+gates are tiny unittest suites inside the repository, and `emit.py` prints canned test-runner
+output selected by the GATE_FIXTURE_MODE variable, so the same command string
+can be made to pass or fail without changing the committed tree.
 """
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -21,59 +20,40 @@ GATE = SCRIPTS / "gate.py"
 
 FULL = "python3 -m unittest discover -s tests -t tests"
 E2E = "python3 -m unittest discover -s tests -t tests -p 'test_e2e*.py'"
-PROOF3 = "python3 -m unittest discover -s tests -t tests -p 'test_b*.py'"
-
-SPEC = """# F-9 spec
-
-| ID | Criterion | Proof |
-| --- | --- | --- |
-| AC-1 | first | tests |
-| AC-2 | second | manual |
-| AC-3 | third | tests |
-"""
 
 
-def task(tid, title, writes, covers, needs="—", tmc="—", state=" ", risk="none"):
-    return (f"### [{state}] {tid} — {title}\n- writes: {writes}\n- needs: {needs}\n"
-            f"- covers: {covers}\n- risk: {risk}            # none | boundary | data | safety\n"
-            f"- builder: routine\n- tests-may-change: {tmc}\nDo the {title} work.\n")
+def task(tid, title, writes, tmc="", state=" "):
+    return (f"### [{state}] {tid} — {title}\nwrites: {writes}\n"
+            + (f"tests-may-change: {tmc}\n" if tmc else "") + f"Do the {title} work.\n")
 
 
-def plan_text(extra_m1="", m2_acceptance="[alpha, beta]"):
+def plan_text(t2_writes="src/b/**, tests/**"):
     return f"""---
 goal: F-9
 title: Fixture outcome
-spec: docs/spec.md
-design: docs/design.md
-gate: {FULL} -q            # per-task check
+gate: {FULL} -q
 full_gate: {FULL}
-e2e: {E2E}
-run: {{network: false, session_hours: 1}}
-grants: [local-commit]
+milestones:
+  M1: {{tasks: [T1, T2], e2e: "{E2E}"}}
+  M2: {{tasks: [T3], e2e: "{E2E}"}}
+touches: [none]
+protected: [docs/design.md]
 ---
 
-# F-9 plan
+## Outcome
 
-## M1 — first milestone
-criteria: AC-1, AC-2
-proofs:
-- AC-1: full_gate
-- AC-2: manual — founder looks at it
+The fixture does two things.
 
-{task("T1", "alpha", "src/a/**, tests/**", "AC-1")}
-{task("T2", "beta", "src/b/**, tests/**", "AC-2", needs="T1", tmc="tests/test_a.py")}
-{extra_m1}
-## M2 — second milestone
-criteria: AC-3
-acceptance: {m2_acceptance}
-proofs:
-- AC-3: {PROOF3}
+## Tasks
 
-{task("T3", "gamma", "src/c/**, tests/test_b*.py", "AC-3", needs="T2")}
+{task("T1", "alpha", "src/a/**, tests/**")}
+{task("T2", "beta", t2_writes, tmc="tests/test_a.py")}
+{task("T3", "gamma", "src/c/**")}
 ## Decisions
+
 - 2026-01-01: fixture decision.
 
-## Queue
+## Parked
 """
 
 
@@ -130,9 +110,8 @@ class Repo:
         self.dir = Path(os.path.realpath(tempfile.mkdtemp(prefix="goalfx-")))
         self.git("init", "-q", "-b", "main")
         self.write(".gitignore", "/.runs/\n__pycache__/\n")
-        self.write("docs/spec.md", SPEC)
         self.write("docs/design.md", "# design\n")
-        self.write("docs/plan.md", plan or plan_text())
+        self.write("docs/goals/F-9/plan.md", plan or plan_text())
         self.write("tests/test_a.py", TEST_A)
         self.write("tests/test_e2e_flow.py", TEST_E2E)
         self.write("tests/test_b_start.py", TEST_E2E.replace("Flow", "B"))
@@ -164,10 +143,10 @@ class Repo:
         self.write(rel, text.replace(old, new, 1))
 
     def tick(self, tid, mark="x"):
-        text = self.read("docs/plan.md")
+        text = self.read("docs/goals/F-9/plan.md")
         for m in " x!":
             text = text.replace(f"### [{m}] {tid} ", f"### [{mark}] {tid} ")
-        self.write("docs/plan.md", text)
+        self.write("docs/goals/F-9/plan.md", text)
 
     def commit(self, msg):
         self.git("add", "-A")
@@ -182,7 +161,7 @@ class Repo:
                               env=env(**extra), capture_output=True, text=True, timeout=120)
 
     def goal(self, *args, **kw):
-        return self.run(GOAL, "--plan", "docs/plan.md", *args, **kw)
+        return self.run(GOAL, *args, **kw)
 
     def gate(self, *args, **kw):
         return self.run(GATE, *args, **kw)
@@ -190,27 +169,18 @@ class Repo:
     def receipt(self, cmd, name="proof", **kw):
         return self.gate("receipt", "--goal", "F-9", "--cmd", cmd, "--name", name, **kw)
 
-    def verdict(self, name, verdict="PASS", tree=None):
-        self.write(f".runs/F-9/verdicts/{name}.md",
-                   f"VERDICT: {verdict}\nvendor: codex\nmodel: fixture\neffort: high\nround: 1\n"
-                   f"tree: {tree or self.tree()}\n\nNo findings.\n")
+    def review(self, body, reviewed="HEAD"):
+        self.write(".runs/F-9/review.md", f"reviewed: {self.git('rev-parse', reviewed)}\n\n{body}")
 
-    def finish_m1(self):
-        """Complete M1's tasks with one commit each."""
+    def close(self):
+        """Tick and commit M1's tasks, then write PASS receipts for HEAD's tree and a review."""
         self.write("src/a/x.py", "A = 1\n")
         self.tick("T1")
         self.commit("[T1] alpha")
         self.write("src/b/y.py", "B = 1\n")
         self.tick("T2")
         self.commit("[T2] beta")
-
-    def close(self, mid, commands, partitions=("acceptance",)):
-        """Write passing receipts and acceptance verdicts for the current HEAD tree."""
-        for cmd in commands:
-            res = self.receipt(cmd)
+        for cmd, name in ((FULL, "full_gate"), (E2E, "e2e")):
+            res = self.receipt(cmd, name)
             assert res.returncode == 0, res.stdout + res.stderr
-        for part in partitions:
-            self.verdict(f"{mid}-{part}")
-
-    def activate(self):
-        self.write(".runs/active", json.dumps({"goal": "F-9", "plan": "docs/plan.md"}))
+        self.review("No findings.\n")

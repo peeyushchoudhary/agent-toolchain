@@ -53,7 +53,7 @@ rather than a side effect of a copy.
 
 `execution-methodology` describes a process, not the work it was applied to, and names no project,
 path or person, which is what makes it safe to publish. Its tools (`goal.py`, `gate.py`,
-`review.py`, `run_goal.py`) carry no project fact: commands, paths and grants arrive from a
+`run.sh`) carry no project fact: commands, paths and grants arrive from a
 project's own plan.
 
 `graphify` is deliberately not published. It is a third-party skill that installs itself on its own

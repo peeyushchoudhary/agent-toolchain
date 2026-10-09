@@ -272,8 +272,7 @@ done
 
 # ── Hook scripts ─────────────────────────────────────────────────────────────────────────────────
 # Every script under hooks/ goes to ~/.claude/hooks, overwriting the installed copy (this is what
-# replaces an older disclosure-check.sh). Codex needs only the session hook, beside its own skills,
-# because goal-session.sh finds goal.py at ../skills relative to itself.
+# replaces an older disclosure-check.sh). Codex needs none: its one hook is goal.py in its skills.
 echo "hooks"
 run mkdir -p "$CLAUDE/hooks" || fail "hooks: could not create $CLAUDE/hooks"
 hooks_installed=0
@@ -287,11 +286,6 @@ for h in "$HERE"/hooks/*; do
   fi
 done
 [ "$hooks_installed" -gt 0 ] || fail "hooks: no hook was installed — is hooks/ missing from this package?"
-if [ "$DO_CODEX" -eq 1 ]; then
-  { place_file "$HERE/hooks/goal-session.sh" "$CODEX/hooks/goal-session.sh" &&
-    { [ "$DRY" -eq 1 ] || chmod +x "$CODEX/hooks/goal-session.sh"; }; } ||
-    fail "hook goal-session.sh: could not install into $CODEX/hooks"
-fi
 say "$hooks_installed hook script(s) current in $CLAUDE/hooks"
 
 # ── Hook registration ────────────────────────────────────────────────────────────────────────────
@@ -307,11 +301,7 @@ from pathlib import Path
 
 harness, root, path, mode = sys.argv[1], sys.argv[2], Path(sys.argv[3]), sys.argv[4]
 GOAL = "skills/execution-methodology/scripts/goal.py"
-# The global goal hooks defer to a more specific registration, so exactly one goal hook runs per
-# event: run_goal.py sets GOAL_HARNESS in driver sessions and registers its own hooks, and a
-# project's .codex/hooks.json (at the git top level, else the cwd) may register them for Codex.
-# Two Stop hooks over one stop_state either never release the stall cap or race on it.
-DEFER = '[ -n "${{GOAL_HARNESS:-}}" ] || '
+# One goal hook per harness: the Stop hook, which blocks a stop while `goal.py done` is unmet.
 if harness == "claude":
     ref = lambda rel: "~/.claude/" + rel  # noqa: E731
     WANT = [
@@ -320,20 +310,12 @@ if harness == "claude":
         ("PreToolUse", "Bash", "python3 {} 2>/dev/null || true", "hooks/graphify-query-advisor.py"),
         ("SessionStart", None, 'bash {} "${{CLAUDE_PROJECT_DIR:-$PWD}}" 2>/dev/null || true',
          "hooks/preflight.sh"),
-        ("SessionStart", None, DEFER + "bash {} 2>/dev/null || true", "hooks/goal-session.sh"),
-        ("Stop", None, DEFER + "python3 {} stop-hook", GOAL),
+        ("Stop", None, "python3 {} stop-hook", GOAL),
     ]
 else:  # codex: absolute paths, because CODEX_HOME need not be ~/.codex
     ref = lambda rel: shlex.quote(f"{root}/{rel}")  # noqa: E731
-    own = shlex.quote(f"{root}/hooks.json")
-    # The project file is consulted only when it is not this user-level file itself.
-    project = ('f="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.codex/hooks.json"; ' + DEFER
-               + '{{ [ ! "$f" -ef ' + own + ' ] && grep -qE {} "$f" 2>/dev/null; }} || ')
-    unless = lambda pattern: project.format(pattern).replace("{", "{{").replace("}", "}}")  # noqa: E731
     WANT = [
-        ("SessionStart", None, unless("'goal-session[.]sh'") + "bash {} 2>/dev/null || true",
-         "hooks/goal-session.sh"),
-        ("Stop", None, unless("'goal[.]py.* stop-hook'") + "python3 {} stop-hook", GOAL),
+        ("Stop", None, "python3 {} stop-hook", GOAL),
     ]
 
 if mode == "list":
