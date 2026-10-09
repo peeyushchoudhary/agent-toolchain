@@ -11,7 +11,8 @@ The agent files are [builder.md](../../install/skills/execution-methodology/agen
 [reviewer.md](../../install/skills/execution-methodology/agents/reviewer.md) and
 [scout.md](../../install/skills/execution-methodology/agents/scout.md). Each body has `## MUST`,
 `## SHOULD`, `## AVOID` and `## REPORT`, one behaviour per line, within a word ceiling that
-`test_rules.py` asserts (350, 350, 200). Model and effort agree with
+`test_rules.py` asserts (350, 350, 200). Each has a Codex twin, `agents/<name>.toml`, whose `developer_instructions` is the same body byte
+for byte (asserted by the install tests). Model and effort agree with
 [roles.md](../../install/skills/execution-methodology/references/roles.md); the decision is
 [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2).
 
