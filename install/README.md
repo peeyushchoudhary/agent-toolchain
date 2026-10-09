@@ -24,8 +24,9 @@ cd install
 A global file whose content differs is backed up beside it as `<name>.bak-<YYYYmmdd-HHMMSS>` first;
 an equal one is not touched. The skill is staged and swapped in by rename, so a failed copy leaves
 the working install intact. Files an earlier install left in the skill are kept and reported. The installer registers no
-hook and does not touch `settings.json` or `hooks.json`: the founder's open session is the chief and
-resumes a goal from `goal.py resume`.
+hook: the founder's open session is the chief and resumes a goal from `goal.py resume`. The one edit
+it makes to `settings.json` or `hooks.json` is to drop the Stop registration a v7.0 install wrote
+(the file is backed up first; one holding nothing else is removed).
 
 Each installed agent file carries the line `# installed by execution-methodology install.sh;
 uninstall removes an unchanged copy` (a `.md`'s second line, inside its frontmatter; a `.toml`'s

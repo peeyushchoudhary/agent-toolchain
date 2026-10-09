@@ -45,7 +45,10 @@ hooks_of()  { if [ "$1" = "$CLAUDE" ]; then echo "$1/settings.json"; else echo "
 #   RETIRED_PERSONAS agents/<name>.md|.toml, only when the file carries GENERATED_MARK (a file
 #                    carrying AGENT_MARK, which this installer writes, is never retired)
 #   RETIRED_FILES    paths under skills/; one ending in / is a directory (v7 installs no tests/)
+# RETIRED_HOOK_NEEDLES is one phrase: a hook registration whose command holds it was written by an
+# earlier version of this installer, and a plain install or uninstall drops it (D30: no Stop hook).
 # BEGIN retire-v5 list
+RETIRED_HOOK_NEEDLES="goal.py stop-hook"
 RETIRED_SKILLS="methodology-management project-onboarding project-migration project-conformance agent-persona-factory gate-sandbox agent-personas progressive-disclosure graph-navigation"
 RETIRED_PERSONAS="acceptance architect chief-of-staff contract-architect developer docs-steward migration-validator planner product-steward scout security-validator senior-developer test-judge advisor builder chief reviewer security-reviewer"
 RETIRED_HOOKS="goal-session.sh disclosure-check.sh preflight.sh graphify-query-advisor.py graphify-session-lessons.sh"
@@ -157,8 +160,9 @@ uninstall_global() {  # remove only an unmodified copy of global.md, then move t
 # ── Hook files ───────────────────────────────────────────────────────────────────────────────────
 # Edited, never replaced: a file that is not valid JSON or not in the hooks shape is refused; only
 # hook items whose command contains a NEEDLE are dropped, the rest keep their index (Codex keys hook
-# trust on it). A changed file is backed up first. Nothing is ever registered here; only
-# --retire-v5 edits these files.
+# trust on it). A changed file is backed up first. Nothing is ever registered here: install and
+# uninstall drop the registrations an earlier version wrote (RETIRED_HOOK_NEEDLES), --retire-v5
+# the v6 hooks'.
 HOOKS_PY="$(cat <<'PY'
 import json, shutil, sys, time
 from pathlib import Path
@@ -240,10 +244,12 @@ for r in "${ROOTS[@]}"; do
     [ "$DRY" -eq 1 ] || rmdir "$r/skills" 2>/dev/null || true   # only when the skill was all it held
     uninstall_agents "$r" || fail "uninstall: $r/agents"
     [ "$DRY" -eq 1 ] || rmdir "$r/agents" 2>/dev/null || true   # only when the agents were all it held
+    [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "$RETIRED_HOOK_NEEDLES" || fail "uninstall: $(hooks_of "$r")"
   else
     install_global "$(global_of "$r")" || fail "global instructions: $(global_of "$r") was not written"
     install_skill "$r" || fail "skill: $r/skills/$SKILL was not installed"
     install_agents "$r" || fail "agents: $r/agents was not written"
+    [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "$RETIRED_HOOK_NEEDLES" || fail "hooks: $(hooks_of "$r") was not edited"
     # Read-only: a subagent's worktree branches from the default branch unless the founder sets baseRef.
     [ "$r" != "$CLAUDE" ] || python3 -c 'import json, sys
 try: s = json.load(open(sys.argv[1], encoding="utf-8"))

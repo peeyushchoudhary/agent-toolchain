@@ -45,11 +45,12 @@ def md_parts(name: str) -> tuple[str, str]:
 def retire_list() -> dict[str, list[str] | str]:
     text = SCRIPT.read_text(encoding="utf-8")
     block = text.split("# BEGIN retire-v5 list", 1)[1].split("# END retire-v5 list", 1)[0]
-    names = ("RETIRED_SKILLS", "RETIRED_PERSONAS", "RETIRED_HOOKS", "RETIRED_FILES", "GENERATED_MARK")
+    names = ("RETIRED_SKILLS", "RETIRED_PERSONAS", "RETIRED_HOOKS", "RETIRED_FILES", "GENERATED_MARK",
+             "RETIRED_HOOK_NEEDLES")
     out = subprocess.run(["bash", "-c", block + "".join(f'\nprintf "%s\\0" "${n}"' for n in names)],
                          capture_output=True, text=True, check=True).stdout.split("\0")
     lists = {n: v.split() for n, v in zip(names, out)}
-    return {**lists, "GENERATED_MARK": out[4]}
+    return {**lists, "GENERATED_MARK": out[4], "RETIRED_HOOK_NEEDLES": out[5]}
 
 
 def snapshot(root: Path) -> dict[str, str]:
@@ -159,12 +160,10 @@ class InstallTest(InstallCase):
     def test_malformed_or_misshapen_hook_files_are_refused_and_left_alone(self):
         for text, why in (("{not json", "is not valid JSON"), (json.dumps({"hooks": {"Stop": {"a": 1}}}), "hooks shape")):
             bad = self.write(self.claude / "settings.json", text)
-            self.install()  # a plain install reads no hook file; only --retire-v5 edits one
-            self.assertEqual(bad.read_text(), text)
-            r = self.install("--retire-v5", ok=False)
+            r = self.install(ok=False)  # a plain install reads the hook file to drop an old registration
             self.assertEqual(r.returncode, 1)
             self.assertIn(why, r.stdout + r.stderr)
-            self.assertIn("retire-v5:", r.stderr)
+            self.assertIn("hooks:", r.stderr)
             self.assertNotIn("Traceback", r.stdout + r.stderr)
             self.assertEqual(bad.read_text(), text)
 
@@ -196,6 +195,22 @@ class UninstallTest(InstallCase):
         again = self.install("--uninstall").stdout
         self.assertEqual(snapshot(self.home), after, again)
         self.assertIn(f"left in place (differs from global.md): {self.claude / 'CLAUDE.md'}", again)
+
+    def test_upgrade_does_not_leave_a_broken_stop_hook(self):
+        old = f"python3 ~/.claude/skills/{SKILL}/scripts/{retire_list()['RETIRED_HOOK_NEEDLES']}"
+        plant = lambda: (  # noqa: E731  what a v7.0 install left in both homes
+            self.write(self.claude / "settings.json", json.dumps({"hooks": {"Stop": [
+                {"hooks": [{"type": "command", "command": "mine"}, {"type": "command", "command": old}]}]}})),
+            self.write(self.codex / "hooks.json", json.dumps({"hooks": {"Stop": [
+                {"hooks": [{"type": "command", "command": old.replace("~/.claude", str(self.codex))}]}]}})))
+        for mode in ((), ("--uninstall",)):
+            plant()
+            out = self.install(*mode).stdout
+            self.assertIn(f"unregistered Stop: {old} in {self.claude / 'settings.json'}", out)
+            self.assertEqual(commands(self.claude / "settings.json"), ["mine"], mode)
+            self.assertFalse((self.codex / "hooks.json").exists(), "a hook file holding only the old entry was ours")
+            self.assertNotIn("Traceback", out)
+
 
 class AgentTest(InstallCase):
     def dests(self) -> dict[Path, Path]:
