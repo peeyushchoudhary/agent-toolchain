@@ -336,7 +336,13 @@ def review_findings(ctx):
         else:
             listed = next((l.split(":", 1)[1] for l in lines[k + 1:k + 6] if l.strip().startswith("paths:")), "")
             listed = [p.strip() for p in listed.split(",") if p.strip()]
-            if not listed or not all(any(s in "MD" and glob_re(p).match(q) for s, q in ch) for p in listed):
+            parent = git(ctx.root, "rev-parse", "-q", "--verify", f"{full}^1", check=False)
+
+            def removes(s, q):  # deleted, or modified with lines removed and none added
+                num = git(ctx.root, "diff", "--numstat", parent, full, "--", q).split() if s == "M" and parent else []
+                return s == "D" or (len(num) >= 2 and num[0] == "0" and num[1] not in ("0", "-"))
+            hits = {p: [(s, q) for s, q in ch if glob_re(p).match(q)] for p in listed}
+            if not listed or not all(hits[p] and all(removes(s, q) for s, q in hits[p]) for p in listed):
                 out.append(f"{rid}: {sha} does not remove or change the finding's paths")
                 continue
         closed[full] = rid

@@ -268,6 +268,15 @@ class ReviewRowTest(RepoCase):
         self.repo.review(f"- [x] R1 removed-by {sha[:8]}\n  paths: src/a/x.py\n", "HEAD~1")
         self.assertRow(8, "does not remove or change")
 
+    def test_removed_by_rejects_addition_only_modification(self):
+        sha = self.fix("src/b/y.py", "B = 1\nUNRELATED = 1\n", "[T2][R1] add beside the defect")
+        self.repo.review(f"- [x] R1 removed-by {sha[:8]}\n  paths: src/b/y.py\n", "HEAD~1")
+        self.assertRow(8, f"R1: {sha[:8]} does not remove or change the finding's paths")
+        self.repo.git("reset", "-q", "--hard", "HEAD~1")
+        sha = self.fix("src/b/y.py", "", "[T2][R1] remove the defective line")
+        self.repo.review(f"- [x] R1 removed-by {sha[:8]}\n  paths: src/b/*.py\n", "HEAD~1")
+        self.assertRowOk(8)
+
     def test_an_open_blocking_finding_is_named(self):
         self.repo.review("- [ ] BLOCKING R2 the beta value is wrong\n")
         self.assertRow(8, "open - [ ] BLOCKING")
