@@ -40,10 +40,15 @@ failed. Any failed step makes the script exit 1, naming the step.
 
 ## Rollback
 
+From the repository root:
+
 ```bash
-./install.sh --uninstall                                   # on the v7 tree
-git checkout methodology/v6-base -- install && cd install && ./install.sh
+(cd install && ./install.sh --uninstall)                   # on the v7 tree
+git rm -r -q install && git checkout methodology/v6-base -- install && (cd install && ./install.sh)
 ```
+
+`git rm` comes first because a plain checkout overlays v6 on v7 and keeps the v7-only files, which
+the v6 installer would then copy. `skills/execution-methodology/tests/e2e_run.sh` rehearses this sequence in a temporary clone.
 
 ## The gate
 

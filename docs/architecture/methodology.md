@@ -62,7 +62,10 @@ Six v6 lessons hold:
 
 ```bash
 (cd install && ./install.sh --uninstall)                   # on the v7 tree
-git checkout methodology/v6-base -- install && (cd install && ./install.sh)
+git rm -r -q install && git checkout methodology/v6-base -- install && (cd install && ./install.sh)
 ```
+
+`git rm` first: a plain checkout overlays v6 on v7 and keeps v7-only files, which the v6 installer
+would copy. `e2e_run.sh` rehearses exactly this sequence in a temporary clone.
 
 A migrated project reverts its migration commit ([migrate-v5.md](../runbooks/migrate-v5.md)).

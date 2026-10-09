@@ -46,6 +46,46 @@ def commands(file: Path, event: str = "Stop") -> list[str]:
     return [h["command"] for e in hooks.get(event, []) for h in e["hooks"]]
 
 
+class E2ERunTests(unittest.TestCase):
+    """e2e_run.sh and run.sh with neither the claude nor the codex CLI on PATH: a stub directory
+    holding git and python3 comes first and only the system directories follow. No network."""
+
+    E2E = SKILLS / SKILL / "tests" / "e2e_run.sh"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="e2e-test-")).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        stubs = self.tmp / "bin"
+        stubs.mkdir()
+        (stubs / "git").symlink_to(shutil.which("git"))
+        (stubs / "python3").symlink_to(sys.executable)
+        path = f"{stubs}:/usr/bin:/bin:/usr/sbin:/sbin"
+        for cli in ("claude", "codex"):
+            self.assertIsNone(shutil.which(cli, path=path), cli)
+        (self.tmp / "home").mkdir()
+        self.env = {**os.environ, "PATH": path, "HOME": str(self.tmp / "home"), "PYTHONDONTWRITEBYTECODE": "1",
+                    "GIT_CONFIG_NOSYSTEM": "1", "RUN_NO_NOTIFY": "1",
+                    "GIT_AUTHOR_NAME": "Fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+                    "GIT_COMMITTER_NAME": "Fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid"}
+        for var in ("CODEX_HOME", "CODEX_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY",
+                    "E2E_CODEX_AUTH_JSON", "E2E_KEEP", "E2E_FAKE_NO_STOP_HOOK", "RUN_HARNESS_CMD", "RUN_PROMPT"):
+            self.env.pop(var, None)
+
+    def e2e(self, *args: str, **env: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", str(self.E2E), *args], env={**self.env, **env}, capture_output=True,
+                              text=True, timeout=300, cwd=self.tmp)
+
+    def test_e2e_requires_every_requested_live_harness(self):
+        for args, names in ((["--harness", "codex"], ["codex"]), (["--live"], ["claude", "codex"])):
+            r = self.e2e(*args)
+            out = r.stdout + r.stderr
+            self.assertNotEqual(r.returncode, 0, out)
+            for name in names:
+                self.assertRegex(out, rf"e2e_run: {name} +FAIL: a live run was requested", out)
+            self.assertNotIn("fake harness", out)
+            self.assertNotIn("run.sh", out)
+
+
 class InstallCase(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp(prefix="t7-home-")).resolve()

@@ -2,29 +2,48 @@
 # M2's end-to-end check (S-1 T9). Everything runs in disposable homes and scratch repositories;
 # the real ~/.claude and ~/.codex are never written, and nothing is pushed.
 #
-#   e2e_run.sh [--harness claude|codex|none]     (default: both; none = the install rehearsal only)
+#   e2e_run.sh [--harness claude|codex|none] [--live]
+#
+# Which harness runs, and how:
+#   (no flags)      both harnesses. Each runs live when its CLI is installed and logged in under the
+#                   disposable home; otherwise that harness, and only that one, runs the same path with
+#                   a fake harness (founder decision 2026-10-09: no credentials in disposable homes
+#                   yet). The summary line names each harness `live` or `fake`.
+#   --harness <h>   only <h>, and it must run live: an absent or logged-out CLI prints why and exits 1
+#                   before anything runs, with no fake fallback. `none` runs the rehearsal (3.) only.
+#   --live          every selected harness must run live, or exit 1 the same way. This is the
+#                   authenticated run the fake path stands in for.
 #
 # 1. Per harness, on its own fresh repository with a two-task goal E-1: install the skill with the
 #    real install.sh into a disposable HOME/CODEX_HOME, probe a forbidden `git push`, then
-#    `run.sh E-1 --harness <h> --sessions 3` for real. Asserts: the push was refused, both [T1] and
-#    [T2] commits exist, a Stop hook registered outside run.sh never fired, the session did not
-#    write its own review, and, after the merge-review step (below), `goal.py done` prints DONE and
-#    packet.md exists. A harness whose CLI is absent or not logged in under the disposable home is
-#    skipped with the reason. Credentials for a disposable home: Claude reads CLAUDE_CODE_OAUTH_TOKEN
+#    `run.sh E-1 --harness <h> --sessions 3`. Asserts: the push was refused, both [T1] and [T2]
+#    commits exist, a Stop hook registered outside run.sh never fired, the session did not write its
+#    own review, and, after the merge-review step (below), `goal.py done` prints DONE and packet.md
+#    exists. Credentials for a disposable home: Claude reads CLAUDE_CODE_OAUTH_TOKEN
 #    (`claude setup-token`) or ANTHROPIC_API_KEY from the environment; Codex reads CODEX_API_KEY,
 #    or E2E_CODEX_AUTH_JSON=<path to an auth.json> is copied into the disposable CODEX_HOME.
-#    When neither harness is logged in (founder decision 2026-10-09), the same path runs once with
-#    a fake harness instead, without the push probe and the --settings experiment, and says so.
-# 2. The --settings experiment (Claude): does a user-level Stop hook fire beside --settings?
+#    A fake run has no push probe and no --settings experiment, and says so.
+# 2. The --settings experiment (Claude, live): does a user-level Stop hook fire beside --settings?
 # 3. Install rehearsal: install, expected set, uninstall back to a byte-identical home, the D29
-#    rollback to methodology/v6-base, its expected set, uninstall.
+#    rollback exactly as install/README.md documents it, in a temporary clone, its installed set
+#    against methodology/v6-base's own install/, uninstall.
 #
 # The merge review is the one step outside a session: a sandboxed session cannot reach the other
 # vendor, and run.sh only restarts. Here a labelled fixture stands in for that review once rows 1-7
-# hold; it is not a review. Exit 0 when every step that ran passed and a harness (live or fake) ran.
+# hold; it is not a review. Exit 0 when every step that ran passed.
 set -uo pipefail
 
-ONLY="${2:-}"; [ "${1:-}" = "--harness" ] || ONLY=""
+ONLY="" LIVE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --harness) ONLY="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
+    --live) LIVE=1; shift ;;
+    *) ONLY="?"; break ;;
+  esac
+done
+case "$ONLY" in claude|codex) HARNESSES="$ONLY" ;; none) HARNESSES="" ;; "") HARNESSES="claude codex" ;;
+  *) sed -n '5p' "$0" >&2; exit 2 ;; esac
+must_live() { [ -n "$LIVE" ] || [ "$ONLY" = "$1" ]; }
 SKILL_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL="$(cd "$SKILL_SRC/../.." && pwd)"
 REPO="$(git -C "$INSTALL" rev-parse --show-toplevel)"
@@ -129,8 +148,8 @@ harness_run() {  # harness_run HARNESS live|fake: the goal run and its assertion
   if ! HOME="$home" CODEX_HOME="$home/.codex" bash "$INSTALL/install.sh" > "$tmp/install-$h.log" 2>&1; then
     cat "$tmp/install-$h.log"; bad "$h install" "install.sh exited non-zero"; return 0; fi
   if [ "$mode" = live ] && ! authed "$h" "$home"; then
-    line "$h" "SKIPPED: not logged in under the disposable home (see the header for credentials)"; return 1; fi
-  ran="$ran $h$([ "$mode" = fake ] && echo ' (fake harness)')"
+    line "$h" "not live: not logged in under the disposable home (see the header for credentials)"; return 1; fi
+  ran="${ran:+$ran, }$h $mode"
   if [ "$h" = claude ]; then hooks="$home/.claude/settings.json" skill="$home/.claude/skills/execution-methodology"
   else hooks="$home/.codex/hooks.json" skill="$home/.codex/skills/execution-methodology"; fi
   marker="$tmp/user-stop-$h"; : > "$marker"; add_marker_hook "$hooks" "$marker"
@@ -189,16 +208,27 @@ Then report its output verbatim and stop. Do not try any other command.' \
   fi
   return 0
 }
-for h in claude codex; do
-  [ -z "$ONLY" ] || [ "$ONLY" = "$h" ] || continue
-  if ! command -v "$h" >/dev/null 2>&1; then line "$h" "SKIPPED: the $h CLI is not installed"; continue; fi
-  harness_run "$h" live
+# A harness that must run live (--harness <h>, --live) and cannot is a failure before anything runs:
+# no fake fallback stands in for a requested live run.
+refused=""
+for h in $HARNESSES; do
+  must_live "$h" || continue
+  if ! command -v "$h" >/dev/null 2>&1; then why="the $h CLI is not installed"
+  else
+    mkdir -p "$tmp/auth-$h/.codex"
+    [ "$h" = codex ] && [ -n "${E2E_CODEX_AUTH_JSON:-}" ] && cp "$E2E_CODEX_AUTH_JSON" "$tmp/auth-$h/.codex/auth.json"
+    authed "$h" "$tmp/auth-$h" && continue
+    why="$h is not logged in under a disposable home (see the header for credentials)"
+  fi
+  bad "$h" "a live run was requested, but $why; no fallback"; refused=1
 done
-# Founder decision 2026-10-09: no credentials in disposable homes yet. When no harness ran live, the
-# same path runs once with a fake harness (no push probe, no --settings experiment), so the loop,
-# commits, receipts, done and packet are still proven; the first authenticated run takes the live path.
-if [ -z "$ran" ] && [ "$ONLY" != none ]; then
-  cat > "$tmp/fake_harness.py" <<'FAKE'
+[ -z "$refused" ] || { echo; echo "e2e_run: FAIL (a requested live harness cannot run)"; exit 1; }
+
+# Founder decision 2026-10-09: no credentials in disposable homes yet. Without flags, each harness
+# that cannot run live runs the same path with this fake harness (no push probe, no --settings
+# experiment), so the loop, commits, receipts, done and packet are proven per harness; the first
+# authenticated run takes the live path.
+cat > "$tmp/fake_harness.py" <<'FAKE'
 """Stand-in for one harness session: the next open task, else the two receipts. Not a harness."""
 import os, pathlib, re, subprocess, sys
 plan = pathlib.Path("docs/goals/E-1/plan.md")
@@ -224,9 +254,13 @@ else:
                         "--name", name], check=True, capture_output=True)
 print('{"type": "result", "total_cost_usd": 0, "num_turns": 0, "permission_denials": []}')
 FAKE
-  echo "e2e_run: live sessions SKIPPED (founder decision 2026-10-09: no credentials in disposable homes); loop proven with a fake harness"
-  harness_run claude fake
-fi
+for h in $HARNESSES; do
+  if ! command -v "$h" >/dev/null 2>&1; then line "$h" "not live: the $h CLI is not installed"
+  elif harness_run "$h" live; then continue; fi
+  if must_live "$h"; then bad "$h" "a live run was requested and did not happen"; continue; fi
+  line "$h" "running with a fake harness (founder decision 2026-10-09)"
+  harness_run "$h" fake
+done
 
 
 # ── 3. Install rehearsal in disposable homes ────────────────────────────────────────────────────
@@ -257,30 +291,31 @@ if inst "$INSTALL" --uninstall; then
     bad "uninstall" "home differs: $(diff "$tmp/before" "$tmp/after" | grep '^[<>]' | head -4 | tr '\n' ' ')"
 else bad "uninstall" "install.sh --uninstall exited non-zero"; fi
 
-# The D29 rollback: methodology/v6-base's install/ from a temporary worktree, its install.sh.
-v6="$tmp/v6-base"
-if gitq -C "$REPO" worktree add -q --detach "$v6" methodology/v6-base 2>"$tmp/wt.log"; then
-  if inst "$v6/install"; then
+# The D29 rollback, the documented sequence verbatim (install/README.md, methodology.md), in a
+# temporary clone. The reference is methodology/v6-base's own install/ (git archive), so a v7-only
+# file the rollback left behind and the v6 installer copied is a difference.
+v6="$tmp/v6-clone" ref="$tmp/v6-ref"; mkdir -p "$ref"
+if gitq clone -q "$REPO" "$v6" 2>"$tmp/wt.log" && gitq -C "$REPO" archive methodology/v6-base install | tar -x -C "$ref" &&
+   (cd "$v6" && git rm -r -q install && git checkout methodology/v6-base -- install) 2>>"$tmp/wt.log"; then
+  if (cd "$v6" && HOME="$r" CODEX_HOME="$r/.codex" bash -c '(cd install && ./install.sh)') > "$tmp/rehearsal.log" 2>&1; then
     drift=""
-    for s in $(sed -n 's|^!/\([A-Za-z0-9_-]*\)/*$|\1|p' "$v6/install/skills/.gitignore"); do
+    for s in $(sed -n 's|^!/\([A-Za-z0-9_-]*\)/*$|\1|p' "$ref/install/skills/.gitignore"); do
       for root in "$r/.claude" "$r/.codex"; do
         [ -d "$root/skills/$s" ] || { drift="$drift missing $root/skills/$s"; continue; }
-        d="$(diff -rq -x __pycache__ "$v6/install/skills/$s" "$root/skills/$s" 2>&1 | grep -v "^Only in $root" | head -2)"
+        d="$(diff -rq -x __pycache__ "$ref/install/skills/$s" "$root/skills/$s" 2>&1 | head -2)"
         [ -z "$d" ] || drift="$drift $d"
       done
     done
-    for f in "$v6"/install/hooks/*; do [ -f "$r/.claude/hooks/$(basename "$f")" ] || drift="$drift missing hooks/$(basename "$f")"; done
-    [ -z "$drift" ] && ok "rollback to v6-base" "every v6 skill and hook installed as shipped" || bad "rollback to v6-base" "$drift"
-  else bad "rollback to v6-base" "v6 install.sh exited non-zero"; fi
-  gitq -C "$REPO" worktree remove --force "$v6"
-else bad "rollback to v6-base" "no worktree: $(head -1 "$tmp/wt.log")"; fi
+    for f in "$ref"/install/hooks/*; do [ -f "$r/.claude/hooks/$(basename "$f")" ] || drift="$drift missing hooks/$(basename "$f")"; done
+    [ -z "$drift" ] && ok "rollback to v6-base" "documented sequence; every v6 skill and hook installed as shipped, nothing else" ||
+      bad "rollback to v6-base" "$drift"
+  else cat "$tmp/rehearsal.log"; bad "rollback to v6-base" "v6 install.sh exited non-zero"; fi
+else bad "rollback to v6-base" "the documented sequence failed: $(head -1 "$tmp/wt.log")"; fi
 if inst "$INSTALL" --uninstall; then
   left="$(cd "$r" && find . -type f | grep -vxF -e ./.claude/CLAUDE.md -e ./.codex/AGENTS.md | wc -l | tr -d ' ')"
   ok "uninstall after rollback" "v7 uninstall ran; $left v6 file(s) remain, which v7 does not own"
 else bad "uninstall after rollback" "install.sh --uninstall exited non-zero"; fi
 
 echo
-if [ -z "$ran" ] && [ "$ONLY" != none ]; then
-  echo "e2e_run: FAIL (no harness ran; $errors other failure(s))"; exit 1; fi
-if [ "$errors" -eq 0 ]; then echo "e2e_run: PASS (harnesses run:${ran:- none})"; exit 0; fi
-echo "e2e_run: FAIL ($errors; harnesses run:${ran:- none})"; exit 1
+if [ "$errors" -eq 0 ]; then echo "e2e_run: PASS (harnesses: ${ran:-none})"; exit 0; fi
+echo "e2e_run: FAIL ($errors; harnesses: ${ran:-none})"; exit 1
