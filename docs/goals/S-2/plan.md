@@ -39,8 +39,8 @@ D30 amends D29's "no new mechanism during the pilot" for S-2 and records the thr
 decisions; the stop-rule line in `methodology.md` says so; the index gains the three S-2 pages.
 
 ### [x] T2 — `goal.py`: `reads:`, `touches:`, spec and design lint, section protection, AC tracing
-writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/**
-tests-may-change: install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/**
+writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/**, install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/tests/test_docs.py
+tests-may-change: install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/**, install/skills/execution-methodology/tests/test_docs.py
 reads: docs/goals/S-2/design.md#interfaces, docs/goals/S-2/spec.md, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 `FIELD_RE` gains `reads`, treated like `writes`: outside the frozen view, reported by `widenings`,
 a change in a plan-only commit needs a Decisions line, `packet` lists it. One policy for the new
@@ -132,8 +132,8 @@ the agent files join `SKILL_FILES`, the scout and the reviewer are read-only, ea
 or under its budget. `docs/README.md` gains the personas row.
 
 ### [x] T6 — this repository's `docs/` under the standard; `docs.py lint` in the gate; M1's e2e
-writes: docs/README.md, docs/architecture/**, docs/product/**, docs/runbooks/**, docs/archive/**, docs/decisions/decisions.md, README.md, install/verify.sh, install/tests/e2e_install.sh, install/tests/test_install.py, install/README.md
-tests-may-change: install/tests/e2e_install.sh, install/tests/test_install.py
+writes: docs/README.md, docs/architecture/**, docs/product/**, docs/runbooks/**, docs/archive/**, docs/decisions/decisions.md, README.md, install/verify.sh, install/tests/e2e_install.sh, install/tests/test_install.py, install/README.md, install/skills/execution-methodology/tests/test_rules.py
+tests-may-change: install/tests/e2e_install.sh, install/tests/test_install.py, install/skills/execution-methodology/tests/test_rules.py
 reads: docs/goals/S-2/design.md#interfaces, docs/architecture/repository-standard.md, install/verify.sh, install/tests/e2e_install.sh
 Frontmatter on every page under `docs/` outside `goals/` and the index, `decisions.md` and
 `measurements.md` included. New
@@ -352,6 +352,10 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   root `README.md` and `install/README.md` still describe `run.sh` as current (T9's writes cover
   only `install/README.md`; T11 covers `methodology.md`; root `README.md` needs a plan-only
   widening or a T11 Decisions line); the plan's `M2:` line is indented four spaces.
+- 2026-10-09 Astra merge review, M1 round 1 (`.runs/S-2/review.md`, reviewed f7aa22e): BLOCK, R1–R8
+  blocking, R9–R11 parked below. One fix commit closes one finding, so T2's write set gains
+  `docs.py` and `test_docs.py` (R4 fixes both parsers' fence handling in one commit) and T6's
+  gains `test_rules.py` (R8's closing test lives there). Nothing else in the plan changes.
 
 ## Parked
 
@@ -361,3 +365,9 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   named files are confirmed gone).
 - Live check that a Codex session selects the installed custom agents and that a Claude subagent
   worktree branches from the chief's HEAD: the pilot's first goal.
+- Merge review R9: `references/design.md` has the design reviewer read `design.md` and `plan.md`,
+  not `spec.md`, while the reviewer persona judges against the spec (T11 may align it).
+- Merge review R10: the builder persona's "add the tests the task names; leave every other test"
+  reads as forbidding authorised `tests-may-change` edits; reword at the next persona change.
+- Merge review R11: `goal.py` keeps its own `slug()` while `docs.py` is the single home; `docs.py`
+  imports `goal.py`, so the reverse import needs a shared module (M2 or later).
