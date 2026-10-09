@@ -1,5 +1,5 @@
 ---
-summary: Codex beside Claude Code: the repository layer both share, what the installer writes into `$CODEX_HOME`, how a Codex session runs as the chief (the sandbox, the git-level push denial and its limits; the launcher section below is superseded by D30 and leaves in S-2 T9), and the exact `codex exec` call that runs the read-only review when Claude is the chief.
+summary: Codex beside Claude Code: the repository layer both share, what the installer writes into `$CODEX_HOME`, how the founder's own Codex session runs as the chief (`goal.py resume`, the pre-push guard, `codex exec --worktree` for builders), and the exact `codex exec` call that runs the read-only review when Claude is the chief.
 read-when: Running Codex as the chief or as the other vendor's reviewer
 covers: []
 last-verified: 2026-10-09
@@ -36,31 +36,12 @@ names the path in the packet.
 
 ## Codex as chief
 
-`run.sh <id> --harness codex` starts each session as:
-
-```bash
-codex --ask-for-approval never exec --sandbox workspace-write \
-  -c sandbox_workspace_write.network_access=false \
-  -c 'sandbox_workspace_write.writable_roots=["<repo>/.git"]' \
-  -c 'hooks.Stop=[{hooks=[{type="command",command="python3 <skill>/scripts/goal.py --goal <id> stop-hook"}]}]' \
-  --dangerously-bypass-hook-trust --ignore-user-config --ignore-rules \
-  -C <repo> --json "<goal.py resume prompt>" < /dev/null
-```
-
-The session loads neither your `config.toml` nor any execpolicy `.rules` file, so nothing there
-widens or narrows it; no `[agents]` block is needed, because builder subagents (`multi_agent`) are on
-by default. The Stop hook is registered for that session only and runs without prior trust
-(`--dangerously-bypass-hook-trust`), so you trust nothing once.
-
-The sandbox keeps writes in the workspace and `.git`, with the network off. That alone does not stop
-a push: git's local transport to a path remote needs no network. `run.sh` therefore denies pushes in
-the repository's own git config for the run's duration and restores it at exit: `core.hooksPath`
-points at a copy of the repository's hooks whose `pre-push` refuses, and
-`url.run-sh-denies-push://.pushInsteadOf` rewrites every push URL to a transport that does not exist,
-which `--no-verify` does not skip. Codex offers no per-session execpolicy rule (no flag or `-c` key
-names a rules file), so this git-level denial is the mechanism. A session that edits `.git/config`
-can undo it; it stops a push, not a hostile session. Claude sessions get the same denial, behind
-their `Bash(git push *)` deny rule.
+Your own open Codex session is the chief; nothing launches or restarts it, and no hook keeps it
+going. Ask it to run the goal and it starts from `goal.py resume`, which prints the next task, the
+milestone state and the tail of `.runs/<id>/progress.md`; it stops when `goal.py done` prints DONE.
+Pushes go through the guard's `pre-push` hook, which `git-hooks.sh` installs in each clone
+([github.md](github.md#the-guard)). Each builder runs in its own worktree through
+`codex exec --worktree`, as above, so its staged diff never shares the chief's index.
 
 ## Codex as the other vendor's reviewer
 

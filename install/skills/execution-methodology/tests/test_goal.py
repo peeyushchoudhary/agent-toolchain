@@ -1,4 +1,4 @@
-"""Tests for goal.py and run.sh: the plan parser, lint, the eight done rows, the stop hook, run.sh.
+"""Tests for goal.py: the plan parser, lint, the eight done rows, the packet, cost from planted transcripts.
 
 Each case builds a throwaway repository (fixtures/goal_fixture.py) holding goal F-9, tagged
 goal/F-9/approved, and plants one way a run could fake progress; the matching done row must name it.
@@ -6,16 +6,17 @@ goal/F-9/approved, and plants one way a run could fake progress; the matching do
 from __future__ import annotations
 
 import json
-import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.goal_fixture import DESIGN, E2E, FULL, GATE, GOAL, SPEC, V71_FILES, Repo, env, plan_text  # noqa: E402
+from fixtures.goal_fixture import DESIGN, E2E, FULL, GOAL, SPEC, V71_FILES, Repo, env, plan_text  # noqa: E402
 
 sys.path.insert(0, str(GOAL.parent))
 import goal  # noqa: E402
@@ -23,7 +24,6 @@ from gate import receipt_path  # noqa: E402
 
 REAL_PLAN = Path(__file__).resolve().parents[4] / "docs" / "goals" / "S-1" / "plan.md"
 S2_PLAN = REAL_PLAN.parents[1] / "S-2" / "plan.md"
-RUN_SH = GOAL.parent / "run.sh"
 PLAN = "docs/goals/F-9/plan.md"
 SPEC_PATH, DESIGN_PATH = "docs/goals/F-9/spec.md", "docs/goals/F-9/design.md"
 # Assembled so this file does not itself add the marker that row 5 rejects.
@@ -513,109 +513,74 @@ class ReviewRowTest(RepoCase):
         self.assertRow(8, "no .runs/F-9/review.md")
 
 
-class StopHookTest(RepoCase):
-    def hook(self, cwd=None, session="s1", args=()):
-        return subprocess.run([sys.executable, str(GOAL), *args, "stop-hook"], cwd=cwd or self.repo.dir, env=env(),
-                              input=json.dumps({"session_id": session}), capture_output=True, text=True)
-
-    def test_stop_hook_honors_explicit_goal_with_multiple_plans(self):
-        self.repo.write("docs/goals/G-2/plan.md", plan_text().replace("goal: F-9", "goal: G-2"))
-        self.repo.commit("F-9: a second open goal")
-        for args, gid in ((("--goal", "F-9"), "F-9"), (("--goal", "G-2"), "G-2"), (("--plan", PLAN), "F-9")):
-            block = json.loads(self.hook(args=args).stdout)
-            self.assertEqual(block["decision"], "block")
-            self.assertIn(f"Goal {gid} is not done", block["reason"])
-        first, second = self.hook(session="s9"), self.hook(session="s9")
-        self.assertEqual(json.loads(first.stdout), {
-            "decision": "block", "reason": "several open plans; register the hook with --goal <id>"})
-        self.assertEqual((second.returncode, second.stdout), (0, ""))
-        settings = RUN_SH.read_text()
-        self.assertIn("--goal %s stop-hook", settings)
-
-    def test_blocks_three_times_then_allows(self):
-        outs = [self.hook() for _ in range(4)]
-        for res in outs[:3]:
-            block = json.loads(res.stdout)
-            self.assertEqual(block["decision"], "block")
-            self.assertIn("row 1: T1 is not [x]", block["reason"])
-        self.assertEqual((outs[3].returncode, outs[3].stdout), (0, ""))
-        self.assertIn("block", self.hook(session="s2").stdout)
-
-    def test_allows_where_there_is_no_plan(self):
-        bare = Path(tempfile.mkdtemp(prefix="goal-bare-"))
-        self.addCleanup(shutil.rmtree, bare, True)
-        subprocess.run(["git", "init", "-q"], cwd=bare, check=True)
-        res = self.hook(cwd=bare)
-        self.assertEqual((res.returncode, res.stdout, res.stderr), (0, "", ""))
-
-    def test_allows_when_done(self):
-        self.repo.close()
-        self.assertEqual(self.hook().stdout, "")
+def jsonl(path: Path, rows) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
 
 
-FAKE_HARNESS = """import pathlib, re, subprocess, sys
-plan = pathlib.Path("docs/goals/F-9/plan.md")
-text = plan.read_text()
-tid = re.search(r"^### \\[ \\] (T[12]) ", text, re.M).group(1)
-pathlib.Path(f"src/{tid}.py").parent.mkdir(exist_ok=True)
-pathlib.Path(f"src/{tid}.py").write_text("x = 1\\n")
-plan.write_text(text.replace(f"### [ ] {tid} ", f"### [x] {tid} "))
-subprocess.run(["git", "add", "-A"], check=True)
-subprocess.run(["git", "-c", "commit.gpgsign=false", "commit", "-qm", f"[{tid}] work"], check=True)
-if tid == "T2":
-    for cmd, name in ((%r, "full_gate"), (%r, "e2e")):
-        subprocess.run([sys.executable, %r, "receipt", "--goal", "F-9", "--cmd", cmd, "--name", name],
-                       check=True, capture_output=True)
-    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout
-    pathlib.Path(".runs/F-9/review.md").write_text("reviewed: " + head + "\\nNo findings.\\n")
-"""
+class CostTest(RepoCase):
+    """Transcripts planted under a scratch HOME and CODEX_HOME; the numbers are synthetic."""
 
+    def setUp(self):
+        super().setUp()
+        self.home = Path(tempfile.mkdtemp(prefix="goal-home-"))
+        self.addCleanup(shutil.rmtree, self.home, True)
+        self.codex = self.home / "codex"
+        approved = datetime.fromisoformat(self.repo.git("log", "-1", "--format=%cI", "goal/F-9/approved"))
+        self.before, self.after = (
+            (approved + timedelta(hours=h)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z") for h in (-24, 1))
 
-LATE_REVIEW = """import pathlib
-calls = pathlib.Path(".runs/F-9/calls")
-n = int(calls.read_text()) + 1 if calls.exists() else 1
-calls.write_text(str(n))
-if n == 2:
-    pathlib.Path(".runs/F-9/review.saved").rename(".runs/F-9/review.md")
-"""
+    def cost(self, *args):
+        return self.repo.goal(*args, HOME=str(self.home), CODEX_HOME=str(self.codex))
 
+    def plant(self):
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.repo.dir))
+        usage = lambda i, c, r, o: {"input_tokens": i, "cache_creation_input_tokens": c,  # noqa: E731
+                                    "cache_read_input_tokens": r, "output_tokens": o}
+        msg = lambda t, mid, u: {"type": "assistant", "timestamp": t, "message": {"id": mid, "usage": u}}  # noqa: E731
+        jsonl(self.home / ".claude" / "projects" / slug / "s1.jsonl", [
+            {"type": "user", "timestamp": self.after, "message": {"role": "user"}},
+            msg(self.before, "m0", usage(1000, 1000, 1000, 1000)),
+            msg(self.after, "m1", usage(10, 20, 30, 5)),
+            msg(self.after, "m1", usage(10, 20, 30, 5)),  # the same response's next content block
+            msg(self.after, "m2", usage(1, 2, 3, 4))])
+        jsonl(self.home / ".claude" / "projects" / slug / "s1" / "subagents" / "agent-x.jsonl", [
+            msg(self.after, "m3", usage(100, 200, 300, 40)),
+            msg(self.after, "m2", usage(1, 2, 3, 4))])  # the top-level file's m2 again: counted once
+        jsonl(self.home / ".claude" / "projects" / "-elsewhere" / "s2.jsonl", [msg(self.after, "m9", usage(7, 7, 7, 7))])
+        meta = lambda cwd: {"type": "session_meta", "timestamp": self.before, "payload": {"cwd": cwd}}  # noqa: E731
+        count = lambda t, i, o, total: {"type": "event_msg", "timestamp": t, "payload": {  # noqa: E731
+            "type": "token_count", "info": {"last_token_usage": {"input_tokens": i, "cached_input_tokens": 1,
+                                                                 "output_tokens": o},
+                                            "total_token_usage": {"input_tokens": total, "output_tokens": total}}}}
+        jsonl(self.codex / "sessions" / "2026" / "01" / "02" / "rollout-a.jsonl", [
+            meta(str(self.repo.dir)), count(self.before, 500, 500, 500), count(self.after, 100, 7, 600),
+            count(self.after, 200, 8, 800)])
+        jsonl(self.codex / "sessions" / "2026" / "01" / "02" / "rollout-b.jsonl", [
+            meta(str(self.home)), count(self.after, 9, 9, 9)])
 
-class RunShTest(RepoCase):
-    plan = plan_text().replace("src/a/**, tests/**", "src/**").replace("src/b/**, tests/**", "src/**")
+    def test_sums_planted_transcripts_since_the_approval(self):
+        self.plant()
+        res = self.cost("cost")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.splitlines(), ["claude: input 666 output 49 (2 transcripts)",
+                                                   "codex: input 300 output 15 (1 transcripts)"])
+        early = subprocess.run(["git", "commit-tree", "HEAD^{tree}", "-m", "early"], cwd=self.repo.dir, check=True,
+                               env=env(GIT_COMMITTER_DATE="2000-01-01T00:00:00Z"), capture_output=True, text=True)
+        res = self.cost("cost", "--since", early.stdout.strip())
+        self.assertEqual(res.stdout.splitlines(), ["claude: input 3666 output 1049 (2 transcripts)",
+                                                   "codex: input 800 output 515 (1 transcripts)"])
 
-    def run_sh(self, harness_cmd):
-        return subprocess.run(["bash", str(RUN_SH), "F-9", "--harness", "claude", "--sessions", "4"],
-                              cwd=self.repo.dir, capture_output=True, text=True, timeout=300,
-                              env=env(RUN_HARNESS_CMD=harness_cmd, RUN_NO_NOTIFY="1"))
+    def test_nothing_planted_prints_unknown_for_each_harness(self):
+        res = self.cost("cost")
+        self.assertEqual((res.returncode, res.stdout), (0, "claude: unknown\ncodex: unknown\n"), res.stderr)
 
-    def test_done_after_two_sessions_and_stalled_with_a_no_op(self):
-        fake = self.repo.dir.parent / f"{self.repo.dir.name}-fake.py"
-        self.addCleanup(lambda: fake.unlink(missing_ok=True))
-        fake.write_text(FAKE_HARNESS % (FULL, E2E, str(GATE)))
-        res = self.run_sh(f"{sys.executable} {fake}")
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(res.stdout.strip().splitlines()[-1], "DONE")
-        progress = self.repo.read(".runs/F-9/progress.md")
-        self.assertEqual(progress.count(" session "), 2, progress)
-        self.assertIn("DONE M1", self.repo.read(".runs/F-9/packet.md"))
-        self.assertTrue(os.access(RUN_SH, os.X_OK))
-
-        other = Repo(self.plan)
-        self.addCleanup(other.cleanup)
-        res = subprocess.run(["bash", str(RUN_SH), "F-9", "--harness", "codex"], cwd=other.dir, timeout=300,
-                             capture_output=True, text=True, env=env(RUN_HARNESS_CMD="true", RUN_NO_NOTIFY="1"))
-        self.assertEqual((res.returncode, res.stdout.strip()), (3, "STALLED"), res.stderr)
-
-    def test_done_takes_precedence_over_stalled(self):
-        self.repo.close()  # ticks, commits, receipts: done holds except for the review
-        self.repo.path(".runs/F-9/review.md").rename(self.repo.path(".runs/F-9/review.saved"))
-        fake = self.repo.dir.parent / f"{self.repo.dir.name}-late.py"
-        self.addCleanup(lambda: fake.unlink(missing_ok=True))
-        fake.write_text(LATE_REVIEW)  # session 1 does nothing; session 2 only lands the review
-        res = self.run_sh(f"{sys.executable} {fake}")
-        self.assertEqual((res.returncode, res.stdout.strip().splitlines()[-1]), (0, "DONE"), res.stdout + res.stderr)
-        self.assertEqual(self.repo.read(".runs/F-9/progress.md").count(" session "), 2)
-        self.assertIn("DONE M1", self.repo.read(".runs/F-9/packet.md"))
+    def test_packet_reports_the_cost(self):
+        self.plant()
+        self.cost("packet")
+        packet = self.repo.read(".runs/F-9/packet.md")
+        self.assertIn("\nCost:\nclaude: input 666 output 49 (2 transcripts)\ncodex: input 300 output 15 (1 transcripts)\n",
+                      packet)
 
 
 if __name__ == "__main__":

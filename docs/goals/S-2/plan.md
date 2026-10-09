@@ -196,7 +196,7 @@ installed agents is owed to the pilot's first goal (Parked). `codex.md` document
 how a Codex builder gets its own worktree (a Codex-side option if one exists, else the Codex chief
 runs `git worktree add` and names the path in the packet).
 
-### [ ] T9 — the session is the chief: delete `run.sh` and the Stop hook; `goal.py cost`
+### [x] T9 — the session is the chief: delete `run.sh` and the Stop hook; `goal.py cost`
 writes: install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/test_rules.py, install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py, install/install.sh, install/verify.sh, install/README.md, docs/runbooks/codex.md, docs/runbooks/github.md
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/test_rules.py, install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py
 reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py, install/install.sh
@@ -386,6 +386,17 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   so T11 can drop the dangling-name exclusions T9 adds for `README.md`, `methodology.md`,
   `e2e_install.sh` and `goal_fixture.py` once it removes their launcher mentions; T9's own writes
   did not reach those files.
+- 2026-10-09 T9 defaults: the dangling-name pattern is `(^|[^_[:alnum:]])run\.sh|stop-hook` so
+  `e2e_run.sh` may be named; `verify.sh` excludes `README.md`, `methodology.md`, `e2e_install.sh`
+  and `goal_fixture.py` until T11 clears their mentions; `goal.py cost` reads every transcript
+  under the project slug recursively (subagent files included, one `message.id` counted once
+  across files; this goal: 9 transcripts), input is the three Claude input fields, Codex sums
+  `last_token_usage`, and `unknown` means no usage record in the window; four install tests
+  were retargeted because a plain install no longer reads hook files; the e2e drops the install
+  and D29 rollback rehearsal (the rollback stays documented in `methodology.md`, which T11
+  re-words); `github.md` had no launcher mention. Follow-up: a home still carrying an older
+  global `goal.py stop-hook` registration gets argparse exit 2 from the hook, which Claude Code
+  reads as a block; this machine has none; `--retire-v5` does not strip it (pilot migration).
 
 ## Parked
 

@@ -21,8 +21,6 @@ INSTALL = Path(__file__).resolve().parents[1]
 SCRIPT = INSTALL / "install.sh"
 SKILLS = INSTALL / "skills"
 SKILL = "execution-methodology"
-GOAL_STOP = f"skills/{SKILL}/scripts/goal.py stop-hook"  # the v6- and T7-era global registration
-RUN_SH = f"skills/{SKILL}/scripts/run.sh"
 GLOBAL = (INSTALL / "global.md").read_text(encoding="utf-8")
 AGENTS = SKILLS / SKILL / "agents"
 AGENT_NAMES = ("builder", "reviewer", "scout")
@@ -64,81 +62,6 @@ def commands(file: Path, event: str = "Stop") -> list[str]:
     return [h["command"] for e in hooks.get(event, []) for h in e["hooks"]]
 
 
-class E2ERunTests(unittest.TestCase):
-    """e2e_run.sh and run.sh with neither the claude nor the codex CLI on PATH: a stub directory
-    holding git and python3 comes first and only the system directories follow. No network."""
-
-    E2E = SKILLS / SKILL / "tests" / "e2e_run.sh"
-
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="e2e-test-")).resolve()
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        stubs = self.tmp / "bin"
-        stubs.mkdir()
-        (stubs / "git").symlink_to(shutil.which("git"))
-        (stubs / "python3").symlink_to(sys.executable)
-        path = f"{stubs}:/usr/bin:/bin:/usr/sbin:/sbin"
-        for cli in ("claude", "codex"):
-            self.assertIsNone(shutil.which(cli, path=path), cli)
-        (self.tmp / "home").mkdir()
-        self.env = {**os.environ, "PATH": path, "HOME": str(self.tmp / "home"), "PYTHONDONTWRITEBYTECODE": "1",
-                    "GIT_CONFIG_NOSYSTEM": "1", "RUN_NO_NOTIFY": "1",
-                    "GIT_AUTHOR_NAME": "Fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
-                    "GIT_COMMITTER_NAME": "Fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid"}
-        for var in ("CODEX_HOME", "CODEX_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY",
-                    "E2E_CODEX_AUTH_JSON", "E2E_KEEP", "E2E_FAKE_NO_STOP_HOOK", "RUN_HARNESS_CMD", "RUN_PROMPT"):
-            self.env.pop(var, None)
-
-    def e2e(self, *args: str, **env: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["bash", str(self.E2E), *args], env={**self.env, **env}, capture_output=True,
-                              text=True, timeout=300, cwd=self.tmp)
-
-    def test_e2e_requires_every_requested_live_harness(self):
-        for args, names in ((["--harness", "codex"], ["codex"]), (["--live"], ["claude", "codex"])):
-            r = self.e2e(*args)
-            out = r.stdout + r.stderr
-            self.assertNotEqual(r.returncode, 0, out)
-            for name in names:
-                self.assertRegex(out, rf"e2e_run: {name} +FAIL: a live run was requested", out)
-            self.assertNotIn("fake harness", out)
-            self.assertNotIn("run.sh", out)
-
-    def test_e2e_rejects_missing_session_stop_hook(self):
-        r = self.e2e(E2E_FAKE_NO_STOP_HOOK="1")
-        out = r.stdout + r.stderr
-        self.assertEqual(r.returncode, 1, out)
-        for harness in ("claude", "codex"):
-            self.assertRegex(out, rf"e2e_run: {harness} session stop hook +FAIL: .*Stop hook never ran", out)
-        self.assertIn("e2e_run: FAIL", out.splitlines()[-1])
-
-    def test_codex_session_denies_local_transport_push(self):
-        sys.path.insert(0, str(SKILLS / SKILL / "tests"))
-        from fixtures.goal_fixture import Repo  # noqa: E402
-        repo = Repo()
-        self.addCleanup(repo.cleanup)
-        origin, log = self.tmp / "origin.git", self.tmp / "pushes.log"
-        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, env=self.env)
-        subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=repo.dir, check=True, env=self.env)
-        stub = self.tmp / "session.sh"  # the session: a local-transport push four ways, exit codes logged
-        stub.write_text(f"""for cmd in "git push --dry-run origin HEAD" "git push origin HEAD" \\
-           "git push --no-verify origin HEAD" "git -c remote.origin.pushurl={origin} push origin HEAD"; do
-  $cmd >/dev/null 2>&1; echo "$? $cmd" >> '{log}'
-done
-""")
-        r = subprocess.run(["bash", str(SKILLS / SKILL / "scripts" / "run.sh"), "F-9", "--harness", "codex",
-                            "--sessions", "1"], cwd=repo.dir, capture_output=True, text=True, timeout=120,
-                           env={**self.env, "RUN_HARNESS_CMD": f"bash {stub}"})
-        attempts = log.read_text().splitlines()
-        self.assertEqual(len(attempts), 4, r.stdout + r.stderr)
-        for attempt in attempts:
-            self.assertNotEqual(attempt.split(" ", 1)[0], "0", attempt)
-        refs = subprocess.run(["git", "for-each-ref"], cwd=origin, capture_output=True, text=True, env=self.env)
-        self.assertEqual(refs.stdout, "")
-        left = subprocess.run(["git", "config", "--local", "--get-regexp", r"pushinsteadof|hookspath"],
-                              cwd=repo.dir, capture_output=True, text=True, env=self.env)
-        self.assertEqual(left.stdout, "", "run.sh did not restore the repository's git config")
-
-
 class InstallCase(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp(prefix="t7-home-")).resolve()
@@ -164,9 +87,6 @@ class InstallCase(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
         return path
 
-    def stop_registrations(self, file: Path) -> list[str]:
-        return [c for c in commands(file) if "goal.py stop-hook" in c] if file.is_file() else []
-
 
 class InstallTest(InstallCase):
     def test_installs_global_file_and_skill_and_registers_no_hook_in_either_harness(self):
@@ -176,8 +96,8 @@ class InstallTest(InstallCase):
             self.assertEqual({p.name for p in (root / "skills").iterdir()}, {SKILL})
             installed = root / "skills" / SKILL
             self.assertEqual({p.name for p in installed.iterdir()}, {"SKILL.md", "references", "agents", "scripts"})
-            self.assertTrue(os.access(root / RUN_SH, os.X_OK), root / RUN_SH)
-            # run.sh registers the Stop hook per session; the installer never does (S-1 decision).
+            self.assertTrue(os.access(installed / "scripts" / "goal.py", os.X_OK), installed)
+            # The founder's session is the chief (D30): nothing registers a hook.
             self.assertFalse((root / hooks).exists(), root / hooks)
         self.assertEqual({p.name for p in (self.claude / "agents").iterdir()}, {f"{n}.md" for n in AGENT_NAMES})
         self.assertEqual({p.name for p in (self.codex / "agents").iterdir()}, {f"{n}.toml" for n in AGENT_NAMES})
@@ -239,10 +159,12 @@ class InstallTest(InstallCase):
     def test_malformed_or_misshapen_hook_files_are_refused_and_left_alone(self):
         for text, why in (("{not json", "is not valid JSON"), (json.dumps({"hooks": {"Stop": {"a": 1}}}), "hooks shape")):
             bad = self.write(self.claude / "settings.json", text)
-            r = self.install(ok=False)
+            self.install()  # a plain install reads no hook file; only --retire-v5 edits one
+            self.assertEqual(bad.read_text(), text)
+            r = self.install("--retire-v5", ok=False)
             self.assertEqual(r.returncode, 1)
             self.assertIn(why, r.stdout + r.stderr)
-            self.assertIn("stop hook:", r.stderr)
+            self.assertIn("retire-v5:", r.stderr)
             self.assertNotIn("Traceback", r.stdout + r.stderr)
             self.assertEqual(bad.read_text(), text)
 
@@ -274,19 +196,6 @@ class UninstallTest(InstallCase):
         again = self.install("--uninstall").stdout
         self.assertEqual(snapshot(self.home), after, again)
         self.assertIn(f"left in place (differs from global.md): {self.claude / 'CLAUDE.md'}", again)
-
-    def test_install_and_uninstall_drop_an_earlier_global_stop_entry(self):
-        v6 = f'[ -n "${{GOAL_HARNESS:-}}" ] || python3 ~/.claude/{GOAL_STOP}'
-        self.write(self.claude / "settings.json", json.dumps(
-            {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": v6}]}],
-                       "SessionStart": [{"hooks": [{"type": "command", "command": "keep-me"}]}]}}))
-        self.install()  # the v6 (and T7-era) global Stop registration goes; run.sh owns the hook now
-        hooks = json.loads((self.claude / "settings.json").read_text())["hooks"]
-        self.assertEqual(hooks, {"SessionStart": [{"hooks": [{"type": "command", "command": "keep-me"}]}]})
-        self.install("--uninstall")
-        hooks = json.loads((self.claude / "settings.json").read_text())["hooks"]
-        self.assertEqual(hooks, {"SessionStart": [{"hooks": [{"type": "command", "command": "keep-me"}]}]})
-
 
 class AgentTest(InstallCase):
     def dests(self) -> dict[Path, Path]:
@@ -456,7 +365,7 @@ class RetireTest(InstallCase):
         self.assertIn(f"kept {hand}", out)
         # The retired hooks' registrations go; the founder's stay, and no Stop hook is added.
         self.assertEqual(commands(self.claude / "settings.json", "SessionStart"), ["mine"])
-        self.assertEqual(self.stop_registrations(self.claude / "settings.json"), [])
+        self.assertEqual(commands(self.claude / "settings.json"), [])
         # The planted Codex file held only retired entries, so with no Stop hook added it goes whole.
         self.assertFalse((self.codex / "hooks.json").exists())
         for root in (self.claude, self.codex):
@@ -464,7 +373,7 @@ class RetireTest(InstallCase):
 
     def test_retire_is_skipped_when_an_install_step_failed(self):
         planted, _ = self.plant()
-        self.write(self.claude / "settings.json", "{not json")
+        (self.claude / "CLAUDE.md").mkdir()  # the global file cannot be backed up or written
         r = self.install("--retire-v5", ok=False)
         self.assertEqual(r.returncode, 1)
         self.assertIn("SKIPPED: an install step above failed", r.stdout)
@@ -563,26 +472,6 @@ class LinkCheckTest(InstallCase):
         self.assertEqual(self.links("d17", "d17--zeta-rule", "d18-other-thing"), [])
         bad = self.links("d17--nonexistent", "d99")
         self.assertEqual(len(bad), 2, bad)
-
-
-class GoalStopHookTest(InstallCase):
-    """Nothing registers a Stop hook globally; the installed goal.py, run as run.sh registers it per
-    session, blocks a stop while a goal is not done in each harness home."""
-
-    def test_each_harness_blocks_an_unfinished_goal(self):
-        sys.path.insert(0, str(SKILLS / SKILL / "tests"))
-        from fixtures.goal_fixture import Repo  # noqa: E402
-        self.install()
-        repo = Repo()
-        self.addCleanup(repo.cleanup)
-        for harness, root, file in (("claude", self.claude, self.claude / "settings.json"),
-                                    ("codex", self.codex, self.codex / "hooks.json")):
-            self.assertEqual(self.stop_registrations(file), [], file)
-            hook = ["python3", str(root / "skills" / SKILL / "scripts" / "goal.py"), "--goal", "F-9", "stop-hook"]
-            r = subprocess.run(hook, cwd=repo.dir, env=self.env, capture_output=True,
-                               text=True, input=json.dumps({"session_id": harness}))
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertEqual(json.loads(r.stdout)["decision"], "block", harness)
 
 
 class M2InstallFixes(InstallCase):

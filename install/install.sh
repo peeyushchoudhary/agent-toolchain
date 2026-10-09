@@ -54,7 +54,7 @@ RETIRED_FILES="ROUND-GRANTS.tsv methodology.md agents/openai.yaml tests/ scripts
 scripts/runtime-status.schema.json references/changelog-v1-v2.md references/codex-gate-sandbox.md
 references/execution-loop.md references/history-v3-v5.md references/junit-evidence.md references/readme.md
 references/specs.md references/task-card.md references/review.md references/escalation.md
-references/run.md references/migrate.md references/explainer-template.html"
+references/run.md references/migrate.md references/explainer-template.html scripts/run.sh"
 for n in check_review_budget milestone_seal plan_waves ratio_meter spec_check start_junit_run sync_methodology trace_check validate_card verify_junit weekly_review; do
   RETIRED_FILES="$RETIRED_FILES scripts/$n.py scripts/${n}_selftest.py"
 done
@@ -157,8 +157,8 @@ uninstall_global() {  # remove only an unmodified copy of global.md, then move t
 # ── Hook files ───────────────────────────────────────────────────────────────────────────────────
 # Edited, never replaced: a file that is not valid JSON or not in the hooks shape is refused; only
 # hook items whose command contains a NEEDLE are dropped, the rest keep their index (Codex keys hook
-# trust on it). A changed file is backed up first. Nothing is ever registered here: run.sh registers
-# the Stop hook per session (S-1 run-security decision).
+# trust on it). A changed file is backed up first. Nothing is ever registered here; only
+# --retire-v5 edits these files.
 HOOKS_PY="$(cat <<'PY'
 import json, shutil, sys, time
 from pathlib import Path
@@ -240,7 +240,6 @@ for r in "${ROOTS[@]}"; do
     [ "$DRY" -eq 1 ] || rmdir "$r/skills" 2>/dev/null || true   # only when the skill was all it held
     uninstall_agents "$r" || fail "uninstall: $r/agents"
     [ "$DRY" -eq 1 ] || rmdir "$r/agents" 2>/dev/null || true   # only when the agents were all it held
-    [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "goal.py stop-hook" || fail "uninstall: $(hooks_of "$r")"
   else
     install_global "$(global_of "$r")" || fail "global instructions: $(global_of "$r") was not written"
     install_skill "$r" || fail "skill: $r/skills/$SKILL was not installed"
@@ -252,8 +251,6 @@ except (OSError, ValueError): s = {}
 w = s.get("worktree") if isinstance(s, dict) else None
 sys.exit(0 if isinstance(w, dict) and "baseRef" in w else 1)' "$r/settings.json" ||
       say "reminder: set \"worktree\": {\"baseRef\": \"head\"} in ~/.claude/settings.json so builder worktrees branch from the chief's HEAD (docs/runbooks/codex.md)"
-    # An earlier install registered the Stop hook globally; run.sh owns it now, so drop that entry.
-    [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "goal.py stop-hook" || fail "stop hook: $(hooks_of "$r") was not edited"
   fi
 done
 if [ "$MODE" = retire ]; then
@@ -262,5 +259,5 @@ if [ "$MODE" = retire ]; then
   else for r in "${ROOTS[@]}"; do if [ "$r" = "$CLAUDE" ]; then retire_root "$r" md; else retire_root "$r" toml; fi; done; fi
 fi
 if [ -n "$FAILURES" ]; then printf '\n%s FAILED; these steps did not complete:\n%s' "$MODE" "$FAILURES" >&2; exit 1; fi
-[ "$MODE" = uninstall ] || say "next: ./verify.sh; unattended runs register their Stop hook per session (scripts/run.sh)"
+[ "$MODE" = uninstall ] || say "next: ./verify.sh"
 exit 0
