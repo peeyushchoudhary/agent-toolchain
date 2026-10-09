@@ -317,8 +317,11 @@ def spec_lint(ctx):
         errs.append(f"touches: [{', '.join(map(str, touches))}] without design.md")
     words, plain = len(text.split()), text.replace("*", "")
     errs += [f"spec.md: {words} words, over 400"] if words > 400 else []
-    if not re.search(r"^What changes for the user:\s*nothing\b", plain, re.M):
+    short = re.search(r"^What changes for the user:\s*nothing\b", plain, re.M)
+    if not short:
         errs += [f"spec.md: no {h} heading" for h in SPEC_HEADINGS if not re.search(rf"^(#+\s*)?{h}\b", plain, re.M)]
+    elif not plain[short.end():].strip(" .\t\n"):  # the two-line form names the goal's tests on line two
+        errs.append("spec.md: two-line form with no criteria line")
     tasks = plan["sections"].get("Tasks", [])
     body = "\n".join(tasks[next((k for k, l in enumerate(tasks) if TASK_RE.match(l)), len(tasks)):])
     errs += [f"{ac}: in no task" for ac in re.findall(r"^\s*[-*]\s+(AC\d+)\b", text, re.M)

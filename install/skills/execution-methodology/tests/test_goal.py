@@ -332,6 +332,12 @@ class SpecLintTest(RepoCase):
         self.repo.write(SPEC_PATH, f"What changes for the user: nothing\n{criteria}\n")
         self.assertLint(0)
 
+    def test_abbreviated_spec_without_tests_fails_lint(self):
+        self.repo.write(SPEC_PATH, "What changes for the user: nothing.\n")
+        self.assertLint(1, "spec.md: two-line form with no criteria line")
+        self.repo.write(SPEC_PATH, "What changes for the user: nothing\nAcceptance criteria: tests/test_a.py::test_alpha\n")
+        self.assertLint(0)
+
     def test_touches_an_interface_without_a_design_fails_lint(self):
         self.repo.path(DESIGN_PATH).unlink()
         self.assertLint(1, "touches: [interface] without design.md")
