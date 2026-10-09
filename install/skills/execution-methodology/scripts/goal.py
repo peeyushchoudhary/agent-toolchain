@@ -705,7 +705,7 @@ def codex_usage(root, start):
     home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
     tin = tout = files = 0
     for path in sorted((home / "sessions").rglob("*.jsonl")):
-        rs = records(path)
+        rs = list(records(path))  # the whole transcript: session_meta need not come first
         meta = next((r for r in rs if r.get("type") == "session_meta"), None)
         cwd = ((meta or {}).get("payload") or {}).get("cwd")
         if not isinstance(cwd, str) or not (os.path.realpath(cwd) == str(root)
