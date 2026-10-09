@@ -310,9 +310,12 @@ class SpecLintTest(RepoCase):
 
     def test_a_new_goal_without_a_spec_fails_lint(self):
         self.repo.path(SPEC_PATH).unlink()
-        self.assertLint(0)  # an approved goal without a spec is a v7 goal
         self.repo.git("tag", "-d", "goal/F-9/approved")
         self.assertLint(1, "no spec.md and no approval tag")
+
+    def test_deleting_an_approved_spec_fails_lint(self):
+        self.repo.path(SPEC_PATH).unlink()
+        self.assertLint(1, f"{SPEC_PATH}: in the approved commit, missing from the tree")
 
     def test_a_401_word_spec_fails_lint(self):
         pad = " word" * (400 - len(SPEC.split()))

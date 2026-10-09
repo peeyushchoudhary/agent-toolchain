@@ -300,8 +300,12 @@ def spec_lint(ctx):
     has reads, touches is valid and backed by design.md, the spec is in shape and its ACn are traced.
     A goal with neither a spec nor an approval tag is a new goal without its spec."""
     plan, goal_dir = ctx.plan, ctx.root / Path(ctx.plan_rel).parent
-    if not (goal_dir / "spec.md").is_file():
-        return [] if rev_ok(ctx.root, ctx.tag("approved")) else ["no spec.md and no approval tag: a new goal needs a spec"]
+    spec_rel = str(Path(ctx.plan_rel).parent / "spec.md")
+    if not (goal_dir / "spec.md").is_file():  # approved with a spec: it stays required (Interface 1)
+        if not rev_ok(ctx.root, ctx.tag("approved")):
+            return ["no spec.md and no approval tag: a new goal needs a spec"]
+        return [f"{spec_rel}: in the approved commit, missing from the tree"] if file_at(
+            ctx.root, ctx.tag("approved"), spec_rel) is not None else []
     text, errs = (goal_dir / "spec.md").read_text(), []
     errs += [f"{t['id']}: writes and no reads" for t in plan["tasks"].values() if t["writes"] and not t["reads"]]
     touches = plan["meta"].get("touches")
