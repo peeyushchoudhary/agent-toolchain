@@ -103,7 +103,7 @@ as its MUST/SHOULD/AVOID block; the spec, design and frontmatter templates. New
 `references/roles.md` ≤150 words: builder frontier tier at high effort (Claude `opus`, Codex
 `gpt-6.1-sol`); scout cheap tier (`haiku`, `gpt-6-luna`); reviewer the other vendor's strongest
 reasoning model at high effort; chief the session; `high` is the portable effort;
-`CLAUDE_CODE_EFFORT_LEVEL` overrides frontmatter, so `run.sh` never exports it; cost recorded,
+`CLAUDE_CODE_EFFORT_LEVEL` overrides frontmatter, so no session may export it; cost recorded,
 never enforced; the structural caps. New `references/security-checklist.md` ≤150 words, handed to
 the merge reviewer when `touches:` names data, auth or external. `references/design.md`: the
 widened trigger; builders read Interfaces. `test_rules.py`: the new references join
