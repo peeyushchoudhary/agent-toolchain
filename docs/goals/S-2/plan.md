@@ -414,6 +414,13 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   Always-loaded 1,319 of 1,350 words. Follow-ups: `codex_usage` consumes the record generator
   before `session_meta`, harmless while that record comes first; `repository-standard.md`
   covering `docs/**` again needs a `docs/AGENTS.md` or markers in the root `AGENTS.md`.
+- 2026-10-09 Astra merge review, M2 round 1 (`.runs/S-2/review.md`, reviewed b473d2a; M1's review
+  kept as `review-M1.md`): BLOCK, R1–R7 blocking, R8 non-blocking. All eight get `[Tn][Rk]` fix
+  commits with closing tests, R8 included, applying the founder's M1 instruction to fix
+  non-blocking findings too. R4 restores the installer's stripping of an older global Stop
+  registration as an upgrade step (T9 had removed it), with the needle kept inside the retire
+  markers so the dangling-name scan stays clean; R2 changes the rule-file name to the page path
+  with `/` as `--` (`architecture--methodology.md`), so T7's slug default is superseded.
 
 ## Parked
 
