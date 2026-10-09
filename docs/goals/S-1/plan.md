@@ -32,7 +32,7 @@ pre-commit route check stay green; new documentation waits for T8.
 
 ## Tasks
 
-### [ ] T1 — decision record D29, this plan, the index row
+### [x] T1 — decision record D29, this plan, the index row
 writes: docs/decisions/decisions.md, docs/README.md, docs/goals/S-1/plan.md
 
 ### [x] T2 — `goal.py` v7; cut the review loop and the driver together
