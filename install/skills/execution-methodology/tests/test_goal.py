@@ -403,6 +403,28 @@ class SpecLintTest(RepoCase):
         self.assertRow(4, f"{sha[:10]} [T1] changes protected {DESIGN_PATH}#interfaces")
 
 
+    def test_approval_page_renders_spec_design_tasks_and_questions(self):
+        self.repo.write(PLAN, self.plan + "\n- Q: Should gamma <wait> for beta?\n")
+        res = self.repo.goal("packet", "--approval")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), str(self.repo.path(".runs/F-9/approval.html")))
+        self.assertFalse(self.repo.path(".runs/F-9/packet.md").exists())
+        page = self.repo.read(".runs/F-9/approval.html")
+        self.assertIn("<title>F-9 approval</title>", page)
+        self.assertIn("The fixture user has two problems.", page)
+        self.assertIn("<li>AC1 WHEN alpha runs THE SYSTEM SHALL do the alpha work.</li>", page)
+        self.assertIn("1. **alpha.** One function.", page)
+        self.assertIn("Inside the Interfaces section.", page)
+        self.assertNotIn("Nothing in a store.", page)
+        for tid in ("T1", "T2", "T3"):
+            self.assertRegex(page, rf"<tr><td>{tid} [^\n]*{re.escape(DESIGN_PATH)}#interfaces")
+        self.assertRegex(page, r"<tr><td>T2 [^\n]*<td>test_a</td></tr>")
+        self.assertIn("touches: interface", page)
+        self.assertIn("protected: docs/design.md", page)
+        self.assertIn("<li>Q: Should gamma &lt;wait&gt; for beta?</li>", page)
+        self.assertNotIn("<wait>", page)
+
+
 class ReviewRowTest(RepoCase):
     def setUp(self):
         super().setUp()
@@ -511,6 +533,19 @@ class ReviewRowTest(RepoCase):
     def test_a_missing_review_is_named(self):
         (self.repo.dir / ".runs/F-9/review.md").unlink()
         self.assertRow(8, "no .runs/F-9/review.md")
+
+
+    def test_packet_counts_causes_over_closed_blocking_findings(self):
+        sha = self.repo.git("rev-parse", "HEAD")
+        self.repo.review(f"- [x] BLOCKING R1 the alpha value is wrong\n"
+                         f"- [x] R1 resolved-by {sha} closes tests/test_a.py::test_value cause: logic\n"
+                         f"- [x] BLOCKING R2 the beta file is unneeded\n"
+                         f"- [x] R2 removed-by {sha} cause: context\n  paths: src/b/y.py\n"
+                         f"- [x] R3 a naming nit\n"
+                         f"- [x] R3 resolved-by {sha} closes tests/test_a.py::test_flag cause: spec\n", "HEAD~1")
+        res = self.repo.goal("packet")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("cause: context 1, logic 1, spec 0\n", self.repo.read(".runs/F-9/packet.md"))
 
 
 def jsonl(path: Path, rows) -> None:

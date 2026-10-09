@@ -8,6 +8,7 @@ Exit codes: 0 ok or done, 1 finding or not done, 2 usage or internal error.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
@@ -548,7 +549,72 @@ def cmd_resume(ctx, a):
     print(" ".join(text.split(" ")[:150]) if len(text.split()) > 150 else text)
     return 0
 
+def html_blocks(text):
+    """Each blank-line-separated block of text as an escaped <p>, its `- ` lines (and their indented
+    continuations) as <li>; no Markdown beyond that."""
+    out = []
+    for block in re.split(r"\n\s*\n", (text or "").strip()):
+        para, items = [], []
+        for line in block.splitlines():
+            if line.strip().startswith("- "):
+                items.append(line.strip()[2:])
+            elif items and line[:1].isspace():
+                items[-1] += " " + line.strip()
+            else:
+                para.append(line.strip())
+        out += [f"<p>{html.escape(' '.join(para))}</p>"] if para else []
+        out += ["<ul>" + "".join(f"<li>{html.escape(i)}</li>" for i in items) + "</ul>"] if items else []
+    return out
+
+def approval_page(ctx):
+    """.runs/<id>/approval.html from the working tree: the spec, the design's Structure and Interfaces,
+    the task table, touches and protected, and the Parked - Q: lines."""
+    plan, goal_dir, e = ctx.plan, ctx.root / Path(ctx.plan_rel).parent, html.escape
+    read = lambda name: (goal_dir / name).read_text() if (goal_dir / name).is_file() else ""  # noqa: E731
+    design = read("design.md")
+    bodies, tid = {}, None  # a task's prose: the lines under its header that are not fields
+    for line in plan["sections"].get("Tasks", []):
+        tid = m.group(2) if (m := TASK_RE.match(line)) else tid
+        if tid and not m and not FIELD_RE.match(line):
+            bodies.setdefault(tid, []).append(line)
+    rows = []
+    for t in plan["tasks"].values():
+        named = re.search(r"\btest_\w+", " ".join(bodies.get(t["id"], []) + t["tests-may-change"]))
+        rows.append(f"<tr><td>{e(t['id'] + ' ' + t['title'])}</td><td>{e(', '.join(t['writes']))}</td>"
+                    f"<td>{e(', '.join(t['reads']))}</td><td>{e(named.group(0) if named else '—')}</td></tr>")
+    meta = lambda k: ", ".join(map(str, v)) if isinstance(v := plan["meta"].get(k), list) else str(v or "none")  # noqa: E731
+    questions = [l.strip()[2:] for l in plan["parked"] if l.strip().startswith("- Q:")]
+    out = ["<!doctype html>", '<html><head><meta charset="utf-8">',
+           "<style>body{font:15px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem}"
+           "table{border-collapse:collapse;width:100%}"
+           "th,td{border:1px solid #999;padding:.3rem .5rem;text-align:left;vertical-align:top}</style>",
+           f"<title>{e(ctx.goal)} approval</title></head><body>",
+           f"<h1>{e(ctx.goal)}: {e(str(plan['meta'].get('title', '')))}</h1>", "<h2>spec.md</h2>",
+           *(html_blocks(read("spec.md")) or ["<p>none</p>"])]
+    for name in ("Structure", "Interfaces"):  # protected_text returns the whole file for an absent heading
+        if re.search(rf"^## {name}\s*$", design, re.M):
+            out += [f"<h2>design.md: {name}</h2>",
+                    *html_blocks(re.sub(r"^## .*\n?", "", protected_text(design, slug(name)), count=1))]
+    out += ["<h2>Tasks</h2>", "<table><tr><th>Task</th><th>Writes</th><th>Reads</th><th>Named test</th></tr>",
+            *rows, "</table>", f"<p>touches: {e(meta('touches'))}</p>", f"<p>protected: {e(meta('protected'))}</p>",
+            "<h2>Questions</h2>", "<ul>" + "".join(f"<li>{e(q)}</li>" for q in questions or ["none"]) + "</ul>",
+            "</body></html>"]
+    ctx.runs.mkdir(parents=True, exist_ok=True)
+    path = ctx.runs / "approval.html"
+    path.write_text("\n".join(out) + "\n")
+    print(path)
+    return 0
+
+def cause_counts(text):
+    """The cause: tags on the closure lines of closed BLOCKING findings only."""
+    blocking = set(re.findall(r"^\s*- \[x\] BLOCKING (R\d+)\b", text, re.M))
+    tags = Counter(c for rid, c in re.findall(r"^\s*- \[x\] (R\d+) (?:resolved|removed)-by .*\bcause: (\w+)",
+                                             text, re.M) if rid in blocking)
+    return f"cause: context {tags['context']}, logic {tags['logic']}, spec {tags['spec']}"
+
 def cmd_packet(ctx, a):
+    if a.approval:
+        return approval_page(ctx)
     rows, tree = done_rows(ctx, mid := milestone_arg(ctx, a.milestone))
     approved, plan = ctx.tag("approved"), ctx.plan_at("HEAD")
     stat = git(ctx.root, "diff", "--stat", f"{approved}..HEAD", check=False)
@@ -565,7 +631,8 @@ def cmd_packet(ctx, a):
            "Outcome:", *[l for l in plan["sections"].get("Outcome", []) if l.strip()], "",
            f"Diff {approved}..HEAD:", stat, "", "Done:",
            *[f"row {n} ok" if not w else f"row {n}: {'; '.join(w[:3])}" for n, w in rows.items()], "",
-           "Receipts:", *(receipts or ["none"]), "", "Review findings:", *(found or ["none"]), "",
+           "Receipts:", *(receipts or ["none"]), "", "Review findings:", *(found or ["none"]),
+           cause_counts(review.read_text() if review.is_file() else ""), "",
            "Decisions:", *plan["decisions"], "", "Parked:", *(plan["parked"] or ["none"]), "",
            "Reads:", *([f"{t['id']} reads: {', '.join(t['reads'])}" for t in plan["tasks"].values() if t["reads"]]
                        or ["none"]), "",
@@ -668,6 +735,8 @@ def main(argv=None):
         p = sub.add_parser(name, parents=[common])
         if name in ("done", "packet"):
             p.add_argument("--milestone")
+        if name == "packet":
+            p.add_argument("--approval", action="store_true", help="write .runs/<id>/approval.html instead")
         if name == "cost":
             p.add_argument("--since", help="git ref whose commit time starts the sum (default goal/<id>/approved)")
     a = ap.parse_args(argv)

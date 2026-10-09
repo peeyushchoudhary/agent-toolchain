@@ -214,7 +214,7 @@ totals and `unknown` where none exist; `packet` reports the total. Tests: plante
 Codex transcript files under a scratch `HOME` summed correctly; none present prints `unknown`;
 the e2e fixture reaches DONE without `run.sh`.
 
-### [ ] T10 — `goal.py packet --approval`, `cause:` counts
+### [x] T10 — `goal.py packet --approval`, `cause:` counts
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
@@ -397,6 +397,14 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   re-words); `github.md` had no launcher mention. Follow-up: a home still carrying an older
   global `goal.py stop-hook` registration gets argparse exit 2 from the hook, which Claude Code
   reads as a block; this machine has none; `--retire-v5` does not strip it (pilot migration).
+- 2026-10-09 T10 defaults: `packet --approval` reads the plan, spec and design from the working
+  tree (the page is made before the tag exists), prints the page's absolute path, writes no
+  `packet.md` and runs no done rows; a design section is rendered only when its heading exists;
+  the named test is the first `test_…` token in the task prose, else a `tests-may-change` entry
+  (a file name, not a test, when the prose names none); `cause:` counts read the closure text
+  only, row 8 proves the closures; the `Cost:` section is T9's. Follow-ups: spec headings
+  render as paragraphs (no Markdown library); the Named test column could resolve a file to
+  its first test.
 
 ## Parked
 
