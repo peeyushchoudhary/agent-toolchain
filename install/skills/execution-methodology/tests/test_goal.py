@@ -204,6 +204,22 @@ class DoneTest(RepoCase):
         self.fix("tests/test_a.py", text, "[T2] beta")
         self.assertRow(5, "adds a skip/only/xfail marker in tests/test_a.py")
 
+    def test_row5_rejects_spaced_and_imported_skip_calls(self):
+        # Each call is assembled so this file does not itself add the marker row 5 rejects.
+        for line in ("pytest.skip" + ' ("later")', "self.skipTest" + ' ("later")', "pytest.xfail" + "\t('x')"):
+            self.assertTrue(goal.SKIP_RE.search(line), line)
+        base = self.repo.read("tests/test_a.py")
+        for head, call in (("", "pytest.skip" + ' ("later")'), ("", "self.skipTest" + ' ("later")'),
+                           ("from pytest import " + "skip\n", "skip" + '("later")'),
+                           ("from unittest import (\n    " + "skip,\n)\n", "skip" + ' ("later")')):
+            text = head + base.replace("        self.assertFalse", f"        {call}\n        self.assertFalse")
+            self.fix("tests/test_a.py", text, "[T2] beta")
+            self.assertRow(5, "adds a skip/only/xfail marker in tests/test_a.py")
+            self.repo.git("reset", "-q", "--hard", "HEAD~1")
+        self.fix("tests/test_a.py", base.replace("    def test_flag", "    def skip(self):\n        pass\n\n"
+                                                 "    def test_flag"), "[T2] beta, a helper named like a skip")
+        self.assertRowOk(5)
+
     def test_row5_names_a_test_modified_outside_tests_may_change(self):
         self.fix("tests/test_a.py", self.repo.read("tests/test_a.py") + "\n", "[T1] alpha")
         self.assertRow(5, "modifies test tests/test_a.py")

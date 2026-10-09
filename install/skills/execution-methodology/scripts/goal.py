@@ -25,9 +25,13 @@ FIELD_RE = re.compile(r"^(writes|tests-may-change):\s*(.*)$")
 TEST_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)src/test/|(^|/)test_[^/]*\.py$"
                      r"|_(test|spec)\.[^/.]+$|\.(test|spec)\.[^/]+$|Tests?\.(java|kt|cs|swift)$")
 SKIP_RE = re.compile(r"\bunittest\.(skip\w*|expectedFailure)\b|@(skip|skipIf|skipUnless)\s*\(|@expectedFailure\b"
-                     r"|\.skipTest\(|\bpytest\.(skip|xfail)\("
+                     r"|\.skipTest\s*\(|\bpytest\.(skip|xfail)\s*\("
                      r"|\bpytest\.mark\.(skip|skipif|xfail)\b|\.only\s*\(|\b(it|describe|test)\.skip\s*\("
                      r"|\bx(it|describe)\(|@Disabled\b|@Ignore\b")
+# A bare skip(...) call counts only in a file that imports skip from pytest or unittest: a word
+# match everywhere would also flag earlier commits' strings, and an import is what makes it a skip.
+SKIP_IMPORT_RE = re.compile(r"^\s*from\s+(pytest|unittest)\s+import\s+(\([^)]*|[^\n]*)\bskip\b", re.M)
+BARE_SKIP_RE = re.compile(r"(?<![\w.])skip\s*\(")
 RUNTIME_PIN = "docs/agents/execution/runtime.json"
 MIGRATE_NOTICE = (f"this project still carries the v5.1 runtime pin ({RUNTIME_PIN}); "
                   "migrate it first, following docs/runbooks/migrate-v5.md")
@@ -314,7 +318,9 @@ def commit_findings(ctx, base):
             if TEST_RE.search(path) and status != "D":
                 diff = git(ctx.root, "diff", "-U0", parent or "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
                            c, "--", path)
-                if any(l.startswith("+") and SKIP_RE.search(l) for l in diff.splitlines()):
+                bare = SKIP_IMPORT_RE.search(file_at(ctx.root, c, path) or "")
+                if any(l.startswith("+") and (SKIP_RE.search(l) or bare and BARE_SKIP_RE.search(l))
+                       for l in diff.splitlines()):
                     rows[5].append(f"{short} adds a skip/only/xfail marker in {path}")
     if overlap([w for t in ctx.plan_at("HEAD")["tasks"].values() for w in t["writes"]],
                path_protected(ctx.plan_at("HEAD"))):
