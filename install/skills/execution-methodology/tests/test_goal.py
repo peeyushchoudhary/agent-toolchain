@@ -165,6 +165,19 @@ class DoneTest(RepoCase):
         self.fix("tests/test_a.py", text, "[T2] beta")  # T2 may change tests/test_a.py
         self.assertRow(5, "adds a skip/only/xfail marker in tests/test_a.py")
 
+    def test_row5_rejects_imported_skip_and_spaced_only(self):
+        at = "@"  # assembled so this file does not itself add the markers row 5 rejects
+        for line in (f"{at}skip('later')", f"{at}skipIf(True, 'x')", f"{at}skipUnless (False, 'x')",
+                     f"{at}expectedFailure", "test.only" + " ('case', fn)", "it.skip" + " ('case', fn)",
+                     "describe.only" + "\t('suite', fn)"):
+            self.assertTrue(goal.SKIP_RE.search(line), line)
+        for line in ("def skipper(self):", "only = 1", "x.onlyone(1)"):
+            self.assertFalse(goal.SKIP_RE.search(line), line)
+        text = ("from unittest import " + "skip\n" + self.repo.read("tests/test_a.py")
+                .replace("    def test_flag", f"    {at}skip('later')\n    def test_flag"))
+        self.fix("tests/test_a.py", text, "[T2] beta")
+        self.assertRow(5, "adds a skip/only/xfail marker in tests/test_a.py")
+
     def test_row5_names_a_test_modified_outside_tests_may_change(self):
         self.fix("tests/test_a.py", self.repo.read("tests/test_a.py") + "\n", "[T1] alpha")
         self.assertRow(5, "modifies test tests/test_a.py")

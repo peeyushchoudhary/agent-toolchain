@@ -24,8 +24,9 @@ TASK_RE = re.compile(r"^###\s+\[([ x!])\]\s+(T\d+)\s+[—–-]+\s*(.*)$")
 FIELD_RE = re.compile(r"^(writes|tests-may-change):\s*(.*)$")
 TEST_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)src/test/|(^|/)test_[^/]*\.py$"
                      r"|_(test|spec)\.[^/.]+$|\.(test|spec)\.[^/]+$|Tests?\.(java|kt|cs|swift)$")
-SKIP_RE = re.compile(r"\bunittest\.(skip\w*|expectedFailure)\b|\.skipTest\(|\bpytest\.(skip|xfail)\("
-                     r"|\bpytest\.mark\.(skip|skipif|xfail)\b|\.only\(|\b(it|describe|test)\.skip\("
+SKIP_RE = re.compile(r"\bunittest\.(skip\w*|expectedFailure)\b|@(skip|skipIf|skipUnless)\s*\(|@expectedFailure\b"
+                     r"|\.skipTest\(|\bpytest\.(skip|xfail)\("
+                     r"|\bpytest\.mark\.(skip|skipif|xfail)\b|\.only\s*\(|\b(it|describe|test)\.skip\s*\("
                      r"|\bx(it|describe)\(|@Disabled\b|@Ignore\b")
 RUNTIME_PIN = "docs/agents/execution/runtime.json"
 MIGRATE_NOTICE = (f"this project still carries the v5.1 runtime pin ({RUNTIME_PIN}); "
