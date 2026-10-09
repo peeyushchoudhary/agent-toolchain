@@ -18,14 +18,14 @@ cd install
 |---|---|---|
 | `global.md` | `~/.claude/CLAUDE.md` | `$CODEX_HOME/AGENTS.md` |
 | `skills/execution-methodology/` (`SKILL.md`, `references/`, `agents/`, `scripts/`; not `tests/`) | `~/.claude/skills/` | `$CODEX_HOME/skills/` |
-| the Stop hook, `goal.py stop-hook` | `~/.claude/settings.json` | `$CODEX_HOME/hooks.json`, absolute path |
+| (no hook registration: `run.sh` registers the Stop hook per unattended session) | — | — |
 
 A global file whose content differs is backed up beside it as `<name>.bak-<YYYYmmdd-HHMMSS>` first;
 an equal one is not touched. The skill is staged and swapped in by rename, so a failed copy leaves
-the working install intact. Files an earlier install left in the skill are kept and reported. Hook
-files are merged, never replaced: one that is not valid JSON or not in the hooks shape is refused,
-the entry is appended only when absent, and a changed file is backed up first. Codex runs the hook
-only after you trust it once in Codex. The Stop registration moves into `run.sh` in T9.
+the working install intact. Files an earlier install left in the skill are kept and reported. The installer registers no
+hook; it removes any `goal.py stop-hook` entry an older install left in `settings.json` or
+`hooks.json` (a file that is not valid JSON is refused), because `run.sh` registers that hook per
+unattended session and two registrations would race.
 
 `--uninstall` removes the skill directories and the hook entries whose command names
 `goal.py stop-hook` (a hook file left empty is deleted), removes a global file only when it is still
@@ -54,4 +54,4 @@ deleted components outside the records that may cite them; and `install.sh --dry
 scratch home. Each check prints `verify: <id> ok` or `FAIL: <id> (verify.checks)`; unittest output is
 unchanged. The last line is `verify: PASS` or `verify: FAIL (<n> checks)`. `./verify.sh --installed`
 adds a read-only parity check: in each home the skill and global file are byte-equal to this tree and
-there is exactly one Stop registration.
+no Stop registration remains.

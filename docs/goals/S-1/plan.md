@@ -155,7 +155,7 @@ one-line row and full text for D2, D3, D4, D17, D18, D29; `docs/product/measurem
 `operating-model.md`, the F-3 spec and plan, `improvements-weekly.md`, `assets/readme/**`,
 `runbooks/global-instructions.md`, `NOTES-break-tests.md`. History and the tags keep them.
 
-### [ ] T9 — local end-to-end run; install, uninstall and rollback rehearsal; measurements
+### [x] T9 — local end-to-end run; install, uninstall and rollback rehearsal; measurements
 writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/verify.sh, install/tests/**, install/README.md, docs/runbooks/codex.md, README.md, docs/product/measurements.md
 tests-may-change: install/tests/**
 `e2e_run.sh`: for each harness separately, creates a fresh scratch repository with a two-task
@@ -276,6 +276,16 @@ the other vendor's diff review, `done` for M2, merge.
   tests and the `--installed` parity check.
 - 2026-10-09 widening: T9 `writes` gains `install/README.md`, `docs/runbooks/codex.md` and root
   `README.md`, which describe the Stop registration T9 moves out of `install.sh`.
+- 2026-10-09 T9 defaults: live `claude -p` and `codex exec` sessions are skipped in `e2e_run.sh`
+  by founder decision (no credentials copied into disposable homes); the loop is proven with a fake
+  harness, so wall time, cost, the push-denial probe and the `--settings` merge question are owed to
+  the pilot's first authenticated run. `run.sh` passes `--setting-sources ""` so only its own
+  settings file applies (one Stop hook, no global merge). Codex gets `.git` as an extra writable root
+  (commits need it) and the Stop hook inline through `-c hooks.Stop=…`, never a project file. The
+  Codex `[agents]` block is not restored: `multi_agent` is on by default. `install.sh` registers no
+  hook and strips an older install's `goal.py stop-hook` entries; the installer's JSON editor stays
+  for that. The e2e satisfies row 8 with a fixture `review.md` at the goal's HEAD. The stale
+  `verify.sh` dangling-name exclusions are left for the next goal.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 

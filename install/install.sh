@@ -103,16 +103,14 @@ uninstall_global() {  # remove only an unmodified copy of global.md, then move t
 }
 
 # ── Hook files ───────────────────────────────────────────────────────────────────────────────────
-# Merged, never replaced: a file that is not valid JSON or not in the hooks shape is refused;
-# `add` appends the Stop entry only when absent (existing entries keep their index, which Codex keys
-# trust on); `remove` drops only hook items whose command contains a NEEDLE. A changed file is
-# backed up first.
+# Edited, never replaced: a file that is not valid JSON or not in the hooks shape is refused; only
+# hook items whose command contains a NEEDLE are dropped, the rest keep their index (Codex keys hook
+# trust on it). A changed file is backed up first. Nothing is ever registered here: run.sh registers
+# the Stop hook per session (S-1 run-security decision).
 HOOKS_PY="$(cat <<'PY'
-import json, shlex, shutil, sys, time
+import json, shutil, sys, time
 from pathlib import Path
-mode, harness, root, path, dry, needles = *sys.argv[1:4], Path(sys.argv[4]), sys.argv[5] == "1", sys.argv[6:]
-goal = "skills/execution-methodology/scripts/goal.py"
-cmd = ("python3 ~/.claude/" + goal if harness == "claude" else "python3 " + shlex.quote(f"{root}/{goal}")) + " stop-hook"
+path, dry, needles = Path(sys.argv[1]), sys.argv[2] == "1", sys.argv[3:]
 try:
     data = json.loads(path.read_text(encoding="utf-8") or "{}") if path.is_file() else {}
 except json.JSONDecodeError as e:
@@ -123,10 +121,7 @@ if not isinstance(ev, dict) or not all(isinstance(es, list) and all(
         for e in es) for es in ev.values()):
     sys.exit(f"  REFUSED: {path} is not in the expected hooks shape. Fix it by hand; nothing changed.")
 done = []
-if mode == "add" and not any(cmd in h.get("command", "") for e in ev.get("Stop", []) for h in e.get("hooks", [])):
-    ev.setdefault("Stop", []).append({"hooks": [{"type": "command", "command": cmd}]})
-    done.append(f"registered Stop: {cmd}")
-for name, entries in list(ev.items()) if mode == "remove" else []:
+for name, entries in list(ev.items()):
     for e in entries:
         gone = [h for h in e.get("hooks", []) if any(n in str(h.get("command", "")) for n in needles)]
         done += [f"unregistered {name}: {h.get('command')}" for h in gone]
@@ -154,15 +149,9 @@ elif not done:
     print(f"  unchanged {path}")
 PY
 )"
-edit_hooks() {  # edit_hooks add|remove ROOT [NEEDLE...]
-  local m="$1" r="$2"; shift 2
-  python3 -c "$HOOKS_PY" "$m" "$([ "$r" = "$CLAUDE" ] && echo claude || echo codex)" "$r" "$(hooks_of "$r")" "$DRY" "$@"
-}
-# The Stop hook registration. T9 moves it into run.sh (Decisions, run security); delete this then.
-register_stop_hook() {
-  [ "$DRY" -eq 1 ] || [ -f "$1/skills/$SKILL/scripts/goal.py" ] ||
-    { fail "stop hook: goal.py is not installed under $1, so nothing was registered"; return; }
-  edit_hooks add "$1" || fail "stop hook: $(hooks_of "$1") was not merged"
+edit_hooks() {  # edit_hooks ROOT NEEDLE...: drop the hook items whose command holds a NEEDLE
+  local r="$1"; shift
+  python3 -c "$HOOKS_PY" "$(hooks_of "$r")" "$DRY" "$@"
 }
 
 # ── Retire ───────────────────────────────────────────────────────────────────────────────────────
@@ -176,7 +165,7 @@ retire_root() {  # retire_root ROOT AGENT_EXT
     else say "left in place (not in the retire list): $r/skills/$SKILL/$rel"; fi
   done < <(extras "$HERE/skills/$SKILL" "$r/skills/$SKILL")
   for n in $RETIRED_HOOKS; do [ -e "$r/hooks/$n" ] && retire "$r/hooks/$n"; done
-  [ -f "$(hooks_of "$r")" ] && { edit_hooks remove "$r" $(for n in $RETIRED_HOOKS; do echo "hooks/$n"; done) ||
+  [ -f "$(hooks_of "$r")" ] && { edit_hooks "$r" $(for n in $RETIRED_HOOKS; do echo "hooks/$n"; done) ||
     fail "retire-v5: $(hooks_of "$r") was not edited"; }
   for n in $RETIRED_PERSONAS; do
     e="$r/agents/$n.$ext"; [ -f "$e" ] || continue
@@ -196,11 +185,13 @@ for r in $ROOTS; do
   if [ "$MODE" = uninstall ]; then
     uninstall_global "$(global_of "$r")" || fail "uninstall: $(global_of "$r")"
     [ ! -e "$r/skills/$SKILL" ] || step "removed $r/skills/$SKILL" rm -rf "$r/skills/$SKILL" || fail "uninstall: $r/skills/$SKILL"
-    [ ! -f "$(hooks_of "$r")" ] || edit_hooks remove "$r" "goal.py stop-hook" || fail "uninstall: $(hooks_of "$r")"
+    [ "$DRY" -eq 1 ] || rmdir "$r/skills" 2>/dev/null || true   # only when the skill was all it held
+    [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "goal.py stop-hook" || fail "uninstall: $(hooks_of "$r")"
   else
     install_global "$(global_of "$r")" || fail "global instructions: $(global_of "$r") was not written"
     install_skill "$r" || fail "skill: $r/skills/$SKILL was not installed"
-    register_stop_hook "$r"
+    # An earlier install registered the Stop hook globally; run.sh owns it now, so drop that entry.
+    [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "goal.py stop-hook" || fail "stop hook: $(hooks_of "$r") was not edited"
   fi
 done
 if [ "$MODE" = retire ]; then
@@ -209,5 +200,5 @@ if [ "$MODE" = retire ]; then
   else for r in $ROOTS; do if [ "$r" = "$CLAUDE" ]; then retire_root "$r" md; else retire_root "$r" toml; fi; done; fi
 fi
 if [ -n "$FAILURES" ]; then printf '\n%s FAILED; these steps did not complete:\n%s' "$MODE" "$FAILURES" >&2; exit 1; fi
-[ "$MODE" = uninstall ] || say "next: ./verify.sh; Claude Code may need /hooks opened once, and Codex asks you to trust a new hook"
+[ "$MODE" = uninstall ] || say "next: ./verify.sh; unattended runs register their Stop hook per session (scripts/run.sh)"
 exit 0

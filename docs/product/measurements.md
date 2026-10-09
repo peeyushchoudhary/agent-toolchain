@@ -54,3 +54,19 @@ five reversed at merge.
 
 S-1 T9 records here: each harness's wall time and sessions, and one unattended session's recurring
 cost.
+
+## 2026-10-09 — S-1 T9 (v7, M2)
+
+- Unattended two-task goal (`e2e_run.sh`): the loop is proven with a fake harness (three sessions,
+  `[T1]` and `[T2]` commits, `DONE`, `packet.md`); live `claude -p` and `codex exec` sessions were
+  skipped by founder decision (no credentials in disposable homes), so wall time, session count,
+  reported cost, the push-denial probe and the `--settings` merge question are owed to the first
+  authenticated run.
+- `install/` lines: 2,025 non-test, 2,469 test
+  (`git ls-files install | grep -v '/tests/' | xargs cat | wc -l`, and the same with `grep '/tests/'`).
+- Always-loaded words: 1,263 (`global.md` + `AGENTS.md` + `SKILL.md`, `wc -w`); ceiling 1,350.
+- One unattended session runs one fresh `claude -p` or `codex exec`, a `goal.py done` per stop
+  (blocked at most three times), and two `goal.py`/`gate.py` calls in `run.sh`. Claude reports
+  `total_cost_usd`, Codex tokens only; both go to `.runs/<id>/progress.md`. Dollar cost unmeasured.
+- Review catches, S-1: M1 15 blocking in one round, all closed by fix commits with closing tests;
+  M2: see `.runs/S-1/review.md` (filled at the M2 close).

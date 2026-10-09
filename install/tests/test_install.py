@@ -21,7 +21,7 @@ INSTALL = Path(__file__).resolve().parents[1]
 SCRIPT = INSTALL / "install.sh"
 SKILLS = INSTALL / "skills"
 SKILL = "execution-methodology"
-GOAL_STOP = f"skills/{SKILL}/scripts/goal.py stop-hook"
+GOAL_STOP = f"skills/{SKILL}/scripts/goal.py stop-hook"  # the v6- and T7-era global registration
 RUN_SH = f"skills/{SKILL}/scripts/run.sh"
 GLOBAL = (INSTALL / "global.md").read_text(encoding="utf-8")
 
@@ -71,12 +71,12 @@ class InstallCase(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
         return path
 
-    def stop_command(self, root: Path) -> str:
-        return f"python3 {'~/.claude' if root == self.claude else root}/{GOAL_STOP}"
+    def stop_registrations(self, file: Path) -> list[str]:
+        return [c for c in commands(file) if "goal.py stop-hook" in c] if file.is_file() else []
 
 
 class InstallTest(InstallCase):
-    def test_installs_global_file_skill_and_one_stop_hook_in_both_harnesses(self):
+    def test_installs_global_file_and_skill_and_registers_no_hook_in_either_harness(self):
         self.install()
         for root, name, hooks in ((self.claude, "CLAUDE.md", "settings.json"), (self.codex, "AGENTS.md", "hooks.json")):
             self.assertEqual((root / name).read_text(encoding="utf-8"), GLOBAL)
@@ -84,14 +84,8 @@ class InstallTest(InstallCase):
             installed = root / "skills" / SKILL
             self.assertEqual({p.name for p in installed.iterdir()}, {"SKILL.md", "references", "agents", "scripts"})
             self.assertTrue(os.access(root / RUN_SH, os.X_OK), root / RUN_SH)
-            self.assertEqual(commands(root / hooks).count(self.stop_command(root)), 1)
-        # The registered Codex command is absolute and runs as written: outside a goal it allows.
-        repo = self.home / "plain-repo"
-        repo.mkdir()
-        subprocess.run(["git", "init", "-q"], cwd=repo, env=self.env, check=True)
-        r = subprocess.run(["bash", "-c", commands(self.codex / "hooks.json")[0]], cwd=repo, env=self.env,
-                           input="{}", capture_output=True, text=True)
-        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+            # run.sh registers the Stop hook per session; the installer never does (S-1 decision).
+            self.assertFalse((root / hooks).exists(), root / hooks)
         self.assertFalse((self.claude / "agents").exists())
 
     def test_a_differing_global_file_is_backed_up_and_an_equal_one_is_left_alone(self):
@@ -129,29 +123,24 @@ class InstallTest(InstallCase):
         out = self.install("--dry-run").stdout
         self.assertEqual(snapshot(self.home), before)
         self.assertIn(f"would: copy {SKILLS / SKILL} (without tests/) to {self.claude / 'skills' / SKILL}", out)
-        self.assertIn(f"would: registered Stop: {self.stop_command(self.claude)}", out)
+        self.assertNotIn("registered", out)
         self.install()
         first = snapshot(self.home)
         second = self.install().stdout
         self.assertEqual(snapshot(self.home), first)
         self.assertNotIn("would", second)
-        self.assertEqual(second.count("unchanged "), 6, second)
+        self.assertEqual(second.count("unchanged "), 4, second)
 
-    def test_merge_keeps_existing_settings_and_hooks_in_place(self):
+    def test_existing_settings_and_hook_files_are_left_byte_for_byte(self):
         self.write(self.claude / "settings.json", json.dumps(
             {"theme": "dark — mine", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "mine"}]}],
                                                "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "x"}]}]}}))
         self.write(self.codex / "hooks.json", json.dumps(
             {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "user-stop"}]}]}}))
+        before = {f: f.read_bytes() for f in (self.claude / "settings.json", self.codex / "hooks.json")}
         self.install()
-        settings = json.loads((self.claude / "settings.json").read_text())
-        self.assertEqual(settings["theme"], "dark — mine")
-        self.assertEqual(settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"], "x")
-        self.assertEqual(commands(self.claude / "settings.json"), ["mine", self.stop_command(self.claude)])
-        # Appended, never reordered: Codex keys hook trust by event and index.
-        self.assertEqual(commands(self.codex / "hooks.json"), ["user-stop", self.stop_command(self.codex)])
-        self.assertEqual(len(list(self.claude.glob("settings.json.bak-*"))), 1)
-        self.assertEqual(len(list(self.codex.glob("hooks.json.bak-*"))), 1)
+        self.assertEqual({f: f.read_bytes() for f in before}, before)
+        self.assertFalse(list(self.claude.glob("settings.json.bak-*")) + list(self.codex.glob("hooks.json.bak-*")))
 
     def test_malformed_or_misshapen_hook_files_are_refused_and_left_alone(self):
         for text, why in (("{not json", "is not valid JSON"), (json.dumps({"hooks": {"Stop": {"a": 1}}}), "hooks shape")):
@@ -192,13 +181,14 @@ class UninstallTest(InstallCase):
         self.assertEqual(snapshot(self.home), after, again)
         self.assertIn(f"left in place (differs from global.md): {self.claude / 'CLAUDE.md'}", again)
 
-    def test_uninstall_removes_a_v6_style_stop_entry_too(self):
+    def test_install_and_uninstall_drop_an_earlier_global_stop_entry(self):
         v6 = f'[ -n "${{GOAL_HARNESS:-}}" ] || python3 ~/.claude/{GOAL_STOP}'
         self.write(self.claude / "settings.json", json.dumps(
             {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": v6}]}],
                        "SessionStart": [{"hooks": [{"type": "command", "command": "keep-me"}]}]}}))
-        self.install()
-        self.assertEqual(commands(self.claude / "settings.json"), [v6], "install must not add a second Stop hook")
+        self.install()  # the v6 (and T7-era) global Stop registration goes; run.sh owns the hook now
+        hooks = json.loads((self.claude / "settings.json").read_text())["hooks"]
+        self.assertEqual(hooks, {"SessionStart": [{"hooks": [{"type": "command", "command": "keep-me"}]}]})
         self.install("--uninstall")
         hooks = json.loads((self.claude / "settings.json").read_text())["hooks"]
         self.assertEqual(hooks, {"SessionStart": [{"hooks": [{"type": "command", "command": "keep-me"}]}]})
@@ -270,10 +260,11 @@ class RetireTest(InstallCase):
         self.assertIn(f"left in place (not in the retire list): {self.codex / 'approved-runtimes'}", out)
         self.assertTrue(hand.exists())
         self.assertIn(f"kept {hand}", out)
-        # The retired hooks' registrations go; the founder's and the Stop hook stay.
+        # The retired hooks' registrations go; the founder's stay, and no Stop hook is added.
         self.assertEqual(commands(self.claude / "settings.json", "SessionStart"), ["mine"])
-        self.assertEqual(commands(self.claude / "settings.json"), [self.stop_command(self.claude)])
-        self.assertEqual(commands(self.codex / "hooks.json", "SessionStart"), [])
+        self.assertEqual(self.stop_registrations(self.claude / "settings.json"), [])
+        # The planted Codex file held only retired entries, so with no Stop hook added it goes whole.
+        self.assertFalse((self.codex / "hooks.json").exists())
         for root in (self.claude, self.codex):
             self.assertTrue((root / "skills" / SKILL / "SKILL.md").is_file())
 
@@ -381,7 +372,8 @@ class LinkCheckTest(InstallCase):
 
 
 class GoalStopHookTest(InstallCase):
-    """The registered Stop command of each harness blocks a stop while a goal is not done."""
+    """Nothing registers a Stop hook globally; the installed goal.py, run as run.sh registers it per
+    session, blocks a stop while a goal is not done in each harness home."""
 
     def test_each_harness_blocks_an_unfinished_goal(self):
         sys.path.insert(0, str(SKILLS / SKILL / "tests"))
@@ -389,8 +381,11 @@ class GoalStopHookTest(InstallCase):
         self.install()
         repo = Repo()
         self.addCleanup(repo.cleanup)
-        for harness, file in (("claude", self.claude / "settings.json"), ("codex", self.codex / "hooks.json")):
-            r = subprocess.run(["bash", "-c", commands(file)[0]], cwd=repo.dir, env=self.env, capture_output=True,
+        for harness, root, file in (("claude", self.claude, self.claude / "settings.json"),
+                                    ("codex", self.codex, self.codex / "hooks.json")):
+            self.assertEqual(self.stop_registrations(file), [], file)
+            hook = ["python3", str(root / "skills" / SKILL / "scripts" / "goal.py"), "--goal", "F-9", "stop-hook"]
+            r = subprocess.run(hook, cwd=repo.dir, env=self.env, capture_output=True,
                                text=True, input=json.dumps({"session_id": harness}))
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(json.loads(r.stdout)["decision"], "block", harness)

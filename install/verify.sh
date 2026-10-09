@@ -106,8 +106,8 @@ if HOME="$TMP/hm" CODEX_HOME="$TMP/hm/.codex" bash install/install.sh --dry-run 
 else cat "$TMP/dry.log"; failed install_dry_run; fi
 
 # 8. --installed: each harness home holds this skill (tests/ excepted) and global.md byte-equal, and
-# exactly one Stop registration of goal.py stop-hook. Files the installed skill carries forward
-# from an older install are listed, not counted (--retire-v5 judges them).
+# no Stop registration of goal.py stop-hook (run.sh registers it per session). Files the installed
+# skill carries forward from an older install are listed, not counted (--retire-v5 judges them).
 if [ "$INSTALLED" -eq 1 ]; then
   section "installed parity (read-only)"
   CX="${CODEX_HOME:-$HOME/.codex}" drift=0
@@ -122,7 +122,7 @@ if [ "$INSTALLED" -eq 1 ]; then
 try: hooks = json.load(open(sys.argv[1])).get("hooks", {})
 except (OSError, ValueError): hooks = {}
 print(sum("goal.py stop-hook" in h.get("command", "") for e in hooks.get("Stop", []) for h in e.get("hooks", [])))' "$h")"
-    [ "$n" = 1 ] || { echo "  drift: $h has $n Stop registrations of goal.py stop-hook, want 1"; drift=1; }
+    [ "$n" = 0 ] || { echo "  drift: $h has $n Stop registrations of goal.py stop-hook, want 0 (./install.sh drops them)"; drift=1; }
   done
   if [ "$drift" -eq 0 ]; then pass installed_parity
   else echo "  run ./install.sh to bring the installed copies level with this repository"; failed installed_parity installed; fi
