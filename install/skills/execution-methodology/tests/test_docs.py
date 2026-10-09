@@ -245,7 +245,7 @@ class PointersTest(DocsCase):
             "<!-- docs.py pointers -->\n[docs/design.md](../docs/design.md), read when: changing the fixture\n"
             "- docs/design.md#shape\n- docs/design.md#shape-1\n\n"
             "[docs/runbooks/run.md](../docs/runbooks/run.md), read when: running the fixture\n<!-- /docs.py pointers -->\n"))
-        self.assertTrue(self.repo.path(".claude/rules/runbooks-run.md").is_file())
+        self.assertTrue(self.repo.path(".claude/rules/runbooks--run.md").is_file())
 
     def test_a_page_that_drops_covers_loses_its_pointers(self):
         self.assertDocs(0, "pointers")
@@ -266,6 +266,24 @@ class PointersTest(DocsCase):
         self.assertTrue(line.startswith("paths: "), line)
         self.assertEqual(json.loads(line[len("paths: "):]), ["src/a/**", "tests/test_a.py"])  # a JSON list is YAML
         self.assertIn('"src/a/**"', line, "an unquoted ** is a YAML alias, not a glob")
+
+    def test_colliding_page_slugs_preserve_both_pointers(self):
+        self.repo.write("docs/a/b.md", page(when="a slash", covers="[src/b/**]"))
+        self.repo.write("docs/a-b.md", page(when="a dash", covers="[src/c/**]"))
+        self.repo.commit("two pages whose names differ by a slash")
+        self.assertDocs(0, "pointers", texts=(".claude/rules/a--b.md: written", ".claude/rules/a-b.md: written"))
+        self.assertIn("read when: a slash", self.repo.read(".claude/rules/a--b.md"))
+        self.assertIn("read when: a dash", self.repo.read(".claude/rules/a-b.md"))
+        self.assertDocs(0, "pointers", "--check")
+
+    def test_two_pages_naming_one_rule_file_are_refused(self):
+        self.repo.write("docs/a/b.md", page(when="a slash", covers="[src/b/**]"))
+        self.repo.write("docs/a--b.md", page(when="two dashes", covers="[src/c/**]"))
+        self.repo.commit("two pages naming one rule file")
+        self.assertDocs(1, "pointers", texts=(".claude/rules/a--b.md: named by both docs/a--b.md and docs/a/b.md",
+                                              "docs.py pointers: FAIL (1)"))
+        self.assertFalse(self.repo.path(".claude/rules/a--b.md").exists())
+        self.assertEqual(self.repo.read(".claude/rules/design.md"), RULE)
 
     def test_a_destination_symlinked_outside_the_repository_is_refused(self):
         outside = Path(tempfile.mkdtemp(prefix="docsfx-"))

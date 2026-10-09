@@ -22,7 +22,8 @@ docs/product/measurements.md   dated numbers
 docs/runbooks/                 procedures
 docs/goals/<id>/               spec.md, design.md unless touches is none, plan.md; one per goal
 docs/archive/                  pointers to tags; nothing current
-.claude/rules/<page-slug>.md   generated: one pointer file per page with a non-empty covers
+.claude/rules/<page-slug>.md   generated: one pointer file per page with a non-empty covers; the
+                               slug is the page's path under docs/ with `/` as `--`
 AGENTS.md pointer block        generated: in the nearest AGENTS.md, the pages covering that directory
 ```
 

@@ -7,7 +7,8 @@ words), read-when, covers and last-verified, the table in docs/README.md is `ind
 `pointers --check` finds nothing.
 reads: each entry of the task's reads: line as path:start-end, path, or term: <word>; the plan is
 found the way goal.py finds it.
-pointers: for each page with a non-empty covers, the generated .claude/rules/<page-slug>.md and the
+pointers: for each page with a non-empty covers, the generated .claude/rules/<page-slug>.md (the
+path under docs/ with each segment slugged, joined by `--`; two pages naming one file are refused) and the
 block between the pointer markers in the nearest AGENTS.md at or above each glob's literal
 directory (a new AGENTS.md there when none exists). An unmarked file is reported and never written;
 pointers whose page dropped covers are removed; a destination resolving outside ROOT is refused.
@@ -137,14 +138,19 @@ def inside(root, path):
 def pointers(root, check=False):
     """The findings; unless check, writes or removes each pointer file that differs and prints its path."""
     root, errs, want, blocks = Path(os.path.realpath(root)), [], {}, {}
+    named = {}
     for page in pages(root):
         if globs := covered(frontmatter(root, page)["meta"]):
-            rule = f".claude/rules/{slug(page[5:-3].replace('/', '-'))}.md"
-            # paths: as a JSON flow list, which YAML reads and a bare * would break
+            rule = f".claude/rules/{'--'.join(slug(s) for s in page[5:-3].split('/'))}.md"
+            named.setdefault(rule, []).append(page)  # paths: as a JSON flow list: YAML reads it, a bare * would break
             want[rule] = (f"---\npaths: {json.dumps(globs)}\n---\n{MARK}\n"
                           + "".join(f"{l}\n" for l in entry(root, page, ".claude/rules")))
             for glob in globs:
                 blocks.setdefault(agents_md(root, glob), set()).add(page)
+    for rule, named_by in named.items():
+        if len(named_by) > 1:  # two pages would share one rule file: neither is written
+            errs.append(f"{rule}: named by both {' and '.join(named_by)}")
+            del want[rule]
     rules = root / ".claude" / "rules"
     for f in sorted(rules.glob("*.md")) if rules.is_dir() else []:
         if f".claude/rules/{f.name}" not in want and f.is_file() and generated(f.read_bytes().decode("utf-8")):
