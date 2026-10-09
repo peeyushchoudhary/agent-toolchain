@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import os
 import re
 import sys
@@ -139,7 +140,8 @@ def pointers(root, check=False):
     for page in pages(root):
         if globs := covered(frontmatter(root, page)["meta"]):
             rule = f".claude/rules/{slug(page[5:-3].replace('/', '-'))}.md"
-            want[rule] = (f"---\npaths: [{', '.join(globs)}]\n---\n{MARK}\n"
+            # paths: as a JSON flow list, which YAML reads and a bare * would break
+            want[rule] = (f"---\npaths: {json.dumps(globs)}\n---\n{MARK}\n"
                           + "".join(f"{l}\n" for l in entry(root, page, ".claude/rules")))
             for glob in globs:
                 blocks.setdefault(agents_md(root, glob), set()).add(page)
