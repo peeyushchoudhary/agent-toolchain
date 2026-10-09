@@ -327,6 +327,21 @@ def commit_findings(ctx, base):
         rows[4].append("a writes glob at HEAD intersects protected")
     return rows
 
+def defines_test(body, name) -> bool:
+    """A runnable test: JS it/test('<name>') with exactly that name, or a Python def/async def whose
+    name starts with test (what unittest and pytest discover), inside class C for 'C.test_x'."""
+    if body is None:
+        return False
+    if re.search(rf"\b(it|test)\(\s*(?P<q>['\"`]){re.escape(name)}(?P=q)", body):
+        return True
+    *cls, fn = re.split(r"\.|::", name)
+    if not fn.startswith("test") or len(cls) > 1:
+        return False
+    if cls:  # the class body: from its header to the next line that starts in column 0
+        m = re.search(rf"^class {re.escape(cls[0])}\b.*?(?=^\S|\Z)", body, re.M | re.S)
+        body = m.group(0) if m else ""
+    return bool(re.search(rf"^\s*(async\s+)?def {re.escape(fn)}\(", body, re.M))
+
 def review_findings(ctx):
     path = ctx.runs / "review.md"
     if not path.is_file():
@@ -357,9 +372,7 @@ def review_findings(ctx):
         if kind == "resolved":
             test, name = f.group(4), f.group(5)
             body = file_at(ctx.root, "HEAD", test) if test else None
-            defines = body is not None and re.search(
-                rf"^\s*(async\s+)?def {re.escape(name)}\(|\b(it|test)\(\s*['\"]{re.escape(name)}", body, re.M)
-            if not (test and TEST_RE.search(test) and defines and test in [p for _s, p in ch]):
+            if not (test and TEST_RE.search(test) and defines_test(body, name) and test in [p for _s, p in ch]):
                 out.append(f"{rid}: closes {test}::{name}, which is absent at HEAD or not changed by {sha}")
                 continue
         else:

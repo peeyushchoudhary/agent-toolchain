@@ -324,7 +324,23 @@ class ReviewRowTest(RepoCase):
             self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
             self.assertRow(8, f"R1: closes {target}")
         self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/test_c.js::security\n", "HEAD~1")
-        self.assertRowOk(8)
+        self.assertRow(8, "R1: closes tests/test_c.js::security")
+
+    def test_closure_requires_an_exact_discoverable_test(self):
+        self.repo.write("tests/test_c.js", "test('security holds', () => {});\n")
+        self.repo.write("tests/test_e.js", 'it("exact", () => {});\n')
+        self.repo.write("tests/test_d.py", "import unittest\n\n\ndef helper_check():\n    pass\n\n\n"
+                        "class Guard(unittest.TestCase):\n    def test_guard(self):\n        helper_check()\n\n\n"
+                        "class Other(unittest.TestCase):\n    async def test_other(self):\n        pass\n")
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] fix with tests")
+        for target in ("tests/test_c.js::security", "tests/test_d.py::helper_check",
+                       "tests/test_d.py::Other.test_guard", "tests/test_d.py::Guard.test_missing"):
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
+            self.assertRow(8, f"R1: closes {target}")
+        for target in ("tests/test_e.js::exact", "tests/test_d.py::test_guard", "tests/test_d.py::Guard.test_guard",
+                       "tests/test_d.py::Other::test_other"):
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
+            self.assertRowOk(8)
 
     def test_closure_requires_a_post_review_ancestor_fix(self):
         old = self.repo.git("rev-parse", "goal/F-9/approved")  # it added tests/test_a.py::test_value
