@@ -18,6 +18,8 @@ cd install
 |---|---|---|
 | `global.md` | `~/.claude/CLAUDE.md` | `$CODEX_HOME/AGENTS.md` |
 | `skills/execution-methodology/` (`SKILL.md`, `references/`, `agents/`, `scripts/`; not `tests/`) | `~/.claude/skills/` | `$CODEX_HOME/skills/` |
+| `agents/{builder,reviewer,scout}.md` (in the skill), marked | `~/.claude/agents/` | — |
+| `agents/{builder,reviewer,scout}.toml` (in the skill), marked | — | `$CODEX_HOME/agents/` |
 | (no hook registration: `run.sh` registers the Stop hook per unattended session) | — | — |
 
 A global file whose content differs is backed up beside it as `<name>.bak-<YYYYmmdd-HHMMSS>` first;
@@ -27,9 +29,18 @@ hook; it removes any `goal.py stop-hook` entry an older install left in `setting
 `hooks.json` (a file that is not valid JSON is refused), because `run.sh` registers that hook per
 unattended session and two registrations would race.
 
+Each installed agent file carries the line `# installed by execution-methodology install.sh;
+uninstall removes an unchanged copy` (a `.md`'s second line, inside its frontmatter; a `.toml`'s
+first); the copy inside the skill stays unmarked. An agent file of the same name without that line
+is left alone and reported; a marked one is overwritten when it differs. No settings file is
+written: when `~/.claude/settings.json` has no `worktree.baseRef`, the installer prints a reminder to
+set `"worktree": {"baseRef": "head"}` ([codex.md](../docs/runbooks/codex.md)).
+
 `--uninstall` removes the skill directories and the hook entries whose command names
 `goal.py stop-hook` (a hook file left empty is deleted), removes a global file only when it is still
-an unmodified copy of `global.md`, and then moves the newest backup back. Run twice, the second run
+an unmodified copy of `global.md`, and then moves the newest backup back. It removes a marked agent
+file only while it still equals the marked shipped copy; an edited one is left in place and reported,
+and an unmarked one is never touched. Run twice, the second run
 changes nothing.
 
 `--retire-v5` deletes exactly the marked list in `install.sh`: the v5.1 skills and the v6 support
@@ -59,5 +70,5 @@ whole tree (`tests/tree_scan.py`); the docs link check (`tests/link_check.py`); 
 deleted components outside the records that may cite them; and `install.sh --dry-run` against a
 scratch home. Each check prints `verify: <id> ok` or `FAIL: <id> (verify.checks)`; unittest output is
 unchanged. The last line is `verify: PASS` or `verify: FAIL (<n> checks)`. `./verify.sh --installed`
-adds a read-only parity check: in each home the skill and global file are byte-equal to this tree and
-no Stop registration remains.
+adds a read-only parity check: in each home the skill, the global file and the marked agent files are
+byte-equal to this tree and no Stop registration remains.

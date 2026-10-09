@@ -18,6 +18,22 @@ When `$CODEX_HOME` (default `~/.codex`) exists, `install/install.sh` writes `ins
 `$CODEX_HOME/skills/execution-methodology/`. It does not touch `config.toml`, and it registers no
 hook. Check parity with `cd install && ./verify.sh --installed`.
 
+It also installs the three custom agents, `builder.toml`, `reviewer.toml` and `scout.toml`, into
+`$CODEX_HOME/agents/` (the Claude side gets the `.md` files in `~/.claude/agents/`). Each carries the
+same body as its `.md` file, the model and effort from `references/roles.md` and a sandbox mode, and
+a marker line: uninstall removes a marked file only while it is unchanged, and a same-named file
+without the marker is never touched. Your own Codex session loads `$CODEX_HOME/agents/` itself, so no
+per-session flag is needed; that a session selects the installed agents is checked live in the
+pilot's first goal. The review call below passes the reviewer prompt itself and does not depend on
+the installed file.
+
+A builder needs its own worktree. On the Claude side, a subagent with `isolation: worktree` branches
+from the default branch unless `~/.claude/settings.json` sets `"worktree": {"baseRef": "head"}`;
+set it so builders branch from the chief's HEAD (the installer only reminds you; it writes no
+settings file). On the Codex side, `codex exec --worktree` (present in 0.160.0) runs the builder in a
+new managed worktree and is the first choice; otherwise the Codex chief runs `git worktree add` and
+names the path in the packet.
+
 ## Codex as chief
 
 `run.sh <id> --harness codex` starts each session as:

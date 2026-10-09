@@ -24,6 +24,24 @@ SKILL = "execution-methodology"
 GOAL_STOP = f"skills/{SKILL}/scripts/goal.py stop-hook"  # the v6- and T7-era global registration
 RUN_SH = f"skills/{SKILL}/scripts/run.sh"
 GLOBAL = (INSTALL / "global.md").read_text(encoding="utf-8")
+AGENTS = SKILLS / SKILL / "agents"
+AGENT_NAMES = ("builder", "reviewer", "scout")
+AGENT_MARK = "# installed by execution-methodology install.sh; uninstall removes an unchanged copy"
+
+
+def marked(src: Path) -> str:
+    """The shipped agent file as install.sh writes it: the mark second in a .md, first in a .toml."""
+    text = src.read_text(encoding="utf-8")
+    if src.suffix == ".md":
+        first, rest = text.split("\n", 1)
+        return f"{first}\n{AGENT_MARK}\n{rest}"
+    return f"{AGENT_MARK}\n{text}"
+
+
+def md_parts(name: str) -> tuple[str, str]:
+    """(frontmatter, body) of agents/<name>.md; the body without the blank line after `---`."""
+    _, front, body = (AGENTS / f"{name}.md").read_text(encoding="utf-8").split("---\n", 2)
+    return front, body.removeprefix("\n")
 
 
 def retire_list() -> dict[str, list[str] | str]:
@@ -161,7 +179,8 @@ class InstallTest(InstallCase):
             self.assertTrue(os.access(root / RUN_SH, os.X_OK), root / RUN_SH)
             # run.sh registers the Stop hook per session; the installer never does (S-1 decision).
             self.assertFalse((root / hooks).exists(), root / hooks)
-        self.assertFalse((self.claude / "agents").exists())
+        self.assertEqual({p.name for p in (self.claude / "agents").iterdir()}, {f"{n}.md" for n in AGENT_NAMES})
+        self.assertEqual({p.name for p in (self.codex / "agents").iterdir()}, {f"{n}.toml" for n in AGENT_NAMES})
 
     def test_a_differing_global_file_is_backed_up_and_an_equal_one_is_left_alone(self):
         mine = self.write(self.claude / "CLAUDE.md", "my own rules\n")
@@ -204,7 +223,7 @@ class InstallTest(InstallCase):
         second = self.install().stdout
         self.assertEqual(snapshot(self.home), first)
         self.assertNotIn("would", second)
-        self.assertEqual(second.count("unchanged "), 4, second)
+        self.assertEqual(second.count("unchanged "), 10, second)   # two global files, two skills, six agents
 
     def test_existing_settings_and_hook_files_are_left_byte_for_byte(self):
         self.write(self.claude / "settings.json", json.dumps(
@@ -267,6 +286,106 @@ class UninstallTest(InstallCase):
         self.install("--uninstall")
         hooks = json.loads((self.claude / "settings.json").read_text())["hooks"]
         self.assertEqual(hooks, {"SessionStart": [{"hooks": [{"type": "command", "command": "keep-me"}]}]})
+
+
+class AgentTest(InstallCase):
+    def dests(self) -> dict[Path, Path]:
+        """Each installed agent path and the shipped file it is a marked copy of."""
+        return {**{self.claude / "agents" / f"{n}.md": AGENTS / f"{n}.md" for n in AGENT_NAMES},
+                **{self.codex / "agents" / f"{n}.toml": AGENTS / f"{n}.toml" for n in AGENT_NAMES}}
+
+    def test_agents_install_marked_into_both_homes_and_dry_run_lists_them(self):
+        before = snapshot(self.home)
+        dry = self.install("--dry-run").stdout
+        self.assertEqual(snapshot(self.home), before)
+        for dest in self.dests():
+            self.assertIn(f"would: install {dest}", dry)
+
+        out = self.install().stdout
+        for dest, src in self.dests().items():
+            self.assertIn(f"installed {dest}", out)
+            self.assertEqual(dest.read_text(encoding="utf-8"), marked(src), dest)
+            lines = dest.read_text(encoding="utf-8").splitlines()
+            if dest.suffix == ".md":  # the mark is a YAML comment inside the frontmatter
+                self.assertEqual(lines[:3], ["---", AGENT_MARK, f"name: {dest.stem}"])
+            else:
+                self.assertEqual(lines[0], AGENT_MARK)
+        # The skill's own copy under skills/<skill>/agents/ stays unmarked.
+        for root in (self.claude, self.codex):
+            for src in self.dests().values():
+                self.assertEqual((root / "skills" / SKILL / "agents" / src.name).read_bytes(), src.read_bytes())
+
+    def test_an_unmarked_agent_file_is_kept_and_reported(self):
+        mine = [self.write(self.claude / "agents" / "builder.md", "---\nname: builder\n---\nmine\n"),
+                self.write(self.codex / "agents" / "reviewer.toml", 'name = "mine"\n')]
+        out = self.install().stdout
+        for path in mine:
+            self.assertIn(f"kept {path} (not installed by this script)", out)
+        for dest, src in self.dests().items():
+            if dest not in mine:
+                self.assertEqual(dest.read_text(encoding="utf-8"), marked(src), dest)
+
+        self.install("--uninstall")
+        self.assertEqual((self.claude / "agents" / "builder.md").read_text(), "---\nname: builder\n---\nmine\n")
+        self.assertEqual((self.codex / "agents" / "reviewer.toml").read_text(), 'name = "mine"\n')
+        self.assertEqual({p for p in self.dests() if p.exists()}, set(mine))
+
+    def test_uninstall_preserves_edited_marked_agent(self):
+        self.install()
+        edited = [self.claude / "agents" / "reviewer.md", self.codex / "agents" / "scout.toml"]
+        for path in edited:
+            path.write_text(path.read_text(encoding="utf-8") + "my own line\n", encoding="utf-8")
+
+        before = snapshot(self.home)
+        dry = self.install("--uninstall", "--dry-run").stdout
+        self.assertEqual(snapshot(self.home), before)
+        for dest in self.dests():
+            self.assertIn(f"left in place (edited): {dest}" if dest in edited else f"would: rm -f {dest}", dry)
+
+        out = self.install("--uninstall").stdout
+        for dest in self.dests():
+            if dest in edited:
+                self.assertTrue(dest.read_text(encoding="utf-8").endswith("my own line\n"), dest)
+                self.assertIn(f"left in place (edited): {dest}", out)
+            else:
+                self.assertFalse(dest.exists(), dest)
+                self.assertIn(f"removed {dest}", out)
+
+    def test_codex_agent_bodies_equal_the_claude_bodies(self):
+        import tomllib  # Python 3.11+
+        for name in AGENT_NAMES:
+            _, body = md_parts(name)
+            toml = tomllib.loads((AGENTS / f"{name}.toml").read_text(encoding="utf-8"))
+            self.assertEqual(toml["developer_instructions"].encode(), body.encode(), name)
+
+    def test_codex_agent_toml_parses_with_exactly_the_schema_keys(self):
+        import tomllib  # Python 3.11+
+        roles = {"builder": ("gpt-6.1-sol", "high", "workspace-write"),
+                 "reviewer": ("gpt-6-astra", "high", "read-only"), "scout": ("gpt-6-luna", None, "read-only")}
+        for name, (model, effort, sandbox) in roles.items():
+            text = (AGENTS / f"{name}.toml").read_text(encoding="utf-8")
+            self.assertEqual(text.splitlines()[0], f"# Codex custom agent; the same body as agents/{name}.md. "
+                             "Schema checked against codex-cli 0.160.0 on 2026-10-09.")
+            toml = tomllib.loads(text)
+            front, _ = md_parts(name)
+            description = next(l.split(": ", 1)[1] for l in front.splitlines() if l.startswith("description: "))
+            want = {"name": name, "description": description, "model": model, "sandbox_mode": sandbox,
+                    **({"model_reasoning_effort": effort} if effort else {})}
+            self.assertEqual({k: v for k, v in toml.items() if k != "developer_instructions"}, want, name)
+            self.assertIn("developer_instructions", toml)
+
+    def test_settings_reminder_prints_only_when_baseref_is_absent(self):
+        reminder = 'reminder: set "worktree": {"baseRef": "head"} in ~/.claude/settings.json'
+        settings = self.claude / "settings.json"
+        self.assertIn(reminder, self.install().stdout)  # no settings file
+        self.assertFalse(settings.exists(), "the reminder writes nothing")
+        for text, shown in ((json.dumps({"theme": "dark"}), True), (json.dumps({"worktree": {}}), True),
+                            (json.dumps({"worktree": {"baseRef": "head"}}), False)):
+            self.write(settings, text)
+            out = self.install().stdout
+            self.assertEqual(reminder in out, shown, text)
+            self.assertEqual(settings.read_text(), text)
+        self.assertNotIn("reminder:", self.install("--uninstall").stdout)
 
 
 class RetireTest(InstallCase):

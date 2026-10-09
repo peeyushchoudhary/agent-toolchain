@@ -174,7 +174,7 @@ to the same file; a page that drops `covers` (its pointer removed); a symlinked 
 outside the repository (refused); a covered path changed the same day before, and after, the
 page's own commit.
 
-### [ ] T8 — roles shipped to both harnesses: Codex agent TOML, the installer
+### [x] T8 — roles shipped to both harnesses: Codex agent TOML, the installer
 writes: install/skills/execution-methodology/agents/**, install/install.sh, install/verify.sh, install/tests/test_install.py, install/tests/e2e_install.sh, install/README.md, docs/runbooks/codex.md
 tests-may-change: install/tests/test_install.py, install/tests/e2e_install.sh
 reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/references/roles.md, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/tests/test_install.py, docs/runbooks/codex.md, analysis/councils-2026-10-09/personas/drafts/builder.toml, analysis/councils-2026-10-09/personas/synthesis.md#harness-caveats-t4-and-t7-must-handle
@@ -372,6 +372,16 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   `LintTest.setUp` now generates pointers first. `docs.py` is 244 lines. Follow-ups: T11 bumps
   `last-verified` on `methodology.md` and `personas.md` (both stale today); a `docs/AGENTS.md`
   or markers in the root `AGENTS.md` would let `repository-standard.md` cover `docs/**` again.
+- 2026-10-09 T8 defaults: the marker is a YAML comment on a `.md`'s second line and a TOML
+  comment on a `.toml`'s first line, the shipped copies stay unmarked; a symlink destination is
+  never written through; an unmarked destination is kept and reported on install and uninstall;
+  `--dry-run` prints `unchanged` for an equal file; the settings reminder tests the key's
+  presence only and treats a missing or malformed file as absent; a sixth test checks the TOML
+  schema with `tomllib` (Python 3.11+, above the installer's 3.10 floor: the suite is this
+  repository's, the installed scripts keep the floor); `e2e_install.sh` drops `run.sh` from its
+  loop ahead of T9. Follow-up: after `--retire-v5` on a home that still holds old generated
+  builder/reviewer/scout files, a second `./install.sh` installs the new agents (install runs
+  before retire and keeps unmarked files).
 
 ## Parked
 

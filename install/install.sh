@@ -42,7 +42,8 @@ hooks_of()  { if [ "$1" = "$CLAUDE" ]; then echo "$1/settings.json"; else echo "
 # The one place that names the retired set on purpose; verify.sh's dangling-name scan skips the
 # lines between the markers. --retire-v5 deletes exactly these under each harness home:
 #   RETIRED_SKILLS   skills/<name>/          RETIRED_HOOKS  hooks/<name>, and their registrations
-#   RETIRED_PERSONAS agents/<name>.md|.toml, only when the file carries GENERATED_MARK
+#   RETIRED_PERSONAS agents/<name>.md|.toml, only when the file carries GENERATED_MARK (a file
+#                    carrying AGENT_MARK, which this installer writes, is never retired)
 #   RETIRED_FILES    paths under skills/; one ending in / is a directory (v7 installs no tests/)
 # BEGIN retire-v5 list
 RETIRED_SKILLS="methodology-management project-onboarding project-migration project-conformance agent-persona-factory gate-sandbox agent-personas progressive-disclosure graph-navigation"
@@ -99,6 +100,39 @@ uninstall_skill() {  # uninstall_skill ROOT
   fi
   say "$([ "$DRY" -eq 1 ] && echo 'would: ')removed this package's files from $dest"
   while IFS= read -r rel; do say "left in place (not in this package): $dest/$rel"; done <<< "$kept"
+}
+
+# ── Agent files ──────────────────────────────────────────────────────────────────────────────────
+# agents/*.md go to ~/.claude/agents/, agents/*.toml to $CODEX_HOME/agents/, each with AGENT_MARK
+# (a .md's second line, inside its YAML frontmatter; a .toml's first line). The shipped copy stays
+# unmarked. A destination without the mark, or a symlink, is not this script's and is never written.
+AGENT_MARK="# installed by execution-methodology install.sh; uninstall removes an unchanged copy"
+marked() {  # marked SRC: the shipped agent file with AGENT_MARK inserted
+  case "$1" in
+    *.md) head -n 1 "$1"; printf '%s\n' "$AGENT_MARK"; tail -n +2 "$1" ;;
+    *) printf '%s\n' "$AGENT_MARK"; cat "$1" ;;
+  esac
+}
+ours() { [ -f "$1" ] && [ ! -L "$1" ] && grep -qxF "$AGENT_MARK" "$1"; }   # ours DEST
+install_agents() {  # install_agents ROOT
+  local ext=toml f dest; [ "$1" = "$CLAUDE" ] && ext=md
+  for f in "$HERE/skills/$SKILL/agents/"*."$ext"; do
+    dest="$1/agents/$(basename "$f")"
+    if { [ -e "$dest" ] || [ -L "$dest" ]; } && ! ours "$dest"; then say "kept $dest (not installed by this script)"; continue; fi
+    if marked "$f" | cmp -s - "$dest"; then say "unchanged $dest"; continue; fi
+    [ "$DRY" -eq 1 ] && { say "would: install $dest"; continue; }
+    mkdir -p "$1/agents" && marked "$f" > "$dest" && say "installed $dest" || return 1
+  done
+}
+uninstall_agents() {  # uninstall_agents ROOT: remove a marked copy only while it equals the marked shipped file
+  local ext=toml f dest; [ "$1" = "$CLAUDE" ] && ext=md
+  for f in "$HERE/skills/$SKILL/agents/"*."$ext"; do
+    dest="$1/agents/$(basename "$f")"
+    { [ -e "$dest" ] || [ -L "$dest" ]; } || continue
+    if ! ours "$dest"; then say "left in place (not installed by this script): $dest"
+    elif marked "$f" | cmp -s - "$dest"; then step "removed $dest" rm -f "$dest" || return 1
+    else say "left in place (edited): $dest"; fi
+  done
 }
 
 # ── Global instructions ──────────────────────────────────────────────────────────────────────────
@@ -204,10 +238,20 @@ for r in "${ROOTS[@]}"; do
     uninstall_global "$(global_of "$r")" || fail "uninstall: $(global_of "$r")"
     uninstall_skill "$r" || fail "uninstall: $r/skills/$SKILL"
     [ "$DRY" -eq 1 ] || rmdir "$r/skills" 2>/dev/null || true   # only when the skill was all it held
+    uninstall_agents "$r" || fail "uninstall: $r/agents"
+    [ "$DRY" -eq 1 ] || rmdir "$r/agents" 2>/dev/null || true   # only when the agents were all it held
     [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "goal.py stop-hook" || fail "uninstall: $(hooks_of "$r")"
   else
     install_global "$(global_of "$r")" || fail "global instructions: $(global_of "$r") was not written"
     install_skill "$r" || fail "skill: $r/skills/$SKILL was not installed"
+    install_agents "$r" || fail "agents: $r/agents was not written"
+    # Read-only: a subagent's worktree branches from the default branch unless the founder sets baseRef.
+    [ "$r" != "$CLAUDE" ] || python3 -c 'import json, sys
+try: s = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError): s = {}
+w = s.get("worktree") if isinstance(s, dict) else None
+sys.exit(0 if isinstance(w, dict) and "baseRef" in w else 1)' "$r/settings.json" ||
+      say "reminder: set \"worktree\": {\"baseRef\": \"head\"} in ~/.claude/settings.json so builder worktrees branch from the chief's HEAD (docs/runbooks/codex.md)"
     # An earlier install registered the Stop hook globally; run.sh owns it now, so drop that entry.
     [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "goal.py stop-hook" || fail "stop hook: $(hooks_of "$r") was not edited"
   fi

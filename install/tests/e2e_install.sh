@@ -19,7 +19,7 @@ fi
 
 for root in "$tmp/.claude" "$tmp/.codex"; do
   scripts="$root/skills/execution-methodology/scripts"
-  for f in goal.py docs.py guard.py git-hooks.sh run.sh; do
+  for f in goal.py docs.py guard.py git-hooks.sh; do
     [ -f "$scripts/$f" ] || fail "$scripts/$f is missing"
   done
   [ -f "$scripts/goal.py" ] && { HOME="$tmp" python3 "$scripts/goal.py" --help > /dev/null 2>&1 ||
@@ -47,8 +47,24 @@ PY
   [ "$n" = "0" ] || fail "$file has $n Stop registration(s) of goal.py stop-hook, want 0"
 done
 
+# The six agent files, each carrying install.sh's marker; then --uninstall removes them and the skill.
+mark="$(sed -n 's/^AGENT_MARK="\(.*\)"$/\1/p' "$INSTALL/install.sh")"
+[ -n "$mark" ] || fail "install.sh defines no AGENT_MARK"
+agents=()
+for n in builder reviewer scout; do agents+=("$tmp/.claude/agents/$n.md" "$tmp/.codex/agents/$n.toml"); done
+for a in "${agents[@]}"; do
+  grep -qxF "$mark" "$a" 2>/dev/null || fail "$a is missing or does not carry the install marker"
+done
+if ! HOME="$tmp" CODEX_HOME="$tmp/.codex" bash "$INSTALL/install.sh" --uninstall > "$tmp/uninstall.log" 2>&1; then
+  cat "$tmp/uninstall.log"
+  fail "install.sh --uninstall exited non-zero"
+fi
+for a in "${agents[@]}" "$tmp/.claude/skills/execution-methodology" "$tmp/.codex/skills/execution-methodology"; do
+  [ ! -e "$a" ] || fail "$a is still present after --uninstall"
+done
+
 if [ "$errors" -eq 0 ]; then
-  echo "e2e_install: PASS (installed into both harnesses; goal.py, docs.py, guard.py, git-hooks.sh, run.sh present; no Stop hook registered; goal.py --help, docs.py --help and guard.py --self-test ok)"
+  echo "e2e_install: PASS (installed into both harnesses; goal.py, docs.py, guard.py, git-hooks.sh present; no Stop hook registered; goal.py --help, docs.py --help and guard.py --self-test ok; builder, reviewer and scout agents marked in both homes; --uninstall removed the agents and the skill)"
   exit 0
 fi
 echo "e2e_install: FAIL ($errors)"

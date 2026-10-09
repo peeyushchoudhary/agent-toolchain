@@ -48,16 +48,23 @@ run_suite() {
 }
 
 # 9. Installed parity (--installed: after check 8; --installed-only: alone). Each harness home holds
-# this skill (tests/ excepted) and global.md byte-equal, and no Stop registration of goal.py
-# stop-hook (run.sh registers it per session). Files the installed skill carries forward from an
-# older install are listed, not counted (--retire-v5 judges them).
+# this skill (tests/ excepted), global.md and its agent files (agents/*.md in ~/.claude/agents/,
+# agents/*.toml in $CODEX_HOME/agents/, each with install.sh's AGENT_MARK inserted) byte-equal, and
+# no Stop registration of goal.py stop-hook (run.sh registers it per session). Files the installed
+# skill carries forward from an older install are listed, not counted (--retire-v5 judges them).
 installed_parity() {
-  local CX="${CODEX_HOME:-$HOME/.codex}" drift=0 roots r g h n
+  local CX="${CODEX_HOME:-$HOME/.codex}" drift=0 roots r g h n ext f a mark
   section "installed parity (read-only)"
+  mark="$(sed -n 's/^AGENT_MARK="\(.*\)"$/\1/p' install/install.sh)"
   roots=("$HOME/.claude"); [ -d "$CX" ] && roots+=("$CX")   # an array: a home may contain spaces
   for r in "${roots[@]}"; do
-    if [ "$r" = "$HOME/.claude" ]; then g="$r/CLAUDE.md" h="$r/settings.json"; else g="$r/AGENTS.md" h="$r/hooks.json"; fi
+    if [ "$r" = "$HOME/.claude" ]; then g="$r/CLAUDE.md" h="$r/settings.json" ext=md; else g="$r/AGENTS.md" h="$r/hooks.json" ext=toml; fi
     cmp -s install/global.md "$g" || { echo "  drift: $g differs from install/global.md"; drift=1; }
+    for f in "$SKILL"/agents/*."$ext"; do   # the mark is a .md's second line, a .toml's first
+      a="$r/agents/$(basename "$f")"
+      { if [ "$ext" = md ]; then head -n 1 "$f"; printf '%s\n' "$mark"; tail -n +2 "$f"; else printf '%s\n' "$mark"; cat "$f"; fi; } |
+        cmp -s - "$a" || { echo "  drift: $a differs from the marked $f"; drift=1; }
+    done
     diff -rq -x __pycache__ -x tests "$SKILL" "$r/skills/execution-methodology" > "$TMP/diff" 2>&1
     grep -F "Only in $r/" "$TMP/diff" | sed 's/^/  carried forward: /'
     grep -vF "Only in $r/" "$TMP/diff" | sed 's/^/  drift: /' | grep . && drift=1
