@@ -225,7 +225,7 @@ and the `- Q:` lines (AC10); about 60 lines, standard library only, no external 
 `goal.py cost` total. Tests: the approval page from the fixture goal contains the spec text, the design's Interfaces
 section, every task with its `reads`, and the `- Q:` lines; `cause:` counts.
 
-### [ ] T11 — end-to-end, measurements, the pages to v7.1
+### [x] T11 — end-to-end, measurements, the pages to v7.1
 writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**, docs/product/measurements.md, docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/runbooks/**, docs/README.md, README.md, install/README.md, AGENTS.md, install/verify.sh, install/tests/e2e_install.sh
 tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**, install/tests/e2e_install.sh
 reads: install/skills/execution-methodology/tests/e2e_run.sh, docs/product/measurements.md, docs/architecture/methodology.md, docs/goals/S-2/spec.md
@@ -405,6 +405,15 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   only, row 8 proves the closures; the `Cost:` section is T9's. Follow-ups: spec headings
   render as paragraphs (no Markdown library); the Named test column could resolve a file to
   its first test.
+- 2026-10-09 T11 defaults: the E-1 fixture's `covers: [src/**]` is kept as the task wrote it
+  though its code lives in `calc/`; `goal.py lint` doubles as the approval step in the e2e;
+  `full_gate` equals `gate` there; `methodology.md` keeps its `read-when` and H2 headings so the
+  generated pointers stay valid; `e2e_install.sh` asserts no settings or hooks file is written;
+  the four `verify.sh` exclusions owed to T11 are gone. `personas.md` was outside T11's writes,
+  so a `[T6]` commit adds its one sentence on the TOML twins and clears its stale warning.
+  Always-loaded 1,319 of 1,350 words. Follow-ups: `codex_usage` consumes the record generator
+  before `session_meta`, harmless while that record comes first; `repository-standard.md`
+  covering `docs/**` again needs a `docs/AGENTS.md` or markers in the root `AGENTS.md`.
 
 ## Parked
 

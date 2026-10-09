@@ -21,10 +21,13 @@ see [D17](docs/decisions/decisions.md#d17--this-repository-complies-with-the-sta
 
 ## Methodology
 
-- Rules: [the execution-methodology skill](install/skills/execution-methodology/SKILL.md) (v7).
-- Goals: [docs/goals/](docs/goals/), one `plan.md` each.
+- Rules: [the execution-methodology skill](install/skills/execution-methodology/SKILL.md) (v7.1).
+- Goals: [docs/goals/](docs/goals/), each a `spec.md`, a `design.md` unless `touches` is `none`,
+  and a `plan.md`.
+- Pages: frontmatter on each; `docs.py` generates the index and pointer files, never hand-edited.
 - Design and accepted risks: `docs/architecture/methodology.md`.
-- Decision: [D29](docs/decisions/decisions.md#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints).
+- Decisions: [D29](docs/decisions/decisions.md#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints),
+  [D30](docs/decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2).
 
 ## Verification
 

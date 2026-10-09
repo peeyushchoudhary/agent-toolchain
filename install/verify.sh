@@ -111,7 +111,7 @@ python3 "$ROOT/install/skills/execution-methodology/scripts/docs.py" stale "$ROO
 # 7. No current file names a deleted component. Over the tracked and non-ignored files in install/,
 # README.md, AGENTS.md and docs/. Records may name them as rationale and are excluded: decisions.md,
 # measurements.md, docs/goals/**, install.sh's retire list (between its markers), and this file.
-# The rest of EXCLUDE is owed to later tasks or to files this one may not edit; each says why.
+# Each further EXCLUDE entry says why it is there.
 # Persona names that are ordinary words (planner, developer, scout, architect) are not scanned.
 section "dangling names"
 RE='methodology-management|project-onboarding|project-migration|project-conformance|agent-persona-factory|gate-sandbox'
@@ -129,10 +129,6 @@ EXCLUDE="$EXCLUDE install/skills/.gitignore"
 EXCLUDE="$EXCLUDE docs/assets/readme/skill-surface.svg docs/architecture/lean-execution.md"
 EXCLUDE="$EXCLUDE docs/product/specs/F-3-lean-execution.md docs/product/plans/F-3-lean-execution.md"
 EXCLUDE="$EXCLUDE docs/product/improvements-weekly.md docs/agents/lessons.md"
-# owed to T11: run.sh is described there as current until the pages move to v7.1
-EXCLUDE="$EXCLUDE README.md docs/architecture/methodology.md"
-# Outside T9's writes, owed to a later task: these still name run.sh or goal.py stop-hook.
-EXCLUDE="$EXCLUDE install/tests/e2e_install.sh install/skills/execution-methodology/tests/fixtures/goal_fixture.py"
 : > "$TMP/hits"
 git ls-files -z --cached --others --exclude-standard -- install README.md AGENTS.md docs | tr '\0' '\n' > "$TMP/files"
 [ -s "$TMP/files" ] || echo "verify: could not list the files to scan" > "$TMP/hits"

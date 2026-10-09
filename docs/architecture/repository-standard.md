@@ -46,5 +46,6 @@ as a warning that never fails the gate. The size test caps
 together. Review checks the layout itself.
 
 A product repository needs less: `AGENTS.md`, `CLAUDE.md`, `docs/product/prd.md` with at least its
-frontmatter `summary`, `docs/goals/<id>/plan.md`, `/.runs/` in `.gitignore`, `docs.py lint` in its
-gate, and the guard hooks from `git-hooks.sh`.
+frontmatter `summary`, `docs/goals/<id>/spec.md` and `plan.md` (with `design.md` unless `touches`
+is `none`), `/.runs/` in `.gitignore`, `docs.py lint` in its gate, and the guard hooks from
+`git-hooks.sh`.

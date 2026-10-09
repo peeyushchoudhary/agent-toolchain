@@ -30,21 +30,9 @@ for root in "$tmp/.claude" "$tmp/.codex"; do
     { cat "$tmp/self-test.log"; fail "$scripts/guard.py --self-test exited non-zero"; }; }
 done
 
+# The founder's open session is the chief (D30): the installer registers no hook and writes no settings file.
 for file in "$tmp/.claude/settings.json" "$tmp/.codex/hooks.json"; do
-  n="$(python3 - "$file" <<'PY'
-import json, os, sys
-if not os.path.exists(sys.argv[1]):
-    print(0); raise SystemExit
-try:
-    hooks = json.load(open(sys.argv[1], encoding="utf-8")).get("hooks", {})
-except (OSError, ValueError):
-    print(-1); raise SystemExit
-print(sum("goal.py stop-hook" in h.get("command", "")
-          for e in hooks.get("Stop", []) for h in e.get("hooks", [])))
-PY
-)"
-  # run.sh registers the Stop hook per session; the installer registers none (S-1 run security).
-  [ "$n" = "0" ] || fail "$file has $n Stop registration(s) of goal.py stop-hook, want 0"
+  [ ! -e "$file" ] || fail "$file was written; the installer writes no settings or hooks file"
 done
 
 # The six agent files, each carrying install.sh's marker; then --uninstall removes them and the skill.
@@ -64,7 +52,7 @@ for a in "${agents[@]}" "$tmp/.claude/skills/execution-methodology" "$tmp/.codex
 done
 
 if [ "$errors" -eq 0 ]; then
-  echo "e2e_install: PASS (installed into both harnesses; goal.py, docs.py, guard.py, git-hooks.sh present; no Stop hook registered; goal.py --help, docs.py --help and guard.py --self-test ok; builder, reviewer and scout agents marked in both homes; --uninstall removed the agents and the skill)"
+  echo "e2e_install: PASS (installed into both harnesses; goal.py, docs.py, guard.py, git-hooks.sh present; no settings or hooks file written; goal.py --help, docs.py --help and guard.py --self-test ok; builder, reviewer and scout agents marked in both homes; --uninstall removed the agents and the skill)"
   exit 0
 fi
 echo "e2e_install: FAIL ($errors)"

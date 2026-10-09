@@ -51,19 +51,21 @@ failed. Any failed step makes the script exit 1, naming the step.
 From the repository root:
 
 ```bash
-(cd install && ./install.sh --uninstall)                   # on the v7 tree
+(cd install && ./install.sh --uninstall)                   # on the v7.1 tree
 git rm -r -q install && git checkout methodology/v6-base -- install && (cd install && ./install.sh)
 ```
 
-`git rm` comes first because a plain checkout overlays v6 on v7 and keeps the v7-only files, which
-the v6 installer would then copy.
+`git rm` comes first because a plain checkout overlays v6 on v7.1 and keeps the v7.1-only files, which
+the v6 installer would then copy. To return to v7 instead, check out `goal/S-1/M2` in place of
+`methodology/v6-base`.
 
 ## The gate
 
 `./verify.sh` runs, from the repository root: the skill's unittest suite; the installer suite
 (`tests/`, including the always-loaded size ceiling); `guard.py --self-test`; the guard over the
 whole tree (`tests/tree_scan.py`); the docs link check (`tests/link_check.py`); the docs page check
-(`docs.py lint`: every page's frontmatter and the generated index); a scan for names of
+(`docs.py lint`: every page's frontmatter, the generated index and the generated pointer files);
+`docs.py stale`, printed as a warning that never fails the gate; a scan for names of
 deleted components outside the records that may cite them; and `install.sh --dry-run` against a
 scratch home. Each check prints `verify: <id> ok` or `FAIL: <id> (verify.checks)`; unittest output is
 unchanged. The last line is `verify: PASS` or `verify: FAIL (<n> checks)`. `./verify.sh --installed`
