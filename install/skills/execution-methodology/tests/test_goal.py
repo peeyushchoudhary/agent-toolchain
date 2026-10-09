@@ -59,6 +59,21 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(goal.flow("'it''s'"), "it's")
         self.assertEqual(subprocess.run(intended, shell=True).returncode, 1)
 
+    def test_rejects_unconsumed_and_unterminated_flow_values(self):
+        for bad in ('"true" && false', "[T1, T2", '{tasks: [T1, T2], e2e: "x"', '{tasks: [T1], e2e: "x" junk}',
+                    "[T1] tail"):
+            with self.assertRaises(ValueError, msg=bad):
+                goal.flow(bad)
+        text = (plan_text().replace(f"gate: {FULL} -q", 'gate: "true" && false')
+                .replace(f'M1: {{tasks: [T1, T2], e2e: "{E2E}"}}', 'M1: {tasks: [T1, T2], e2e: "true" && false}')
+                .replace(f'M2: {{tasks: [T3], e2e: "{E2E}"}}', "M2: {tasks: [T3]"))
+        plan = goal.parse_plan(text)
+        self.assertNotIn("gate", plan["meta"])
+        self.assertEqual(plan["milestones"]["M1"], {"tasks": [], "e2e": ""})
+        errs = goal.lint(type("C", (), {"plan": plan})())
+        for n in (4, 7, 8):
+            self.assertTrue(any(e.startswith(f"line {n}: ") for e in errs), (n, errs))
+
 
 class RepoCase(unittest.TestCase):
     plan = None

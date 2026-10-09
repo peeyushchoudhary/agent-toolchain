@@ -39,26 +39,31 @@ class SeveralPlans(PlanError):
     pass
 
 def flow(text: str):
-    """Parse a YAML-ish flow value: {k: v, ...}, [a, b], "quoted" or a bare scalar."""
+    """Parse a YAML-ish flow value: {k: v, ...}, [a, b], "quoted" or a bare scalar. ValueError when a
+    bracket is left open or text follows the value, so `"true" && false` is not read as `true`."""
     def value(i):
         while text[i:i + 1].isspace():
             i += 1
         ch = text[i:i + 1]
-        if ch in "[{":
+        if ch and ch in "[{":
             close, out, i = "]" if ch == "[" else "}", [] if ch == "[" else {}, i + 1
             while True:
                 while text[i:i + 1] in (" ", ","):
                     i += 1
-                if text[i:i + 1] in (close, ""):
+                if text[i:i + 1] == "":
+                    raise ValueError(f"unterminated {ch} in: {text}")
+                if text[i:i + 1] == close:
                     return out, i + 1
                 if close == "]":
                     item, i = value(i)
                     out.append(item)
                 else:
-                    key, _, _ = text[i:].partition(":")
+                    key, colon, _ = text[i:].partition(":")
+                    if not colon:
+                        raise ValueError(f"no ':' after {key.strip()!r} in: {text}")
                     item, i = value(i + len(key) + 1)
                     out[key.strip()] = item
-        if ch in "\"'":
+        if ch and ch in "\"'":
             # "..." takes \" and \\ escapes; '...' takes '' for a quote. Anything else is literal.
             out, i = [], i + 1
             while i < len(text):
@@ -77,7 +82,10 @@ def flow(text: str):
             raise ValueError(f"unterminated quoted value: {text}")
         m = re.match(r"[^,\]}]*", text[i:])
         return m.group(0).strip(), i + m.end()
-    return value(0)[0]
+    out, end = value(0)
+    if text[end:].strip():
+        raise ValueError(f"text after the value: {text}")
+    return out
 
 def parse_plan(text: str) -> dict:
     """Frontmatter, sections, tasks (with writes and tests-may-change), Decisions and Parked."""
@@ -86,14 +94,18 @@ def parse_plan(text: str) -> dict:
     if lines and lines[0].strip() == "---" and "---" in [l.strip() for l in lines[1:]]:
         end = 1 + [l.strip() for l in lines[1:]].index("---")
         key = None
-        for line in lines[1:end]:
+        for n, line in enumerate(lines[1:end], 2):
             m = re.match(r"^([A-Za-z_][\w-]*):\s*(.*)$", line)
-            if m:
-                key, val = m.group(1), m.group(2).strip()
-                plan["meta"][key] = flow(val) if val[:1] in "[{\"'" else val if val else {}
-            elif key == "milestones" and line.strip():
-                mid, _, val = line.strip().partition(":")
-                plan["meta"][key][mid.strip()] = flow(val.strip())
+            try:
+                if m:
+                    key, val = m.group(1), m.group(2).strip()
+                    plan["meta"][key] = flow(val) if val and val[0] in "[{\"'" else val if val else {}
+                elif key == "milestones" and line.strip():
+                    mid, _, val = line.strip().partition(":")
+                    plan["meta"].setdefault(key, {})[mid.strip()] = {}  # stays empty if malformed
+                    plan["meta"][key][mid.strip()] = flow(val.strip())
+            except ValueError as exc:  # a malformed key stays unset; lint names the line
+                plan["errors"].append(f"line {n}: {exc}")
         lines = lines[end + 1:]
     for mid, spec in (plan["meta"].get("milestones") or {}).items():
         spec = spec if isinstance(spec, dict) else {}
