@@ -421,6 +421,15 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   registration as an upgrade step (T9 had removed it), with the needle kept inside the retire
   markers so the dangling-name scan stays clean; R2 changes the rule-file name to the page path
   with `/` as `--` (`architecture--methodology.md`), so T7's slug default is superseded.
+- 2026-10-09 M2 round 1 fixes landed, R1–R8 closed (`.runs/S-2/review.md`); `goal.py done` prints
+  DONE M2. Defaults: a plain install that meets a malformed hooks file fails as it did before T9
+  (`hooks:`), since the stripping needs to read it; the approval table shows a task's
+  `tests-may-change` files when its prose names no test; `goal.py cost` takes a Claude project
+  directory named `<slug>-…` as under the root, which a sibling directory sharing the root's name as
+  a prefix would also match; `e2e_run.sh` is 227 lines with the rehearsal back. Follow-up:
+  `docs.py stale` warns on `methodology.md` because the fixes touched `install/` after its
+  `last-verified` commit on the same day; its text was re-read and is still true (the installer
+  registers no hook; it now drops a v7.0 registration), the date bump waits for the next goal.
 
 ## Parked
 
