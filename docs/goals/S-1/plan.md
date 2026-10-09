@@ -157,7 +157,7 @@ one-line row and full text for D2, D3, D4, D17, D18, D29; `docs/product/measurem
 
 ### [x] T9 — local end-to-end run; install, uninstall and rollback rehearsal; measurements
 writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/verify.sh, install/tests/**, install/README.md, docs/runbooks/codex.md, README.md, docs/product/measurements.md, docs/architecture/methodology.md
-tests-may-change: install/tests/**
+tests-may-change: install/tests/**, install/skills/execution-methodology/tests/e2e_run.sh
 `e2e_run.sh`: for each harness separately, creates a fresh scratch repository with a two-task
 `plan.md`, runs `run.sh --harness <h> --sessions 3` for real, and asserts that harness's `goal.py
 done` prints DONE and its `packet.md` exists; then, in disposable homes, runs `install.sh`,
@@ -294,6 +294,15 @@ the other vendor's diff review, `done` for M2, merge.
   back to the fake one, and the live evidence is owed to the pilot's first authenticated run. The
   non-blocking R14–R16 are fixed inside the R1, R4 and R3 commits. Widening: T9 `writes` gains
   `docs/architecture/methodology.md`, whose rollback command R14 corrects.
+- 2026-10-09 widening: T9 `tests-may-change` gains `install/skills/execution-methodology/tests/
+  e2e_run.sh`, which the R1–R3 fix commits change (it lives under a tests directory, so row 5
+  counts it as a test).
+- 2026-10-09 M2 fix defaults: Codex has no per-session execpolicy flag (0.160), so `run.sh` denies
+  pushes for both harnesses with run-owned git configuration (a `core.hooksPath` pre-push that
+  refuses, plus a `pushInsteadOf` rewrite for `--no-verify`), restored at exit; a session that edits
+  `.git/config` can undo it, and the runbook says so. `verify.sh --installed-only` runs the parity
+  check alone (the install suite would otherwise recurse). Row 5 flags a bare `skip(` only when the
+  file imports `skip`. `goal.py` is 568 lines after the six fixes.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 
