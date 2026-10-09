@@ -58,7 +58,7 @@ def lint(root):
         for key in KEYS:
             if meta.get(key) in (None, {}, ""):
                 errs.append(f"{page}: no {key}")
-            elif isinstance(meta[key], list) != (key == "covers"):
+            elif not isinstance(meta[key], list if key == "covers" else str):
                 errs.append(f"{page}: {key} is not {'a list' if key == 'covers' else 'one line'}")
         summary, date = meta.get("summary"), meta.get("last-verified")
         if isinstance(summary, str) and len(summary.split()) > 120:

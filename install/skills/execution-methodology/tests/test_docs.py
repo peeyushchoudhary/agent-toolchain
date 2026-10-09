@@ -115,6 +115,12 @@ class LintTest(DocsCase):
             self.assertIn(f"docs/design.md: covers entry '{bad}' is not repository-relative", res.stdout)
         self.assertNotIn("'src/**'", res.stdout)
 
+    def test_mapping_metadata_fails_lint(self):
+        res = self.lint_with("docs/design.md", page(summary="{a: b}", when="{c: d}", verified="{value: invalid}"))
+        self.assertEqual(res.returncode, 1, res.stdout)
+        for key in ("summary", "read-when", "last-verified"):
+            self.assertIn(f"docs/design.md: {key} is not one line", res.stdout)
+
     def test_an_unreadable_root_exits_2(self):
         outside = Path(tempfile.mkdtemp(prefix="docsfx-"))
         self.addCleanup(shutil.rmtree, outside, True)
