@@ -11,14 +11,18 @@ this skill's directory; its `scripts/` print usage with `--help`.
 
 ## What this is
 
-An approved `docs/goals/<id>/plan.md` is the whole goal; approval is the tag `goal/<id>/approved`.
-`goal.py done` decides done. The founder is touched at approval and at merge, never in between.
+An approved `docs/goals/<id>/plan.md`, with its `spec.md` and any `design.md`, is the whole goal;
+approval is the tag `goal/<id>/approved`. `goal.py done` decides done. The founder is touched at
+approval and at merge, never in between.
+
+**Before a goal**, plan it with the founder by [references/planning.md](references/planning.md).
+Each role's model and effort: [references/roles.md](references/roles.md).
 
 ## The loop, per task
 
 1. `goal.py next` names the first `[ ]` task of the active milestone.
-2. Write a packet: goal, `writes`, `tests-may-change`, gate, stop conditions, paths to read
-   (never pasted text).
+2. Read the task and its `reads:` (`docs.py reads <Tn> --goal <id>` prints line ranges). Write a
+   packet: goal, `writes`, `tests-may-change`, `reads`, gate, stop conditions; paths, never text.
 3. Dispatch one builder in its own worktree (`agents/builder.md`; until it exists, the harness's
    default agent). Build only trivial tasks yourself.
 4. Apply its staged diff. Never commit while a builder shares your checkout.
@@ -37,13 +41,14 @@ gate: <per-task command>
 full_gate: <milestone command>
 milestones:
   M1: {tasks: [T1, T2], e2e: "<real-services command>"}
-touches: [none]        # or data, auth, external
+touches: [none]   # or data, auth, external, interface, ui
 protected: [path/**, doc.md#section]
 ---
 ## Outcome
 ## Tasks
 ### [ ] T1 — <title>
 writes: src/a/**, tests/a/**
+reads: src/b.py, docs/area.md#section
 tests-may-change: tests/a/test_old.py
 <what, constraints, the test it adds>
 ## Decisions
@@ -54,7 +59,7 @@ tests-may-change: tests/a/test_old.py
 
 `goal.py lint` checks it. Ticks: `[ ]` open, `[x]` gate green and committed as `[Tn]`, `[!]` parked
 with a Parked line. A plan-only commit (subject `<id>: …`) changes only ticks, Decisions, Parked,
-or widens `writes:`/`tests-may-change:` with a new Decisions line. A commit that
+or `reads:`, or widens `writes:`/`tests-may-change:`, with a new Decisions line. A commit that
 deletes a file repairs the links naming it.
 
 ## Done, in words
@@ -83,17 +88,20 @@ non-blocking findings.
 **Park (`[!]` and a Parked line), continue other work:** any change to Outcome or frontmatter; a new
 external dependency, service, account or cost; any `protected` path; schema changes that drop,
 rename or re-type data; auth or permission model; user-visible copy or pricing; deleting or
-exporting user data; secrets; push, merge, deploy, publish, visibility; a blocking finding you
-cannot fix inside the write sets. Parked work waits for the next touchpoint; never request a grant.
+exporting user data; secrets; merge, deploy, publish, visibility, any push but the milestone
+close's; a blocking finding you cannot fix inside the write sets. Parked work waits for the next
+touchpoint; never request a grant.
 
 ## Review
 
 The other vendor reviews adversarially, read-only, with [agents/reviewer.md](agents/reviewer.md):
 Codex when Claude is chief, Claude when Codex is. Once each at:
 
-- **design**, only when `touches:` names data, auth or external ([references/design.md](references/design.md));
+- **design**, whenever `design.md` exists ([references/design.md](references/design.md));
 - **plan**, before the approval tag; resolve findings in the plan;
-- **merge**, the milestone diff `goal/<id>/approved..HEAD`.
+- **merge**, the milestone diff `goal/<id>/approved..HEAD`, with
+  [references/security-checklist.md](references/security-checklist.md) when `touches:` names
+  data, auth or external.
 
 One round, no grant. Findings go to `.runs/<id>/review.md`:
 
@@ -108,25 +116,24 @@ verdict: PASS | BLOCK
 
 Never reclass a blocking finding. Close it with a `[Tn][Rn]` fix commit that adds or changes its
 test, then tick it and add under it, above `paths:`, `- [x] R1 resolved-by <sha> closes <test
-path>::<name>`; or remove the work: `- [x] R1 removed-by <sha>`. Park non-blocking findings.
+path>::<name> cause: <c>`; or remove the work: `- [x] R1 removed-by <sha> cause: <c>`. `<c>` is
+`context` (the packet lacked it), `logic` (the build was wrong) or `spec` (the criteria were).
+Park non-blocking findings.
 
 ## Milestone close
 
 Clean tree → `gate.py receipt --goal <id> --name full_gate --cmd "<full_gate>"` and `--name e2e
 --cmd "<e2e>"` → merge review (fix commits need fresh receipts) → `goal.py done` prints DONE →
-`goal.py packet` writes the PR body → the founder merges and tags. Next milestone: same branch,
-fresh session. Record failures present at approval once with `gate.py baseline`; diagnose any new
-failure, never rerun until green.
+`goal.py packet` writes the PR body. Once the merge review passes and `done` prints DONE, the chief
+pushes the branch and opens the PR; the founder merges and tags. Next milestone: same branch.
+Record failures present at approval once with `gate.py baseline`; diagnose any new failure, never
+rerun until green.
 
-## Unattended runs
+## Resuming
 
-`<skill>/scripts/run.sh <id> --harness claude|codex --sessions N` restarts fresh sessions, each
-prompted by `goal.py resume`, until DONE, PARKED, STALLED or out of sessions. The session is the
-chief; `run.sh` only restarts, notifies and registers the Stop hook. Sessions get a scoped allowlist
-(git add/commit/status/diff/log, `goal.py`, `gate.py`, the plan's commands, edit, write, agent), a
-deny list (`git push`, `gh`, `curl`, `wget`, `rm -rf`, `git reset --hard`, `git checkout --`) and a
-sandbox with network off and writes limited to the repository and `.runs/`; push and merge never.
-To resume by hand: `goal.py resume`, then read `plan.md`.
+The founder's own open session is the chief; no launcher starts it and no loop restarts it. On the
+founder's word, run `goal.py resume`, read `plan.md`, and run the loop. Pushes pass the pre-push
+guard and the harness's own permission prompts.
 
 ## Before anything
 

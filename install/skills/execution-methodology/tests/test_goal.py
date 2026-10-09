@@ -15,15 +15,17 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.goal_fixture import E2E, FULL, GATE, GOAL, Repo, env, plan_text  # noqa: E402
+from fixtures.goal_fixture import DESIGN, E2E, FULL, GATE, GOAL, SPEC, V71_FILES, Repo, env, plan_text  # noqa: E402
 
 sys.path.insert(0, str(GOAL.parent))
 import goal  # noqa: E402
 from gate import receipt_path  # noqa: E402
 
 REAL_PLAN = Path(__file__).resolve().parents[4] / "docs" / "goals" / "S-1" / "plan.md"
+S2_PLAN = REAL_PLAN.parents[1] / "S-2" / "plan.md"
 RUN_SH = GOAL.parent / "run.sh"
 PLAN = "docs/goals/F-9/plan.md"
+SPEC_PATH, DESIGN_PATH = "docs/goals/F-9/spec.md", "docs/goals/F-9/design.md"
 # Assembled so this file does not itself add the marker that row 5 rejects.
 SKIP_DECORATOR = "    @unittest." + "skip('later')\n"
 
@@ -41,6 +43,14 @@ class ParseTest(unittest.TestCase):
         self.assertIn("install/README.md", plan["tasks"]["T2"]["writes"])
         self.assertIn("install/tests/test_install.py", plan["tasks"]["T2"]["tests-may-change"])
         self.assertEqual(goal.lint(type("C", (), {"plan": plan})()), [])
+
+    def test_parses_this_repositorys_s2_plan(self):
+        plan = goal.parse_plan(S2_PLAN.read_text())
+        self.assertEqual(sorted(plan["tasks"], key=lambda t: int(t[1:])), [f"T{n}" for n in range(1, 12)])
+        self.assertEqual(sorted(plan["milestones"]), ["M1", "M2"])
+        self.assertEqual([t for t, task in plan["tasks"].items() if not task["reads"]], [])
+        self.assertIn("docs/goals/S-2/spec.md", plan["tasks"]["T2"]["reads"])
+        self.assertEqual(goal.lint(goal.find_ctx(goal="S-2", cwd=S2_PLAN.parent)), [])
 
     def test_flow_values(self):
         self.assertEqual(goal.flow('{tasks: [T1, T2], e2e: "a, b: c"}'), {"tasks": ["T1", "T2"], "e2e": "a, b: c"})
@@ -273,6 +283,124 @@ class ProtectedSectionTest(RepoCase):
         self.assertRow(4, f"{sha[:10]} [T1] changes protected docs/record.md#D1-D2")
         self.assertEqual(goal.protected_text(RECORD, "D2"), "## D2 — second\n\nTwo.\n")
         self.assertEqual(goal.protected_text(RECORD, "whole"), RECORD.rstrip("\n"))
+
+
+class SpecLintTest(RepoCase):
+    """A v7.1 goal: the fixture goal with spec.md and design.md, T1 may write the design."""
+    plan = plan_text(v71=True).replace("writes: src/a/**, tests/**", f"writes: src/a/**, {DESIGN_PATH}, tests/**")
+
+    def setUp(self):
+        self.repo = Repo(self.plan, files=V71_FILES)
+        self.addCleanup(self.repo.cleanup)
+
+    def assertLint(self, code, *texts):
+        res = self.repo.goal("lint")
+        self.assertEqual(res.returncode, code, res.stdout + res.stderr)
+        for text in texts:
+            self.assertIn(text, res.stdout)
+        return res.stdout
+
+    def test_the_v71_fixture_lints_clean_and_prints_reads(self):
+        self.assertLint(0, f"T1 reads: {DESIGN_PATH}#interfaces", f"T3 reads: {DESIGN_PATH}#interfaces")
+
+    def test_a_task_without_reads_fails_lint(self):
+        self.repo.edit(PLAN, f"writes: src/c/**\nreads: {DESIGN_PATH}#interfaces\n", "writes: src/c/**\n")
+        out = self.assertLint(1, "T3: writes and no reads")
+        self.assertNotIn("T1: writes and no reads", out)
+
+    def test_a_new_goal_without_a_spec_fails_lint(self):
+        self.repo.path(SPEC_PATH).unlink()
+        self.repo.git("tag", "-d", "goal/F-9/approved")
+        self.assertLint(1, "no spec.md and no approval tag")
+
+    def test_deleting_an_approved_spec_fails_lint(self):
+        self.repo.path(SPEC_PATH).unlink()
+        self.assertLint(1, f"{SPEC_PATH}: in the approved commit, missing from the tree")
+
+    def test_a_401_word_spec_fails_lint(self):
+        pad = " word" * (400 - len(SPEC.split()))
+        self.repo.write(SPEC_PATH, SPEC.replace("Standard-library Python.", "Standard-library Python." + pad))
+        self.assertLint(0)
+        self.repo.write(SPEC_PATH, SPEC.replace("Standard-library Python.", "Standard-library Python. word" + pad))
+        self.assertLint(1, "spec.md: 401 words, over 400")
+
+    def test_a_spec_missing_non_goals_fails_lint(self):
+        self.repo.write(SPEC_PATH, SPEC.replace("**Non-goals.** Gamma.\n\n", ""))
+        out = self.assertLint(1, "spec.md: no Non-goals heading")
+        self.assertNotIn("no Constraints heading", out)
+        criteria = SPEC[SPEC.index("- AC1"):SPEC.index("\n\n**Non-goals")]
+        self.repo.write(SPEC_PATH, f"What changes for the user: nothing\n{criteria}\n")
+        self.assertLint(0)
+
+    def test_abbreviated_spec_without_tests_fails_lint(self):
+        self.repo.write(SPEC_PATH, "What changes for the user: nothing.\n")
+        self.assertLint(1, "spec.md: two-line form with no criteria line")
+        self.repo.write(SPEC_PATH, "What changes for the user: nothing\nAcceptance criteria: tests/test_a.py::test_alpha\n")
+        self.assertLint(0)
+
+    def test_touches_an_interface_without_a_design_fails_lint(self):
+        self.repo.path(DESIGN_PATH).unlink()
+        self.assertLint(1, "touches: [interface] without design.md")
+        self.repo.edit(PLAN, "touches: [interface]", "touches: [none]")
+        self.assertLint(0)
+        self.repo.edit(PLAN, "touches: [none]", "touches: [none, sideways]")
+        self.assertLint(1, "touches: unknown value 'sideways'")
+
+    def test_mapping_touches_fails_lint(self):
+        self.repo.edit(PLAN, "touches: [interface]", "touches: {kind: interface}")
+        self.assertLint(1, "touches: {'kind': 'interface'} is not a list")
+
+    def test_an_untraced_ac_fails_lint(self):
+        self.repo.write(SPEC_PATH, SPEC.replace("\n\n**Non-goals.**", "\n- AC3 WHEN gamma runs THE SYSTEM SHALL do it."
+                                                "\n\n**Non-goals.**"))
+        out = self.assertLint(1, "AC3: in no task")
+        self.assertNotIn("AC1: in no task", out)
+
+    def test_a_reads_change_in_a_plan_only_commit_needs_a_decision(self):
+        old, new = f"reads: {DESIGN_PATH}#interfaces", f"reads: {DESIGN_PATH}#interfaces, src/b/**"
+        self.repo.edit(PLAN, old, new)  # the first reads: line is T1's
+        sha = self.repo.commit("F-9: T1 reads beta")
+        self.assertRow(3, f"{sha[:10]} changes writes or tests-may-change without adding a Decisions line")
+        self.repo.git("reset", "-q", "--hard", "HEAD~1")
+        self.repo.edit(PLAN, old, new)
+        self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n", "- 2026-01-01: fixture decision.\n- T1 reads beta.\n")
+        sha = self.repo.commit("F-9: T1 reads beta, with a decision")
+        self.assertRowOk(3)
+        self.repo.goal("packet")
+        packet = self.repo.read(".runs/F-9/packet.md")
+        self.assertIn(f"{sha[:10]} T1 reads: {DESIGN_PATH}#interfaces -> {DESIGN_PATH}#interfaces, src/b/**", packet)
+        self.assertIn(f"T1 reads: {DESIGN_PATH}#interfaces, src/b/**\n", packet)
+
+    def test_row4_reports_a_spec_edit_that_protected_does_not_list(self):
+        self.assertEqual(goal.parse_plan(self.plan)["meta"]["protected"], ["docs/design.md"])
+        sha = self.fix(SPEC_PATH, SPEC.replace("Gamma.", "Gamma and delta."), "[T1] alpha edits the spec")
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected {SPEC_PATH}")
+
+    def test_row4_protects_the_designs_interfaces_and_data_touched_sections_only(self):
+        self.fix(DESIGN_PATH, DESIGN.replace("One file.", "Two files."), "[T1] outside the protected sections")
+        self.assertRowOk(4)
+        sha = self.fix(DESIGN_PATH, self.repo.read(DESIGN_PATH).replace("Inside the Interfaces", "Inside, changed,"),
+                       "[T1] inside a subsection of Interfaces")
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected {DESIGN_PATH}#interfaces")
+        self.assertNotIn("#data-touched", self.done()[1]["row 4"])
+        self.assertEqual(goal.protected_text(DESIGN, "data-touched"), "## Data touched\n\nNothing in a store.\n")
+        self.assertEqual(goal.protected_text(DESIGN, "interfaces"), DESIGN[DESIGN.index("## Interfaces"):
+                                                                          DESIGN.index("## Data")].rstrip("\n") + "\n")
+
+
+    def test_slug_is_docs_pys_rule(self):
+        import docs
+        self.assertEqual(goal.slug("D18: Other, thing!"), docs.slug("D18: Other, thing!"))
+        self.assertNotIn('re.sub(r"[`*_~]"', Path(goal.__file__).read_text(encoding="utf-8"))
+
+    def test_row4_protects_interfaces_after_fenced_heading(self):
+        design = DESIGN.replace("1. **alpha.** One function.\n",
+                                "1. **alpha.** One function.\n\n~~~\n## Example\n~~~\n\nContract text.\n")
+        self.assertIn("Contract text.", goal.protected_text(design, "interfaces"))
+        self.fix(DESIGN_PATH, design, "[T1] a fenced example inside Interfaces")
+        sha = self.fix(DESIGN_PATH, design.replace("Contract text.", "Changed contract."),
+                       "[T1] edits the text after the fenced heading")
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected {DESIGN_PATH}#interfaces")
 
 
 class ReviewRowTest(RepoCase):

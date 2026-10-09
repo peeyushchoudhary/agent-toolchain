@@ -3,7 +3,8 @@
 Over AGENTS.md, README.md and every tracked docs/**/*.md: each relative Markdown link outside a code
 fence names an existing file. A link to decisions.md#<anchor> must resolve the way GitHub does: the
 anchor equals the slug of a heading in that file (lowercased, punctuation dropped, each space a `-`,
-so "D17 — x" is `d17--x`), or is a bare `dNN` with a heading that starts with `DNN`.
+so "D17 — x" is `d17--x`), or is a bare `dNN` with a heading that starts with `DNN`. The slug and
+the code-fence rule are the skill's (scripts/docs.py), so links and `reads:` anchors resolve alike.
 """
 from __future__ import annotations
 
@@ -11,6 +12,10 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "skills" / "execution-methodology" / "scripts"))
+from docs import fenced, headings, slug  # noqa: E402
 
 
 def read_lines(path: str) -> list[str]:
@@ -18,22 +23,13 @@ def read_lines(path: str) -> list[str]:
         return fh.read().splitlines()
 
 
-def slug(heading: str) -> str:
-    text = re.sub(r"[`*_~]", "", heading.strip().lower())
-    return re.sub(r"[^\w\- ]", "", text).replace(" ", "-")
-
-
 def decision_anchors(path: str) -> tuple[set[str], set[str]]:
-    slugs, numbers, fence = set(), set(), False
-    for line in read_lines(path):
-        if line.lstrip().startswith("```"):
-            fence = not fence
-        m = None if fence else re.match(r"#{1,6}\s+(.*?)\s*#*$", line)
-        if m:
-            slugs.add(slug(m[1]))
-            n = re.match(r"D(\d+)\b", m[1], re.I)
-            if n:
-                numbers.add(n[1])
+    slugs, numbers = set(), set()
+    for _n, _level, text in headings(read_lines(path)):
+        slugs.add(slug(text))
+        n = re.match(r"D(\d+)\b", text, re.I)
+        if n:
+            numbers.add(n[1])
     return slugs, numbers
 
 
@@ -42,10 +38,7 @@ def check_links(root: str = ".") -> list[str]:
                              capture_output=True, text=True, check=True).stdout.split()
     bad, anchors = [], {}
     for f in dict.fromkeys(["AGENTS.md", "README.md"] + tracked):
-        fence = False
-        for n, line in enumerate(read_lines(os.path.join(root, f)), 1):
-            if line.lstrip().startswith("```"):
-                fence = not fence
+        for n, line, fence in fenced(read_lines(os.path.join(root, f))):
             for target in ([] if fence else re.findall(r"\]\(<?([^)\s>]+)", line)):
                 if re.match(r"(https?:|mailto:|#)", target):
                     continue

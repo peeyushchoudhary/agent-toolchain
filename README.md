@@ -33,7 +33,8 @@ installs the guard in each clone. Details: [install/README.md](install/README.md
 
 ## Read next
 
-[docs/README.md](docs/README.md) indexes every page; agents start at [AGENTS.md](AGENTS.md). A
+[docs/README.md](docs/README.md) indexes every page but the goals' (`docs.py index` generates the
+table); agents start at [AGENTS.md](AGENTS.md). A
 change here passes `cd install && ./install.sh --dry-run && ./verify.sh` with `verify: PASS`.
 
 [MIT license](LICENSE)

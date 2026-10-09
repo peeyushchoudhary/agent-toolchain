@@ -20,8 +20,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gate import git, receipt_path  # noqa: E402
 
 KEYS = ("goal", "title", "gate", "full_gate", "milestones", "touches", "protected")
+TOUCHES = ("none", "data", "auth", "external", "interface", "ui")
+SPEC_HEADINGS = ("Users and problem", "What changes for the user", "Acceptance criteria", "Non-goals", "Constraints")
 TASK_RE = re.compile(r"^###\s+\[([ x!])\]\s+(T\d+)\s+[—–-]+\s*(.*)$")
-FIELD_RE = re.compile(r"^(writes|tests-may-change):\s*(.*)$")
+FIELD_RE = re.compile(r"^(writes|tests-may-change|reads):\s*(.*)$")
 TEST_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)src/test/|(^|/)test_[^/]*\.py$"
                      r"|_(test|spec)\.[^/.]+$|\.(test|spec)\.[^/]+$|Tests?\.(java|kt|cs|swift)$")
 SKIP_RE = re.compile(r"\bunittest\.(skip\w*|expectedFailure)\b|@(skip|skipIf|skipUnless)\s*\(|@expectedFailure\b"
@@ -92,7 +94,7 @@ def flow(text: str):
     return out
 
 def parse_plan(text: str) -> dict:
-    """Frontmatter, sections, tasks (with writes and tests-may-change), Decisions and Parked."""
+    """Frontmatter, sections, tasks (with writes, tests-may-change and reads), Decisions and Parked."""
     plan = {"meta": {}, "milestones": {}, "sections": {}, "tasks": {}, "errors": []}
     lines = (text or "").splitlines()
     if lines and lines[0].strip() == "---" and "---" in [l.strip() for l in lines[1:]]:
@@ -126,7 +128,7 @@ def parse_plan(text: str) -> dict:
         m = TASK_RE.match(line)
         if section == "Tasks" and m:
             task = {"id": m.group(2), "state": m.group(1), "title": m.group(3).strip(),
-                    "writes": [], "tests-may-change": []}
+                    "writes": [], "tests-may-change": [], "reads": []}
             if task["id"] in plan["tasks"]:
                 plan["errors"].append(f"duplicate task id {task['id']}")
             plan["tasks"][task["id"]] = task
@@ -139,7 +141,7 @@ def parse_plan(text: str) -> dict:
     return plan
 
 def frozen_view(text) -> str:
-    """The plan with ticks normalised, Decisions/Parked bodies dropped, and writes/tests-may-change
+    """The plan with ticks normalised, Decisions/Parked bodies dropped, and writes/tests-may-change/reads
     lines dropped only where parse_plan reads them: under a task header in Tasks."""
     out, skip, section, task = [], False, None, False
     for line in (text or "").splitlines():
@@ -153,9 +155,9 @@ def frozen_view(text) -> str:
     return "\n".join(out).rstrip()
 
 def widenings(old, new):
-    """['T5 tests-may-change: a -> a, b'] for every writes/tests-may-change field that differs."""
+    """['T5 tests-may-change: a -> a, b'] for every writes/tests-may-change/reads field that differs."""
     return [f"{tid} {k}: {', '.join(old['tasks'].get(tid, {}).get(k, [])) or '(none)'} -> {', '.join(t[k]) or '(none)'}"
-            for tid, t in new["tasks"].items() for k in ("writes", "tests-may-change")
+            for tid, t in new["tasks"].items() for k in ("writes", "tests-may-change", "reads")
             if t[k] != old["tasks"].get(tid, {}).get(k, [])]
 
 def adds_decision(old, new) -> bool:
@@ -185,25 +187,51 @@ def overlap(a_globs, b_globs) -> bool:
                 return True
     return False
 
-def path_protected(plan):
+def goal_has(ctx, name):
+    """docs/goals/<id>/<name> when it is in the working tree or at the approval tag, else None."""
+    rel = (Path(ctx.plan_rel).parent / name).as_posix()
+    return rel if (ctx.root / rel).is_file() or file_at(ctx.root, ctx.tag("approved"), rel) is not None else None
+
+def protected_entries(plan, ctx=None):
+    """The plan's protected entries plus a v7.1 goal's unlisted defaults: spec.md whole, and
+    design.md's Interfaces and Data touched sections when the page exists."""
+    out = [p for p in plan["meta"].get("protected") or [] if isinstance(p, str)]
+    if getattr(ctx, "root", None) is not None and (spec := goal_has(ctx, "spec.md")):
+        design = goal_has(ctx, "design.md")
+        out += [spec] + ([f"{design}#interfaces", f"{design}#data-touched"] if design else [])
+    return list(dict.fromkeys(out))
+
+def path_protected(plan, ctx=None):
     # An entry with a '#section' anchor protects part of a file, which a path glob cannot judge;
     # lint and the HEAD writes check compare only whole-path entries. Row 4 also judges every entry,
     # whole or anchored (protected_text), commit by commit against the plan at the commit's parent.
-    return [p for p in plan["meta"].get("protected") or [] if isinstance(p, str) and "#" not in p]
+    return [p for p in protected_entries(plan, ctx) if "#" not in p]
+
+def slug(heading: str) -> str:
+    """The GitHub heading anchor; its one home is docs.py, which imports this module, so the import is late."""
+    from docs import slug as rule
+    return rule(heading)
 
 def protected_text(text, anchor):
-    """The '## ' sections of text that anchor names (D1-D19 spans ## D1 … ## D19); an anchor of
-    any other shape protects the whole file."""
+    """The sections of text that anchor names: D1-D19 spans ## D1 … ## D19; a heading slug spans that
+    heading to the next heading of the same or a higher level; an anchor naming no heading, the file."""
     m = re.match(r"^([A-Za-z]+)(\d+)(?:-(?:\1)?(\d+))?$", anchor)
-    out, keep = [], m is None
-    for line in (text or "").splitlines():
-        h = re.match(r"^#{1,2}\s+(.*)$", line)
-        if h and m:
-            n = re.match(rf"{re.escape(m.group(1))}(\d+)\b", h.group(1))
-            keep = bool(n) and int(m.group(2)) <= int(n.group(1)) <= int(m.group(3) or m.group(2))
+    out, keep, fence = [], 0, None
+    lines = (text or "").splitlines()
+    for line in lines:
+        s = line.lstrip()  # a ``` or ~~~ fence hides headings until its own marker closes it
+        fence = (None if s.startswith(fence) else fence) if fence else (s[:3] if s.startswith(("```", "~~~")) else None)
+        if m:
+            h = None if fence else re.match(r"^#{1,2}\s+(.*)$", line)
+            n = h and re.match(rf"{re.escape(m.group(1))}(\d+)\b", h.group(1))
+            keep = (bool(n) and int(m.group(2)) <= int(n.group(1)) <= int(m.group(3) or m.group(2))) if h else keep
+        else:  # keep is the open section's heading level, 0 outside it
+            h = None if fence else re.match(r"^(#{1,6})\s+(.*?)\s*#*$", line)
+            if h and (not keep or len(h.group(1)) <= keep):
+                keep = len(h.group(1)) if slug(h.group(2)) == anchor else 0
         if keep:
             out.append(line)
-    return "\n".join(out)
+    return "\n".join(out if out or m else lines)
 
 def file_at(root, rev, path):
     proc = subprocess.run(["git", "show", f"{rev}:{path}"], cwd=root, capture_output=True)
@@ -264,8 +292,41 @@ def lint(ctx):
         errs += [f"{mid}: no e2e"] if not m["e2e"] else []
     for t in plan["tasks"].values():
         errs += [f"{t['id']}: no writes"] if not t["writes"] else []
-        if overlap(t["writes"], path_protected(plan)):
+        if overlap(t["writes"], path_protected(plan, ctx)):
             errs.append(f"{t['id']}: writes intersect protected")
+    return errs + (spec_lint(ctx) if getattr(ctx, "root", None) is not None else [])
+
+def spec_lint(ctx):
+    """A goal with docs/goals/<id>/spec.md in the working tree is a v7.1 goal: every task with writes
+    has reads, touches is valid and backed by design.md, the spec is in shape and its ACn are traced.
+    A goal with neither a spec nor an approval tag is a new goal without its spec."""
+    plan, goal_dir = ctx.plan, ctx.root / Path(ctx.plan_rel).parent
+    spec_rel = str(Path(ctx.plan_rel).parent / "spec.md")
+    if not (goal_dir / "spec.md").is_file():  # approved with a spec: it stays required (Interface 1)
+        if not rev_ok(ctx.root, ctx.tag("approved")):
+            return ["no spec.md and no approval tag: a new goal needs a spec"]
+        return [f"{spec_rel}: in the approved commit, missing from the tree"] if file_at(
+            ctx.root, ctx.tag("approved"), spec_rel) is not None else []
+    text, errs = (goal_dir / "spec.md").read_text(), []
+    errs += [f"{t['id']}: writes and no reads" for t in plan["tasks"].values() if t["writes"] and not t["reads"]]
+    touches = plan["meta"].get("touches")
+    if touches is not None and not isinstance(touches, (list, str)):
+        errs.append(f"touches: {touches!r} is not a list")
+    touches = touches if isinstance(touches, list) else [touches] if isinstance(touches, str) and touches else []
+    errs += [f"touches: unknown value {v!r}" for v in touches if v not in TOUCHES]
+    if any(v != "none" for v in touches) and not (goal_dir / "design.md").is_file():
+        errs.append(f"touches: [{', '.join(map(str, touches))}] without design.md")
+    words, plain = len(text.split()), text.replace("*", "")
+    errs += [f"spec.md: {words} words, over 400"] if words > 400 else []
+    short = re.search(r"^What changes for the user:\s*nothing\b", plain, re.M)
+    if not short:
+        errs += [f"spec.md: no {h} heading" for h in SPEC_HEADINGS if not re.search(rf"^(#+\s*)?{h}\b", plain, re.M)]
+    elif not plain[short.end():].strip(" .\t\n"):  # the two-line form names the goal's tests on line two
+        errs.append("spec.md: two-line form with no criteria line")
+    tasks = plan["sections"].get("Tasks", [])
+    body = "\n".join(tasks[next((k for k, l in enumerate(tasks) if TASK_RE.match(l)), len(tasks)):])
+    errs += [f"{ac}: in no task" for ac in re.findall(r"^\s*[-*]\s+(AC\d+)\b", text, re.M)
+             if not re.search(rf"\b{ac}\b", body)]
     return errs
 
 def plan_only(ctx, subject, ch, plan_same) -> bool:
@@ -302,8 +363,9 @@ def commit_findings(ctx, base):
         if task is None:
             rows[4].append(f"{short} names {tids[0]}, which its parent's plan does not have")
             continue
+        entries = protected_entries(plan, ctx)
         for status, path in ch:
-            for entry in [p for p in plan["meta"].get("protected") or [] if isinstance(p, str)]:
+            for entry in entries:
                 ppath, _, anchor = entry.partition("#")  # whole file, or only the anchored sections
                 if glob_re(ppath).match(path) and (not anchor or protected_text(
                         file_at(ctx.root, parent, path) if parent else "", anchor)
@@ -323,7 +385,7 @@ def commit_findings(ctx, base):
                        for l in diff.splitlines()):
                     rows[5].append(f"{short} adds a skip/only/xfail marker in {path}")
     if overlap([w for t in ctx.plan_at("HEAD")["tasks"].values() for w in t["writes"]],
-               path_protected(ctx.plan_at("HEAD"))):
+               path_protected(ctx.plan_at("HEAD"), ctx)):
         rows[4].append("a writes glob at HEAD intersects protected")
     return rows
 
@@ -443,7 +505,8 @@ def cmd_done(ctx, a):
 
 def cmd_lint(ctx, a):
     errs = lint(ctx)
-    print("".join(f"lint: {e}\n" for e in errs) + f"lint: {'FAIL' if errs else 'PASS'} · "
+    print("".join(f"{t['id']} reads: {', '.join(t['reads'])}\n" for t in ctx.plan["tasks"].values() if t["reads"])
+          + "".join(f"lint: {e}\n" for e in errs) + f"lint: {'FAIL' if errs else 'PASS'} · "
           f"{len(ctx.plan['milestones'])} milestone(s), {len(ctx.plan['tasks'])} task(s)")
     return 1 if errs else 0
 
@@ -503,7 +566,9 @@ def cmd_packet(ctx, a):
            *[f"row {n} ok" if not w else f"row {n}: {'; '.join(w[:3])}" for n, w in rows.items()], "",
            "Receipts:", *(receipts or ["none"]), "", "Review findings:", *(found or ["none"]), "",
            "Decisions:", *plan["decisions"], "", "Parked:", *(plan["parked"] or ["none"]), "",
-           "Widenings (writes and tests-may-change):", *(fields or ["none"]), "",
+           "Reads:", *([f"{t['id']} reads: {', '.join(t['reads'])}" for t in plan["tasks"].values() if t["reads"]]
+                       or ["none"]), "",
+           "Widenings (writes, tests-may-change and reads):", *(fields or ["none"]), "",
            "Plan-only commits (widenings, ticks, decisions):", *(widen or ["none"])]
     ctx.runs.mkdir(parents=True, exist_ok=True)
     (ctx.runs / "packet.md").write_text("\n".join(out) + "\n")

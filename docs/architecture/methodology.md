@@ -1,3 +1,10 @@
+---
+summary: How a goal runs under methodology v7 and why: one plan per goal frozen at the approval tag, gate receipts bound to the tree that ran, the eight-row mechanical done check, one read-only review by the other vendor at design, plan and merge, one guard, two founder touchpoints per milestone and one instruction source for both harnesses. Also what v6 was and the measurements that retired it, the accepted risks with the pilot's stop rule, the v6 lessons that still hold, and the rollback to `methodology/v6-base`.
+read-when: Changing anything under `install/`, or asking how a goal runs, what v7 replaced, its risks or its rollback
+covers: [install/**]
+last-verified: 2026-10-09
+---
+
 # Methodology v7
 
 How a goal runs, and why. The rules are in the
@@ -47,7 +54,8 @@ policing per line of done-check. See [measurements.md](../product/measurements.m
 - **Stop rule.** Over four weeks on the pilot repository, any one reverts: a blocking escape in two
   milestones; merges per week below the recomputed baseline without a logged external cause;
   founder decisions above four per milestone twice; more than one default in five reversed at
-  merge. No new mechanism enters `install/` during the pilot.
+  merge. No new mechanism enters `install/` during the pilot except goal S-2
+  ([D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2)).
 
 Six v6 lessons hold:
 

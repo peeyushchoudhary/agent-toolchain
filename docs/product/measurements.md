@@ -1,3 +1,10 @@
+---
+summary: The dated numbers the decisions and the methodology cite: cross-vendor review cost and findings, token prices, v5.1 and v6 load and waste, real defects by review round, the v6 guards' catches, founder decisions per milestone. Also the size of `install/` per ref and the always-loaded word count, the pilot's measures with their definitions and its stop rule, and the records of the end-to-end runs.
+read-when: Citing a number, recording a measurement, or applying the pilot's stop rule
+covers: []
+last-verified: 2026-10-09
+---
+
 # Measurements
 
 The numbers the decisions and the [methodology](../architecture/methodology.md) cite, each dated.

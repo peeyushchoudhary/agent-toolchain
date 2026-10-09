@@ -1,3 +1,10 @@
+---
+summary: GitHub as storage only: private repositories, everything but code and history switched off, one pull request per milestone merged with a merge commit and then tagged. The guard hooks `git-hooks.sh` installs in each clone, what they block at commit and at push, the one override for a deliberate direct push, and why this repository is public by exception.
+read-when: Creating a repository, merging a milestone, or installing the guard in a clone
+covers: []
+last-verified: 2026-10-09
+---
+
 # GitHub
 
 GitHub stores code and history at zero cost. Nothing deploys from or runs on it; the local gate

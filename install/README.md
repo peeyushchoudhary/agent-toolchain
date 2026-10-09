@@ -54,7 +54,8 @@ the v6 installer would then copy. `skills/execution-methodology/tests/e2e_run.sh
 
 `./verify.sh` runs, from the repository root: the skill's unittest suite; the installer suite
 (`tests/`, including the always-loaded size ceiling); `guard.py --self-test`; the guard over the
-whole tree (`tests/tree_scan.py`); the docs link check (`tests/link_check.py`); a scan for names of
+whole tree (`tests/tree_scan.py`); the docs link check (`tests/link_check.py`); the docs page check
+(`docs.py lint`: every page's frontmatter and the generated index); a scan for names of
 deleted components outside the records that may cite them; and `install.sh --dry-run` against a
 scratch home. Each check prints `verify: <id> ok` or `FAIL: <id> (verify.checks)`; unittest output is
 unchanged. The last line is `verify: PASS` or `verify: FAIL (<n> checks)`. `./verify.sh --installed`
