@@ -543,6 +543,27 @@ class PrePushTest(GuardCase):
             with self.subTest(argv):
                 self.assertEqual(self.push(argv=argv)[0], 1)
 
+    def test_empty_secret_rules_fail_closed(self):  # review R11, push 18
+        self.commit(self.repo, {"config.py": f'K = "{AWS_KEY}"\n'})
+        head = self.sh("git", "rev-parse", "HEAD").stdout.strip()
+        payload = f"refs/heads/feature {head} refs/heads/feature {ZERO}\n"
+        patches = {"empty": "guard.SECRET_RULES = ()",
+                   "one dropped": "guard.SECRET_RULES = guard.SECRET_RULES[1:]",
+                   "one dead": "guard.SECRET_RULES[0] = (guard.SECRET_RULES[0][0], "
+                               "re.compile('x^'), 'secret')",
+                   "bad pattern": "guard.SECRET_PATTERNS += (('broken', '(', 'x'),); "
+                                  "guard.SECRET_RULES = guard.secret_rules()"}
+        for label, patch in patches.items():
+            for args in (["--pre-push", "origin", "url"], ["--self-test"]):
+                with self.subTest(label, mode=args[0]):
+                    code = (f"import re, sys; sys.path.insert(0, {str(SCRIPTS)!r}); import guard; "
+                            f"{patch}; raise SystemExit(guard.main({args!r}))")
+                    r = subprocess.run([sys.executable, "-c", code], cwd=self.repo, env=self.env,
+                                       input=payload, capture_output=True, text=True)
+                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                    self.assertIn("not a clean result", r.stderr)
+        self.assertEqual(self.push()[0], 1)  # the unpatched rule set still runs and finds it
+
     def test_sha256_null_oid(self):  # push 16
         repo = self.new_repo("sha256", fmt="sha256")
         code, out = self.push(remote="0" * 64, repo=repo)

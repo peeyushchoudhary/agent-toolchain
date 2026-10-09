@@ -31,20 +31,20 @@ SEPARATORS = "-_. " + "".join(chr(c) for c in (
     0x2006, 0x2007, 0x2008, 0x2009, 0x200A, 0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x202F,
     0x205F, 0x2E17, 0x2E1A, 0x2E3A, 0x2E3B, 0x2E40, 0x2E5D, 0x3000, 0x301C, 0x3030, 0x30A0, 0xFE31,
     0xFE32, 0xFE58, 0xFE63, 0xFF0D, 0x10D6E, 0x10EAD))
-SECRET_PATTERNS = (
-    ("AWS access key id", r"\bAKIA[0-9A-Z]{16}\b"),
-    ("GitHub token", r"\bgh[pousr]_[A-Za-z0-9]{36,}"),
-    ("Google API key", r"\bAIza[0-9A-Za-z_\-]{35}\b"),
-    ("Slack token", r"\bxox[baprs]-[0-9A-Za-z-]{10,}"),
-    ("Stripe live key", r"\bsk_live_[0-9a-zA-Z]{20,}"),
-    ("private key block", r"-----BEGIN (?:[A-Z ]+ )?PRIVATE" + r" KEY-----"),  # split: no self-match
+SECRET_PATTERNS = (  # name, pattern, a probe it must match (split: this file does not self-match)
+    ("AWS access key id", r"\bAKIA[0-9A-Z]{16}\b", "AKIA" + "IOSFODNN7EXAMPLE"),
+    ("GitHub token", r"\bgh[pousr]_[A-Za-z0-9]{36,}", "ghp_" + "a1" * 18),
+    ("Google API key", r"\bAIza[0-9A-Za-z_\-]{35}\b", "AIza" + "b2" * 17 + "c"),
+    ("Slack token", r"\bxox[baprs]-[0-9A-Za-z-]{10,}", "xoxb-" + "d3" * 5),
+    ("Stripe live key", r"\bsk_live_[0-9a-zA-Z]{20,}", "sk_live_" + "e4" * 10),
+    ("private key block", r"-----BEGIN (?:[A-Z ]+ )?PRIVATE" + r" KEY-----",
+     "-----BEGIN RSA PRIV" + "ATE KEY-----"),
 )
 SCISSORS = re.compile(r"^\s*#\s*-+\s*>8\s*-+")
 EDITOR_MARKER = re.compile(r"^(\S) Please enter the commit message")
 MAX_BLOB = 10 * 1024 * 1024
 DEFAULT_BRANCHES = ("refs/heads/main", "refs/heads/master")
 AFFIRMATIVE = frozenset({"1", "true", "yes", "on"})
-SECRET_RULES = [(name, re.compile(p), "secret") for name, p in SECRET_PATTERNS]
 HOME_RULE = ("absolute home path", HOME_PATH, "home")
 DIFF = ("--text", "--no-textconv", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U0",
         "--no-color")  # the repository being scanned cannot switch the scan off or move its headers
@@ -52,6 +52,25 @@ DIFF = ("--text", "--no-textconv", "--no-ext-diff", "--src-prefix=a/", "--dst-pr
 
 class GuardError(RuntimeError):
     """The check could not complete: exit 2."""
+
+
+def secret_rules() -> list:
+    try:
+        return [(name, re.compile(p), "secret") for name, p, _ in SECRET_PATTERNS]
+    except re.error:
+        return []  # check_rules() then refuses to run
+
+
+SECRET_RULES = secret_rules()
+
+
+def check_rules() -> None:
+    """Fail closed (old push case 18): every secret rule is present, live and matches its probe."""
+    rules = {r[0]: r for r in SECRET_RULES}
+    for name, _, probe in SECRET_PATTERNS or (("any secret rule", "", ""),):
+        if name not in rules or rules[name][1].search("") or not find(rules[name], probe):
+            raise GuardError(f"the secret rule set is unusable ({name} is missing, dead or misses "
+                             f"its probe), so nothing was scanned")
 
 
 def run_git(args, codes=(0,), stdin: str | None = None) -> tuple[int, str]:
@@ -283,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
         if a in (["-h"], ["--help"]):
             print(__doc__)
             return 0
+        check_rules()
         if a == ["--self-test"]:
             return self_test()
         notes: list[str] = []
