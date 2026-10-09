@@ -76,8 +76,8 @@ Git hooks are never cloned, so each clone installs them once (`--uninstall` remo
 bash ~/.claude/skills/execution-methodology/scripts/git-hooks.sh <repo>
 ```
 
-It writes `pre-commit`, `commit-msg` and `pre-push` (honouring `core.hooksPath`), each running
-`guard.py`: commits may not add a home path, the local git identity, a name on the private list or
+It writes `pre-commit`, `pre-merge-commit`, `commit-msg` and `pre-push` (honouring
+`core.hooksPath`), each running `guard.py`: commits and merges may not add a home path, the local git identity, a name on the private list or
 a secret; pushes may not carry a secret or a file over 10 MB, nor move an existing `main`. It
 refuses when the installed `guard.py` is absent, and the guard exits 2, blocking, when it cannot
 run.

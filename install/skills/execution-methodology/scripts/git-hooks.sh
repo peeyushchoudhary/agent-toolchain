@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # git-hooks.sh [--guard PATH] [--uninstall] [REPO]
 #
-# Installs guard.py into a repository's git hooks: pre-commit (--staged), commit-msg (--message)
-# and pre-push (--pre-push, stdin forwarded). The hooks directory comes from
+# Installs guard.py into a repository's git hooks: pre-commit and pre-merge-commit (--staged),
+# commit-msg (--message) and pre-push (--pre-push, stdin forwarded). The hooks directory comes from
 # `git rev-parse --git-path hooks`, so core.hooksPath is honoured. Every file written carries the
 # marker line below; an existing hook without it is left alone and reported (exit 1). --uninstall
 # removes only marked files. The guard defaults to the installed skill's copy and must exist: an
@@ -34,7 +34,7 @@ if [ "$UNINSTALL" -eq 0 ]; then
 fi
 
 status=0
-for hook in pre-commit commit-msg pre-push; do
+for hook in pre-commit pre-merge-commit commit-msg pre-push; do
   file="$HOOKS/$hook"
   if [ "$UNINSTALL" -eq 1 ]; then
     if [ -f "$file" ] && grep -qxF "$MARKER" "$file"; then rm -f "$file" && echo "removed $file"; fi
@@ -44,7 +44,7 @@ for hook in pre-commit commit-msg pre-push; do
     echo "git-hooks: $file exists and is not ours; left alone" >&2; status=1; continue
   fi
   case "$hook" in
-    pre-commit) cmd='python3 "$GUARD" --staged' ;;
+    pre-commit|pre-merge-commit) cmd='python3 "$GUARD" --staged' ;;
     commit-msg) cmd='python3 "$GUARD" --message "$1"' ;;
     pre-push)   cmd='python3 "$GUARD" --pre-push "$@"' ;;   # stdin is inherited, so the payload reaches it
   esac

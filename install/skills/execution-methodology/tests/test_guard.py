@@ -506,6 +506,28 @@ class PrePushTest(GuardCase):
         self.assertEqual(code, 1, out)
         self.assertIn("creds.txt", out)
 
+    def test_push_blocks_merge_only_secret(self):  # review R9
+        base = self.sh("git", "rev-parse", "HEAD").stdout.strip()
+        self.sh("git", "checkout", "-q", "-b", "side")
+        self.commit(self.repo, {"side.md": "side work\n"})
+        self.sh("git", "checkout", "-q", "feature")
+        self.commit(self.repo, {"main.md": "main work\n"})
+        self.sh("git", "merge", "-q", "--no-commit", "--no-ff", "side")
+        self.stage({"resolved.py": f'K = "{AWS_KEY}"\n'})  # in neither parent: the merge adds it
+        self.sh("git", "commit", "-q", "--no-verify", "-m", "merge side")
+        code, out = self.push(remote=base)
+        self.assertEqual(code, 1, out)
+        self.assertIn("resolved.py", out)
+        self.assertEqual(out.count("guard BLOCKED"), 1, out)  # one finding, not one per parent
+        self.sh("bash", str(HOOKS_SH), "--guard", str(GUARD), str(self.repo))
+        self.sh("git", "checkout", "-q", "-b", "other", base)
+        self.stage({"leak.md": f"see {HOME_PATH}/code\n"})
+        self.sh("git", "commit", "-q", "--no-verify", "-m", "past the hooks")
+        self.sh("git", "checkout", "-q", "feature")
+        r = self.sh("git", "merge", "-q", "--no-edit", "other", check=False)  # pre-merge-commit
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("absolute home path", r.stdout + r.stderr)
+
     def test_sha256_null_oid(self):  # push 16
         repo = self.new_repo("sha256", fmt="sha256")
         code, out = self.push(remote="0" * 64, repo=repo)

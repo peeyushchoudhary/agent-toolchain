@@ -11,7 +11,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 HOOKS_SH = SCRIPTS / "git-hooks.sh"
 MARKER = "# swe-agent guard"
-NAMES = ("pre-commit", "commit-msg", "pre-push")
+NAMES = ("pre-commit", "commit-msg", "pre-push", "pre-merge-commit")
 
 
 class GitHooksTest(unittest.TestCase):

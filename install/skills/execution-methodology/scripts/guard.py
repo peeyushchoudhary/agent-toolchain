@@ -254,8 +254,9 @@ def pre_push(payload: str) -> list[str]:
                 if kind == "blob" and int(size) > MAX_BLOB:
                     hits.append(f"blob over 10 MB: {objects[oid]} ({int(size) / 2**20:.1f} MB, "
                                 f"limit 10 MB)")
-        scan_diff(git("log", "-p", *DIFF, "--no-merges", "--format=%H", *rng), SECRET_RULES, hits)
-    return hits
+        # -m: a merge is diffed against each parent, so content only its resolution adds is seen
+        scan_diff(git("log", "-p", "-m", *DIFF, "--format=%H", *rng), SECRET_RULES, hits)
+    return list(dict.fromkeys(hits))  # a line seen against both parents is one finding
 
 
 def self_test() -> int:
