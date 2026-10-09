@@ -2,7 +2,7 @@
 
 A **standing** decision is in force; other rows are history. D1–D19 keep their full text because
 the S-1 plan protects it, so a section whose row is not standing is rationale only. Removed text is
-at tag `goal/F-3/approved`, D28 at `archive/v6-followups-2026-10-09`.
+at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 
 | Id | Date | Decision | Status |
 |---|---|---|---|
