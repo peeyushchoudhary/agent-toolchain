@@ -142,7 +142,7 @@ backing up any existing file to `<name>.bak-<date>`; copy the skill (with `guard
 `progressive-disclosure`, `graph-navigation`), `--installed` parity against both homes. Delete
 `preserve_selftest.sh` and `skills/README.md`.
 
-### [ ] T8 — `docs/` rewritten to current state
+### [x] T8 — `docs/` rewritten to current state
 writes: README.md, docs/**, NOTES-break-tests.md, install/AGENTS.md, .github/pull_request_template.md
 Target about 4,300 words: root `README.md` ≤500; `docs/README.md` one index ≤150;
 `docs/architecture/methodology.md` ≤700 (the v7 design and accepted risks, from the council papers);
@@ -263,6 +263,13 @@ the other vendor's diff review, `done` for M2, merge.
   records until T8 deletes or rewrites them.
 - 2026-10-09 widening: T8 `writes` gains `install/AGENTS.md` (links to a page T8 deletes) and
   `.github/pull_request_template.md` (names checks S-1 deleted).
+- 2026-10-09 T8 defaults: `docs/` (without `docs/goals/**`) is 4,729 words, not ≈4,300, because
+  D1–D19 are protected and stay byte-identical inside `decisions.md` (a 29-row status table sits above
+  them; D9, D10, D13–D16, D20–D27 are rows with their text at `goal/F-3/approved`, D28 at the
+  archive tag; D1, D5, D6 are marked superseded by D29 since the validator they governed is gone).
+  Six of sixteen lessons survive as one line each in `methodology.md`. `install/AGENTS.md` and the PR
+  template were brought to v7 by the controller. The `verify.sh` dangling-name exclusions for the
+  deleted records are now unnecessary; T9 or the next goal removes them.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 

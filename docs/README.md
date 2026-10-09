@@ -1,65 +1,17 @@
-# Documentation index
+# Documentation
 
-## The six areas
+When a page and the tooling in `install/` disagree, the tooling is right.
 
-Each directory carries a `README.md` naming its purpose and authority level.
+| Page | What it holds |
+|---|---|
+| [architecture/methodology.md](architecture/methodology.md) | How a goal runs (v7), what it replaced, the accepted risks, rollback |
+| [architecture/repository-standard.md](architecture/repository-standard.md) | Where files belong, and what enforces it |
+| [decisions/decisions.md](decisions/decisions.md) | Every decision id with its status; full text where kept |
+| [product/measurements.md](product/measurements.md) | Dated numbers, `install/` size, the pilot and its stop rule |
+| [runbooks/github.md](runbooks/github.md) | Storage-only GitHub and the guard hooks |
+| [runbooks/codex.md](runbooks/codex.md) | Codex as chief and as the other vendor's reviewer |
+| [runbooks/migrate-v5.md](runbooks/migrate-v5.md) | Migrating a v5.1 project in one commit |
+| [goals/S-1/plan.md](goals/S-1/plan.md) | Goal S-1, methodology v7 (record) |
+| [archive/README.md](archive/README.md) | The tags that hold superseded material |
 
-| Directory | Holds | Authority |
-| --- | --- | --- |
-| [agents/](agents/README.md) | the route: task, one guide, one command | Current |
-| [architecture/](architecture/README.md) | how the system is built | Current |
-| [product/](product/README.md) | intent, read through shipped behaviour | Current; measurements are dated |
-| [decisions/](decisions/README.md) | accepted decision records | Current |
-| [runbooks/](runbooks/README.md) | operational procedures | Current |
-| [archive/](archive/README.md) | superseded material | **NOT authoritative** |
-
-## Every document, one hop from here
-
-Listed in full and not only through the six indexes above, deliberately: a document should sit
-within two hops of an entry file, and an area directory spends one of them. Add a
-document by adding its row here in the same commit.
-
-| Area | Document | Status |
-| --- | --- | --- |
-| How work is sequenced, and what "done" means | [architecture/operating-model.md](architecture/operating-model.md) | Current |
-| How the route works in this repository | [agents/disclosure.md](agents/disclosure.md) | Current, standard v1.2 |
-| What earlier agents learned here, still applying | [agents/lessons.md](agents/lessons.md) | Current — curated; what stops applying is removed |
-| Where files belong; migrating an existing repo | [architecture/repository-standard.md](architecture/repository-standard.md) | Current, v1.1 |
-| Forge rules, the push guard, zero-cost posture | [runbooks/github.md](runbooks/github.md) | Current |
-| The Codex side, and what it does not get | [runbooks/codex.md](runbooks/codex.md) | Current |
-| Updating the private global instruction files for v6 | [runbooks/global-instructions.md](runbooks/global-instructions.md) | Current |
-| Every file the installer places, and why | [agents/what-gets-installed.md](agents/what-gets-installed.md) | Current |
-| Decisions in force, each against its rejected alternative | [decisions/decisions.md](decisions/decisions.md) | Current — identifiers are stable |
-| The numbers the decisions and the v6 design cite | [product/measurements.md](product/measurements.md) | **Dated** — re-derive when prices move |
-| The weekly improvement record, newest first | [product/improvements-weekly.md](product/improvements-weekly.md) | Current — a record: entries accrete, never rewritten |
-| Front-page diagram description and visual sources | [assets/readme/README.md](assets/readme/README.md) | Current |
-| Lean goal execution (methodology v6) definition | [product/specs/F-3-lean-execution.md](product/specs/F-3-lean-execution.md) | Approved 2026-10-06; in implementation |
-| Lean goal execution design | [architecture/lean-execution.md](architecture/lean-execution.md) | Approved 2026-10-06; in implementation |
-| Lean goal execution plan | [product/plans/F-3-lean-execution.md](product/plans/F-3-lean-execution.md) | Approved 2026-10-06; in implementation |
-| Simplification goal S-1: the plan (methodology v7, D29) | [goals/S-1/plan.md](goals/S-1/plan.md) | Approved 2026-10-09; in implementation |
-
-Installation lives in [../install/README.md](../install/README.md). The current state of the
-repository is summarised once in [the front page](../README.md#current-state).
-
-## What is published, and what is not
-
-`install/skills/` is the authored source of the published skills. One skill is published:
-`execution-methodology`. The list is enforced by
-`install/skills/.gitignore`, which ignores its own directory and then re-includes it by name, so adding another is a deliberate line in a file
-rather than a side effect of a copy.
-
-`execution-methodology` describes a process, not the work it was applied to, and names no project,
-path or person, which is what makes it safe to publish. Its tools (`goal.py`, `gate.py`,
-`run.sh`) carry no project fact: commands, paths and grants arrive from a
-project's own plan.
-
-Third-party skills that install themselves beside it are deliberately not published: a copy here
-would only go stale, and redistributing them is not this repository's call.
-
-## Authority order
-
-1. The tooling in `install/` — it is what actually runs.
-2. These documents.
-3. Any measurement older than the date its section states in `measurements.md`.
-
-When a document and the tooling disagree, the tooling is right.
+Installing: [install/README.md](../install/README.md).

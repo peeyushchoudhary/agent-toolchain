@@ -1,83 +1,29 @@
-# Repository structure standard
+# Repository standard
 
-Version **1.1**. One layout for every project, so an agent entering any repository finds context in
-the same place.
-
-This page is the canonical copy. It is a convention: no tool enforces it or migrates to it.
-
-The names were not invented. Each is the spelling already used in two or more existing projects; the
-standard ratifies the majority and retires the synonyms.
-
-## Required
+The layout this repository keeps:
 
 ```
-README.md                          the human front page
-AGENTS.md                          contract, ≤400 words
-CLAUDE.md                          exactly one line: @AGENTS.md
-.github/pull_request_template.md   merge checklist — a markdown file, NOT a workflow
-docs/README.md                     documentation index (never index.md)
-docs/agents/README.md              route index: task → one guide → one command
-docs/agents/disclosure.md          how the route works here (carries a version stamp)
-docs/agents/lessons.md             cross-agent learning channel
-docs/agents/personas/              project persona overlays and specialists
-docs/agents/                       + area guides, guardrails.md, workflows.md, handoff-template.md
-docs/architecture/                 how the system is built, one page per component
-docs/product/                      intent, read through shipped behaviour
-docs/decisions/                    accepted decision records
-docs/runbooks/                     operational procedures
-docs/archive/                      superseded material — NOT authoritative
+README.md                  front page for a human
+AGENTS.md                  the contract, at most 300 words; CLAUDE.md is the one line @AGENTS.md
+install/                   the single authored source of everything installed
+docs/README.md             the index: every page, one line each
+docs/architecture/         how it works and why
+docs/decisions/            decisions.md, one record
+docs/product/              measurements
+docs/runbooks/             procedures
+docs/goals/<id>/plan.md    one per goal
+docs/archive/              pointers to tags; nothing current
 ```
 
-Every directory above carries a `README.md` naming its purpose and authority level. That is what
-keeps a required directory from becoming empty ceremony, and what a reader uses to know whether the
-contents are current.
+**Records and pages.** `decisions.md`, `measurements.md` and `docs/goals/**` are records: dated
+entries that may name removed components as rationale. Every other page states what is true now;
+history stays in git and its tags.
 
-Add `<dir>/AGENTS.md` + `CLAUDE.md` (≤40 words, pure routing) to every source directory.
+**Enforcement** is in `install/verify.sh`, not a validator script: the link check (every relative
+link in `AGENTS.md`, `README.md` and `docs/` resolves, decision anchors included) and the
+dangling-name check (no file outside the records names a deleted component). The size test caps
+`AGENTS.md`, `install/global.md` and the skill's `SKILL.md` at 200 lines each and 1,350 words
+together. Review checks the layout itself.
 
-## Optional, when the project has the content
-
-`docs/conventions/` · `docs/security/` · `docs/api/` · `docs/compliance/` · `docs/launch/` ·
-`docs/superpowers/` (tool output — tolerated, never authoritative).
-
-## Naming rules
-
-| Rule | Rationale |
-|---|---|
-| Plural directory names (`agents/`, `decisions/`) | Matches the `AGENTS.md` convention; ends the `agent/` vs `agents/` split |
-| `README.md`, never `index.md` | Renders on every forge; three projects already chose it |
-| lowercase-kebab filenames | `HANDOFF_TEMPLATE.md` and `handoff-template.md` are the same document |
-| History lives in `archive/` | A reader must tell current from superseded by path alone |
-
-## Retired spellings
-
-Move each by hand:
-
-| Legacy | Standard |
-|---|---|
-| `docs/agent/` | `docs/agents/` |
-| `docs/index.md` | `docs/README.md` |
-| `docs/audit/`, `docs/audits/` | `docs/archive/…` |
-| `docs/operations/` | `docs/runbooks/` |
-| `docs/council/`, `docs/escalations/` | `docs/decisions/…` |
-| `docs/founder/` | `docs/product/founder/` |
-| `docs/handoffs/` | `docs/archive/handoffs/` |
-| `docs/handoff.md` | `docs/agents/handoff.md` |
-| `docs/RUNBOOK*.md` | `docs/runbooks/` |
-
-**Domain content is never moved.** A directory holding data rather than documentation — a question
-bank, a dataset, generated reports — stays exactly where it is.
-
-## Migrating
-
-Move on a clean git tree and review the staged diff before committing. **Content moves can break
-the build.** Before moving anything, check whether a path is read by
-  code. In one real migration six of seven proposed moves turned out to be referenced from a build
-  file and two test classes. Grep for the path outside `docs/` first.
-
-## Versioning
-
-Per-repo copies carry `<!-- disclosure standard vN -->`, so a reader can tell which
-version of these rules a repository last adopted.
-
-**Do not regenerate `disclosure.md` to bump the stamp.** It replaces project-specific content with
-the generic template — edit the stamp in place and add what is new.
+A product repository needs less: `AGENTS.md`, `CLAUDE.md`, `docs/goals/<id>/plan.md`, `/.runs/` in
+`.gitignore`, and the guard hooks from `git-hooks.sh`.

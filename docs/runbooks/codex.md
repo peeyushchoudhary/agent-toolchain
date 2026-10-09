@@ -1,107 +1,38 @@
-# Handoff — the Codex side
+# Codex
 
-Codex reads a different set of files from Claude Code. Everything shared has to be either **in the
-repository** (both harnesses read it) or **installed** (each harness reads its own copy).
+Codex and Claude Code share the repository layer: `AGENTS.md` and `docs/` (`CLAUDE.md` is the one
+line `@AGENTS.md`). Anything both must follow belongs there or in `install/`, never in one harness's
+settings, where the other silently ignores it.
 
-Getting this wrong fails silently: Codex quietly follows an older contract and never announces what
-it did not read.
+## Install
 
-## What Codex reads
+When `$CODEX_HOME` (default `~/.codex`) exists, `install/install.sh` writes `install/global.md` to
+`$CODEX_HOME/AGENTS.md` (the same bytes as `~/.claude/CLAUDE.md`) and the skill to
+`$CODEX_HOME/skills/execution-methodology/`. `config.toml` is yours: builder subagents need an
+`[agents]` block there, and Codex runs a hook only after you trust it once. Check parity with
+`cd install && ./verify.sh --installed`.
 
-| Path | Contents | Kept fresh by |
-|---|---|---|
-| `~/.codex/AGENTS.md` | Global instructions, the same bytes as `~/.claude/CLAUDE.md` | `install.sh`, from `install/global.md` (a differing file is backed up first) |
-| `~/.codex/config.toml` | Session settings | Manual; the installer does not touch it |
-| `~/.codex/skills/` | The published skill, `execution-methodology` | `install.sh` |
-| `~/.codex/hooks.json` | The goal Stop hook | `install.sh`; trusted once by you |
-| `<repo>/AGENTS.md` | The project contract | Shared with Claude, the same file |
-| `<repo>/docs/agents/**` | The route | Shared with Claude, the same files |
-| `<repo>/.codex/hooks.json` | Project hooks for a migrated project | Written at migration; trusted once by you |
+## Codex as chief
 
-**The repository layer is genuinely shared.** `AGENTS.md`, the route and the guides are read by
-both. That is why knowledge belongs in the repo and only accelerators belong in a harness.
-
-`CLAUDE.md` must be exactly `@AGENTS.md`, one line, so neither harness reads a different contract.
-
-## Setup
-
-Run `install/install.sh`; it does step 2 when the Codex home exists. The sections below say
-what it did and how to check it.
-
-### 1. Subagents enabled
-
-Codex will not spawn subagents without an `[agents]` block. Check:
+`run.sh <id> --harness codex` starts each session as:
 
 ```bash
-python3 -c "import tomllib;print(tomllib.load(open('$HOME/.codex/config.toml','rb')).get('agents'))"
+codex --ask-for-approval never exec --sandbox workspace-write "$(goal.py resume)"
 ```
 
-The v7 installer no longer writes this block; one an earlier install appended stays, and
-`--uninstall` leaves it. Add it by hand if it is missing.
+The sandbox keeps writes in the workspace and network off, so a session cannot push.
 
-### 2. Skills and hooks installed
+## Codex as the other vendor's reviewer
 
-`install.sh` copies `execution-methodology` to `~/.codex/skills/` and registers the goal Stop hook
-in `~/.codex/hooks.json`. It never writes trust state. Codex runs a
-user-level hook only after you review and trust it, so open Codex once after the first install and
-trust the goal hook, and again whenever their entries change. An untrusted hook does not run and
-says nothing.
-
-### 4. Global instructions
-
-`install.sh` writes `install/global.md` to `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`, so the
-two are identical; a file that differed is kept beside it as `<name>.bak-<YYYYmmdd-HHMMSS>`, and
-`./install.sh --uninstall` restores the newest one.
-
-## Format differences that matter
-
-| | Claude Code | Codex |
-|---|---|---|
-| File | `.md`, YAML frontmatter, **body = system prompt** | `.toml`, `developer_instructions = '''…'''` |
-| Model field | `model:` — alias, ID or `inherit` | `model = "gpt-6.1-sol"` |
-| Effort | `effort:` low…max | `model_reasoning_effort` low…max, plus `ultra` |
-| Restricting a judge | `tools:` allow-list and a derived deny-list | `sandbox_mode = "read-only"` |
-
-Codex's sandbox is the **stronger** of the two: it constrains what shell commands can do, not just
-which tools are offered.
-
-## Running Codex for goal work
-
-`run.sh` starts Codex sessions with `codex --ask-for-approval never exec --sandbox workspace-write`,
-and the other-vendor review calls it read-only:
+When Claude is the chief, the design, plan and merge reviews run the
+[reviewer prompt](../../install/skills/execution-methodology/agents/reviewer.md) through:
 
 ```bash
 codex exec -s read-only --ignore-user-config --ignore-rules \
-  -m <model> -c model_reasoning_effort=<effort> --json -C <dir> "<packet>"
+  -m <model> -c model_reasoning_effort=<effort> --json -C <dir> "<packet>" < /dev/null
 ```
 
-- `--ignore-user-config --ignore-rules` keeps the user's MCP servers, apps and hooks out of a judge
-- `--json` gives JSONL events including a `turn.completed` usage block
-- Outside a git repository, add `--skip-git-repo-check`; run with stdin closed (`< /dev/null`) when
-  calling it by hand, because it otherwise blocks reading stdin
-- Budget about 23K input tokens per invocation before your content: the base system prompt
-
-## Validation
-
-```bash
-# subagents on
-python3 -c "import tomllib;print(tomllib.load(open('$HOME/.codex/config.toml','rb'))['agents'])"
-
-# skills present
-ls ~/.codex/skills/
-
-# installed copies match the repository
-cd install && ./verify.sh --installed
-```
-
-Then open Codex in a migrated repo and confirm it reads `AGENTS.md`.
-
-## What Codex does not get
-
-- **`~/.claude/settings.json` hooks** — Claude Code only. Codex gets the goal Stop hook through
-  `hooks.json`.
-- **`~/.claude/settings.json`** — including `skillOverrides`.
-
-Anything that must apply to both harnesses belongs in the repository, not in a hook or a skill.
-Guidance that lives only in one harness silently does not apply to the other, and the failure is
-invisible.
+`-m` names the reviewing model (Astra in S-1). The `--ignore` flags keep user servers and hooks out
+of the judge; outside a git repository add `--skip-git-repo-check`. Each call spends about
+23K input tokens on the base prompt. The chief saves the output, already in the `review.md` format,
+to `.runs/<id>/review.md`.
