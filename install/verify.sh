@@ -100,6 +100,12 @@ python3 install/tests/link_check.py "$ROOT" || failed links   # prints `verify: 
 section "docs"
 check docs python3 "$ROOT/install/skills/execution-methodology/scripts/docs.py" lint "$ROOT"
 
+# 6b. Pages whose covered paths were committed after their last-verified day (docs.py stale). A
+# warning, never a failure: the milestone close re-verifies the page and bumps the date.
+section "stale"
+python3 "$ROOT/install/skills/execution-methodology/scripts/docs.py" stale "$ROOT" \
+  || echo "verify: stale (warning: pages listed above need re-verification)"
+
 # 7. No current file names a deleted component. Over the tracked and non-ignored files in install/,
 # README.md, AGENTS.md and docs/. Records may name them as rationale and are excluded: decisions.md,
 # measurements.md, docs/goals/**, install.sh's retire list (between its markers), and this file.

@@ -148,7 +148,7 @@ prose above the table). `verify.sh` runs `docs.py lint` over this repository as 
 (AC5). `e2e_install.sh` asserts `docs.py` is installed inside the skill in both homes and
 `docs.py --help` runs from each copy; agent-file assertions belong to T8. M1 ends here.
 
-### [ ] T7 — `docs.py`: pointer generation and staleness
+### [x] T7 — `docs.py`: pointer generation and staleness
 writes: install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/tests/test_docs.py, .claude/rules/**, install/AGENTS.md, install/verify.sh, docs/architecture/repository-standard.md
 tests-may-change: install/skills/execution-methodology/tests/test_docs.py
 reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/scripts/docs.py, install/AGENTS.md
@@ -361,6 +361,17 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   changes to tests that `tests-may-change` lists (its body now differs from the council draft by
   one clause, 348 words); R11 `[T2]`: `goal.py`'s `slug()` delegates to `docs.py` with a late
   import, since `docs.py` imports `goal.py`.
+- 2026-10-09 T7 defaults: rule files are named by the slug of the page path under `docs/`
+  (`.claude/rules/architecture-methodology.md`, `architecture-personas.md`), not the bare names
+  the task text guessed, so two pages with one basename cannot collide; a hand-written rule
+  file without the marker is also left alone and reported; `paths:` is unquoted like `covers`;
+  a wildcard-free glob maps to its directory or its parent; `stale` ends `PASS` or `<n> stale`
+  (never the word FAIL, so the gate's verdict regex cannot read the warning as a failure);
+  `verify.sh` warns on any non-zero `stale` exit. `repository-standard.md` sets `covers: []`
+  because its globs would map a block into the root `AGENTS.md`, outside T7's writes;
+  `LintTest.setUp` now generates pointers first. `docs.py` is 244 lines. Follow-ups: T11 bumps
+  `last-verified` on `methodology.md` and `personas.md` (both stale today); a `docs/AGENTS.md`
+  or markers in the root `AGENTS.md` would let `repository-standard.md` cover `docs/**` again.
 
 ## Parked
 
