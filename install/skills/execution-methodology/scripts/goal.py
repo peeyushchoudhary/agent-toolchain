@@ -30,7 +30,7 @@ SKIP_RE = re.compile(r"\bunittest\.(skip\w*|expectedFailure)\b|@(skip|skipIf|ski
                      r"|\bx(it|describe)\(|@Disabled\b|@Ignore\b")
 RUNTIME_PIN = "docs/agents/execution/runtime.json"
 MIGRATE_NOTICE = (f"this project still carries the v5.1 runtime pin ({RUNTIME_PIN}); "
-                  "migrate it first, following references/migrate.md")
+                  "migrate it first, following docs/runbooks/migrate-v5.md")
 
 class PlanError(Exception):
     pass

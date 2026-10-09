@@ -83,7 +83,7 @@ routine touchpoints are exactly goal approval and merge per milestone; decisions
 settle are defaulted, escalated or queued, and answered asynchronously.
 
 v5.1 is retired. A project that still carries the v5.1 runtime pin is migrated by hand with the
-[migration reference](install/skills/execution-methodology/references/migrate.md); until then v6
+migration reference (`docs/runbooks/migrate-v5.md`, written in T8); until then v6
 refuses to execute there. Global v5.1 files are removed only by `install.sh --retire-v5`, after
 every project is migrated.
 

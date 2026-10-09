@@ -6,10 +6,10 @@ this documentation set follows from those four facts.
 Both harnesses carry short global instructions that route to the adopted repository guide; the
 replacement text for v6 is in the [global-instructions runbook](../runbooks/global-instructions.md).
 The procedure itself is owned by the
-[execution methodology](../../install/skills/execution-methodology/methodology.md), and the
+[execution methodology](../../install/skills/execution-methodology/SKILL.md), and the
 structure behind it by the [lean execution design](lean-execution.md). This page explains the
 operating priorities and does not restate either. A project that still follows v5.1 migrates with
-[the migration guide](../../install/skills/execution-methodology/references/migrate.md).
+the migration guide (`docs/runbooks/migrate-v5.md`, written in T8).
 
 ## The three stages, in order
 

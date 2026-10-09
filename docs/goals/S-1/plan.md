@@ -112,7 +112,7 @@ the pre-commit hook written by T4. Root `AGENTS.md` gate line updated. New
 are present, runs `goal.py --help` from each installed copy, and exits 0. **M1 ends here**: the
 other vendor's diff review of `goal/S-1/approved..HEAD`, `done` for M1, merge.
 
-### [ ] T6 — the instructions; cut personas
+### [x] T6 — the instructions; cut personas
 writes: install/global.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/methodology.md, install/skills/execution-methodology/references/**, install/skills/execution-methodology/agents/reviewer.md, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_rules.py, install/skills/agent-personas/**, install/skills/.gitignore, install/install.sh, install/verify.sh, install/tests/test_size.py, install/tests/test_install.py, AGENTS.md, README.md, docs/**
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, install/tests/test_install.py, install/skills/agent-personas/tests/**
 `SKILL.md` ≤900 words / ≤200 lines: the per-task loop, the `plan.md` format, the done contract in
@@ -245,6 +245,14 @@ the other vendor's diff review, `done` for M2, merge.
   lists both kinds of widening; R16 (the review packet omitted two asset files) is parked.
 - 2026-10-09 widening: T6 `writes` gains root `README.md`, which links to `references/migrate.md`;
   the deletion de-links it (plain text until T8 writes `docs/runbooks/migrate-v5.md`).
+- 2026-10-09 T6 defaults: always-loaded prose is 1,263 words (`global.md` 133, `AGENTS.md` 232,
+  `SKILL.md` 898 in 134 lines); `references/design.md` (191 words) and `agents/reviewer.md` (201)
+  exceed their estimates because of the format blocks and load only on demand. `SKILL.md` states the
+  run permission model in words, not flags (`run.sh` carries the flags, T9). The 14 persona lines
+  left the retire list (the retire step never reached them); `agent-personas` joins
+  `RETIRED_SKILLS` in T7. `docs/agents/agent-personas.md` is cut to a note until T8 removes the
+  README link. `references/migrate.md` is deleted; its six links are plain text naming
+  `docs/runbooks/migrate-v5.md` until T8 writes it.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 

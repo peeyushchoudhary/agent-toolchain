@@ -7,8 +7,7 @@
 | --- | --- | --- |
 | Understand what the installer places, and where | [what-gets-installed.md](what-gets-installed.md) | `./install/install.sh --dry-run` |
 | Understand the route convention itself | [progressive-disclosure.md](progressive-disclosure.md) | `./install/verify.sh` |
-| Route work to a persona, or add one | [agent-personas.md](agent-personas.md) | `python3 install/skills/agent-personas/scripts/sync_personas.py --list --format markdown` |
-| Move a project off v5.1 | [migrate.md](../../install/skills/execution-methodology/references/migrate.md) | `python3 install/skills/execution-methodology/scripts/goal.py --help` |
+| Move a project off v5.1 | migrate.md (`docs/runbooks/migrate-v5.md`, written in T8) | `python3 install/skills/execution-methodology/scripts/goal.py --help` |
 | Learn how the route works in THIS repository | [disclosure.md](disclosure.md) | `./install/verify.sh` |
 | Find where a document belongs | [../architecture/repository-standard.md](../architecture/repository-standard.md) | — |
 | Read a settled decision before re-opening it | [../decisions/decisions.md](../decisions/decisions.md) | — |
@@ -20,9 +19,8 @@ current state has one public summary in [the front page](../../README.md#current
 
 ## What is NOT here, and why
 
-No `personas/`. The standard lists it, and it would be empty here: the persona pool is SOURCE
-(`install/skills/agent-personas/personas/`), not a project overlay. The standard's own rule is that a
-required directory must not become "empty ceremony". Create it the day this repository needs a
-specialist of its own.
+No `personas/`. The standard lists it, and it would be empty here: the one shipped agent prompt is
+SOURCE (`install/skills/execution-methodology/agents/`), not a project overlay. The standard's own
+rule is that a required directory must not become "empty ceremony".
 
 `lessons.md` IS here, as a curated list of what still applies. See [lessons.md](lessons.md).

@@ -10,4 +10,4 @@ worked.
 | [github.md](github.md) | Storage-only forge rules, the push guard, zero-cost posture |
 
 Moving a project off v5.1 is in the
-[migration reference](../../install/skills/execution-methodology/references/migrate.md).
+migration reference (`docs/runbooks/migrate-v5.md`, written in T8).

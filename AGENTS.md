@@ -15,21 +15,16 @@ hooks; edit it there, never in an installed copy. Executable tooling and tests o
 Claims need executable or documented evidence; measurements route to
 [measurements.md](docs/product/measurements.md).
 
-Keep false starts and reversals as labelled rationale, never as current authority. `gh`, `ripgrep`,
-and `graphify` remain optional to the core. This repository complies with the standard it ships;
+Keep false starts and reversals as labelled rationale, never as current authority. `gh` and `ripgrep`
+remain optional to the core. This repository complies with the standard it ships;
 see [D17](docs/decisions/decisions.md#d17--this-repository-complies-with-the-standard-it-ships).
 
 ## Methodology
 
-This repository follows methodology v6, lean goal execution: a goal is a spec, a design and a plan,
-and the founder's routine touchpoints are exactly goal approval and merge per milestone. Scripts
-compute done, scope and test integrity; review runs where it has measured yield, and the reviewer
-comes from the other vendor at design, plan and acceptance. A builder never approves their own
-work, and judges cannot edit. Decisions the plan does not settle are defaulted, escalated or queued.
-The rules are in the
-[execution methodology](install/skills/execution-methodology/methodology.md) and the
-[design](docs/architecture/lean-execution.md). Substantive product decisions and external actions
-outside existing grants still need the founder.
+- Rules: [the execution-methodology skill](install/skills/execution-methodology/SKILL.md) (v7).
+- Goals: [docs/goals/](docs/goals/), one `plan.md` each.
+- Design and accepted risks: `docs/architecture/methodology.md`.
+- Decision: [D29](docs/decisions/decisions.md#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints).
 
 ## Verification
 

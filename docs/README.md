@@ -29,7 +29,7 @@ document by adding its row here in the same commit.
 | Forge rules, the push guard, zero-cost posture | [runbooks/github.md](runbooks/github.md) | Current |
 | The Codex side, and what it does not get | [runbooks/codex.md](runbooks/codex.md) | Current |
 | Updating the private global instruction files for v6 | [runbooks/global-instructions.md](runbooks/global-instructions.md) | Current |
-| The persona roster and its routing | [agents/agent-personas.md](agents/agent-personas.md) | Current |
+| Personas: removed in v7, one reviewer prompt kept | [agents/agent-personas.md](agents/agent-personas.md) | Current |
 | Every file the installer places, and why | [agents/what-gets-installed.md](agents/what-gets-installed.md) | Current |
 | Decisions in force, each against its rejected alternative | [decisions/decisions.md](decisions/decisions.md) | Current — identifiers are stable |
 | The numbers the decisions and the v6 design cite | [product/measurements.md](product/measurements.md) | **Dated** — re-derive when prices move |
@@ -45,9 +45,9 @@ repository is summarised once in [the front page](../README.md#current-state).
 
 ## What is published, and what is not
 
-`install/skills/` is the authored source of the published skills. Two skills are published:
-`execution-methodology` and `agent-personas`. The list is enforced by
-`install/skills/.gitignore`, which ignores its own directory and then re-includes those two by name, so adding another is a deliberate line in a file
+`install/skills/` is the authored source of the published skills. One skill is published:
+`execution-methodology`. The list is enforced by
+`install/skills/.gitignore`, which ignores its own directory and then re-includes it by name, so adding another is a deliberate line in a file
 rather than a side effect of a copy.
 
 `execution-methodology` describes a process, not the work it was applied to, and names no project,

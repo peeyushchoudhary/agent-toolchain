@@ -12,7 +12,7 @@ driver and Stop hook start and sustain the chief session; the chief dispatches b
 deterministic gate; a cross-vendor review judges design, plan and acceptance; each milestone ends in
 one merge. A decision the plan does not settle goes to escalation. The picture does not show
 deployment, which is a separate, explicitly authorized step. The
-[execution methodology](../../../install/skills/execution-methodology/methodology.md) owns exact
+[execution methodology](../../../install/skills/execution-methodology/SKILL.md) owns exact
 order.
 
 ## Skill surface chart

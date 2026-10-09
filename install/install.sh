@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Install the v6 toolchain into ~/.claude and ~/.codex (or $CODEX_HOME).
 #
-# Installs the published skills, the Stop hook registration for both harnesses, and the rendered
-# personas. Idempotent: a second run changes nothing. A plain install removes nothing: files an
+# Installs the published skills and the Stop hook registration for both harnesses. Idempotent: a second run changes nothing. A plain install removes nothing: files an
 # installed skill has and this package lacks are carried forward. Only --retire-v5 deletes, and
 # only the named v5.1 set below.
 #
@@ -16,7 +15,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE="$HOME/.claude"
-# An empty CODEX_HOME is unset, as in the persona renderer.
+# An empty CODEX_HOME is unset.
 CODEX="${CODEX_HOME:-$HOME/.codex}"
 DRY=0
 DO_CODEX=1
@@ -63,27 +62,13 @@ chmod_scripts() {
 #   RETIRED_SKILLS        whole skill directories
 #   RETIRED_PERSONAS      persona renders in agents/, only when they carry the GENERATED marker
 #   RETIRED_SKILL_FILES   files inside a published skill (relative to skills/) that v5.1 shipped and
-#                         v6 does not: every file F-3 deleted from execution-methodology and
-#                         agent-personas, plus the round-grant ledger. A plain install carries them
+#                         v6 does not: every file F-3 deleted from execution-methodology, plus the
+#                         round-grant ledger. A plain install carries them
 #                         forward (see install_tree); only --retire-v5 removes them.
 # BEGIN retire-v5 list
 RETIRED_SKILLS="methodology-management project-onboarding project-migration project-conformance agent-persona-factory gate-sandbox"
 RETIRED_PERSONAS="acceptance architect chief-of-staff contract-architect developer docs-steward migration-validator planner product-steward scout security-validator senior-developer test-judge"
 RETIRED_SKILL_FILES="
-agent-personas/ROSTER
-agent-personas/personas/acceptance.md
-agent-personas/personas/architect.md
-agent-personas/personas/chief-of-staff.md
-agent-personas/personas/contract-architect.md
-agent-personas/personas/developer.md
-agent-personas/personas/docs-steward.md
-agent-personas/personas/migration-validator.md
-agent-personas/personas/planner.md
-agent-personas/personas/product-steward.md
-agent-personas/personas/scout.md
-agent-personas/personas/security-validator.md
-agent-personas/personas/senior-developer.md
-agent-personas/personas/test-judge.md
 execution-methodology/ROUND-GRANTS.tsv
 execution-methodology/references/changelog-v1-v2.md
 execution-methodology/references/codex-gate-sandbox.md
@@ -410,38 +395,6 @@ EOF
   fi
 fi
 
-# ── Personas ─────────────────────────────────────────────────────────────────────────────────────
-# Rendered by sync_personas.py (global scope) into a scratch HOME, then copied file by file. Run
-# against the real directories the renderer would also prune every generated render it does not
-# know, which includes the v5.1 personas; a plain install removes nothing, so pruning is left to
-# --retire-v5 and its named list.
-echo "personas"
-SYNC="$HERE/skills/agent-personas/scripts/sync_personas.py"
-RENDER="$TMP/render"
-mkdir -p "$RENDER/.claude" "$RENDER/.codex"
-if [ ! -f "$SYNC" ]; then
-  fail "personas: $SYNC is missing from this package"
-elif ! HOME="$RENDER" CODEX_HOME="$RENDER/.codex" PYTHONDONTWRITEBYTECODE=1 \
-       python3 "$SYNC" --scope global >"$TMP/render.log" 2>&1; then
-  sed 's/^/  /' "$TMP/render.log"
-  fail "personas: sync_personas.py could not render the pool — nothing was written"
-else
-  rendered=0
-  for f in "$RENDER/.claude/agents/"*.md; do
-    [ -f "$f" ] || continue
-    rendered=$((rendered + 1))
-    place_file "$f" "$CLAUDE/agents/$(basename "$f")" || fail "personas: could not write $(basename "$f")"
-  done
-  if [ "$DO_CODEX" -eq 1 ]; then
-    for f in "$RENDER/.codex/agents/"*.toml; do
-      [ -f "$f" ] || continue
-      place_file "$f" "$CODEX/agents/$(basename "$f")" || fail "personas: could not write $(basename "$f")"
-    done
-  fi
-  [ "$rendered" -gt 0 ] || fail "personas: the renderer produced no persona"
-  say "$rendered persona(s) current$([ "$DO_CODEX" -eq 1 ] && echo " in both harnesses")"
-fi
-
 # ── Retire v5.1 ──────────────────────────────────────────────────────────────────────────────────
 # Deletes exactly the paths the list at the top names. A hand-written agent that shares a retired
 # name is kept. Any other entry in the skill and agent directories, and any approved-runtimes
@@ -488,7 +441,6 @@ $s/$rel
   for e in "$root"/agents/*.md "$root"/agents/*.toml; do
     [ -f "$e" ] || continue
     name="$(basename "${e%.*}")"
-    [ -f "$HERE/skills/agent-personas/personas/$name.md" ] && continue
     case " $RETIRED_PERSONAS " in *" $name "*) continue ;; esac
     say "left in place (not in the v5.1 set): $e"
   done
@@ -524,7 +476,7 @@ fi
 echo
 echo "next:"
 say "1. ./verify.sh"
-say "2. migrate each v5.1 project by hand: skills/execution-methodology/references/migrate.md"
+say "2. migrate each v5.1 project by hand: docs/runbooks/migrate-v5.md in the source repository"
 [ "$RETIRE" -eq 0 ] && say "3. once every project is migrated: ./install.sh --retire-v5"
 [ "$DRY" -eq 0 ] && say "Claude Code may need /hooks opened once, or a restart, to load new hooks"
 exit 0

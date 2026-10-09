@@ -12,7 +12,6 @@ it did not read.
 |---|---|---|
 | `~/.codex/AGENTS.md` | Global instructions: operating model, GitHub rules, the goal-execution section | Manual; text in [global-instructions.md](global-instructions.md) |
 | `~/.codex/config.toml` | Session and `[agents]` settings | `install.sh` appends `[agents]` once; the rest is manual |
-| `~/.codex/agents/*.toml` | Persona definitions | `install.sh`, or `sync_personas.py --scope global` |
 | `~/.codex/skills/` | The four published skills | `install.sh` |
 | `~/.codex/hooks.json` | The goal Stop hook | `install.sh`; trusted once by you |
 | `<repo>/AGENTS.md` | The project contract | Shared with Claude, the same file |
@@ -26,7 +25,7 @@ both. That is why knowledge belongs in the repo and only accelerators belong in 
 
 ## Setup
 
-Run `install/install.sh`; it does steps 1 to 3 when the Codex home exists. The sections below say
+Run `install/install.sh`; it does steps 1 and 2 when the Codex home exists. The sections below say
 what it did and how to check it.
 
 ### 1. Subagents enabled
@@ -41,17 +40,7 @@ The installer appends the block only when none exists, after taking a backup. It
 only when a spawned agent specifies neither model nor effort; every persona sets both, so they are a
 backstop, and parent session settings are unaffected.
 
-### 2. Personas rendered
-
-```bash
-python3 ~/.claude/skills/agent-personas/scripts/sync_personas.py --scope global --preview --json
-python3 ~/.claude/skills/agent-personas/scripts/sync_personas.py --check
-```
-
-Expect four generated personas: advisor, builder, reviewer and security-reviewer. A hand-written
-worker file may also be present; the sync leaves it alone because it lacks the generated banner.
-
-### 3. Skills and hooks installed
+### 2. Skills and hooks installed
 
 `install.sh` copies the four skills named in `install/skills/.gitignore` to `~/.codex/skills/` and
 registers the goal hooks in `~/.codex/hooks.json`. It never writes trust state. Codex runs a
@@ -77,9 +66,6 @@ sitting. The shared route block must be identical in both files.
 Codex's sandbox is the **stronger** of the two: it constrains what shell commands can do, not just
 which tools are offered.
 
-Generated TOML uses literal `'''` strings, which take no escapes. A persona body containing `'''`
-would silently truncate the instructions, so the generator raises rather than emitting it.
-
 ## Running Codex for goal work
 
 `run.sh` starts Codex sessions with `codex --ask-for-approval never exec --sandbox workspace-write`,
@@ -102,14 +88,14 @@ codex exec -s read-only --ignore-user-config --ignore-rules \
 # subagents on
 python3 -c "import tomllib;print(tomllib.load(open('$HOME/.codex/config.toml','rb'))['agents'])"
 
-# personas and skills present
-ls ~/.codex/agents/*.toml ~/.codex/skills/
+# skills present
+ls ~/.codex/skills/
 
 # installed copies match the repository
 cd install && ./verify.sh --installed
 ```
 
-Then open Codex in a migrated repo and confirm it reads `AGENTS.md` and can spawn a persona by name.
+Then open Codex in a migrated repo and confirm it reads `AGENTS.md`.
 
 ## What Codex does not get
 

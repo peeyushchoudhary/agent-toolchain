@@ -2,7 +2,7 @@
 # The repository gate. Run from install/ or anywhere inside the repository.
 #
 #   ./verify.sh               this repository's checks
-#   ./verify.sh --installed   also: parity of the installed skills, hook registrations and personas against
+#   ./verify.sh --installed   also: parity of the installed skills and hook registrations against
 #                             ~/.claude and ~/.codex (read-only; never part of the default run)
 #
 # Output contract, which gate.py reads: each unittest suite prints unittest's own output unchanged
@@ -105,7 +105,7 @@ else
   echo "verify: could not stage the tree for the guard"
 fi
 
-# ── 4. Size ceilings (AC-9) ──────────────────────────────────────────────────────────────────────
+# ── 4. Always-loaded size ceiling (D29) ───────────────────────────────────────────────────────────
 section "size ceilings"
 run_suite size install/tests test_size.py
 
@@ -122,7 +122,7 @@ RETIRED_RE="$RETIRED_RE"'|validate_card|check_review_budget|trace_check|spec_che
 RETIRED_RE="$RETIRED_RE"'|ROUND-GRANTS|task-card\.md'
 RETIRED_RE="$RETIRED_RE"'|docs-steward|contract-architect|senior-developer|test-judge|migration-validator|product-steward|chief-of-staff|security-validator'
 # Instructions, routes and code must not name retired machinery; these name it on purpose:
-EXCLUDE="docs/product/specs/F-3-lean-execution.md docs/architecture/lean-execution.md docs/product/plans/F-3-lean-execution.md install/skills/execution-methodology/references/migrate.md install/verify.sh"
+EXCLUDE="docs/product/specs/F-3-lean-execution.md docs/architecture/lean-execution.md docs/product/plans/F-3-lean-execution.md install/verify.sh"
 # test_rules.py holds the retired list it asserts absent from routed files.
 EXCLUDE="$EXCLUDE install/skills/execution-methodology/tests/test_rules.py"
 # Records may name retired machinery as the rationale for a current decision.
@@ -188,18 +188,6 @@ if [ "$INSTALLED" -eq 1 ]; then
     want="execution-methodology/scripts/goal.py stop-hook"
     grep -qF "$want" "$pair" 2>/dev/null || differs "$pair does not register $want"
   done
-  mkdir -p "$TMP/render/.codex"
-  HOME="$TMP/render" CODEX_HOME="$TMP/render/.codex" \
-    python3 install/skills/agent-personas/scripts/sync_personas.py --scope global >/dev/null 2>&1 ||
-    differs "the persona pool could not be rendered for comparison"
-  for f in "$TMP/render/.claude/agents/"*.md; do
-    [ -f "$f" ] && { cmp -s "$f" "$HOME/.claude/agents/$(basename "$f")" || differs "$HOME/.claude/agents/$(basename "$f")"; }
-  done
-  if [ -d "$CX" ]; then
-    for f in "$TMP/render/.codex/agents/"*.toml; do
-      [ -f "$f" ] && { cmp -s "$f" "$CX/agents/$(basename "$f")" || differs "$CX/agents/$(basename "$f")"; }
-    done
-  fi
   if [ "$drift" -eq 0 ]; then pass installed_parity
   else echo "  run ./install.sh to bring the installed copy level with this repository"; failed installed_parity installed; fi
 fi

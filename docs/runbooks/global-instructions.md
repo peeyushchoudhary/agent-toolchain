@@ -33,7 +33,7 @@ The instruction to use personas "defined by `agent-personas`" stays, reworded be
 
 Nothing else in either file needs to move. Projects not yet migrated are unaffected by this
 change, because v6 refuses to execute where the v5.1 runtime pin exists and says why; migrate them
-with the [migration reference](../../install/skills/execution-methodology/references/migrate.md).
+with the migration reference (`docs/runbooks/migrate-v5.md`, written in T8).
 
 ## Replacement section
 
