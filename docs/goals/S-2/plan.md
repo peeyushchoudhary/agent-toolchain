@@ -63,7 +63,7 @@ design page passing row 4 while one inside it fails; an untraced `AC3`; this pla
 tasks, two milestones, every task with `reads:`); the S-1 plan still lints
 (`ParseTest.test_parses_this_repositorys_s1_plan`, unchanged).
 
-### [ ] T3 — `docs.py`: frontmatter lint, the generated index, `reads` resolution
+### [x] T3 — `docs.py`: frontmatter lint, the generated index, `reads` resolution
 writes: install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/tests/test_docs.py, install/tests/link_check.py
 tests-may-change: install/skills/execution-methodology/tests/test_docs.py, install/tests/link_check.py
 reads: docs/goals/S-2/design.md#interfaces, install/tests/link_check.py, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py
@@ -311,6 +311,15 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   copied into `goal.py` until `docs.py` (T3) is its single home; a lowercase `dNN` anchor still
   falls into the case-sensitive D-range branch of `protected_text`, which predates T2 and matters
   only for `protected:` entries. `goal.py` is +77/−22 lines.
+- 2026-10-09 T3 defaults: `docs.py` is 129 lines against the packet's "near 100"; the
+  full checks stayed. `reads --goal` is optional and falls back to the one open plan as
+  `goal.py` does; a `path#anchor` entry needs a file, a bare `path` may be a directory;
+  anchors compare lower-cased, `dNN` matches a heading starting `DNN` as `link_check.py`
+  did; the index separator is `|---|---|`; a differing table names each missing and extra
+  row, else "rows out of order"; `covers:` empty is missing, `[]` is valid; only
+  `parse_plan` errors starting `line ` count as frontmatter errors. `link_check.py` imports
+  `slug`, `fenced` and `headings` from `docs.py`. Follow-ups: `goal.py` keeps its own
+  `slug()` copy (outside T3's writes); `docs.py lint .` reports 33 findings here until T6.
 
 ## Parked
 
