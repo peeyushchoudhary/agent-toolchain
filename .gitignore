@@ -15,3 +15,6 @@ infra/
 
 # Goal run state (receipts, verdicts, progress); local only
 /.runs/
+
+# Per-worktree graphify graph; graph_view.py setup builds only under an ignored graph directory
+/graphify-out/

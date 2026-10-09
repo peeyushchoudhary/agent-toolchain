@@ -17,6 +17,8 @@ graph output you get is the evidence, and it still has to be confirmed in source
 them. Only `update`/`extract`/`save-result`/`reflect` write, and they write to `graphify-out/`,
 which is generated navigation data rather than source.
 
+**In a goal run**, call graphify only through `scripts/graph_view.py`: `setup` at migration and goal start (hooks, ignore check, a one-time build), `view` for labelled, bounded, advisory `explain`/`affected` output.
+
 ## Step 0 — get an anchor symbol
 
 The ladder needs a symbol name. If you don't have one, find it before climbing:

@@ -609,6 +609,27 @@ No LLM tokens are used; the cost is wall-clock time and memory.
   `test_there_is_no_opt_out` forbids `os.environ` in the validator. The check is 38 lines, not
   the design's 30; `progressive-disclosure` is at 5,498 of 5,520.
 
+- 2026-10-08: T6 defaults after security round 1 (controller; class corrections). Every file
+  `graph_view.py` writes, the stamp and each `<out>/<Symbol>.txt`, is created with `O_EXCL` beside
+  its target and renamed onto it, so no existing link is written through; a `--out` that is
+  itself a symlink is refused with one line, and the directories above `--out` are the caller's.
+  Symbols whose safe names collide are kept as `-2`, `-3`. When the graph directory holds tracked
+  files, the ignore line also prints `git rm -r --cached --quiet -- <rel>`, and its test runs the
+  fix. AC-1's "adding that entry clears the line" is narrowed: it holds unless the project's own
+  rules re-include the directory (a negation in a child's own `.gitignore`) or git cannot read
+  the root `.gitignore` (a symlink), or the graph's path holds a newline, which no `.gitignore`
+  entry can name; in each, nothing is written and the line repeats. After round 2, every path
+  graph_view.py prints or passes to git is literal: ignore entries escape pattern characters,
+  pathspecs carry `:(literal)`, and printed commands are shell-quoted.
+
+- 2026-10-09: founder decision on T6's security review. Rounds 1 and 2 and the test-closed
+  confirmation (round 3) each blocked on one family: paths and printed commands that change
+  meaning with their characters or the reader's environment. Round 3 found the printed untrack
+  command exposed to `GIT_ICASE_PATHSPECS` and `GIT_LITERAL_PATHSPECS` in the reader's shell. The
+  founder chose "Fix, verify, commit": correction 3 makes every printed command reset the
+  pathspec variables, each with a test; the controller verifies the gates and commits; M1's
+  cross-vendor acceptance re-judges it. No round 4.
+
 ## Queue
 
 - (a) (blocks nothing; founder decides later) In adopting projects that commit
