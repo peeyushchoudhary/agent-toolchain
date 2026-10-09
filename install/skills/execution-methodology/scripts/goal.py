@@ -154,8 +154,27 @@ def overlap(a_globs, b_globs) -> bool:
 
 def path_protected(plan):
     # An entry with a '#section' anchor protects part of a file, which a path glob cannot judge;
-    # rows 4 and lint compare writes only with whole-path entries (row 6 still freezes the plan).
+    # lint and the writes check compare only whole-path entries, and row 4 compares anchored
+    # entries' sections commit by commit (anchored_protected, protected_text).
     return [p for p in plan["meta"].get("protected") or [] if isinstance(p, str) and "#" not in p]
+
+def anchored_protected(plan):
+    """[(path, anchor)] for protected entries like 'docs/x.md#D1-D19' or 'docs/x.md#D4'."""
+    return [tuple(p.split("#", 1)) for p in plan["meta"].get("protected") or [] if isinstance(p, str) and "#" in p]
+
+def protected_text(text, anchor):
+    """The '## ' sections of text that anchor names (D1-D19 spans ## D1 … ## D19); an anchor of
+    any other shape protects the whole file."""
+    m = re.match(r"^([A-Za-z]+)(\d+)(?:-(?:\1)?(\d+))?$", anchor)
+    out, keep = [], m is None
+    for line in (text or "").splitlines():
+        h = re.match(r"^#{1,2}\s+(.*)$", line)
+        if h and m:
+            n = re.match(rf"{re.escape(m.group(1))}(\d+)\b", h.group(1))
+            keep = bool(n) and int(m.group(2)) <= int(n.group(1)) <= int(m.group(3) or m.group(2))
+        if keep:
+            out.append(line)
+    return "\n".join(out)
 
 def file_at(root, rev, path):
     proc = subprocess.run(["git", "show", f"{rev}:{path}"], cwd=root, capture_output=True)
@@ -243,6 +262,10 @@ def commit_findings(ctx, base):
             rows[4].append(f"{short} names {tids[0]}, which its parent's plan does not have")
             continue
         for status, path in ch:
+            for ppath, anchor in anchored_protected(plan):
+                if glob_re(ppath).match(path) and protected_text(file_at(ctx.root, parent, path) if parent else "",
+                                                                 anchor) != protected_text(file_at(ctx.root, c, path), anchor):
+                    rows[4].append(f"{short} [{tids[0]}] changes protected {ppath}#{anchor}")
             if path == ctx.plan_rel and plan_same:
                 continue  # ticks and writes lines; the frozen view is row 6's to judge
             if not matches(path, task["writes"]):

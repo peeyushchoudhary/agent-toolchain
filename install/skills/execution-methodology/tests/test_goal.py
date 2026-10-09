@@ -168,6 +168,29 @@ class DoneTest(RepoCase):
         self.assertRowOk(7)
 
 
+RECORD = ("# Record\n\n## D1 — first\n\nOne.\n\n### detail\n\nInside D1.\n\n## D2 — second\n\nTwo.\n\n"
+          "## D3 — third\n\nThree.\n")
+
+
+class ProtectedSectionTest(RepoCase):
+    plan = (plan_text().replace("protected: [docs/design.md]", "protected: [docs/design.md, docs/record.md#D1-D2]")
+            .replace("writes: src/a/**, tests/**", "writes: src/a/**, docs/record.md, tests/**"))
+
+    def setUp(self):
+        self.repo = Repo(self.plan, files={"docs/record.md": RECORD})
+        self.addCleanup(self.repo.cleanup)
+
+    def test_protected_section_edit_is_rejected(self):
+        self.assertEqual(self.repo.goal("lint").returncode, 0)
+        self.fix("docs/record.md", RECORD.replace("Three.", "Three, revised."), "[T1] outside the range")
+        self.assertRowOk(4)
+        sha = self.fix("docs/record.md", self.repo.read("docs/record.md").replace("Inside D1.", "Changed."),
+                       "[T1] inside D1")
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected docs/record.md#D1-D2")
+        self.assertEqual(goal.protected_text(RECORD, "D2"), "## D2 — second\n\nTwo.\n")
+        self.assertEqual(goal.protected_text(RECORD, "whole"), RECORD.rstrip("\n"))
+
+
 class ReviewRowTest(RepoCase):
     def setUp(self):
         super().setUp()

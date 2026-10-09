@@ -106,11 +106,13 @@ def env(**extra):
 class Repo:
     """A temporary repository with the fixture goal committed and tagged as approved."""
 
-    def __init__(self, plan=None):
+    def __init__(self, plan=None, files=None):
         self.dir = Path(os.path.realpath(tempfile.mkdtemp(prefix="goalfx-")))
         self.git("init", "-q", "-b", "main")
         self.write(".gitignore", "/.runs/\n__pycache__/\n")
         self.write("docs/design.md", "# design\n")
+        for rel, text in (files or {}).items():
+            self.write(rel, text)
         self.write("docs/goals/F-9/plan.md", plan or plan_text())
         self.write("tests/test_a.py", TEST_A)
         self.write("tests/test_e2e_flow.py", TEST_E2E)
