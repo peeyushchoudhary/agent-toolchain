@@ -102,15 +102,18 @@ uninstall_skill() {  # uninstall_skill ROOT
 }
 
 # ── Global instructions ──────────────────────────────────────────────────────────────────────────
+# A symlink is moved aside as the backup (never written through), so the file it points to is untouched.
 install_global() {  # install_global DEST: back up a file that differs, then write global.md
   local dest="$1" bak="$1.bak-$STAMP"
   cmp -s "$HERE/global.md" "$dest" && { say "unchanged $dest"; return 0; }
-  [ ! -e "$bak" ] || bak="$bak.$$"
-  if [ -e "$dest" ]; then step "backup: $bak" cp -p "$dest" "$bak" || return 1; fi
+  { [ ! -e "$bak" ] && [ ! -L "$bak" ]; } || bak="$bak.$$"
+  if [ -L "$dest" ]; then step "backup: $bak (the symlink itself)" mv "$dest" "$bak" || return 1
+  elif [ -e "$dest" ]; then step "backup: $bak" cp -p "$dest" "$bak" || return 1; fi
   { [ "$DRY" -eq 1 ] || mkdir -p "$(dirname "$dest")"; } && step "wrote $dest" cp "$HERE/global.md" "$dest"
 }
 uninstall_global() {  # remove only an unmodified copy of global.md, then move the newest backup back
   local dest="$1" bak
+  if [ -L "$dest" ]; then say "left in place (a symlink, not written by this installer): $dest"; return 0; fi
   if [ -e "$dest" ] && ! cmp -s "$HERE/global.md" "$dest"; then say "left in place (differs from global.md): $dest"; return 0; fi
   if [ -e "$dest" ]; then step "removed $dest" rm -f "$dest" || return 1; fi
   bak="$(ls -1d "$dest".bak-* 2>/dev/null | sort | tail -1)"

@@ -430,6 +430,34 @@ class M2InstallFixes(InstallCase):
         self.assertEqual(left, ["notes", "notes/todo.md", "scripts", "scripts/my_local_tool.py"])
         self.assertFalse((self.codex / "skills").exists(), "a skill holding only shipped files goes whole")
 
+    def test_global_instruction_symlink_target_survives_install_and_uninstall(self):
+        target = self.write(self.home / "dotfiles" / "CLAUDE.md", "my own rules\n")
+        same = self.write(self.home / "dotfiles" / "AGENTS.md", GLOBAL)
+        self.claude.mkdir()
+        link, same_link = self.claude / "CLAUDE.md", self.codex / "AGENTS.md"
+        link.symlink_to(target)
+        same_link.symlink_to(same)
+
+        self.install()
+        self.assertEqual(target.read_text(), "my own rules\n", "install wrote through the symlink")
+        self.assertFalse(link.is_symlink())
+        self.assertEqual(link.read_text(encoding="utf-8"), GLOBAL)
+        backups = list(self.claude.glob("CLAUDE.md.bak-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertTrue(backups[0].is_symlink(), "the link itself is the backup")
+        self.assertEqual(os.readlink(backups[0]), str(target))
+        # Equal content behind a symlink: no write, no backup.
+        self.assertTrue(same_link.is_symlink())
+        self.assertFalse(list(self.codex.glob("AGENTS.md.bak-*")))
+
+        self.install("--uninstall")
+        self.assertTrue(link.is_symlink(), "uninstall restores the link")
+        self.assertEqual(os.readlink(link), str(target))
+        self.assertEqual(target.read_text(), "my own rules\n")
+        self.assertFalse(list(self.claude.glob("CLAUDE.md.bak-*")))
+        self.assertTrue(same_link.is_symlink(), "a symlink the installer did not write stays")
+        self.assertEqual(same.read_text(encoding="utf-8"), GLOBAL)
+
 
 if __name__ == "__main__":
     unittest.main()
