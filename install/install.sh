@@ -256,7 +256,11 @@ done
 if [ "$MODE" = retire ]; then
   echo "retire v5.1 and v6 leftovers"
   if [ -n "$FAILURES" ]; then say "SKIPPED: an install step above failed, so nothing was retired"
-  else for r in "${ROOTS[@]}"; do if [ "$r" = "$CLAUDE" ]; then retire_root "$r" md; else retire_root "$r" toml; fi; done; fi
+  else for r in "${ROOTS[@]}"; do
+    if [ "$r" = "$CLAUDE" ]; then retire_root "$r" md; else retire_root "$r" toml; fi
+    # A retired generated file that shares a name with a shipped agent was "kept" above; install it now.
+    install_agents "$r" || fail "agents: $r/agents was not written after retiring"
+  done; fi
 fi
 if [ -n "$FAILURES" ]; then printf '\n%s FAILED; these steps did not complete:\n%s' "$MODE" "$FAILURES" >&2; exit 1; fi
 [ "$MODE" = uninstall ] || say "next: ./verify.sh"

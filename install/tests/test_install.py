@@ -260,6 +260,16 @@ class AgentTest(InstallCase):
                 self.assertFalse(dest.exists(), dest)
                 self.assertIn(f"removed {dest}", out)
 
+    def test_retire_installs_replacement_agents_in_both_homes(self):
+        render = f"---\n{retire_list()['GENERATED_MARK']} — edit the persona, not this.\n"
+        for dest in self.dests():  # the v6 generator wrote files with these names
+            self.write(dest, render + f"name: {dest.stem}\n")
+        out = self.install("--retire-v5").stdout
+        for dest, src in self.dests().items():
+            self.assertIn(f"deleted {dest}", out)
+            self.assertIn(f"installed {dest}", out)
+            self.assertEqual(dest.read_text(encoding="utf-8"), marked(src), dest)
+
     def test_codex_agent_bodies_equal_the_claude_bodies(self):
         import tomllib  # Python 3.11+
         for name in AGENT_NAMES:
@@ -353,7 +363,10 @@ class RetireTest(InstallCase):
         self.assertEqual({Path(l.split("deleted ", 1)[1]) for l in out.splitlines() if l.strip().startswith("deleted ")},
                          expected)
         for path in expected:
-            self.assertFalse(path.exists(), path)
+            if path.parent.name == "agents" and path.stem in AGENT_NAMES:  # retired, then installed afresh
+                self.assertEqual(path.read_text(encoding="utf-8"), marked(AGENTS / path.name), path)
+            else:
+                self.assertFalse(path.exists(), path)
         for key in ("unknown-in-skill", "unknown-skill", "unknown-hook", "unknown-agent", "bundle"):
             self.assertTrue(planted[key].exists(), key)
             self.assertIn("left in place (not in the retire list): ", out)
