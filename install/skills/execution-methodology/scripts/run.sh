@@ -13,6 +13,13 @@
 # network off, never a blanket allow. Each session's Stop hook is registered here, for that session
 # only. User and project settings are not loaded (Claude --setting-sources "", Codex
 # --ignore-user-config --ignore-rules), so nothing outside this file widens the envelope.
+#
+# Push denial, both harnesses: no sandbox stops git's local transport (a path remote needs no
+# network), and Codex takes no per-session execpolicy rule (no flag or -c key names a rules file).
+# So for the run's duration this repository's own git config refuses every push, and is restored at
+# exit: core.hooksPath points at a run-owned copy of the repository's hooks whose pre-push refuses,
+# and url.run-sh-denies-push://.pushInsteadOf rewrites every push URL to a transport that does not
+# exist, which `--no-verify` does not skip. A session that edits .git/config can undo both.
 set -uo pipefail
 
 GOAL="${1:-}"; HARNESS=""; SESSIONS=6
@@ -36,6 +43,21 @@ cd "$ROOT" || exit 2
 PLAN="docs/goals/$GOAL/plan.md"
 RUNS=".runs/$GOAL"
 mkdir -p "$RUNS"
+DENY="url.run-sh-denies-push://.pushInsteadOf"
+HOOKS_PRIOR="$(git config --local --get core.hooksPath)"; HOOKS_HAD=$?
+HOOKS="$(git rev-parse --path-format=absolute --git-path hooks)"
+RUN_HOOKS="$(mktemp -d)" || exit 2
+restore() {  # the push denial's config, back to what it was
+  git config --local --unset-all "$DENY"
+  if [ "$HOOKS_HAD" -eq 0 ]; then git config --local core.hooksPath "$HOOKS_PRIOR"
+  else git config --local --unset core.hooksPath; fi
+  rm -rf "$RUN_HOOKS"
+}
+trap restore EXIT; trap 'exit 130' INT TERM
+for f in "$HOOKS"/*; do [ -x "$f" ] && [ "${f##*/}" != pre-push ] && ln -s "$f" "$RUN_HOOKS/"; done
+printf '#!/bin/sh\necho "run.sh: git push is denied during an unattended run" >&2\nexit 1\n' > "$RUN_HOOKS/pre-push"
+chmod +x "$RUN_HOOKS/pre-push"
+git config --local --replace-all "$DENY" "" && git config --local core.hooksPath "$RUN_HOOKS" || exit 2
 goal() { python3 "$GOALPY" --goal "$GOAL" "$@"; }
 stop() {  # stop CODE WORD — log, notify, exit
   echo "$(date -u +%FT%TZ) $2" >> "$RUNS/progress.md"

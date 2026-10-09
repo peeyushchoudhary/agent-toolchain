@@ -93,6 +93,33 @@ class E2ERunTests(unittest.TestCase):
             self.assertRegex(out, rf"e2e_run: {harness} session stop hook +FAIL: .*Stop hook never ran", out)
         self.assertIn("e2e_run: FAIL", out.splitlines()[-1])
 
+    def test_codex_session_denies_local_transport_push(self):
+        sys.path.insert(0, str(SKILLS / SKILL / "tests"))
+        from fixtures.goal_fixture import Repo  # noqa: E402
+        repo = Repo()
+        self.addCleanup(repo.cleanup)
+        origin, log = self.tmp / "origin.git", self.tmp / "pushes.log"
+        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, env=self.env)
+        subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=repo.dir, check=True, env=self.env)
+        stub = self.tmp / "session.sh"  # the session: a local-transport push four ways, exit codes logged
+        stub.write_text(f"""for cmd in "git push --dry-run origin HEAD" "git push origin HEAD" \\
+           "git push --no-verify origin HEAD" "git -c remote.origin.pushurl={origin} push origin HEAD"; do
+  $cmd >/dev/null 2>&1; echo "$? $cmd" >> '{log}'
+done
+""")
+        r = subprocess.run(["bash", str(SKILLS / SKILL / "scripts" / "run.sh"), "F-9", "--harness", "codex",
+                            "--sessions", "1"], cwd=repo.dir, capture_output=True, text=True, timeout=120,
+                           env={**self.env, "RUN_HARNESS_CMD": f"bash {stub}"})
+        attempts = log.read_text().splitlines()
+        self.assertEqual(len(attempts), 4, r.stdout + r.stderr)
+        for attempt in attempts:
+            self.assertNotEqual(attempt.split(" ", 1)[0], "0", attempt)
+        refs = subprocess.run(["git", "for-each-ref"], cwd=origin, capture_output=True, text=True, env=self.env)
+        self.assertEqual(refs.stdout, "")
+        left = subprocess.run(["git", "config", "--local", "--get-regexp", r"pushinsteadof|hookspath"],
+                              cwd=repo.dir, capture_output=True, text=True, env=self.env)
+        self.assertEqual(left.stdout, "", "run.sh did not restore the repository's git config")
+
 
 class InstallCase(unittest.TestCase):
     def setUp(self):

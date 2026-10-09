@@ -8,19 +8,36 @@ settings, where the other silently ignores it.
 
 When `$CODEX_HOME` (default `~/.codex`) exists, `install/install.sh` writes `install/global.md` to
 `$CODEX_HOME/AGENTS.md` (the same bytes as `~/.claude/CLAUDE.md`) and the skill to
-`$CODEX_HOME/skills/execution-methodology/`. `config.toml` is yours: builder subagents need an
-`[agents]` block there, and Codex runs a hook only after you trust it once. Check parity with
-`cd install && ./verify.sh --installed`.
+`$CODEX_HOME/skills/execution-methodology/`. It does not touch `config.toml`, and it registers no
+hook. Check parity with `cd install && ./verify.sh --installed`.
 
 ## Codex as chief
 
 `run.sh <id> --harness codex` starts each session as:
 
 ```bash
-codex --ask-for-approval never exec --sandbox workspace-write "$(goal.py resume)"
+codex --ask-for-approval never exec --sandbox workspace-write \
+  -c sandbox_workspace_write.network_access=false \
+  -c 'sandbox_workspace_write.writable_roots=["<repo>/.git"]' \
+  -c 'hooks.Stop=[{hooks=[{type="command",command="python3 <skill>/scripts/goal.py --goal <id> stop-hook"}]}]' \
+  --dangerously-bypass-hook-trust --ignore-user-config --ignore-rules \
+  -C <repo> --json "<goal.py resume prompt>" < /dev/null
 ```
 
-The sandbox keeps writes in the workspace and network off, so a session cannot push.
+The session loads neither your `config.toml` nor any execpolicy `.rules` file, so nothing there
+widens or narrows it; no `[agents]` block is needed, because builder subagents (`multi_agent`) are on
+by default. The Stop hook is registered for that session only and runs without prior trust
+(`--dangerously-bypass-hook-trust`), so you trust nothing once.
+
+The sandbox keeps writes in the workspace and `.git`, with the network off. That alone does not stop
+a push: git's local transport to a path remote needs no network. `run.sh` therefore denies pushes in
+the repository's own git config for the run's duration and restores it at exit: `core.hooksPath`
+points at a copy of the repository's hooks whose `pre-push` refuses, and
+`url.run-sh-denies-push://.pushInsteadOf` rewrites every push URL to a transport that does not exist,
+which `--no-verify` does not skip. Codex offers no per-session execpolicy rule (no flag or `-c` key
+names a rules file), so this git-level denial is the mechanism. A session that edits `.git/config`
+can undo it; it stops a push, not a hostile session. Claude sessions get the same denial, behind
+their `Bash(git push *)` deny rule.
 
 ## Codex as the other vendor's reviewer
 

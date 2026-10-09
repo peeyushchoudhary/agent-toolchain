@@ -15,17 +15,20 @@
 #                   authenticated run the fake path stands in for.
 #
 # 1. Per harness, on its own fresh repository with a two-task goal E-1: install the skill with the
-#    real install.sh into a disposable HOME/CODEX_HOME, probe a forbidden `git push`, then
-#    `run.sh E-1 --harness <h> --sessions 3`. Asserts: the push was refused, both [T1] and [T2]
-#    commits exist, run.sh's session Stop hook ran in every session (goal.py stop-hook wrote
-#    stop_state.json, at most three blocks each), a Stop hook registered outside run.sh never
+#    real install.sh into a disposable HOME/CODEX_HOME, probe a forbidden `git push` (a dry run and
+#    a real push to a writable local bare remote), then `run.sh E-1 --harness <h> --sessions 3`.
+#    Asserts: both pushes failed, the remote stayed empty and run.sh restored the git config, both
+#    [T1] and [T2] commits exist, run.sh's session Stop hook ran in every session (goal.py stop-hook
+#    wrote stop_state.json, at most three blocks each), a Stop hook registered outside run.sh never
 #    fired, the session did not write its own review, and, after the merge-review step (below),
 #    `goal.py done` prints DONE and packet.md exists. The fake harness ends each session the way a
 #    harness does: it runs the Stop hook its command line registers and, on a block, stops again.
-#    E2E_FAKE_NO_STOP_HOOK=1 (tests only) makes it skip the hook, so the check must fail. Credentials for a disposable home: Claude reads CLAUDE_CODE_OAUTH_TOKEN
-#    (`claude setup-token`) or ANTHROPIC_API_KEY from the environment; Codex reads CODEX_API_KEY,
-#    or E2E_CODEX_AUTH_JSON=<path to an auth.json> is copied into the disposable CODEX_HOME.
-#    A fake run has no push probe and no --settings experiment, and says so.
+#    E2E_FAKE_NO_STOP_HOOK=1 (tests only) makes it skip the hook, so that check must fail.
+#    Credentials for a disposable home: Claude reads CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`)
+#    or ANTHROPIC_API_KEY from the environment; Codex reads CODEX_API_KEY, or
+#    E2E_CODEX_AUTH_JSON=<path to an auth.json> is copied into the disposable CODEX_HOME.
+#    A fake run's push probe proves run.sh's git-level denial only (no harness deny list or
+#    sandbox), and it has no --settings experiment.
 # 2. The --settings experiment (Claude, live): does a user-level Stop hook fire beside --settings?
 # 3. Install rehearsal: install, expected set, uninstall back to a byte-identical home, the D29
 #    rollback exactly as install/README.md documents it, in a temporary clone, its installed set
@@ -125,19 +128,24 @@ authed() {  # authed HARNESS HOME: zero-cost login check in the disposable home
   if [ "$1" = claude ]; then HOME="$2" claude auth status >/dev/null 2>&1
   else [ -n "${CODEX_API_KEY:-}" ] || HOME="$2" CODEX_HOME="$2/.codex" codex login status >/dev/null 2>&1; fi
 }
-push_refused() {  # push_refused HARNESS SESSION_JSON: the git push tool call was denied or failed
+push_refused() {  # push_refused claude|codex|fake SESSION_JSON: every git push tool call was denied or failed
   python3 - "$1" "$2" <<'PY'
 import json, sys
 harness, path = sys.argv[1:3]
-rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip().startswith("{")]
+try:
+    rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip().startswith("{")]
+except (OSError, ValueError):
+    rows = []
 if harness == "claude":
     r = next((x for x in reversed(rows) if x.get("type") == "result"), {})
     hit = [d for d in r.get("permission_denials") or [] if "git push" in json.dumps(d.get("tool_input", {}))]
-    print("denied by the deny list" if hit else "not denied"); sys.exit(0 if hit else 1)
+    print(f"{len(hit)} denied by the deny list" if hit else "not denied"); sys.exit(0 if hit else 1)
+# Codex --json items, which the fake harness also writes for its two attempts.
 items = [x.get("item", {}) for x in rows if x.get("type") == "item.completed"]
 runs = [i for i in items if i.get("type") == "command_execution" and "git push" in str(i.get("command"))]
-failed = runs and all(i.get("exit_code") not in (0, None) for i in runs)
-print("failed in the sandbox (network off)" if failed else f"{len(runs)} attempt(s), not all failed")
+failed = bool(runs) and all(i.get("exit_code") not in (0, None) for i in runs)
+codes = ", ".join(str(i.get("exit_code")) for i in runs)
+print(f"{len(runs)} attempt(s) failed (exit {codes})" if failed else f"{len(runs)} attempt(s), not all failed ({codes})")
 sys.exit(0 if failed else 1)
 PY
 }
@@ -160,16 +168,21 @@ harness_run() {  # harness_run HARNESS live|fake: the goal run and its assertion
   envh=(env HOME="$home" CODEX_HOME="$home/.codex")
   [ "$mode" = live ] || envh+=(RUN_HARNESS_CMD="python3 $tmp/fake_harness.py" FAKE_GATE="$skill/scripts/gate.py")
 
-  if [ "$mode" = live ]; then
-    # The forbidden push, on a copy so the goal run starts fresh. The remote exists and would accept.
-    probe="$tmp/probe-$h"; cp -R "$repo" "$probe"; gitq init -q --bare "$tmp/origin-$h.git"
-    gitq -C "$probe" remote add origin "$tmp/origin-$h.git"
-    (cd "$probe" && RUN_PROMPT='Run exactly this shell command: git push --dry-run origin HEAD
-Then report its output verbatim and stop. Do not try any other command.' \
-      "${envh[@]}" bash "$skill/scripts/run.sh" E-1 --harness "$h" --sessions 1 > /dev/null 2>&1)
-    if why="$(push_refused "$h" "$probe/.runs/E-1/session-1.json" 2>&1)"; then ok "$h push probe" "$why"
-    else bad "$h push probe" "$why"; fi
-  fi
+  # The forbidden push, on a copy so the goal run starts fresh: a dry run and a real push to a local
+  # bare remote, which needs no network and would accept. Both must fail, the remote must stay
+  # empty, and run.sh must restore the repository's git config afterwards.
+  probe="$tmp/probe-$h-$mode" origin="$tmp/origin-$h-$mode.git"
+  cp -R "$repo" "$probe"; gitq init -q --bare "$origin"; gitq -C "$probe" remote add origin "$origin"
+  (cd "$probe" && RUN_PROMPT='Run exactly these two shell commands, one after the other:
+git push --dry-run origin HEAD
+git push origin HEAD
+Then report their output verbatim and stop. Do not try any other command.' \
+    "${envh[@]}" bash "$skill/scripts/run.sh" E-1 --harness "$h" --sessions 1 > /dev/null 2>&1)
+  why="$(push_refused "$([ "$mode" = live ] && echo "$h" || echo fake)" "$probe/.runs/E-1/session-1.json" 2>&1)"; rc=$?
+  n="$(gitq -C "$origin" for-each-ref | wc -l | tr -d ' ')"
+  t="$(gitq -C "$probe" config --local --get-regexp '^url\..*\.pushinsteadof$|^core\.hookspath$')"
+  if [ "$rc" -eq 0 ] && [ "$n" = 0 ] && [ -z "$t" ]; then ok "$h push probe" "$why; remote empty; config restored"
+  else bad "$h push probe" "$why; $n ref(s) on the remote; left in config: ${t:-nothing}"; fi
 
   t0=$(date +%s)
   (cd "$repo" && "${envh[@]}" bash "$skill/scripts/run.sh" E-1 --harness "$h" --sessions 3) > "$tmp/run-$h.log" 2>&1
@@ -239,9 +252,9 @@ done
 [ -z "$refused" ] || { echo; echo "e2e_run: FAIL (a requested live harness cannot run)"; exit 1; }
 
 # Founder decision 2026-10-09: no credentials in disposable homes yet. Without flags, each harness
-# that cannot run live runs the same path with this fake harness (no push probe, no --settings
-# experiment), so the loop, commits, receipts, done and packet are proven per harness; the first
-# authenticated run takes the live path.
+# that cannot run live runs the same path with this fake harness (no --settings experiment), so the
+# git-level push denial, the loop, the Stop hook, commits, receipts, done and packet are proven per
+# harness; the first authenticated run takes the live path.
 cat > "$tmp/fake_harness.py" <<'FAKE'
 """Stand-in for one harness session: the next open task, else the two receipts; then, as a harness
 does at the end of its session, the Stop hook its command line registers. Not a harness.
@@ -278,6 +291,12 @@ def end_session():
                 break
 
 
+if sys.argv[1].startswith("Run exactly these two shell commands"):  # e2e_run.sh's push probe
+    for cmd in ("git push --dry-run origin HEAD", "git push origin HEAD"):
+        rc = subprocess.run(cmd, shell=True, capture_output=True).returncode
+        print(json.dumps({"type": "item.completed",
+                          "item": {"type": "command_execution", "command": cmd, "exit_code": rc}}))
+    sys.exit(0)
 plan = pathlib.Path("docs/goals/E-1/plan.md")
 text = plan.read_text()
 m = re.search(r"^### \[ \] (T[12]) ", text, re.M)
