@@ -1,12 +1,12 @@
 # S-2 spec: methodology v7.1
 
-**Users and problem.** The founder and the chief session. Today the Outcome is the whole
+**Users and problem.** The founder and the chief session. The Outcome is the whole
 specification, packets have no reading list, roles are undeclared, exhaustive knowledge loads
-whole, and goals run headless.
+whole, goals run headless.
 
 **What changes for the user.** Bounded documents (spec, design, plan) cite exhaustive pages by
 section; tasks name what builders read; roles declare model and effort; long pages load by anchor;
-goals run in a console session the founder can interrupt.
+goals run in the founder's own session.
 
 **Acceptance criteria.**
 
@@ -31,13 +31,13 @@ goals run in a console session the founder can interrupt.
   model and effort in both harnesses; uninstall SHALL remove only those, unedited.
 - AC10 WHEN `goal.py packet --approval` runs THE SYSTEM SHALL write one HTML page from the three
   documents.
-- AC11 Always-loaded prose SHALL stay at or under 1,350 words; cost SHALL be recorded, never
-  enforced.
-- AC12 WHEN `run.sh` starts a goal THE SYSTEM SHALL open one interactive terminal session with
-  the scoped permissions, Stop hook and push denial, never a loop.
+- AC11 Always-loaded prose SHALL stay at or under 1,350 words; cost SHALL be summed from the
+  harness transcripts (`goal.py cost`), never enforced.
+- AC12 WHEN the founder asks the session to run a goal THE SYSTEM SHALL resume it there from
+  `goal.py resume`, with no launcher, loop or Stop hook.
 
 **Non-goals.** Agent memory; a graph or wiki; a model-judged done; a second reviewer; a dollar
-budget; `run.sh`'s permissions.
+budget.
 
 **Constraints.** Standard-library Python 3 and bash; one `install/` source for both harnesses; no
 private facts.

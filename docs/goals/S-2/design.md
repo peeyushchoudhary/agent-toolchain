@@ -7,7 +7,8 @@ Current decisions only; S-2 changes interfaces every later goal depends on.
 New `scripts/docs.py` owns the documents under `docs/`: frontmatter lint, index, `reads:`
 resolution, pointers, staleness. `goal.py` grows only where the plan is concerned. Three on-demand
 references and three agent files per harness carry the words. `install.sh` ships the agent files.
-`run.sh` becomes a one-shot console launcher (7).
+`run.sh` and the Stop hook go: the founder's
+session is the chief.
 
 ## Interfaces
 
@@ -47,12 +48,11 @@ references and three agent files per harness carry the words. `install.sh` ships
    `model`, `model_reasoning_effort`, `sandbox_mode`, installed to `$CODEX_HOME/agents/`.
    Installed copies carry a marker; uninstall removes one only while it equals the shipped copy,
    else reports it. Durable.
-7. **`run.sh <id> --harness claude|codex`** opens one interactive terminal session from
-   `goal.py resume` with the scoped allowlist, deny list, sandbox, per-session Stop hook, push
-   denial and `worktree.baseRef: "head"`; no loop, no stall detection; the founder relaunches. Durable.
-8. **Records**, not durable: `.runs/<id>/approval.html`; a `cost:` line per session in
-   `progress.md`, written by the Stop hook from the transcript's usage when the hook payload names
-   one; `cause: context|logic|spec` on each closed blocking finding.
+7. **`goal.py cost [--since <ref>]`** sums input and output tokens from the harness's local
+   transcript files for this repository since the approval tag (Claude
+   `~/.claude/projects/<slug>/*.jsonl`, Codex `$CODEX_HOME/sessions/**`), prints per-harness totals or `unknown`; `packet` reports the total; nothing is enforced. Durable.
+8. **Records**, not durable: `.runs/<id>/approval.html`; the `goal.py cost` total in the packet;
+   `cause: context|logic|spec` on each closed blocking finding.
 
 ## Data touched
 
@@ -63,12 +63,13 @@ then the previous tag's installer.
 ## Smallest change
 
 Frontmatter, an index, heading anchors and the harnesses' own path-scoped loading: no store, no
-retrieval, no agent memory. `docs.py` reuses `goal.py`'s parser; `run.sh` loses code.
+retrieval, no agent memory. `docs.py` reuses `goal.py`'s parser; `run.sh` and the Stop hook are deleted.
 
 ## Rejected options
 
 - Agent memory or a graph: no measured catch in v6; fresh context per role is the design.
 - A model-judged done; a second reviewer; a dollar budget: rows are stronger, no yield data,
   founder rejected.
-- Hand-written pointers; mid-tier builders; a headless loop: the founder chose otherwise.
+- Hand-written pointers; mid-tier builders; a launcher or Stop hook: the founder's session is
+  the loop.
 - Pasting cited sections into packets: identifiers over text; the builder reads the file.

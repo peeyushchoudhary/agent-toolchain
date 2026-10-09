@@ -5,7 +5,7 @@ gate: cd install && ./verify.sh
 full_gate: cd install && ./install.sh --dry-run && ./verify.sh
 milestones:
   M1: {tasks: [T1, T2, T3, T4, T5, T6], e2e: "install/tests/e2e_install.sh"}
-  M2: {tasks: [T7, T8, T9, T10], e2e: "install/skills/execution-methodology/tests/e2e_run.sh"}
+    M2: {tasks: [T7, T8, T9, T10, T11], e2e: "install/skills/execution-methodology/tests/e2e_run.sh"}
 touches: [interface]
 protected: [docs/decisions/decisions.md#D1-D19, docs/goals/S-2/design.md#interfaces, docs/goals/S-2/design.md#data-touched]
 ---
@@ -59,7 +59,7 @@ print each task's `reads:`. About 100 lines. Planted tests in `test_goal.py`: a 
 without a spec; a 401-word spec; a spec missing *Non-goals*; `touches: [interface]` without a
 design; a post-approval `[Tn]` commit editing `spec.md`
 reported by row 4 with nothing listed in `protected:`; an edit outside the Interfaces section of a
-design page passing row 4 while one inside it fails; an untraced `AC3`; this plan parses (ten
+design page passing row 4 while one inside it fails; an untraced `AC3`; this plan parses (eleven
 tasks, two milestones, every task with `reads:`); the S-1 plan still lints
 (`ParseTest.test_parses_this_repositorys_s1_plan`, unchanged).
 
@@ -86,9 +86,11 @@ escapes the repository.
 writes: install/global.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/**, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, install/install.sh, install/tests/test_install.py, AGENTS.md
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, install/tests/test_install.py
 reads: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/design.md, install/skills/execution-methodology/tests/test_rules.py, docs/goals/S-2/design.md#interfaces, analysis/councils-2026-10-09/personas/drafts/chief-planning.md
-`SKILL.md`: the "Unattended runs" section becomes "Console runs": `run.sh` opens one
-interactive session the founder watches, interrupts and relaunches, with the same scoped
-permissions; loop step 2 names `reads:` and `docs.py reads`; the format block gains `reads:` and
+`SKILL.md`: the "Unattended runs" section becomes "Resuming": the founder's own session is the
+chief, started on the founder's word with `goal.py resume`, no launcher, loop or Stop hook; the
+milestone close says that once the merge review passes and `done` prints DONE the chief pushes the
+branch and opens the PR, and the founder merges and tags; loop step 2 names `reads:` and
+`docs.py reads`; the format block gains `reads:` and
 the six `touches:` values; a "Before a goal" paragraph points at `references/planning.md`; the
 design-review trigger is widened; a closed blocking finding carries `cause: context|logic|spec`;
 one line points at `references/roles.md`. Always-loaded total stays at or under 1,350 words (AC11;
@@ -121,8 +123,8 @@ The three Claude agent files are written from the council drafts named in `reads
 `analysis/`, this machine only): `agents/builder.md` (body ≤350 words), `agents/reviewer.md`
 (≤350), new `agents/scout.md` (≤200), each with MUST, SHOULD, AVOID and REPORT sections of one
 behaviour per line and frontmatter in the keys the Claude Code subagent reference lists (`tools`,
-`model`, `effort`, `maxTurns`, `permissionMode`, `isolation`); the builder keeps
-`isolation: worktree`, which needs the base setting T8 installs. New
+`model`, `effort`, `maxTurns`, `permissionMode`, `isolation`); the builder keeps `isolation: worktree`, which needs `worktree.baseRef: "head"` in the founder's
+own settings (T8's runbook line). New
 `docs/architecture/personas.md` (frontmatter per T6's standard, `covers:` the agents directory):
 what each persona file guards against, the evidence behind each adopted line with its source, and
 what was left out and where it lives instead (the public record of the council). `test_rules.py`:
@@ -172,8 +174,8 @@ to the same file; a page that drops `covers` (its pointer removed); a symlinked 
 outside the repository (refused); a covered path changed the same day before, and after, the
 page's own commit.
 
-### [ ] T8 — roles shipped to both harnesses: Codex agent TOML, the installer; `run.sh` as a console launcher
-writes: install/skills/execution-methodology/agents/**, install/install.sh, install/verify.sh, install/skills/execution-methodology/scripts/run.sh, install/tests/test_install.py, install/tests/e2e_install.sh, install/README.md, docs/runbooks/codex.md
+### [ ] T8 — roles shipped to both harnesses: Codex agent TOML, the installer
+writes: install/skills/execution-methodology/agents/**, install/install.sh, install/verify.sh, install/tests/test_install.py, install/tests/e2e_install.sh, install/README.md, docs/runbooks/codex.md
 tests-may-change: install/tests/test_install.py, install/tests/e2e_install.sh
 reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/references/roles.md, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/tests/test_install.py, docs/runbooks/codex.md, analysis/councils-2026-10-09/personas/drafts/builder.toml, analysis/councils-2026-10-09/personas/synthesis.md#harness-caveats-t4-and-t7-must-handle
 New `agents/builder.toml`, `reviewer.toml`, `scout.toml` for Codex custom agents: `name`,
@@ -184,51 +186,55 @@ header records the version checked. `install.sh` copies the `.md` agents to `~/.
 and the `.toml` agents to `$CODEX_HOME/agents/`, each with a marker line; an unmarked file of the
 same name is left alone and reported; `--dry-run` lists them; `--uninstall` removes a marked file
 only while it still equals the shipped copy and leaves an edited one alone, reported
-(`test_uninstall_preserves_edited_marked_agent`; AC9). No settings file is written. `run.sh` becomes a one-shot console launcher (AC12; founder
-decision below): `run.sh <id> --harness claude|codex` opens one interactive session in the
-terminal with `goal.py resume` as its first prompt, keeping the scoped allowlist, deny list,
-sandbox, per-session Stop hook and push denial it has today, and adding `worktree.baseRef:
-"head"` to the per-session settings it passes to Claude, since those sessions load no user
-settings (`test_claude_session_settings_include_worktree_base`); the `--sessions` loop, stall
-detection, notification and `RUN_HARNESS_CMD`'s headless assumptions go, and `RUN_HARNESS_CMD`
-stays as the test seam (`test_run_sh_opens_one_console_session_and_never_loops`). The runbook
-tells a chief started by hand which key to set. `verify.sh --installed`
-parity covers the agent files. `e2e_install.sh` asserts both harnesses' agent files after install
-and their absence after uninstall. A test asserts `run.sh` never exports
-`CLAUDE_CODE_EFFORT_LEVEL`. `run.sh` passes `-c agents.<name>.config_file=<installed path>` for
-the three agents to its Codex session, because `--ignore-user-config` is not documented to load
-`$CODEX_HOME/agents/`; the static checks are the installed files, parity and the schema test, and
-the live spawn check is owed to the pilot's first authenticated run (Parked). `codex.md` documents
-the agents, that flag, and how a Codex builder gets its own worktree (a Codex-side option if one
-exists, else the Codex chief runs `git worktree add` and names the path in the packet).
+(`test_uninstall_preserves_edited_marked_agent`; AC9). No settings file is written: a Claude subagent worktree branches from the default branch unless
+the founder's own `~/.claude/settings.json` sets `worktree.baseRef: "head"`, so `install.sh` prints
+a reminder when that key is absent (read-only) and the runbook says what to set. `verify.sh
+--installed` parity covers the agent files. `e2e_install.sh` asserts both harnesses' agent files
+after install and their absence after uninstall. The founder's own Codex session loads
+`$CODEX_HOME/agents/`, so no per-session flag is needed; the live check that a session selects the
+installed agents is owed to the pilot's first goal (Parked). `codex.md` documents the agents and
+how a Codex builder gets its own worktree (a Codex-side option if one exists, else the Codex chief
+runs `git worktree add` and names the path in the packet).
 
-### [ ] T9 — `goal.py packet --approval`, `cause:` counts, the cost line
-writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/test_run.py
+### [ ] T9 — the session is the chief: delete `run.sh` and the Stop hook; `goal.py cost`
+writes: install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/test_rules.py, install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py, install/install.sh, install/verify.sh, install/README.md, docs/runbooks/codex.md, docs/runbooks/github.md
+tests-may-change: install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/test_rules.py, install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py
+reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py, install/install.sh
+Delete `scripts/run.sh`, the `stop-hook` subcommand and `stop_state.json` handling in `goal.py`,
+the `run.sh` unit test in `test_goal.py` and `E2ERunTests` in `test_install.py`, the Stop-hook
+stripping and registration remnants in `install.sh` (its retire list gains `scripts/run.sh`), and
+every mention in `install/README.md`, `codex.md` and `github.md` (AC12). `e2e_run.sh` drives a
+fake chief session directly: for each harness it runs `goal.py resume`, applies the two-task
+fixture as `[Tn]` commits, and asserts `goal.py done` prints DONE, with no launcher. `verify.sh`'s
+dangling-name check and `test_rules.py`'s `RETIRED` gain `run.sh` and `stop-hook`. New
+`goal.py cost [--since <ref>]` (AC11): sums input and output tokens from the harness's local
+transcripts for this repository since the approval tag (Claude `~/.claude/projects/<slug>/*.jsonl`
+by `message.usage`; Codex `$CODEX_HOME/sessions/**` by its usage records), prints per-harness
+totals and `unknown` where none exist; `packet` reports the total. Tests: planted Claude and
+Codex transcript files under a scratch `HOME` summed correctly; none present prints `unknown`;
+the e2e fixture reaches DONE without `run.sh`.
+
+### [ ] T10 — `goal.py packet --approval`, `cause:` counts
+writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
-reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/tests/test_goal.py
+reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 `packet --approval` writes `.runs/<id>/approval.html`: the spec, the design's Structure and
 Interfaces, the task table (title, `writes`, `reads`, the named test), `touches` and `protected`,
 and the `- Q:` lines (AC10); about 60 lines, standard library only, no external script or style.
-`packet` counts `cause:` tags across closed blocking findings in `review.md` and prints the `cost:`
-lines of `progress.md`. `goal.py stop-hook` appends one `cost:` line per session to `.runs/<id>/progress.md`: the token
-totals summed from the transcript the hook payload names (`transcript_path`), or `unknown` when
-the payload names none; `run.sh` adds the wall seconds at exit; never a verdict (AC11). Tests: the approval page from the fixture goal contains the spec text, the design's Interfaces
-section, every task with its `reads`, and the `- Q:` lines; `cause:` counts; the Stop hook writes
-the line from a planted transcript and `unknown` without one (in `test_run.py`, new, or inside
-`test_goal.py` where the existing `run.sh` test lives).
+`packet` counts `cause:` tags across closed blocking findings in `review.md` and reports the
+`goal.py cost` total. Tests: the approval page from the fixture goal contains the spec text, the design's Interfaces
+section, every task with its `reads`, and the `- Q:` lines; `cause:` counts.
 
-### [ ] T10 — end-to-end, measurements, the pages to v7.1
+### [ ] T11 — end-to-end, measurements, the pages to v7.1
 writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**, docs/product/measurements.md, docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/runbooks/**, docs/README.md, README.md, install/README.md, AGENTS.md
 tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**
 reads: install/skills/execution-methodology/tests/e2e_run.sh, docs/product/measurements.md, docs/architecture/methodology.md, docs/goals/S-2/spec.md
 `e2e_run.sh`'s scratch goal gains a `spec.md` with two criteria traced to its tasks, `reads:`
 lines, one `docs/` page with frontmatter and `covers`, its generated pointer files, and a gate
-that runs `docs.py lint`; the script relaunches `run.sh` with the fake harness until DONE, in
-place of the removed session loop, and asserts the approval page and a `cost:` line exist and that
-`goal.py done` prints DONE for each harness. `measurements.md`, dated: `install/` non-test
-and test line counts, `goal.py` and `docs.py` sizes, always-loaded words (AC11), on-demand reference
-words. `methodology.md` describes v7.1 (the document set, the disclosure layers, the roles, the
-amended stop rule) and `last-verified` is bumped; `repository-standard.md`, the runbooks, the
+that runs `docs.py lint`; the fake chief session from T9 drives it to DONE, and the script asserts the approval page
+exists and `goal.py cost` prints a total for each harness. `measurements.md`, dated: `install/` non-test and test line counts, `goal.py` and `docs.py`
+sizes, always-loaded words (AC11), on-demand reference words, and this goal's `goal.py cost`. `methodology.md` describes v7.1 (the document set, the disclosure layers, the roles, the session
+as the chief, the amended stop rule) and `last-verified` is bumped; `repository-standard.md`, the runbooks, the
 README and `AGENTS.md` say what is true after S-2. M2 ends here.
 
 ## Decisions
@@ -253,10 +259,13 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   words, scout ≤200, chief planning ≤200. Aliases: `opus`/`gpt-6.1-sol` at `high` (the founder's
   frontier choice), `haiku`/`gpt-6-luna`. `isolation: worktree` is kept with the installer setting
   the worktree base to the chief's HEAD.
-- 2026-10-09 founder: a goal runs in a console session bound to the founder's terminal, like an
-  ordinary interactive session, so the founder can watch and course-correct; never a headless
-  restart loop. `run.sh` keeps its permission scoping and becomes a one-shot launcher (T8); the
-  cost line moves to the Stop hook (T9); the e2e relaunches instead of looping (T10).
+- 2026-10-09 founder: a goal runs in the founder's own console session, the one already open,
+  never a new or headless one, so the founder can watch and course-correct. Clarified the same
+  night: no launcher at all, `run.sh` is deleted; no Stop hook, the founder is the loop and the
+  chief runs `goal.py done`; pushes are guarded by `guard.py` and the founder's own permission
+  prompts only; cost is summed from the harness transcripts by `goal.py cost`, never enforced.
+  Standing authorization: once a milestone's merge review passes and `done` prints DONE, the chief
+  pushes the branch and opens the PR to main; the founder merges and tags.
 - 2026-10-09 chief: a design page is written although v7 requires none for `touches: [interface]`,
   because S-2 is the first goal under the widened trigger it introduces; its review runs before
   the plan review. `docs.py` is a separate script rather than more `goal.py`, so the document checks
@@ -280,15 +289,16 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   every goal whose approved commit contains a spec (R7); staleness is day-level with a same-day
   tie broken by the page's own last commit, both orderings tested (R8); `run.sh` passes the Codex
   agent config files per session and the live spawn check is parked for the authenticated run
-  (R9); T4 is split into instructions (T4) and personas (T5) and the repeated gate sentences are
-  removed (R10).
+    (R9); T4 is split into instructions (T4) and personas (T5) and the repeated gate sentences are
+  removed (R10). The settings-key resolution of R2 was later overtaken by the founder's
+  console-session decision: no settings file is written at all.
 - 2026-10-09 Astra plan review, round 1 (`.runs/S-2/plan-review.md`, reviewed ba103b0): BLOCK, 6
   blocking and 2 non-blocking, all resolved in the spec, the design and this plan before the
   approval tag (D29): one policy for the new checks, a goal with a spec is v7.1 and one without is
   v7 and lints as today (R1); T4 removes `references/planning.md` from the installer's retire
   list and its planting in `RetireTest` (R2); the installer writes no settings file at all, the
-  worktree base goes into `run.sh`'s per-session settings and the runbook tells an interactive
-  chief what to set, which replaces the design review's R2 resolution (R3, R4); the index
+  worktree base is the founder's own setting, reminded by `install.sh` and the runbook, which
+  replaces the design review's R2 resolution (R3, R4); the index
   contract is table-only in spec, design and T3 (R5); uninstall removes a marked agent only while
   it equals the shipped copy (R6); the AC2 branches, the AC11 proof and the approval-page
   assertions are named (R7); the duplicated `pointers --check`, the D1–D19 sentence and the
@@ -301,6 +311,5 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   starts with a PRD summary, a spec and `reads:` lines.
 - The stale `verify.sh` dangling-name exclusions from S-1 T8 (T6 or T10 may drop them when the
   named files are confirmed gone).
-- Live check that a `run.sh` Codex session can select the installed custom agents and that a
-  Claude subagent worktree under `run.sh` branches from the chief's HEAD: the pilot's first
-  console run.
+- Live check that a Codex session selects the installed custom agents and that a Claude subagent
+  worktree branches from the chief's HEAD: the pilot's first goal.

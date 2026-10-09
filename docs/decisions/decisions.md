@@ -288,8 +288,8 @@ unbounded but addressable: frontmatter `summary` (≤120 words), `read-when`, `c
 harnesses generated from `covers` and never hand-written; stale pages listed mechanically. Roles
 declare their model and effort in agent files shipped to both harnesses: builders on the frontier
 tier at high effort, scouts on the cheap tier, the reviewer the other vendor's strongest reasoning
-model. Cost is recorded per session and never enforced; the caps stay structural. A goal runs in a
-console session the founder can watch and interrupt; `run.sh` launches one, never a headless loop. Acceptance
+model. Cost is recorded per session and never enforced; the caps stay structural. A goal runs in the founder's own console session, which is the chief: no launcher, no loop, no
+Stop hook. Acceptance
 criteria are traced to task sections by lint; `goal.py packet --approval` renders the approval page.
 
 **Over:** restating product context in every Outcome; agent memory scopes, a graph or wiki; a
