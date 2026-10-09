@@ -330,7 +330,9 @@ def review_findings(ctx):
         if kind == "resolved":
             test, name = f.group(4), f.group(5)
             body = file_at(ctx.root, "HEAD", test) if test else None
-            if body is None or name not in body or test not in [p for _s, p in ch]:
+            defines = body is not None and re.search(
+                rf"^\s*(async\s+)?def {re.escape(name)}\(|\b(it|test)\(\s*['\"]{re.escape(name)}", body, re.M)
+            if not (test and TEST_RE.search(test) and defines and test in [p for _s, p in ch]):
                 out.append(f"{rid}: closes {test}::{name}, which is absent at HEAD or not changed by {sha}")
                 continue
         else:

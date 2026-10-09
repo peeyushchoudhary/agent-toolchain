@@ -260,6 +260,17 @@ class ReviewRowTest(RepoCase):
         self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/test_b_value.py::test_beta_value\n", "HEAD~1")
         self.assertRowOk(8)
 
+    def test_closure_rejects_non_test_text(self):
+        self.repo.write("README.md", "# test_security is still TODO\n")
+        self.repo.write("tests/test_notes.py", "# test_security is still TODO\n")
+        self.repo.write("tests/test_c.js", "test('security holds', () => {});\n")
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] claim a fix")
+        for target in ("README.md::test_security", "tests/test_notes.py::test_security"):
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
+            self.assertRow(8, f"R1: closes {target}")
+        self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/test_c.js::security\n", "HEAD~1")
+        self.assertRowOk(8)
+
     def test_removed_by_passes_when_the_paths_are_deleted(self):
         self.repo.git("rm", "-q", "src/b/y.py")
         sha = self.repo.commit("[T2][R1] remove the beta file")
