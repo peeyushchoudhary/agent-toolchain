@@ -36,7 +36,7 @@ pre-commit route check stay green; new documentation waits for T8.
 writes: docs/decisions/decisions.md, docs/README.md, docs/goals/S-1/plan.md
 
 ### [ ] T2 — `goal.py` v7; cut the review loop and the driver together
-writes: install/skills/execution-methodology/**, install/hooks/goal-session.sh, install/install.sh, install/verify.sh, install/tests/test_install.py, docs/**
+writes: install/skills/execution-methodology/**, install/hooks/goal-session.sh, install/install.sh, install/verify.sh, install/README.md, install/tests/test_install.py, docs/**
 tests-may-change: install/skills/execution-methodology/tests/**, install/tests/test_install.py
 Delete together, because they import or test each other: `review.py`, `run_goal.py`,
 `goal-session.sh` and its registrations, `smoke_goal.py`, `smoke_review_closure.py`,
@@ -186,6 +186,8 @@ the other vendor's diff review, `done` for M2, merge.
   with backups and the retire list covers T6's deletions; T9 runs each harness on its own fresh
   repository and measures `install/` line counts. The pilot migration (old T12) leaves this plan: it
   is the pilot repository's own first commit, described in `migrate-v5.md`.
+- 2026-10-09 widening: T2 `writes` gains `install/README.md`, which names the driver and the session
+  hook T2 deletes; the repair belongs to the deleting commit (Format notes).
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 
