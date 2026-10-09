@@ -38,6 +38,7 @@ document by adding its row here in the same commit.
 | Lean goal execution (methodology v6) definition | [product/specs/F-3-lean-execution.md](product/specs/F-3-lean-execution.md) | Approved 2026-10-06; in implementation |
 | Lean goal execution design | [architecture/lean-execution.md](architecture/lean-execution.md) | Approved 2026-10-06; in implementation |
 | Lean goal execution plan | [product/plans/F-3-lean-execution.md](product/plans/F-3-lean-execution.md) | Approved 2026-10-06; in implementation |
+| Simplification goal S-1: the plan (methodology v7, D29) | [goals/S-1/plan.md](goals/S-1/plan.md) | Approved 2026-10-09; in implementation |
 
 Installation lives in [../install/README.md](../install/README.md). The current state of the
 repository is summarised once in [the front page](../README.md#current-state).
