@@ -77,3 +77,31 @@ cost.
   `total_cost_usd`, Codex tokens only; both go to `.runs/<id>/progress.md`. Dollar cost unmeasured.
 - Review catches, S-1: M1 15 blocking in one round, all closed by fix commits with closing tests;
   M2: see `.runs/S-1/review.md` (filled at the M2 close).
+
+## 2026-10-09 — S-2 (v7.1)
+
+Taken on the T11 tree before its commit; every number with the command that printed it.
+
+- `install/` lines: 2,738 non-test, 3,214 test (`git ls-files install | grep -v /tests/ | xargs wc -l`,
+  and the same with `grep /tests/`).
+- `goal.py` 751 lines, `docs.py` 244
+  (`wc -l install/skills/execution-methodology/scripts/goal.py install/skills/execution-methodology/scripts/docs.py`).
+- Always-loaded words: 1,319 of the AC11 ceiling 1,350; `global.md` 133, `AGENTS.md` 256, `SKILL.md`
+  930 (`wc -w install/global.md AGENTS.md install/skills/execution-methodology/SKILL.md`).
+- On-demand reference words: `design.md` 212, `planning.md` 396, `roles.md` 136,
+  `security-checklist.md` 101; 845 in all (`wc -w install/skills/execution-methodology/references/*.md`).
+- Agent body words, after the frontmatter as `test_rules.py` counts them: builder 348, reviewer 331,
+  scout 137, against ceilings of 350, 350 and 200 (`awk 'c==2{print} /^---$/{c++}' agents/<name>.md | wc -w`).
+- This goal's tokens from the approval tag to the T11 build, recorded, never enforced (AC11), as
+  `python3 install/skills/execution-methodology/scripts/goal.py --goal S-2 cost` printed them in the
+  main checkout (Claude's input includes cache reads and writes):
+
+  ```
+  claude: input 66517152 output 220853 (11 transcripts)
+  codex: input 664283 output 7678 (1 transcripts)
+  ```
+
+- End to end: `e2e_run.sh` drives the v7.1 fixture goal (spec, `reads:`, one page with `covers`, its
+  generated pointers, `docs.py lint` in the gate) to `DONE M1` in both harnesses with no launcher,
+  writes the approval page, and prints `unknown` cost for each harness (a scratch HOME has no
+  transcripts); `e2e_install.sh` installs both homes, writes no settings or hooks file and uninstalls.

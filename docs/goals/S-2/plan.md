@@ -148,7 +148,7 @@ prose above the table). `verify.sh` runs `docs.py lint` over this repository as 
 (AC5). `e2e_install.sh` asserts `docs.py` is installed inside the skill in both homes and
 `docs.py --help` runs from each copy; agent-file assertions belong to T8. M1 ends here.
 
-### [ ] T7 — `docs.py`: pointer generation and staleness
+### [x] T7 — `docs.py`: pointer generation and staleness
 writes: install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/tests/test_docs.py, .claude/rules/**, install/AGENTS.md, install/verify.sh, docs/architecture/repository-standard.md
 tests-may-change: install/skills/execution-methodology/tests/test_docs.py
 reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/scripts/docs.py, install/AGENTS.md
@@ -174,7 +174,7 @@ to the same file; a page that drops `covers` (its pointer removed); a symlinked 
 outside the repository (refused); a covered path changed the same day before, and after, the
 page's own commit.
 
-### [ ] T8 — roles shipped to both harnesses: Codex agent TOML, the installer
+### [x] T8 — roles shipped to both harnesses: Codex agent TOML, the installer
 writes: install/skills/execution-methodology/agents/**, install/install.sh, install/verify.sh, install/tests/test_install.py, install/tests/e2e_install.sh, install/README.md, docs/runbooks/codex.md
 tests-may-change: install/tests/test_install.py, install/tests/e2e_install.sh
 reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/references/roles.md, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/tests/test_install.py, docs/runbooks/codex.md, analysis/councils-2026-10-09/personas/drafts/builder.toml, analysis/councils-2026-10-09/personas/synthesis.md#harness-caveats-t4-and-t7-must-handle
@@ -196,7 +196,7 @@ installed agents is owed to the pilot's first goal (Parked). `codex.md` document
 how a Codex builder gets its own worktree (a Codex-side option if one exists, else the Codex chief
 runs `git worktree add` and names the path in the packet).
 
-### [ ] T9 — the session is the chief: delete `run.sh` and the Stop hook; `goal.py cost`
+### [x] T9 — the session is the chief: delete `run.sh` and the Stop hook; `goal.py cost`
 writes: install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/test_rules.py, install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py, install/install.sh, install/verify.sh, install/README.md, docs/runbooks/codex.md, docs/runbooks/github.md
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/test_rules.py, install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py
 reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py, install/install.sh
@@ -214,7 +214,7 @@ totals and `unknown` where none exist; `packet` reports the total. Tests: plante
 Codex transcript files under a scratch `HOME` summed correctly; none present prints `unknown`;
 the e2e fixture reaches DONE without `run.sh`.
 
-### [ ] T10 — `goal.py packet --approval`, `cause:` counts
+### [x] T10 — `goal.py packet --approval`, `cause:` counts
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
@@ -225,9 +225,9 @@ and the `- Q:` lines (AC10); about 60 lines, standard library only, no external 
 `goal.py cost` total. Tests: the approval page from the fixture goal contains the spec text, the design's Interfaces
 section, every task with its `reads`, and the `- Q:` lines; `cause:` counts.
 
-### [ ] T11 — end-to-end, measurements, the pages to v7.1
-writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**, docs/product/measurements.md, docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/runbooks/**, docs/README.md, README.md, install/README.md, AGENTS.md
-tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**
+### [x] T11 — end-to-end, measurements, the pages to v7.1
+writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**, docs/product/measurements.md, docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/runbooks/**, docs/README.md, README.md, install/README.md, AGENTS.md, install/verify.sh, install/tests/e2e_install.sh
+tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**, install/tests/e2e_install.sh
 reads: install/skills/execution-methodology/tests/e2e_run.sh, docs/product/measurements.md, docs/architecture/methodology.md, docs/goals/S-2/spec.md
 `e2e_run.sh`'s scratch goal gains a `spec.md` with two criteria traced to its tasks, `reads:`
 lines, one `docs/` page with frontmatter and `covers`, its generated pointer files, and a gate
@@ -361,6 +361,75 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   changes to tests that `tests-may-change` lists (its body now differs from the council draft by
   one clause, 348 words); R11 `[T2]`: `goal.py`'s `slug()` delegates to `docs.py` with a late
   import, since `docs.py` imports `goal.py`.
+- 2026-10-09 T7 defaults: rule files are named by the slug of the page path under `docs/`
+  (`.claude/rules/architecture-methodology.md`, `architecture-personas.md`), not the bare names
+  the task text guessed, so two pages with one basename cannot collide; a hand-written rule
+  file without the marker is also left alone and reported; `paths:` is unquoted like `covers`;
+  a wildcard-free glob maps to its directory or its parent; `stale` ends `PASS` or `<n> stale`
+  (never the word FAIL, so the gate's verdict regex cannot read the warning as a failure);
+  `verify.sh` warns on any non-zero `stale` exit. `repository-standard.md` sets `covers: []`
+  because its globs would map a block into the root `AGENTS.md`, outside T7's writes;
+  `LintTest.setUp` now generates pointers first. `docs.py` is 244 lines. Follow-ups: T11 bumps
+  `last-verified` on `methodology.md` and `personas.md` (both stale today); a `docs/AGENTS.md`
+  or markers in the root `AGENTS.md` would let `repository-standard.md` cover `docs/**` again.
+- 2026-10-09 T8 defaults: the marker is a YAML comment on a `.md`'s second line and a TOML
+  comment on a `.toml`'s first line, the shipped copies stay unmarked; a symlink destination is
+  never written through; an unmarked destination is kept and reported on install and uninstall;
+  `--dry-run` prints `unchanged` for an equal file; the settings reminder tests the key's
+  presence only and treats a missing or malformed file as absent; a sixth test checks the TOML
+  schema with `tomllib` (Python 3.11+, above the installer's 3.10 floor: the suite is this
+  repository's, the installed scripts keep the floor); `e2e_install.sh` drops `run.sh` from its
+  loop ahead of T9. Follow-up: after `--retire-v5` on a home that still holds old generated
+  builder/reviewer/scout files, a second `./install.sh` installs the new agents (install runs
+  before retire and keeps unmarked files).
+- 2026-10-09 chief: T11's write set gains `install/verify.sh` and `install/tests/e2e_install.sh`,
+  so T11 can drop the dangling-name exclusions T9 adds for `README.md`, `methodology.md`,
+  `e2e_install.sh` and `goal_fixture.py` once it removes their launcher mentions; T9's own writes
+  did not reach those files.
+- 2026-10-09 T9 defaults: the dangling-name pattern is `(^|[^_[:alnum:]])run\.sh|stop-hook` so
+  `e2e_run.sh` may be named; `verify.sh` excludes `README.md`, `methodology.md`, `e2e_install.sh`
+  and `goal_fixture.py` until T11 clears their mentions; `goal.py cost` reads every transcript
+  under the project slug recursively (subagent files included, one `message.id` counted once
+  across files; this goal: 9 transcripts), input is the three Claude input fields, Codex sums
+  `last_token_usage`, and `unknown` means no usage record in the window; four install tests
+  were retargeted because a plain install no longer reads hook files; the e2e drops the install
+  and D29 rollback rehearsal (the rollback stays documented in `methodology.md`, which T11
+  re-words); `github.md` had no launcher mention. Follow-up: a home still carrying an older
+  global `goal.py stop-hook` registration gets argparse exit 2 from the hook, which Claude Code
+  reads as a block; this machine has none; `--retire-v5` does not strip it (pilot migration).
+- 2026-10-09 T10 defaults: `packet --approval` reads the plan, spec and design from the working
+  tree (the page is made before the tag exists), prints the page's absolute path, writes no
+  `packet.md` and runs no done rows; a design section is rendered only when its heading exists;
+  the named test is the first `test_…` token in the task prose, else a `tests-may-change` entry
+  (a file name, not a test, when the prose names none); `cause:` counts read the closure text
+  only, row 8 proves the closures; the `Cost:` section is T9's. Follow-ups: spec headings
+  render as paragraphs (no Markdown library); the Named test column could resolve a file to
+  its first test.
+- 2026-10-09 T11 defaults: the E-1 fixture's `covers: [src/**]` is kept as the task wrote it
+  though its code lives in `calc/`; `goal.py lint` doubles as the approval step in the e2e;
+  `full_gate` equals `gate` there; `methodology.md` keeps its `read-when` and H2 headings so the
+  generated pointers stay valid; `e2e_install.sh` asserts no settings or hooks file is written;
+  the four `verify.sh` exclusions owed to T11 are gone. `personas.md` was outside T11's writes,
+  so a `[T6]` commit adds its one sentence on the TOML twins and clears its stale warning.
+  Always-loaded 1,319 of 1,350 words. Follow-ups: `codex_usage` consumes the record generator
+  before `session_meta`, harmless while that record comes first; `repository-standard.md`
+  covering `docs/**` again needs a `docs/AGENTS.md` or markers in the root `AGENTS.md`.
+- 2026-10-09 Astra merge review, M2 round 1 (`.runs/S-2/review.md`, reviewed b473d2a; M1's review
+  kept as `review-M1.md`): BLOCK, R1–R7 blocking, R8 non-blocking. All eight get `[Tn][Rk]` fix
+  commits with closing tests, R8 included, applying the founder's M1 instruction to fix
+  non-blocking findings too. R4 restores the installer's stripping of an older global Stop
+  registration as an upgrade step (T9 had removed it), with the needle kept inside the retire
+  markers so the dangling-name scan stays clean; R2 changes the rule-file name to the page path
+  with `/` as `--` (`architecture--methodology.md`), so T7's slug default is superseded.
+- 2026-10-09 M2 round 1 fixes landed, R1–R8 closed (`.runs/S-2/review.md`); `goal.py done` prints
+  DONE M2. Defaults: a plain install that meets a malformed hooks file fails as it did before T9
+  (`hooks:`), since the stripping needs to read it; the approval table shows a task's
+  `tests-may-change` files when its prose names no test; `goal.py cost` takes a Claude project
+  directory named `<slug>-…` as under the root, which a sibling directory sharing the root's name as
+  a prefix would also match; `e2e_run.sh` is 227 lines with the rehearsal back. Follow-up:
+  `docs.py stale` warns on `methodology.md` because the fixes touched `install/` after its
+  `last-verified` commit on the same day; its text was re-read and is still true (the installer
+  registers no hook; it now drops a v7.0 registration), the date bump waits for the next goal.
 
 ## Parked
 

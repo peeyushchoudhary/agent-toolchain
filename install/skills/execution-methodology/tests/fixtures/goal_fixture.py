@@ -1,4 +1,4 @@
-"""Throwaway git repositories holding a small v7 goal, for the goal.py, gate.py and run.sh tests.
+"""Throwaway git repositories holding a small v7 goal, for the goal.py and gate.py tests.
 
 The fixture goal F-9 (docs/goals/F-9/plan.md) has two milestones: M1 (T1, T2) and M2 (T3);
 plan_text(v71=True) with V71_FILES (spec.md, design.md) makes it a v7.1 goal. Its

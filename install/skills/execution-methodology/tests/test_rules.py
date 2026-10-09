@@ -32,12 +32,13 @@ AGENT_BODY_WORDS = {BUILDER: 350, REVIEWER: 350, SCOUT: 200}
 # Named by the rules, delivered by a later task of the same goal. Anything else must exist.
 NOT_YET_BUILT = frozenset()
 
-# Machinery the v7 shape removed (D29). The rules must not send a session to any of it.
+# Machinery the v7 shape removed (D29), and the launcher and Stop hook v7.1 removed (D30). The rules must not send a session to any of it.
 RETIRED = ("execution-methodology/methodology.md", "references/run.md",
            "references/migrate.md", "agent-personas", "sync_personas", "review.py", "run_goal",
            "goal-session", "graphify", "graph-navigation", "progressive-disclosure",
            "validate_disclosure", "check_github", "install_hooks", "identifier_guard", "push_guard",
-           "preflight", "goal.py guard", "goal.py attempt", "goal.py evidence", "goal.py start")
+           "preflight", "goal.py guard", "goal.py attempt", "goal.py evidence", "goal.py start",
+           "run.sh", "stop-hook")
 
 LINK = re.compile(r"\]\(([^)\s]+)\)")
 SKILL_PATH = re.compile(r"(?<![\w/.-])((?:scripts|references|agents)/[\w.-]+\.(?:py|md|sh))")

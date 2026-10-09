@@ -1,5 +1,5 @@
 ---
-summary: How to migrate a project still on v5.1, which holds `docs/agents/execution/runtime.json`, by hand in one commit at a milestone boundary: map its overlay into `AGENTS.md` and the first plan, remove the v5 execution files, rendered personas and hook registrations, ignore `/.runs/`, write the first plan, then install the guard. The rollback, and when `install.sh --retire-v5` may run.
+summary: How to migrate a project still on v5.1, which holds `docs/agents/execution/runtime.json`, by hand in one commit at a milestone boundary: map its overlay into `AGENTS.md` and the first plan, remove the v5 execution files, rendered personas and hook registrations, ignore `/.runs/`, write the PRD summary and the first goal's spec and plan, then install the guard. The rollback, and when `install.sh --retire-v5` may run.
 read-when: Migrating a v5.1 project, or deciding whether `--retire-v5` may run
 covers: []
 last-verified: 2026-10-09
@@ -17,7 +17,9 @@ there. Migrate by hand, one project at a time, at a milestone boundary, in one c
 3. Remove rendered personas (files carrying the renderer's `GENERATED` marker, overlays under
    `docs/agents/personas/`) and the project's registrations of v5 hook scripts.
 4. Add `/.runs/` to `.gitignore`.
-5. Write `docs/goals/<id>/plan.md`; `goal.py lint` must pass.
+5. Write `docs/product/prd.md` (at least its frontmatter `summary`) and the first goal's
+   `docs/goals/<id>/spec.md` and `plan.md`, each task with a `reads:` line (`design.md` too unless
+   `touches` is `none`); add `docs.py lint` to the gate; `goal.py lint` and `docs.py lint` must pass.
 6. Commit, then run `git-hooks.sh` in the clone (hooks are local, not committed).
 
 Rollback: `git revert` the migration commit, then `git-hooks.sh --uninstall`.

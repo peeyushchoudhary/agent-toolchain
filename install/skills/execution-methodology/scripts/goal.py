@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Goal state computed from docs/goals/<id>/plan.md and git: lint, status, next, resume, packet, done.
+"""Goal state computed from docs/goals/<id>/plan.md and git: lint, status, next, resume, packet, done, cost.
 
 The plan is --plan, else docs/goals/<--goal>/plan.md, else the one plan whose last milestone is not
-tagged goal/<id>/<Mn>. `stop-hook` is the harness Stop hook; it never fails the host session.
+tagged goal/<id>/<Mn>. `cost` sums the harness transcripts' tokens; it records, never enforces.
 Exit codes: 0 ok or done, 1 finding or not done, 2 usage or internal error.
 """
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
 import subprocess
 import sys
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -547,7 +549,74 @@ def cmd_resume(ctx, a):
     print(" ".join(text.split(" ")[:150]) if len(text.split()) > 150 else text)
     return 0
 
+def html_blocks(text):
+    """Each blank-line-separated block of text as an escaped <p>, its `- ` lines (and their indented
+    continuations) as <li>; no Markdown beyond that."""
+    out = []
+    for block in re.split(r"\n\s*\n", (text or "").strip()):
+        para, items = [], []
+        for line in block.splitlines():
+            if line.strip().startswith("- "):
+                items.append(line.strip()[2:])
+            elif items and line[:1].isspace():
+                items[-1] += " " + line.strip()
+            else:
+                para.append(line.strip())
+        out += [f"<p>{html.escape(' '.join(para))}</p>"] if para else []
+        out += ["<ul>" + "".join(f"<li>{html.escape(i)}</li>" for i in items) + "</ul>"] if items else []
+    return out
+
+def approval_page(ctx):
+    """.runs/<id>/approval.html from the working tree: the spec, the design's Structure and Interfaces,
+    the task table, touches and protected, and the Parked - Q: lines."""
+    plan, goal_dir, e = ctx.plan, ctx.root / Path(ctx.plan_rel).parent, html.escape
+    read = lambda name: (goal_dir / name).read_text() if (goal_dir / name).is_file() else ""  # noqa: E731
+    design = read("design.md")
+    bodies, tid = {}, None  # a task's prose: the lines under its header that are not fields
+    for line in plan["sections"].get("Tasks", []):
+        tid = m.group(2) if (m := TASK_RE.match(line)) else tid
+        if tid and not m and not FIELD_RE.match(line):
+            bodies.setdefault(tid, []).append(line)
+    rows = []
+    for t in plan["tasks"].values():  # the test the prose names (a file's stem is not a name), else its files
+        prose = " ".join(bodies.get(t["id"], []))
+        named = re.search(r"(?<=::)test_\w+", prose) or re.search(r"\btest_\w+\b(?!\.py)", prose)
+        shown = named.group(0) if named else ", ".join(t["tests-may-change"]) or "—"
+        rows.append(f"<tr><td>{e(t['id'] + ' ' + t['title'])}</td><td>{e(', '.join(t['writes']))}</td>"
+                    f"<td>{e(', '.join(t['reads']))}</td><td>{e(shown)}</td></tr>")
+    meta = lambda k: ", ".join(map(str, v)) if isinstance(v := plan["meta"].get(k), list) else str(v or "none")  # noqa: E731
+    questions = [l.strip()[2:] for l in plan["parked"] if l.strip().startswith("- Q:")]
+    out = ["<!doctype html>", '<html><head><meta charset="utf-8">',
+           "<style>body{font:15px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem}"
+           "table{border-collapse:collapse;width:100%}"
+           "th,td{border:1px solid #999;padding:.3rem .5rem;text-align:left;vertical-align:top}</style>",
+           f"<title>{e(ctx.goal)} approval</title></head><body>",
+           f"<h1>{e(ctx.goal)}: {e(str(plan['meta'].get('title', '')))}</h1>", "<h2>spec.md</h2>",
+           *(html_blocks(read("spec.md")) or ["<p>none</p>"])]
+    for name in ("Structure", "Interfaces"):  # protected_text returns the whole file for an absent heading
+        if re.search(rf"^## {name}\s*$", design, re.M):
+            out += [f"<h2>design.md: {name}</h2>",
+                    *html_blocks(re.sub(r"^## .*\n?", "", protected_text(design, slug(name)), count=1))]
+    out += ["<h2>Tasks</h2>", "<table><tr><th>Task</th><th>Writes</th><th>Reads</th><th>Named test</th></tr>",
+            *rows, "</table>", f"<p>touches: {e(meta('touches'))}</p>", f"<p>protected: {e(meta('protected'))}</p>",
+            "<h2>Questions</h2>", "<ul>" + "".join(f"<li>{e(q)}</li>" for q in questions or ["none"]) + "</ul>",
+            "</body></html>"]
+    ctx.runs.mkdir(parents=True, exist_ok=True)
+    path = ctx.runs / "approval.html"
+    path.write_text("\n".join(out) + "\n")
+    print(path)
+    return 0
+
+def cause_counts(text):
+    """The cause: tags on the closure lines of closed BLOCKING findings only."""
+    blocking = set(re.findall(r"^\s*- \[x\] BLOCKING (R\d+)\b", text, re.M))
+    tags = Counter(c for rid, c in re.findall(r"^\s*- \[x\] (R\d+) (?:resolved|removed)-by .*\bcause: (\w+)",
+                                             text, re.M) if rid in blocking)
+    return f"cause: context {tags['context']}, logic {tags['logic']}, spec {tags['spec']}"
+
 def cmd_packet(ctx, a):
+    if a.approval:
+        return approval_page(ctx)
     rows, tree = done_rows(ctx, mid := milestone_arg(ctx, a.milestone))
     approved, plan = ctx.tag("approved"), ctx.plan_at("HEAD")
     stat = git(ctx.root, "diff", "--stat", f"{approved}..HEAD", check=False)
@@ -564,50 +633,110 @@ def cmd_packet(ctx, a):
            "Outcome:", *[l for l in plan["sections"].get("Outcome", []) if l.strip()], "",
            f"Diff {approved}..HEAD:", stat, "", "Done:",
            *[f"row {n} ok" if not w else f"row {n}: {'; '.join(w[:3])}" for n, w in rows.items()], "",
-           "Receipts:", *(receipts or ["none"]), "", "Review findings:", *(found or ["none"]), "",
+           "Receipts:", *(receipts or ["none"]), "", "Review findings:", *(found or ["none"]),
+           cause_counts(review.read_text() if review.is_file() else ""), "",
            "Decisions:", *plan["decisions"], "", "Parked:", *(plan["parked"] or ["none"]), "",
            "Reads:", *([f"{t['id']} reads: {', '.join(t['reads'])}" for t in plan["tasks"].values() if t["reads"]]
                        or ["none"]), "",
            "Widenings (writes, tests-may-change and reads):", *(fields or ["none"]), "",
-           "Plan-only commits (widenings, ticks, decisions):", *(widen or ["none"])]
+           "Plan-only commits (widenings, ticks, decisions):", *(widen or ["none"]), "",
+           "Cost:", *cost_lines(ctx)]
     ctx.runs.mkdir(parents=True, exist_ok=True)
     (ctx.runs / "packet.md").write_text("\n".join(out) + "\n")
     print("\n".join(out))
     return 0
 
-def stop_hook(plan=None, goal=None):
-    """Block a stop while done is unmet, at most three times per session; never raise. With several
-    open plans and no --goal or --plan, block once per session asking for the hook to name one."""
+def when(stamp):
+    """An ISO-8601 time (git %cI, or a transcript's `...Z`) as an aware datetime; None when unreadable."""
     try:
-        raw = sys.stdin.read()
-        event = json.loads(raw) if raw.strip() else {}
-        try:
-            ctx = find_ctx(plan, goal, cwd=event.get("cwd") or None)
-        except SeveralPlans:
-            root = Path(git(event.get("cwd") or os.getcwd(), "rev-parse", "--show-toplevel"))
-            state_path, sid = root / ".runs" / "stop_state.json", "several:" + str(event.get("session_id", ""))
-            state = json.loads(state_path.read_text()) if state_path.is_file() else {}
-            if not state.get(sid):
-                state_path.parent.mkdir(parents=True, exist_ok=True)
-                state_path.write_text(json.dumps({**state, sid: 1}) + "\n")
-                print(json.dumps({"decision": "block",
-                                  "reason": "several open plans; register the hook with --goal <id>"}))
-            return 0
-        rows, _ = done_rows(ctx, milestone_arg(ctx, None))
-        unmet = [f"row {n}: {w[0]}" for n, w in rows.items() if w]
-        state_path = ctx.runs / "stop_state.json"
-        state = json.loads(state_path.read_text()) if state_path.is_file() else {}
-        sid = str(event.get("session_id", ""))
-        if unmet and state.get(sid, 0) < 3:
-            state[sid] = state.get(sid, 0) + 1
-            ctx.runs.mkdir(parents=True, exist_ok=True)
-            state_path.write_text(json.dumps(state) + "\n")
-            print(json.dumps({"decision": "block", "reason": f"Goal {ctx.goal} is not done: "
-                              + "; ".join(unmet) + ". Continue, or park the task [!] with a Parked line."}))
-    except PlanError:
-        pass  # no open goal here, or an unmigrated project: allow silently
-    except Exception as exc:  # noqa: BLE001 — any failure allows the stop
-        print(f"goal.py stop-hook: allowing stop ({exc!r})", file=sys.stderr)
+        t = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else None
+
+def records(path):
+    """The JSON objects of one .jsonl transcript; unreadable lines and files are skipped."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(r, dict):
+                    yield r
+    except OSError:
+        return
+
+def claude_usage(root, start):
+    """Claude Code: every *.jsonl under $HOME/.claude/projects/<slug>/ and <slug>-*/ (a session opened
+    in a subdirectory or a worktree under the root), the session transcripts and the subagent ones in
+    <session>/subagents/; <slug> is the root with every character but a letter or digit as `-`. Record: {"type": "assistant", "timestamp": "...Z", "message": {"id",
+    "usage": {"input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+    "output_tokens"}}}; input is the three input fields. One response is written as one record per
+    content block, each repeating message.id and its usage, so an id counts once across all files."""
+    slug, projects = re.sub(r"[^A-Za-z0-9]", "-", str(root)), Path.home() / ".claude" / "projects"
+    dirs = [d for d in (sorted(projects.iterdir()) if projects.is_dir() else [])
+            if d.name == slug or d.name.startswith(slug + "-")]
+    usage, files = {}, 0
+    for path in sorted(p for d in dirs for p in d.rglob("*.jsonl")):
+        hit = False
+        for n, r in enumerate(records(path)):
+            m = r.get("message")
+            u = m.get("usage") if isinstance(m, dict) else None
+            t = when(r.get("timestamp"))
+            if isinstance(u, dict) and t and t >= start:
+                usage[m.get("id") or (str(path), n)] = u
+                hit = True
+        files += hit
+    tin = sum(u.get(k) or 0 for u in usage.values()
+              for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+    tout = sum(u.get("output_tokens") or 0 for u in usage.values())
+    return (tin, tout, files) if files else None
+
+def codex_usage(root, start):
+    """Codex: $CODEX_HOME/sessions/**/*.jsonl (default ~/.codex), kept when the first {"type":
+    "session_meta", "payload": {"cwd"}} names the root or a directory under it. Record: {"type": "event_msg", "timestamp":
+    "...Z", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens",
+    "output_tokens", ...}, "last_token_usage": {...}}}}. Codex repeats a token_count record with
+    unchanged numbers, so a session counts the growth of its running total_token_usage between
+    records in the window (a repeat adds nothing), never the sum of last_token_usage. Codex's
+    input_tokens already includes its cached_input_tokens."""
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    tin = tout = files = 0
+    for path in sorted((home / "sessions").rglob("*.jsonl")):
+        rs = records(path)
+        meta = next((r for r in rs if r.get("type") == "session_meta"), None)
+        cwd = ((meta or {}).get("payload") or {}).get("cwd")
+        if not isinstance(cwd, str) or not (os.path.realpath(cwd) == str(root)
+                                            or os.path.realpath(cwd).startswith(str(root) + os.sep)):
+            continue
+        totals = [(t >= start, p["info"]["total_token_usage"]) for r in rs if r.get("type") == "event_msg"
+                  and isinstance(p := r.get("payload"), dict) and p.get("type") == "token_count"
+                  and isinstance(p.get("info"), dict) and isinstance(p["info"].get("total_token_usage"), dict)
+                  and (t := when(r.get("timestamp")))]
+        if not any(inside for inside, _u in totals):
+            continue
+        files += 1
+        last = {"input_tokens": 0, "output_tokens": 0}  # the running total before the window
+        for inside, u in totals:
+            if inside:
+                tin += max(0, (u.get("input_tokens") or 0) - last["input_tokens"])
+                tout += max(0, (u.get("output_tokens") or 0) - last["output_tokens"])
+            last = {k: u.get(k) or 0 for k in last}
+    return (tin, tout, files) if files else None
+
+def cost_lines(ctx, since=None):
+    """One line per harness: tokens in this repository's transcripts since the ref's commit time."""
+    start = when(git(ctx.root, "log", "-1", "--format=%cI", since or ctx.tag("approved"), check=False))
+    out = []
+    for name, usage in (("claude", claude_usage), ("codex", codex_usage)):
+        got = usage(ctx.root, start) if start else None
+        out.append(f"{name}: input {got[0]} output {got[1]} ({got[2]} transcripts)" if got else f"{name}: unknown")
+    return out
+
+def cmd_cost(ctx, a):
+    print("\n".join(cost_lines(ctx, a.since)))
     return 0
 
 def main(argv=None):
@@ -615,13 +744,15 @@ def main(argv=None):
     [common.add_argument(opt, default=argparse.SUPPRESS) for opt in ("--plan", "--goal")]
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0], parents=[common])
     sub = ap.add_subparsers(dest="action", required=True)
-    for name in ("lint", "status", "next", "resume", "packet", "done", "stop-hook"):
+    for name in ("lint", "status", "next", "resume", "packet", "done", "cost"):
         p = sub.add_parser(name, parents=[common])
         if name in ("done", "packet"):
             p.add_argument("--milestone")
+        if name == "packet":
+            p.add_argument("--approval", action="store_true", help="write .runs/<id>/approval.html instead")
+        if name == "cost":
+            p.add_argument("--since", help="git ref whose commit time starts the sum (default goal/<id>/approved)")
     a = ap.parse_args(argv)
-    if a.action == "stop-hook":
-        return stop_hook(getattr(a, "plan", None), getattr(a, "goal", None))
     try:
         ctx = find_ctx(getattr(a, "plan", None), getattr(a, "goal", None))
         return globals()["cmd_" + a.action](ctx, a)

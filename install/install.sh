@@ -42,9 +42,13 @@ hooks_of()  { if [ "$1" = "$CLAUDE" ]; then echo "$1/settings.json"; else echo "
 # The one place that names the retired set on purpose; verify.sh's dangling-name scan skips the
 # lines between the markers. --retire-v5 deletes exactly these under each harness home:
 #   RETIRED_SKILLS   skills/<name>/          RETIRED_HOOKS  hooks/<name>, and their registrations
-#   RETIRED_PERSONAS agents/<name>.md|.toml, only when the file carries GENERATED_MARK
+#   RETIRED_PERSONAS agents/<name>.md|.toml, only when the file carries GENERATED_MARK (a file
+#                    carrying AGENT_MARK, which this installer writes, is never retired)
 #   RETIRED_FILES    paths under skills/; one ending in / is a directory (v7 installs no tests/)
+# RETIRED_HOOK_NEEDLES is one phrase: a hook registration whose command holds it was written by an
+# earlier version of this installer, and a plain install or uninstall drops it (D30: no Stop hook).
 # BEGIN retire-v5 list
+RETIRED_HOOK_NEEDLES="goal.py stop-hook"
 RETIRED_SKILLS="methodology-management project-onboarding project-migration project-conformance agent-persona-factory gate-sandbox agent-personas progressive-disclosure graph-navigation"
 RETIRED_PERSONAS="acceptance architect chief-of-staff contract-architect developer docs-steward migration-validator planner product-steward scout security-validator senior-developer test-judge advisor builder chief reviewer security-reviewer"
 RETIRED_HOOKS="goal-session.sh disclosure-check.sh preflight.sh graphify-query-advisor.py graphify-session-lessons.sh"
@@ -53,7 +57,7 @@ RETIRED_FILES="ROUND-GRANTS.tsv methodology.md agents/openai.yaml tests/ scripts
 scripts/runtime-status.schema.json references/changelog-v1-v2.md references/codex-gate-sandbox.md
 references/execution-loop.md references/history-v3-v5.md references/junit-evidence.md references/readme.md
 references/specs.md references/task-card.md references/review.md references/escalation.md
-references/run.md references/migrate.md references/explainer-template.html"
+references/run.md references/migrate.md references/explainer-template.html scripts/run.sh"
 for n in check_review_budget milestone_seal plan_waves ratio_meter spec_check start_junit_run sync_methodology trace_check validate_card verify_junit weekly_review; do
   RETIRED_FILES="$RETIRED_FILES scripts/$n.py scripts/${n}_selftest.py"
 done
@@ -101,6 +105,39 @@ uninstall_skill() {  # uninstall_skill ROOT
   while IFS= read -r rel; do say "left in place (not in this package): $dest/$rel"; done <<< "$kept"
 }
 
+# ── Agent files ──────────────────────────────────────────────────────────────────────────────────
+# agents/*.md go to ~/.claude/agents/, agents/*.toml to $CODEX_HOME/agents/, each with AGENT_MARK
+# (a .md's second line, inside its YAML frontmatter; a .toml's first line). The shipped copy stays
+# unmarked. A destination without the mark, or a symlink, is not this script's and is never written.
+AGENT_MARK="# installed by execution-methodology install.sh; uninstall removes an unchanged copy"
+marked() {  # marked SRC: the shipped agent file with AGENT_MARK inserted
+  case "$1" in
+    *.md) head -n 1 "$1"; printf '%s\n' "$AGENT_MARK"; tail -n +2 "$1" ;;
+    *) printf '%s\n' "$AGENT_MARK"; cat "$1" ;;
+  esac
+}
+ours() { [ -f "$1" ] && [ ! -L "$1" ] && grep -qxF "$AGENT_MARK" "$1"; }   # ours DEST
+install_agents() {  # install_agents ROOT
+  local ext=toml f dest; [ "$1" = "$CLAUDE" ] && ext=md
+  for f in "$HERE/skills/$SKILL/agents/"*."$ext"; do
+    dest="$1/agents/$(basename "$f")"
+    if { [ -e "$dest" ] || [ -L "$dest" ]; } && ! ours "$dest"; then say "kept $dest (not installed by this script)"; continue; fi
+    if marked "$f" | cmp -s - "$dest"; then say "unchanged $dest"; continue; fi
+    [ "$DRY" -eq 1 ] && { say "would: install $dest"; continue; }
+    mkdir -p "$1/agents" && marked "$f" > "$dest" && say "installed $dest" || return 1
+  done
+}
+uninstall_agents() {  # uninstall_agents ROOT: remove a marked copy only while it equals the marked shipped file
+  local ext=toml f dest; [ "$1" = "$CLAUDE" ] && ext=md
+  for f in "$HERE/skills/$SKILL/agents/"*."$ext"; do
+    dest="$1/agents/$(basename "$f")"
+    { [ -e "$dest" ] || [ -L "$dest" ]; } || continue
+    if ! ours "$dest"; then say "left in place (not installed by this script): $dest"
+    elif marked "$f" | cmp -s - "$dest"; then step "removed $dest" rm -f "$dest" || return 1
+    else say "left in place (edited): $dest"; fi
+  done
+}
+
 # ── Global instructions ──────────────────────────────────────────────────────────────────────────
 # A symlink is moved aside as the backup (never written through), so the file it points to is untouched.
 install_global() {  # install_global DEST: back up a file that differs, then write global.md
@@ -123,8 +160,9 @@ uninstall_global() {  # remove only an unmodified copy of global.md, then move t
 # ── Hook files ───────────────────────────────────────────────────────────────────────────────────
 # Edited, never replaced: a file that is not valid JSON or not in the hooks shape is refused; only
 # hook items whose command contains a NEEDLE are dropped, the rest keep their index (Codex keys hook
-# trust on it). A changed file is backed up first. Nothing is ever registered here: run.sh registers
-# the Stop hook per session (S-1 run-security decision).
+# trust on it). A changed file is backed up first. Nothing is ever registered here: install and
+# uninstall drop the registrations an earlier version wrote (RETIRED_HOOK_NEEDLES), --retire-v5
+# the v6 hooks'.
 HOOKS_PY="$(cat <<'PY'
 import json, shutil, sys, time
 from pathlib import Path
@@ -204,19 +242,32 @@ for r in "${ROOTS[@]}"; do
     uninstall_global "$(global_of "$r")" || fail "uninstall: $(global_of "$r")"
     uninstall_skill "$r" || fail "uninstall: $r/skills/$SKILL"
     [ "$DRY" -eq 1 ] || rmdir "$r/skills" 2>/dev/null || true   # only when the skill was all it held
-    [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "goal.py stop-hook" || fail "uninstall: $(hooks_of "$r")"
+    uninstall_agents "$r" || fail "uninstall: $r/agents"
+    [ "$DRY" -eq 1 ] || rmdir "$r/agents" 2>/dev/null || true   # only when the agents were all it held
+    [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "$RETIRED_HOOK_NEEDLES" || fail "uninstall: $(hooks_of "$r")"
   else
     install_global "$(global_of "$r")" || fail "global instructions: $(global_of "$r") was not written"
     install_skill "$r" || fail "skill: $r/skills/$SKILL was not installed"
-    # An earlier install registered the Stop hook globally; run.sh owns it now, so drop that entry.
-    [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "goal.py stop-hook" || fail "stop hook: $(hooks_of "$r") was not edited"
+    install_agents "$r" || fail "agents: $r/agents was not written"
+    [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "$RETIRED_HOOK_NEEDLES" || fail "hooks: $(hooks_of "$r") was not edited"
+    # Read-only: a subagent's worktree branches from the default branch unless the founder sets baseRef.
+    [ "$r" != "$CLAUDE" ] || python3 -c 'import json, sys
+try: s = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError): s = {}
+w = s.get("worktree") if isinstance(s, dict) else None
+sys.exit(0 if isinstance(w, dict) and "baseRef" in w else 1)' "$r/settings.json" ||
+      say "reminder: set \"worktree\": {\"baseRef\": \"head\"} in ~/.claude/settings.json so builder worktrees branch from the chief's HEAD (docs/runbooks/codex.md)"
   fi
 done
 if [ "$MODE" = retire ]; then
   echo "retire v5.1 and v6 leftovers"
   if [ -n "$FAILURES" ]; then say "SKIPPED: an install step above failed, so nothing was retired"
-  else for r in "${ROOTS[@]}"; do if [ "$r" = "$CLAUDE" ]; then retire_root "$r" md; else retire_root "$r" toml; fi; done; fi
+  else for r in "${ROOTS[@]}"; do
+    if [ "$r" = "$CLAUDE" ]; then retire_root "$r" md; else retire_root "$r" toml; fi
+    # A retired generated file that shares a name with a shipped agent was "kept" above; install it now.
+    install_agents "$r" || fail "agents: $r/agents was not written after retiring"
+  done; fi
 fi
 if [ -n "$FAILURES" ]; then printf '\n%s FAILED; these steps did not complete:\n%s' "$MODE" "$FAILURES" >&2; exit 1; fi
-[ "$MODE" = uninstall ] || say "next: ./verify.sh; unattended runs register their Stop hook per session (scripts/run.sh)"
+[ "$MODE" = uninstall ] || say "next: ./verify.sh"
 exit 0

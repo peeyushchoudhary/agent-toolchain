@@ -48,24 +48,26 @@ run_suite() {
 }
 
 # 9. Installed parity (--installed: after check 8; --installed-only: alone). Each harness home holds
-# this skill (tests/ excepted) and global.md byte-equal, and no Stop registration of goal.py
-# stop-hook (run.sh registers it per session). Files the installed skill carries forward from an
-# older install are listed, not counted (--retire-v5 judges them).
+# this skill (tests/ excepted), global.md and its agent files (agents/*.md in ~/.claude/agents/,
+# agents/*.toml in $CODEX_HOME/agents/, each with install.sh's AGENT_MARK inserted) byte-equal.
+# Files the installed skill carries forward from an older install are listed, not counted
+# (--retire-v5 judges them).
 installed_parity() {
-  local CX="${CODEX_HOME:-$HOME/.codex}" drift=0 roots r g h n
+  local CX="${CODEX_HOME:-$HOME/.codex}" drift=0 roots r g ext f a mark
   section "installed parity (read-only)"
+  mark="$(sed -n 's/^AGENT_MARK="\(.*\)"$/\1/p' install/install.sh)"
   roots=("$HOME/.claude"); [ -d "$CX" ] && roots+=("$CX")   # an array: a home may contain spaces
   for r in "${roots[@]}"; do
-    if [ "$r" = "$HOME/.claude" ]; then g="$r/CLAUDE.md" h="$r/settings.json"; else g="$r/AGENTS.md" h="$r/hooks.json"; fi
+    if [ "$r" = "$HOME/.claude" ]; then g="$r/CLAUDE.md" ext=md; else g="$r/AGENTS.md" ext=toml; fi
     cmp -s install/global.md "$g" || { echo "  drift: $g differs from install/global.md"; drift=1; }
+    for f in "$SKILL"/agents/*."$ext"; do   # the mark is a .md's second line, a .toml's first
+      a="$r/agents/$(basename "$f")"
+      { if [ "$ext" = md ]; then head -n 1 "$f"; printf '%s\n' "$mark"; tail -n +2 "$f"; else printf '%s\n' "$mark"; cat "$f"; fi; } |
+        cmp -s - "$a" || { echo "  drift: $a differs from the marked $f"; drift=1; }
+    done
     diff -rq -x __pycache__ -x tests "$SKILL" "$r/skills/execution-methodology" > "$TMP/diff" 2>&1
     grep -F "Only in $r/" "$TMP/diff" | sed 's/^/  carried forward: /'
     grep -vF "Only in $r/" "$TMP/diff" | sed 's/^/  drift: /' | grep . && drift=1
-    n="$(python3 -c 'import json,sys
-try: hooks = json.load(open(sys.argv[1])).get("hooks", {})
-except (OSError, ValueError): hooks = {}
-print(sum("goal.py stop-hook" in h.get("command", "") for e in hooks.get("Stop", []) for h in e.get("hooks", [])))' "$h")"
-    [ "$n" = 0 ] || { echo "  drift: $h has $n Stop registrations of goal.py stop-hook, want 0 (./install.sh drops them)"; drift=1; }
   done
   if [ "$drift" -eq 0 ]; then pass installed_parity
   else echo "  run ./install.sh to bring the installed copies level with this repository"; failed installed_parity installed; fi
@@ -100,10 +102,16 @@ python3 install/tests/link_check.py "$ROOT" || failed links   # prints `verify: 
 section "docs"
 check docs python3 "$ROOT/install/skills/execution-methodology/scripts/docs.py" lint "$ROOT"
 
+# 6b. Pages whose covered paths were committed after their last-verified day (docs.py stale). A
+# warning, never a failure: the milestone close re-verifies the page and bumps the date.
+section "stale"
+python3 "$ROOT/install/skills/execution-methodology/scripts/docs.py" stale "$ROOT" \
+  || echo "verify: stale (warning: pages listed above need re-verification)"
+
 # 7. No current file names a deleted component. Over the tracked and non-ignored files in install/,
 # README.md, AGENTS.md and docs/. Records may name them as rationale and are excluded: decisions.md,
 # measurements.md, docs/goals/**, install.sh's retire list (between its markers), and this file.
-# The rest of EXCLUDE is owed to later tasks or to files this one may not edit; each says why.
+# Each further EXCLUDE entry says why it is there.
 # Persona names that are ordinary words (planner, developer, scout, architect) are not scanned.
 section "dangling names"
 RE='methodology-management|project-onboarding|project-migration|project-conformance|agent-persona-factory|gate-sandbox'
@@ -111,7 +119,7 @@ RE="$RE"'|validate_card|check_review_budget|trace_check|spec_check|ratio_meter|w
 RE="$RE"'|docs-steward|contract-architect|senior-developer|test-judge|migration-validator|product-steward|chief-of-staff|security-validator'
 RE="$RE"'|review\.py|run_goal|goal-session|smoke_goal|sync_personas|agent-personas|graphify|graph-navigation|preflight|disclosure-check'
 RE="$RE"'|validate_disclosure|check_github|check_toolchain|migrate_to_standard|install_hooks|identifier_guard|push_guard'
-RE="$RE"'|progressive-disclosure|explainer-template|escalation\.md'
+RE="$RE"'|progressive-disclosure|explainer-template|escalation\.md|(^|[^_[:alnum:]])run\.sh|stop-hook'
 EXCLUDE="docs/decisions/decisions.md docs/product/measurements.md install/verify.sh"
 # test_rules.py asserts these names absent from the routed files, so it must hold them.
 EXCLUDE="$EXCLUDE install/skills/execution-methodology/tests/test_rules.py"
