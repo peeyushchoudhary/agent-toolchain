@@ -2,7 +2,7 @@
 # The repository gate. Run from install/ or anywhere inside the repository.
 #
 #   ./verify.sh               this repository's checks
-#   ./verify.sh --installed   also: parity of the installed skills, hooks and personas against
+#   ./verify.sh --installed   also: parity of the installed skills, hook registrations and personas against
 #                             ~/.claude and ~/.codex (read-only; never part of the default run)
 #
 # Output contract, which gate.py reads: each unittest suite prints unittest's own output unchanged
@@ -65,8 +65,7 @@ run_suite() {
 }
 
 # ── 1. Every published skill's unittest suite ────────────────────────────────────────────────────
-# A skill with code (scripts/) must carry a suite; one with neither (graph-navigation) has nothing
-# to run.
+# A skill with code (scripts/) must carry a suite; one without scripts has nothing to run.
 for s in $(published_skills); do
   if [ ! -d "install/skills/$s/tests" ]; then
     if [ -d "install/skills/$s/scripts" ]; then
@@ -191,9 +190,6 @@ if [ "$INSTALLED" -eq 1 ]; then
       diff -rq -x __pycache__ -x ROUND-GRANTS.tsv "install/skills/$s" "$root/skills/$s" >/dev/null 2>&1 ||
         differs "$root/skills/$s differs from install/skills/$s"
     done
-  done
-  for h in install/hooks/*; do
-    cmp -s "$h" "$HOME/.claude/hooks/$(basename "$h")" || differs "$HOME/.claude/hooks/$(basename "$h")"
   done
   for pair in "$HOME/.claude/settings.json" "$CX/hooks.json"; do
     [ "$pair" = "$CX/hooks.json" ] && [ ! -d "$CX" ] && continue

@@ -17,10 +17,10 @@ order.
 
 ## Skill surface chart
 
-`skill-surface.svg` is an authored text graphic. It shows one segment for each of the four skills in
+`skill-surface.svg` is an authored text graphic. It shows one segment for each of the published skills in
 the [published inventory](../../README.md#what-is-published-and-what-is-not):
 `execution-methodology`, drawn twice as wide as the others because it carries the lifecycle, then
-`agent-personas`, `progressive-disclosure` and `graph-navigation`.
+`agent-personas` and `progressive-disclosure`.
 
 ## Regeneration and review
 

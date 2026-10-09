@@ -12,7 +12,7 @@ made to an installed file is overwritten by the next install.
 
 ### Skills
 
-The four skills named in `install/skills/.gitignore`. The installer derives the set from that
+The three skills named in `install/skills/.gitignore`. The installer derives the set from that
 allowlist rather than carrying its own count, and a declared skill missing from the package is a
 failure.
 
@@ -21,7 +21,6 @@ failure.
 | `skills/execution-methodology/` | The chief's rules, one reference per kind of work, the goal and gate tools, read-only review, the driver |
 | `skills/agent-personas/` | Five persona sources and the renderer |
 | `skills/progressive-disclosure/` | The route standard, validator, hooks installer, GitHub checker, push guard |
-| `skills/graph-navigation/` | The symbol-first ladder for querying a graphify graph |
 
 `graphify` may also be present. It is a vendor skill that this repository neither publishes nor
 manages.
@@ -42,19 +41,12 @@ manages.
 
 ### Hooks, registered in `~/.claude/settings.json`
 
-Every script in `install/hooks/` is copied to `~/.claude/hooks/`, overwriting older copies. The
-settings file is merged, never replaced: entries are appended only when their command is absent, a
+The settings file is merged, never replaced: entries are appended only when their command is absent, a
 file that is not valid JSON is refused, and a backup is taken before the first change.
 
 | Event | Script | Behaviour |
 |---|---|---|
-| `SessionStart` | `hooks/disclosure-check.sh` | Reports GitHub state, toolchain drift, a broken route, a stale graph. Reports, never writes |
-| `SessionStart` | `hooks/graphify-session-lessons.sh` | Injects the graph's lessons file, capped |
-| `SessionStart` | `hooks/preflight.sh` | Machine-fact checks for environment failures. Reports, never writes |
-| `PreToolUse` (Bash) | `hooks/graphify-query-advisor.py` | Injects the symbol-first ladder when a prose graph query is about to run |
 | `Stop` | `goal.py stop-hook` | Blocks a stop while `goal.py done` is unmet, at most three times per session |
-
-Session hooks report and never create files, because they fire in every directory a session starts in.
 
 ### Generated agents
 

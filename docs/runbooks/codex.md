@@ -118,8 +118,8 @@ Then open Codex in a migrated repo and confirm it reads `AGENTS.md` and can spaw
 
 ## What Codex does not get
 
-- **`~/.claude/hooks/`** — session-start reporting, the graphify query advisor, lessons injection.
-  Claude Code only. Codex gets the two goal hooks through `hooks.json`.
+- **`~/.claude/settings.json` hooks** — Claude Code only. Codex gets the goal Stop hook through
+  `hooks.json`.
 - **`~/.claude/settings.json`** — including `skillOverrides`.
 
 Anything that must apply to both harnesses belongs in the repository, not in a hook or a skill.

@@ -45,10 +45,9 @@ repository is summarised once in [the front page](../README.md#current-state).
 
 ## What is published, and what is not
 
-`install/skills/` is the authored source of the published skills; `install/hooks/` holds the session
-hooks. Four skills are published: `execution-methodology`, `agent-personas`, `progressive-disclosure`
-and `graph-navigation`. The list is enforced by `install/skills/.gitignore`, which ignores its own
-directory and then re-includes those four by name, so adding another is a deliberate line in a file
+`install/skills/` is the authored source of the published skills. Three skills are published:
+`execution-methodology`, `agent-personas` and `progressive-disclosure`. The list is enforced by
+`install/skills/.gitignore`, which ignores its own directory and then re-includes those three by name, so adding another is a deliberate line in a file
 rather than a side effect of a copy.
 
 `execution-methodology` describes a process, not the work it was applied to, and names no project,

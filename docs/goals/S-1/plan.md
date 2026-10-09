@@ -72,7 +72,7 @@ widening (row 4 names the commit); a `@skip` added to an existing test (row 5); 
 the parser on this very plan (nine tasks, two milestones). One test for `run.sh` with a fake harness
 command. From this task on, `done` rows 3–8 apply to S-1 itself.
 
-### [ ] T3 — cut graph context and the SessionStart report hooks
+### [x] T3 — cut graph context and the SessionStart report hooks
 writes: install/hooks/**, install/skills/.gitignore, install/skills/graph-navigation/**, install/skills/progressive-disclosure/scripts/install_hooks.py, install/skills/progressive-disclosure/tests/test_install_hooks_*.py, install/install.sh, install/verify.sh, install/tests/test_install.py, docs/**
 tests-may-change: install/skills/progressive-disclosure/tests/test_install_hooks_*.py, install/tests/test_install.py
 Delete `graphify-query-advisor.py`, `graphify-session-lessons.sh`, `preflight.sh`,
@@ -220,6 +220,13 @@ the other vendor's diff review, `done` for M2, merge.
   `run.sh`, `agents/builder.md`, `install.sh` and `e2e_install.sh`) and its e2e proves that a
   session's `git push` attempt is denied and settles whether `--settings` merges with the global
   settings file.
+- 2026-10-09 T3: `install.sh` now registers exactly one hook per harness, the Stop hook (which the
+  run-security decision above moves into `run.sh` in T9). `install_hooks.py` and its tests were
+  already deleted whole by T4, so nothing was cut from them. Process lesson recorded: a builder shared
+  the controller's checkout and index, and a controller commit swept its staged work under the wrong
+  task tag; `done` row 4 caught it and the unpushed branch was rewritten so each `[Tn]` commit holds
+  its own paths. From T5 on, builders work in their own worktree and the controller applies their
+  staged diff.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 

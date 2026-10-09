@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Install the v6 toolchain into ~/.claude and ~/.codex (or $CODEX_HOME).
 #
-# Installs the published skills, the hooks, the session and Stop hook registrations for both
-# harnesses, and the rendered personas. Idempotent: a second run changes nothing. A plain install
-# removes nothing: files an installed skill has and this package lacks are carried forward. Only
-# --retire-v5 deletes, and only the named v5.1 set below.
+# Installs the published skills, the Stop hook registration for both harnesses, and the rendered
+# personas. Idempotent: a second run changes nothing. A plain install removes nothing: files an
+# installed skill has and this package lacks are carried forward. Only --retire-v5 deletes, and
+# only the named v5.1 set below.
 #
 #   ./install.sh               install or update
 #   ./install.sh --dry-run     print what would happen, change nothing
@@ -269,24 +269,6 @@ for d in "$HERE"/skills/*/; do
   esac
 done
 
-# ── Hook scripts ─────────────────────────────────────────────────────────────────────────────────
-# Every script under hooks/ goes to ~/.claude/hooks, overwriting the installed copy (this is what
-# replaces an older disclosure-check.sh). Codex needs none: its one hook is goal.py in its skills.
-echo "hooks"
-run mkdir -p "$CLAUDE/hooks" || fail "hooks: could not create $CLAUDE/hooks"
-hooks_installed=0
-for h in "$HERE"/hooks/*; do
-  [ -f "$h" ] || continue
-  hb="$(basename "$h")"
-  if place_file "$h" "$CLAUDE/hooks/$hb" && { [ "$DRY" -eq 1 ] || chmod +x "$CLAUDE/hooks/$hb"; }; then
-    hooks_installed=$((hooks_installed + 1))
-  else
-    fail "hook $hb: could not install into $CLAUDE/hooks"
-  fi
-done
-[ "$hooks_installed" -gt 0 ] || fail "hooks: no hook was installed — is hooks/ missing from this package?"
-say "$hooks_installed hook script(s) current in $CLAUDE/hooks"
-
 # ── Hook registration ────────────────────────────────────────────────────────────────────────────
 # Merged, never replaced: an existing file is parsed first (malformed JSON is refused), entries are
 # appended only when their command is absent, and the file is rewritten, with a backup, only when
@@ -304,11 +286,6 @@ GOAL = "skills/execution-methodology/scripts/goal.py"
 if harness == "claude":
     ref = lambda rel: "~/.claude/" + rel  # noqa: E731
     WANT = [
-        ("SessionStart", None, "bash {} 2>/dev/null || true", "hooks/disclosure-check.sh"),
-        ("SessionStart", None, "bash {} 2>/dev/null || true", "hooks/graphify-session-lessons.sh"),
-        ("PreToolUse", "Bash", "python3 {} 2>/dev/null || true", "hooks/graphify-query-advisor.py"),
-        ("SessionStart", None, 'bash {} "${{CLAUDE_PROJECT_DIR:-$PWD}}" 2>/dev/null || true',
-         "hooks/preflight.sh"),
         ("Stop", None, "python3 {} stop-hook", GOAL),
     ]
 else:  # codex: absolute paths, because CODEX_HOME need not be ~/.codex
