@@ -135,13 +135,16 @@ def parse_plan(text: str) -> dict:
     return plan
 
 def frozen_view(text) -> str:
-    """The plan with ticks normalised, writes/tests-may-change lines and Decisions/Parked bodies dropped."""
-    out, skip = [], False
+    """The plan with ticks normalised, Decisions/Parked bodies dropped, and writes/tests-may-change
+    lines dropped only where parse_plan reads them: under a task header in Tasks."""
+    out, skip, section, task = [], False, None, False
     for line in (text or "").splitlines():
         if line.startswith("## "):
-            skip = line[3:].strip() in ("Decisions", "Parked")
-        elif skip or FIELD_RE.match(line):
+            section, task = line[3:].strip().split(" (")[0].strip(), False
+            skip = section in ("Decisions", "Parked")
+        elif skip or (task and FIELD_RE.match(line)):
             continue
+        task = task or (section == "Tasks" and bool(TASK_RE.match(line)))
         out.append(re.sub(r"^(###\s+)\[[ x!]\]", r"\1[ ]", line))
     return "\n".join(out).rstrip()
 

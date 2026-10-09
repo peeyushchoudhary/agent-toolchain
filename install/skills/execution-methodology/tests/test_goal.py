@@ -202,6 +202,19 @@ class DoneTest(RepoCase):
         self.repo.commit("[T1] alpha")
         self.assertRow(6, "changed outside ticks")
 
+    def test_outcome_field_like_lines_remain_frozen(self):
+        self.repo.edit(PLAN, "The fixture does two things.\n",
+                       "The fixture does two things.\nwrites: must preserve customer records\n")
+        self.repo.commit("F-9: approve an outcome with a field-like line")
+        self.repo.git("tag", "-f", "goal/F-9/approved")
+        self.repo.edit(PLAN, "writes: must preserve", "writes: may erase")
+        sha = self.repo.commit("F-9: reword the outcome")
+        self.assertRow(3, f"{sha[:10]} names 0 tasks and is not plan-only")
+        self.assertRow(6, "changed outside ticks")
+        before = goal.frozen_view(plan_text())
+        self.assertEqual(goal.frozen_view(plan_text().replace("writes: src/a/**", "writes: src/a/**, src/z/**")),
+                         before)
+
     def test_row7_receipt_must_name_heads_tree(self):
         self.repo.close()
         path = receipt_path(self.repo.dir, "F-9", self.repo.tree(), FULL)
