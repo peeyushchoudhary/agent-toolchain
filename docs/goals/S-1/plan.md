@@ -156,7 +156,8 @@ one-line row and full text for D2, D3, D4, D17, D18, D29; `docs/product/measurem
 `runbooks/global-instructions.md`, `NOTES-break-tests.md`. History and the tags keep them.
 
 ### [ ] T9 — local end-to-end run; install, uninstall and rollback rehearsal; measurements
-writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/tests/e2e_install.sh, docs/product/measurements.md
+writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/verify.sh, install/tests/**, docs/product/measurements.md
+tests-may-change: install/tests/**
 `e2e_run.sh`: for each harness separately, creates a fresh scratch repository with a two-task
 `plan.md`, runs `run.sh --harness <h> --sessions 3` for real, and asserts that harness's `goal.py
 done` prints DONE and its `packet.md` exists; then, in disposable homes, runs `install.sh`,
@@ -270,6 +271,9 @@ the other vendor's diff review, `done` for M2, merge.
   Six of sixteen lessons survive as one line each in `methodology.md`. `install/AGENTS.md` and the PR
   template were brought to v7 by the controller. The `verify.sh` dangling-name exclusions for the
   deleted records are now unnecessary; T9 or the next goal removes them.
+- 2026-10-09 widening: T9 `writes` gains `install/verify.sh` and `install/tests/**` (with
+  `tests-may-change`), because moving the Stop registration out of `install.sh` changes the installer
+  tests and the `--installed` parity check.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 
