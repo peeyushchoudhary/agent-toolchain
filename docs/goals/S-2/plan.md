@@ -226,8 +226,8 @@ and the `- Q:` lines (AC10); about 60 lines, standard library only, no external 
 section, every task with its `reads`, and the `- Q:` lines; `cause:` counts.
 
 ### [ ] T11 — end-to-end, measurements, the pages to v7.1
-writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**, docs/product/measurements.md, docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/runbooks/**, docs/README.md, README.md, install/README.md, AGENTS.md
-tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**
+writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**, docs/product/measurements.md, docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/runbooks/**, docs/README.md, README.md, install/README.md, AGENTS.md, install/verify.sh, install/tests/e2e_install.sh
+tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**, install/tests/e2e_install.sh
 reads: install/skills/execution-methodology/tests/e2e_run.sh, docs/product/measurements.md, docs/architecture/methodology.md, docs/goals/S-2/spec.md
 `e2e_run.sh`'s scratch goal gains a `spec.md` with two criteria traced to its tasks, `reads:`
 lines, one `docs/` page with frontmatter and `covers`, its generated pointer files, and a gate
@@ -382,6 +382,10 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   loop ahead of T9. Follow-up: after `--retire-v5` on a home that still holds old generated
   builder/reviewer/scout files, a second `./install.sh` installs the new agents (install runs
   before retire and keeps unmarked files).
+- 2026-10-09 chief: T11's write set gains `install/verify.sh` and `install/tests/e2e_install.sh`,
+  so T11 can drop the dangling-name exclusions T9 adds for `README.md`, `methodology.md`,
+  `e2e_install.sh` and `goal_fixture.py` once it removes their launcher mentions; T9's own writes
+  did not reach those files.
 
 ## Parked
 
