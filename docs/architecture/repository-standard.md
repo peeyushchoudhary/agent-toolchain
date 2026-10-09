@@ -24,7 +24,8 @@ docs/goals/<id>/               spec.md, design.md unless touches is none, plan.m
 docs/archive/                  pointers to tags; nothing current
 .claude/rules/<page-slug>.md   generated: one pointer file per page with a non-empty covers; the
                                slug is the page's path under docs/ with `/` as `--`
-AGENTS.md pointer block        generated: in the nearest marked AGENTS.md, the pages covering that
+AGENTS.md pointer block        generated: in the nearest AGENTS.md, which must carry the markers (an
+                               unmarked one is reported, never written), the pages covering that
                                directory; docs/AGENTS.md holds only this page's block, since the
                                root AGENTS.md is a table of contents under the 1,350-word ceiling
 ```
