@@ -528,6 +528,21 @@ class PrePushTest(GuardCase):
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("absolute home path", r.stdout + r.stderr)
 
+    def test_new_remote_push_scans_other_remote_history(self):  # review R10
+        for name in ("private", "public"):
+            self.sh("git", "init", "-q", "--bare", str(self.tmp / f"{name}.git"))
+            self.sh("git", "remote", "add", name, str(self.tmp / f"{name}.git"))
+        self.commit(self.repo, {"config.py": f'K = "{AWS_KEY}"\n'})
+        self.sh("git", "push", "-q", "private", "feature")  # now reachable from refs/remotes/private
+        public = ("public", str(self.tmp / "public.git"))
+        code, out = self.push(argv=public)
+        self.assertEqual(code, 1, out)
+        self.assertIn("config.py", out)
+        self.assertEqual(self.push(argv=("private", str(self.tmp / "private.git")))[0], 0)
+        for argv in ((str(self.tmp / "public.git"),) * 2, ("pr*",  "url"), ()):  # unknown: all of it
+            with self.subTest(argv):
+                self.assertEqual(self.push(argv=argv)[0], 1)
+
     def test_sha256_null_oid(self):  # push 16
         repo = self.new_repo("sha256", fmt="sha256")
         code, out = self.push(remote="0" * 64, repo=repo)

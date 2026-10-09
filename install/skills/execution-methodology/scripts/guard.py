@@ -225,9 +225,11 @@ def message(path: str, rules) -> list[str]:
     return hits
 
 
-def pre_push(payload: str) -> list[str]:
+def pre_push(payload: str, name: str = "") -> list[str]:
     git("rev-parse", "--show-toplevel")  # a push from outside a work tree is not scanned clean
     hits: list[str] = []
+    # a new ref skips only what the destination already has; another remote's history is not public
+    known = name in git("remote").split() and not re.search(r"[*?\[]", name)
     for parts in (raw.split() for raw in payload.splitlines() if raw.strip()):
         if len(parts) != 4:
             raise GuardError(f"unparseable pre-push payload line ({len(parts)} fields, expected 4)")
@@ -239,7 +241,7 @@ def pre_push(payload: str) -> list[str]:
             hits.append(f"direct push: {ref} (use a pull request; PD_ALLOW_MAIN_PUSH=1/true/yes/on "
                         f"waives this rule only; 0, false, no, off or anything else does not)")
         if not remote.strip("0"):
-            rng = [local, "--not", "--remotes"]
+            rng = [local, "--not", f"--remotes={name}"] if known else [local]
         elif run_git(["cat-file", "-e", remote], codes=(0, 1))[0] == 1:
             raise GuardError(f"the remote tip {remote[:12]} is not in the local object store, so "
                              f"the pushed range cannot be computed; run `git fetch` and push again")
@@ -285,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
             return self_test()
         notes: list[str] = []
         if a[:1] == ["--pre-push"] and len(a) <= 3 and not any(x.startswith("-") for x in a[1:]):
-            hits = pre_push(sys.stdin.read())
+            hits = pre_push(sys.stdin.read(), *a[1:2])
         elif a == ["--staged"]:
             hits = staged(commit_rules(notes))
         elif len(a) == 2 and a[0] == "--message":
