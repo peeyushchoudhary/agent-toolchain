@@ -83,7 +83,7 @@ afterwards and removed.
 
 ### [x] T4 — one guard, shipped inside the skill; `git-hooks.sh`
 writes: install/skills/execution-methodology/scripts/guard.py, install/skills/execution-methodology/scripts/git-hooks.sh, install/skills/execution-methodology/tests/test_guard.py, install/skills/execution-methodology/tests/test_git_hooks.py, install/skills/progressive-disclosure/**, install/tests/**, install/verify.sh, install/install.sh, .gitignore, docs/**
-tests-may-change: install/skills/progressive-disclosure/tests/**, install/tests/**
+tests-may-change: install/skills/progressive-disclosure/tests/**, install/tests/**, install/skills/execution-methodology/tests/test_guard.py, install/skills/execution-methodology/tests/test_git_hooks.py
 New `guard.py` (size follows coverage; ≈150 lines expected): staged content and commit messages for
 home paths, emails, the private-name list and secret patterns; the pushed range for secrets and
 files over 10 MB; direct push to the default branch; `--self-test`. It carries its own secret
@@ -236,11 +236,20 @@ the other vendor's diff review, `done` for M2, merge.
   `NOTES-break-tests.md` and the README skill diagram still name the deleted skill — T7 and T8 own
   them. The old pre-commit hook's route validator has no successor in the hook: the link check in
   `verify.sh` is the replacement.
+- 2026-10-09 Astra M1 diff review (one round, `.runs/S-1/review.md`, reviewed 585d722): BLOCK, 15
+  blocking, 1 non-blocking. Each blocking finding is closed by a `[Tn][Rn]` fix commit with the
+  closing test the review names: R1–R7, R13, R14 in `goal.py`/`run.sh` (T2); R8–R11 in `guard.py`
+  (T4); R12, R15 in `verify.sh` (T5). Widening: T4 `tests-may-change` gains its own `test_guard.py`
+  and `test_git_hooks.py` so the fix commits can extend them. R3 is settled as: plan-only commits may
+  widen `writes:` and `tests-may-change:` only together with a new Decisions line, and `packet`
+  lists both kinds of widening; R16 (the review packet omitted two asset files) is parked.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 
 ## Parked
 
+- R16 (non-blocking, M1 review): the controller's review-packet script excluded `docs/assets/**`
+  from the inline diff while the stat kept their totals; include them or say so in the packet header.
 - Replacing the private global instruction files with `global.md` (founder, at the global install;
   `install.sh` backs them up first).
 - Stranded product branches (founder, separate from the pilot; archive is the council's default).
