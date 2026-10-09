@@ -309,6 +309,8 @@ def spec_lint(ctx):
     text, errs = (goal_dir / "spec.md").read_text(), []
     errs += [f"{t['id']}: writes and no reads" for t in plan["tasks"].values() if t["writes"] and not t["reads"]]
     touches = plan["meta"].get("touches")
+    if touches is not None and not isinstance(touches, (list, str)):
+        errs.append(f"touches: {touches!r} is not a list")
     touches = touches if isinstance(touches, list) else [touches] if isinstance(touches, str) and touches else []
     errs += [f"touches: unknown value {v!r}" for v in touches if v not in TOUCHES]
     if any(v != "none" for v in touches) and not (goal_dir / "design.md").is_file():

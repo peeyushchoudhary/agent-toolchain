@@ -340,6 +340,10 @@ class SpecLintTest(RepoCase):
         self.repo.edit(PLAN, "touches: [none]", "touches: [none, sideways]")
         self.assertLint(1, "touches: unknown value 'sideways'")
 
+    def test_mapping_touches_fails_lint(self):
+        self.repo.edit(PLAN, "touches: [interface]", "touches: {kind: interface}")
+        self.assertLint(1, "touches: {'kind': 'interface'} is not a list")
+
     def test_an_untraced_ac_fails_lint(self):
         self.repo.write(SPEC_PATH, SPEC.replace("\n\n**Non-goals.**", "\n- AC3 WHEN gamma runs THE SYSTEM SHALL do it."
                                                 "\n\n**Non-goals.**"))
