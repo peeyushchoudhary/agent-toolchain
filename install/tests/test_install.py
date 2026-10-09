@@ -502,6 +502,18 @@ class LinkCheckTest(InstallCase):
         self.assertEqual(len(bad), 2, bad)
 
 
+class E2ERunTest(InstallCase):
+    def test_e2e_run_rehearses_install_identity_and_rollback(self):
+        """The skill's e2e_run.sh, in this fixture's scratch HOME: the install and uninstall of a
+        disposable home are byte-checked and the D29 rollback sequence runs in a temporary clone."""
+        r = subprocess.run(["bash", str(SKILLS / SKILL / "tests" / "e2e_run.sh")], env=self.env,
+                           capture_output=True, text=True, cwd=self.home, timeout=600)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for check in ("install", "uninstall", "rollback to v6-base", "uninstall after rollback"):
+            self.assertRegex(r.stdout, rf"(?m)^e2e_run: {check} +ok \(")
+        self.assertRegex(r.stdout.splitlines()[-1], r"^e2e_run: PASS \(.*install byte-identity, rollback to v6-base\)$")
+
+
 class M2InstallFixes(InstallCase):
     """The M2 diff review's installer findings, one closing test each."""
 

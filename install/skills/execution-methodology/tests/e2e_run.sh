@@ -17,7 +17,11 @@
 # and .runs/E-1/approval.html holds the criteria, resume names T1, both [Tn] commits exist, `goal.py
 # done` prints DONE M1, `goal.py packet` writes .runs/E-1/packet.md, `goal.py cost` prints a claude
 # and a codex line (`unknown` here: a scratch HOME has no transcripts), and the repository's bare
-# origin received nothing. Exit 0 when all hold.
+# origin received nothing. Then, in one more disposable home: install.sh puts the skill (minus
+# tests/), the global files and the six agent files there and nothing else, --uninstall leaves the
+# home byte-identical to before, and the documented D29 rollback (install/README.md) to
+# methodology/v6-base installs every v6 skill and hook as shipped in a temporary clone. Exit 0 when
+# all hold.
 set -uo pipefail
 
 [ $# -eq 0 ] || { sed -n '7p' "$0" >&2; exit 2; }
@@ -164,9 +168,60 @@ harness_run() {  # harness_run claude|codex
 
 for h in claude codex; do (errors=0; harness_run "$h"; exit "$errors") || errors=$((errors + $?)); done
 
+# ── Install byte-identity, then the D29 rollback: the documented sequence, in a temporary clone ──
+REPO="$(git -C "$INSTALL" rev-parse --show-toplevel)"
+snapshot() { (cd "$1" && find . -print | LC_ALL=C sort && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum 2>/dev/null); }
+r="$tmp/rehearsal"; mkdir -p "$r/.claude" "$r/.codex"
+printf 'my own global instructions\n' > "$r/.claude/CLAUDE.md"
+printf 'my own codex instructions\n' > "$r/.codex/AGENTS.md"
+snapshot "$r" > "$tmp/before"
+inst() { HOME="$r" CODEX_HOME="$r/.codex" bash "$1/install.sh" "${@:2}" > "$tmp/rehearsal.log" 2>&1 || { cat "$tmp/rehearsal.log"; return 1; }; }
+if inst "$INSTALL"; then
+  want="$(cd "$SKILL_SRC" && find . -type f -not -path './tests/*' -not -path '*/__pycache__/*' | LC_ALL=C sort)"
+  drift=""
+  for root in "$r/.claude" "$r/.codex"; do
+    got="$(cd "$root/skills/execution-methodology" && find . -type f | LC_ALL=C sort)"
+    [ "$got" = "$want" ] || drift="$drift $root/skills: $(diff <(echo "$want") <(echo "$got") | grep '^[<>]' | head -3 | tr '\n' ' ')"
+    cmp -s "$INSTALL/global.md" "$root/$([ "$root" = "$r/.claude" ] && echo CLAUDE.md || echo AGENTS.md)" || drift="$drift global file in $root"
+  done
+  extra="$(cd "$r" && find . -type f -not -path './.claude/skills/*' -not -path './.codex/skills/*' | LC_ALL=C sort |
+    grep -vE '^\./\.(claude/CLAUDE|codex/AGENTS)\.md(\.bak-[0-9-]+)?$|^\./\.(claude|codex)/agents/(builder|reviewer|scout)\.(md|toml)$')"
+  [ -z "$extra" ] || drift="$drift unexpected: $(echo $extra)"
+  [ -z "$drift" ] && ok "install" "skill = source minus tests/ in both homes, global files backed up, agents, nothing else" \
+    || bad "install" "$drift"
+else bad "install" "install.sh exited non-zero"; fi
+if inst "$INSTALL" --uninstall; then
+  snapshot "$r" > "$tmp/after"
+  diff -q "$tmp/before" "$tmp/after" > /dev/null && ok "uninstall" "home byte-identical to before install" ||
+    bad "uninstall" "home differs: $(diff "$tmp/before" "$tmp/after" | grep '^[<>]' | head -4 | tr '\n' ' ')"
+else bad "uninstall" "install.sh --uninstall exited non-zero"; fi
+# The reference is methodology/v6-base's own install/ (git archive), so a v7.1-only file the rollback
+# left behind and the v6 installer copied is a difference.
+v6="$tmp/v6-clone" ref="$tmp/v6-ref"; mkdir -p "$ref"
+if gitq clone -q "$REPO" "$v6" 2>"$tmp/wt.log" && gitq -C "$REPO" archive methodology/v6-base install | tar -x -C "$ref" &&
+   (cd "$v6" && git rm -r -q install && git checkout methodology/v6-base -- install) 2>>"$tmp/wt.log"; then
+  if (cd "$v6" && HOME="$r" CODEX_HOME="$r/.codex" bash -c '(cd install && ./install.sh)') > "$tmp/rehearsal.log" 2>&1; then
+    drift=""
+    for s in $(sed -n 's|^!/\([A-Za-z0-9_-]*\)/*$|\1|p' "$ref/install/skills/.gitignore"); do
+      for root in "$r/.claude" "$r/.codex"; do
+        [ -d "$root/skills/$s" ] || { drift="$drift missing $root/skills/$s"; continue; }
+        d="$(diff -rq -x __pycache__ "$ref/install/skills/$s" "$root/skills/$s" 2>&1 | head -2)"
+        [ -z "$d" ] || drift="$drift $d"
+      done
+    done
+    for f in "$ref"/install/hooks/*; do [ -f "$r/.claude/hooks/$(basename "$f")" ] || drift="$drift missing hooks/$(basename "$f")"; done
+    [ -z "$drift" ] && ok "rollback to v6-base" "documented sequence; every v6 skill and hook installed as shipped" ||
+      bad "rollback to v6-base" "$drift"
+  else cat "$tmp/rehearsal.log"; bad "rollback to v6-base" "v6 install.sh exited non-zero"; fi
+else bad "rollback to v6-base" "the documented sequence failed: $(head -1 "$tmp/wt.log")"; fi
+if inst "$INSTALL" --uninstall; then
+  left="$(cd "$r" && find . -type f | grep -vxF -e ./.claude/CLAUDE.md -e ./.codex/AGENTS.md | wc -l | tr -d ' ')"
+  ok "uninstall after rollback" "v7.1 uninstall ran; $left v6 file(s) remain, which v7.1 does not own"
+else bad "uninstall after rollback" "install.sh --uninstall exited non-zero"; fi
+
 echo
 if [ "$errors" -eq 0 ]; then
-  echo "e2e_run: PASS (claude, codex: lint, approval page → resume → [T1] [T2] with docs.py lint in the gate → DONE, cost lines; no launcher)"
+  echo "e2e_run: PASS (claude, codex: lint, approval page → resume → [T1] [T2] with docs.py lint in the gate → DONE, cost lines; no launcher; install byte-identity, rollback to v6-base)"
   exit 0
 fi
 echo "e2e_run: FAIL ($errors)"; exit 1
