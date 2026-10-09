@@ -1,105 +1,62 @@
 # Installing
 
+Needs Python 3.10+ (the installer refuses older) and git. Claude Code, Codex or both; the Codex
+side is skipped, and says so, when `$CODEX_HOME` (default `~/.codex`) does not exist.
+
 ```bash
 cd install
-./install.sh --dry-run     # see what it would do
-./install.sh               # do it
+./install.sh --dry-run     # print every action, write nothing (combines with the flags below)
+./install.sh               # install or update; a second run changes nothing
+./install.sh --uninstall   # remove what install.sh installed; restore the newest global-file backup
+./install.sh --retire-v5   # install, then delete the named v5.1 and v6 leftovers
 ./verify.sh                # the repository gate
 ```
 
-A plain install removes nothing: files an installed skill has and this package lacks, such as the
-v5.1 scripts, references and persona sources, are carried forward, and v5.1 skills, personas and
-data stay where they are until `--retire-v5`. A project that still carries the v5.1 runtime pin
-(`docs/agents/execution/runtime.json`) is migrated by hand first: `goal.py` refuses to execute there and
-says so. Follow the [migration reference](skills/execution-methodology/references/migrate.md).
+## What installs where
 
-## Requirements
+| Source | Claude Code | Codex |
+|---|---|---|
+| `global.md` | `~/.claude/CLAUDE.md` | `$CODEX_HOME/AGENTS.md` |
+| `skills/execution-methodology/` (`SKILL.md`, `references/`, `agents/`, `scripts/`; not `tests/`) | `~/.claude/skills/` | `$CODEX_HOME/skills/` |
+| (no hook registration: `run.sh` registers the Stop hook per unattended session) | — | — |
 
-| | |
-|---|---|
-| **Python 3.10+** | The tools use PEP 604 syntax; the installer refuses older versions |
-| **git** | Required for the per-repository hooks and the goal tools |
-| **Claude Code and/or Codex** | Either alone is fine. The Codex side is skipped when its home directory is absent |
+A global file whose content differs is backed up beside it as `<name>.bak-<YYYYmmdd-HHMMSS>` first;
+an equal one is not touched. The skill is staged and swapped in by rename, so a failed copy leaves
+the working install intact. Files an earlier install left in the skill are kept and reported. The installer registers no
+hook; it removes any `goal.py stop-hook` entry an older install left in `settings.json` or
+`hooks.json` (a file that is not valid JSON is refused), because `run.sh` registers that hook per
+unattended session and two registrations would race.
 
-`gh`, `ripgrep` and `graphify` are optional. Without `graphify` the `graph-navigation` skill and
-the two graphify hooks are inert.
+`--uninstall` removes the skill directories and the hook entries whose command names
+`goal.py stop-hook` (a hook file left empty is deleted), removes a global file only when it is still
+an unmodified copy of `global.md`, and then moves the newest backup back. Run twice, the second run
+changes nothing.
 
-## What it installs
+`--retire-v5` deletes exactly the marked list in `install.sh`: the v5.1 skills and the v6 support
+skills, the v6 hook scripts and their registrations, persona renders that carry the renderer's
+GENERATED marker, and files inside the skill that v6 or v5.1 shipped and v7 does not (including the
+installed `tests/`). Anything else is reported and left in place. It is skipped if an install step
+failed. Any failed step makes the script exit 1, naming the step.
 
-```
-~/.claude/skills/        the four published skills named in skills/.gitignore:
-                         execution-methodology, agent-personas, progressive-disclosure, graph-navigation
-~/.claude/hooks/         every script in hooks/, overwriting older copies
-~/.claude/settings.json  hook entries, merged: four existing ones, plus
-                           Stop          python3 ~/.claude/skills/execution-methodology/scripts/goal.py stop-hook
-~/.claude/agents/        the persona pool, rendered by sync_personas.py
-$CODEX_HOME/skills/      the same four skills (CODEX_HOME defaults to ~/.codex)
-$CODEX_HOME/hooks.json   the same Stop hook, with an absolute path, merged
-$CODEX_HOME/agents/      the same personas, as TOML
-$CODEX_HOME/config.toml  an [agents] block, appended only if none exists
-```
+## Rollback
 
-**Merged, never replaced.** `settings.json` and `hooks.json` are parsed first, and a file that is not
-valid JSON is refused. Entries are appended only when their command is absent, so existing entries
-keep their position. The file is rewritten, after a backup, only when something was added. A second
-install changes nothing.
-
-**Codex hook trust.** Codex runs a user-level hook only after you review and trust it in Codex. The
-installer never writes trust state, so trust the new hook once after the first install, and
-again whenever their entries change.
-
-**Personas** are rendered into a scratch directory and copied file by file. Run directly, the
-renderer would also prune every generated agent it does not know, including the v5.1 personas, and
-a plain install removes nothing.
-
-The installer does not touch `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`; see
-[../docs/architecture/operating-model.md](../docs/architecture/operating-model.md) and
-[../docs/runbooks/codex.md](../docs/runbooks/codex.md).
-
-## Retiring v5.1
-
-After every project is migrated:
+From the repository root:
 
 ```bash
-./install.sh --retire-v5 --dry-run   # lists exactly what it would delete
-./install.sh --retire-v5
+(cd install && ./install.sh --uninstall)                   # on the v7 tree
+git rm -r -q install && git checkout methodology/v6-base -- install && (cd install && ./install.sh)
 ```
 
-It installs as usual and then deletes only the paths named in the retire-v5 list at the top of
-`install.sh`:
-- the six retired skill directories;
-- the thirteen retired persona renders, and only when they carry the renderer's GENERATED marker;
-- inside the published skills, the files v5.1 shipped and v6 does not (old scripts, references,
-  tests and persona sources), and the v5.1 round-grant ledger.
+`git rm` comes first because a plain checkout overlays v6 on v7 and keeps the v7-only files, which
+the v6 installer would then copy. `skills/execution-methodology/tests/e2e_run.sh` rehearses this sequence in a temporary clone.
 
-`--retire-v5` is skipped if any install step fails. Anything else it finds in the skill and agent
-directories is reported and left in place, including files inside a published skill that the
-list does not name. That
-includes any `approved-runtimes` bundle, which is yours to remove by hand.
+## The gate
 
-## The repository gate
-
-`./verify.sh` runs, from the repository root:
-1. every published skill's unittest suite;
-2. `validate_disclosure.py --standard`;
-3. the identifier guard over the tree;
-4. the size ceilings (`tests/test_size.py`);
-5. a dangling-reference scan for retired names;
-6. the installer tests (`tests/test_install.py`, against a temporary HOME) and
-   `preserve_selftest.sh`;
-7. `install.sh --dry-run` against a scratch HOME.
-
-A suite with failing tests prints unittest's own `FAIL:`/`ERROR:` lines. Any other failing check
-(including a suite that ran no test, crashed, or is missing for a skill with `scripts/`) prints
-`FAIL: <check> (verify.checks)`. The last line is `verify: PASS` or
-`verify: FAIL (<n> checks)`. `./verify.sh --installed` adds a read-only parity check of the
-installed skills, hooks, registrations and personas against this repository.
-
-## If something fails
-
-| Symptom | Cause |
-|---|---|
-| `REFUSED: … is not valid JSON` | Fix the file by hand; the installer will not write over it |
-| Hooks installed but nothing appears at session start | In Claude Code open `/hooks` once or restart; in Codex, trust the hooks |
-| `unknown option` and exit 64 | A mistyped flag; nothing was changed |
-| Codex does not spawn personas | No `[agents]` block, or `enabled = false` |
+`./verify.sh` runs, from the repository root: the skill's unittest suite; the installer suite
+(`tests/`, including the always-loaded size ceiling); `guard.py --self-test`; the guard over the
+whole tree (`tests/tree_scan.py`); the docs link check (`tests/link_check.py`); a scan for names of
+deleted components outside the records that may cite them; and `install.sh --dry-run` against a
+scratch home. Each check prints `verify: <id> ok` or `FAIL: <id> (verify.checks)`; unittest output is
+unchanged. The last line is `verify: PASS` or `verify: FAIL (<n> checks)`. `./verify.sh --installed`
+adds a read-only parity check: in each home the skill and global file are byte-equal to this tree and
+no Stop registration remains.

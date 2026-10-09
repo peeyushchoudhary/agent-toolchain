@@ -1,11 +1,40 @@
 # Decisions
 
-The non-obvious calls that are in force, and what each was weighed against. A decision recorded
-without its alternative is just an assertion. Identifiers are stable, so a gap in the numbering
-marks a decision that no longer applies; git holds it. The execution design owns the choices about
-how goals run, in [lean-execution.md](../architecture/lean-execution.md).
+A **standing** decision is in force; other rows are history. D1–D19 keep their full text because
+the S-1 plan protects it, so a section whose row is not standing is rationale only. Removed text is
+at tag `goal/F-3/approved`, D28 at `archive/v6-followups-2026-10-09`.
 
-Numbers are in [measurements.md](../product/measurements.md).
+| Id | Date | Decision | Status |
+|---|---|---|---|
+| [D1](#d1--the-readme-is-a-fourth-disclosure-layer-not-part-of-the-agent-route) | 2026-07-26 | The README is a fourth disclosure layer | superseded by D29 |
+| [D2](#d2--secret-scanning-and-branch-protection-run-locally-not-on-github) | 2026-07-26 | Secret scanning and branch protection run locally | standing |
+| [D3](#d3--the-secret-scan-reads-every-commit-in-the-pushed-range-not-the-net-diff) | 2026-07-26 | The secret scan reads every commit in the pushed range | standing |
+| [D4](#d4--merge-commits-never-squash) | 2026-07-26 | Merge commits, never squash | standing |
+| [D5](#d5--history-is-link-checked-but-never-crawled) | 2026-07-26 | History is link-checked but never crawled | superseded by D29 |
+| [D6](#d6--budgets-and-depth-apply-to-the-route-not-to-everything-reachable) | 2026-07-26 | Budgets and depth apply to the route only | superseded by D29 |
+| [D7](#d7--persona-definitions-are-generated-not-hand-maintained-per-harness) | 2026-07-26 | Persona definitions are generated | superseded by D29 |
+| [D8](#d8--judges-cannot-edit-structurally) | 2026-07-26 | Judges cannot edit, structurally | loop half superseded by D29; judges stay read-only |
+| D9 | 2026-07-26 | Cross-harness dispatch rejected | removed |
+| D10 | 2026-07-26 | Implementation split into two tiers | removed |
+| [D11](#d11--only-the-graphs-learnings-are-committed-not-the-graph) | 2026-07-26 | Only the graph's learnings are committed | superseded by D29 |
+| [D12](#d12--report-never-scaffold-at-session-start) | 2026-07-26 | Report, never scaffold, at session start | superseded by D29 |
+| D13 | 2026-08-08 | A documentation/tooling taxonomy of its own | removed |
+| D14 | 2026-08-08 | Bounded repairs and review | removed |
+| D15 | 2026-08-08 | Read-only judges test writable copies | removed |
+| D16 | 2026-08-21 | Onboarding and conformance stay two skills | removed |
+| [D17](#d17--this-repository-complies-with-the-standard-it-ships) | 2026-08-22 | This repository complies with the standard it ships | standing |
+| [D18](#d18--the-decisions-record-stays-one-file-inside-docsdecisions) | 2026-08-22 | The decisions record stays one file | standing |
+| [D19](#d19--no-compression-proxy-in-this-repository) | 2026-08-22 | No compression proxy in this repository | standing |
+| D20 | 2026-08-22 | The conformance skill is published | removed |
+| D21 | 2026-08-22 | The vendored conformance suite needs the layer installed | removed |
+| D22 | 2026-08-22 | Publishing a skill and mirroring it to Codex came apart | removed |
+| D23 | 2026-08-22 | The ninth conformance check reports and owns no repair | removed |
+| D24 | 2026-08-22 | The persona test directory is not vendored | removed |
+| D25 | 2026-08-22 | The vendored-drift baseline names its findings | removed |
+| D26 | 2026-08-25 | The vendored check reads the installer's preserve list | removed |
+| D27 | 2026-10-06 | Approved completion and technical recovery | removed |
+| D28 | 2026-10-08 | Review closure ends in fixes, not in grants | archived, never merged |
+| [D29](#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints) | 2026-10-09 | Simplified goal execution (methodology v7) | standing |
 
 ---
 

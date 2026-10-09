@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -184,7 +185,8 @@ class CommitRulesTest(GuardCase):
                                  "# Please enter the commit message for your changes. Lines starting\n"
                                  f"# on branch feature, the {PROJECT} template\n"
                                  "# ------------------------ >8 ------------------------\n"
-                                 f"diff --git a/x b/x\n+see {PROJECT} at {HOME_PATH}\n")
+                                 f"diff --git a/x b/x\n+see {PROJECT} at {HOME_PATH}\n",
+                                 env={"GIT_INDEX_FILE": ".git/index"})  # as Git runs an edited commit
         self.assertEqual(code, 0, out)
         self.assertEqual(self.staged({"app.py": "print('hello')\n"})[0], 0)  # 3c: the message is not staged
 
@@ -208,6 +210,50 @@ class CommitRulesTest(GuardCase):
         self.sh("git", "commit", "-q", "--allow-empty", "-m", "subject",
                     "-m", f"# body {PROJECT}")
         self.assertIn(PROJECT, self.sh("git", "log", "-1", "--format=%B").stdout)  # git kept it
+
+    def test_template_marker_does_not_hide_retained_message_content(self):  # review R13
+        marker = "# Please enter the commit message for your changes. Lines starting\n"
+        text = f"feat: a clean subject\n{marker}# the {PROJECT} note\n"
+        cut = (f"feat: a clean subject\n{marker}# the {PROJECT} note\n"
+               f"# ------------------------ >8 ------------------------\nkept: {HOME_PATH}/src\n")
+        edited = {"GIT_INDEX_FILE": ".git/index"}  # a commit hook Git ran after opening an editor
+        self.assertEqual(self.message(text, env=edited)[0], 0)  # the default drops edited comments
+        for mode, env, body, want in (
+                (None, {}, text, "commit message:3"),  # no sign Git edited it: the marker alone
+                (None, {**edited, "GIT_EDITOR": ":"}, text, "commit message:3"),  # -m, -F
+                (None, {**edited, "GIT_EDITOR": ":"}, cut, "commit message:5"),
+                ("verbatim", edited, text, "commit message:3"),
+                ("verbatim", edited, cut, "commit message:5"),
+                ("whitespace", edited, text, "commit message:3"),
+                ("scissors", edited, cut, "commit message:3"),  # comments above the cut are kept
+                ("scissors", {**edited, "GIT_EDITOR": ":"}, cut, "commit message:5"),
+                ("strip", edited, cut, "commit message:5")):  # comments go, the tail stays
+            with self.subTest(mode=mode, env=env, body=body[-12:]):
+                self.sh("git", "config", *(["commit.cleanup", mode] if mode
+                                           else ["--unset-all", "commit.cleanup"]), check=False)
+                code, out = self.message(body, env=env)
+                self.assertEqual(code, 1, out)
+                self.assertIn(want, out)
+        self.assertEqual(self.message(text, env=edited)[0], 0)  # strip drops `#` lines
+        self.sh("git", "config", "commit.cleanup", "scissors")
+        self.assertNotIn("commit message:5", self.message(cut, env=edited)[1])  # edited: tail cut
+        self.sh("git", "config", "--unset", "commit.cleanup")
+        # Through Git and the installed hooks: a literal -m message keeps its `#` lines, so it is
+        # blocked; an editor commit whose template names the branch is not.
+        self.sh("bash", str(HOOKS_SH), "--guard", str(GUARD), str(self.repo))
+        r = self.sh("git", "commit", "-q", "--allow-empty", "-m", text, check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("commit message:3", r.stdout + r.stderr)
+        self.sh("git", "commit", "-q", "--allow-empty", "--no-verify", "-m", text)
+        self.assertIn(PROJECT, self.sh("git", "log", "-1", "--format=%B").stdout)  # git kept it
+        self.sh("git", "checkout", "-q", "-b", PROJECT)
+        editor = self.tmp / "editor.sh"
+        editor.write_text('#!/bin/sh\n{ echo "feat: edited"; cat "$1"; } > "$1.new" && mv "$1.new" "$1"\n')
+        editor.chmod(0o755)
+        r = self.sh("git", "-c", f"core.editor={shlex.quote(str(editor))}", "commit", "-q",
+                    "--allow-empty", check=False)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.sh("git", "log", "-1", "--format=%B").stdout.strip(), "feat: edited")
 
     def test_a_listed_name_in_a_staged_path_is_blocked(self):  # id 6
         code, out = self.staged({f"docs/{PROJECT}-migration.md": "nothing sensitive\n"})

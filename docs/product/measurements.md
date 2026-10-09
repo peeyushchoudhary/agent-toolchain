@@ -1,66 +1,72 @@
 # Measurements
 
-The numbers that the decisions in [decisions.md](../decisions/decisions.md) and the
-[v6 design](../architecture/lean-execution.md) cite, each with its date and source. A number older
-than its date describes the system that existed then; re-derive prices and model comparisons when
-vendor terms or local results move.
+The numbers the decisions and the [methodology](../architecture/methodology.md) cite, each dated.
 
-## Methodology v5.1 baseline — 2026-10-06
+## Dated
 
-Taken on this repository at HEAD `3bd256d` and in sampled run workspaces of private projects, whose
-identities this repository's boundary rules withhold. These are the figures behind the v6 design and
-[F-3 spec](specs/F-3-lean-execution.md).
+| Date | Measure | Value |
+|---|---|---|
+| 2026-07-26 | Cross-vendor review, a 34-line class with two planted bugs (n=1) | Codex with repository and scoped prompt: 5 grounded findings, 186K input tokens, $0.367; Claude subagent: 5 grounded, 30K, $0.212; both found both bugs, Codex also a nonexistent method. Naive and no-repository Codex calls: 2 findings each, ungrounded or shallow |
+| 2026-07-26 | Floor of any `codex exec` call | about 23K input tokens; a naive call cost 84% more |
+| 2026-08 | Criterion ids on tests, four product repositories | 0 of 5,866 `@Test` methods |
+| 2026-09-23 | Price per million tokens, uncached in / cached in / out | [Claude Opus 5.5](https://platform.claude.com/docs/en/models/opus-5-5/overview) $4 / $0.20 / $20; [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) $2 / $0.20 / $10; one cross-vendor review re-priced at about 0.77× an in-harness one |
+| 2026-10-06 | v5.1 load | 47,500 words of prose, 25,500 script lines, 46,000 test lines; 15,800 words before a task |
+| 2026-10-06 | v5.1, one six-task milestone | 70–90 agent steps, 30+ contexts, 4–7 founder transactions |
+| 2026-10-06 | v5.1 review | 11 of 13 task reviews blocked in round one, 6 of 6 acceptances passed; 0.74 blockers per design artifact, 0.09 per implementation artifact |
+| 2026-10-06 | v5.1 machinery | task cards 2,256 lines for 18 keys; a 1,630-line review-budget checker; 99% of builders on the expensive tier; every sampled failure a test judge reported environmental or pre-existing |
+| 2026-10-06 | v5.1 waste | 116 of 558 files out of scope; 68% of one project's spend in the controller; 31% of tool calls polling |
+| 2026-10-09 | Real defects by review round | this repository's diff reviews 20, then 2; 150 sampled product findings 64, 9, 8 (rounds one, two, three-plus) |
+| 2026-10-09 | Two v6 guards, seven repositories | 3,785 lines, 0 real catches, 3 legitimate pushes blocked |
+| 2026-10-09 | v6 `install/` | 5.7 lines of process policing per line of done-check |
+| 2026-10-09 | Founder decisions per v6 milestone | 10–13, against a contract of 2 |
 
-| Measure | Value |
+## `install/` size
+
+Newlines of every file in `git ls-tree -r <ref> install`; test files are under `tests/` or named
+`test_*`.
+
+| Ref | Files | Lines | Non-test | Test |
+|---|---|---|---|---|
+| `methodology/v6-base`, also `goal/S-1/approved` | 73 | 22,428 | 11,300 | 11,128 |
+| S-1 T7 (`f3cf892`) | 26 | 4,165 | 1,937 | 2,228 |
+
+Always-loaded prose after S-1 T6: 1,263 words of 1,350.
+
+## Pilot
+
+One product repository, migrated after S-1 M2, reviewed after a week and judged over four; its
+baseline is first recomputed from its own history under these definitions.
+
+| Measure | Definition |
 |---|---|
-| Instruction and script load | about 47,500 words of prose, 25,500 lines of scripts, 46,000 lines of tests |
-| Chief's load before reading any task | about 15,800 words |
-| A six-task milestone | 70–90 agent steps, 30+ fresh model contexts, 4–7 founder transactions |
-| Task reviews blocking in the first round | 11 of 13; 6 of 6 acceptances passed |
-| Review yield | 0.74 blockers per design artifact; 0.09 per implementation artifact |
-| Out-of-scope edits | 116 of 558 files historically |
-| Task card machinery | 2,256 lines for 18 keys |
-| Review-budget checker | 1,630 lines to count to two |
-| Controller share of spend, one three-week project | 68% (a root session above a chief subagent) |
-| Tool calls that were coordination polling | 31% |
-| Builders on the expensive tier | 99% |
-| Test-judge failures sampled | every one environmental or pre-existing |
+| Accepted merges per week | `git log --first-parent --merges` per ISO week |
+| Rework | fix commits ÷ task commits per milestone |
+| Escapes | confirmed post-merge defects from the other vendor's sampled follow-up review (all data or auth goals, half the rest); blocking 3, non-blocking 1 |
+| Founder decisions per milestone | approval, merge, and founder lines in Decisions and Parked |
 
-## Criterion-id carriers — August 2026
+Tasks ticked and founder days absent are recorded too.
 
-Across four sibling product repositories, three Java/JUnit and one Python, 1,073 Java test files
-held 5,866 `@Test` methods and none carried a criterion id. The criterion-trace checker was inert,
-which is why v6 binds criteria to proof commands in the plan instead.
+Any one reverts: a blocking escape in two milestones; merges per week below baseline without a
+logged external cause; founder decisions above four per milestone twice; more than one default in
+five reversed at merge.
 
-## Cross-harness review experiment — 2026-07-26
+## End-to-end run
 
-One task: a 34-line Java class with two planted authorization bugs, `familyId` trusted unchecked and
-a `get()` with no authorization. Costs are at July prices.
+S-1 T9 records here: each harness's wall time and sessions, and one unattended session's recurring
+cost.
 
-| Run | Uncached in | Cached in | Out | Shell | Wall | Cost | Findings |
-|---|---|---|---|---|---|---|---|
-| 1 `codex exec` naive | 31,522 | 76,032 | 1,218 | 6 | 42s | $0.232 | 2, ungrounded |
-| 2 `codex exec` no repo access | 23,746 | 0 | 237 | 0 | 15s | $0.126 | 2, shallow |
-| 3 `codex exec` matched (repo + scoped prompt) | 48,611 | 138,240 | 1,827 | 4 | 66s | $0.367 | 5, grounded |
-| 4 Claude subagent, `opus`, in-harness | 27,232 | 0 | ~3,025 | 7 | 80s | $0.212 | 5, grounded |
+## 2026-10-09 — S-1 T9 (v7, M2)
 
-Only rows 3 and 4 are comparable; rows 1 and 2 were not quality-matched.
-
-- About 23K input tokens is the floor for any `codex exec` call, the Codex base system prompt.
-- A naive call costs 84% more: run 1 spent 76K re-reading `AGENTS.md` and two `SKILL.md` files, then
-  six shell commands rediscovering context the parent already had.
-- At matched quality a cold cross-harness call cost about 1.7×, with 186K input against 30K.
-- The two families found different defect classes. Both caught the planted bugs; Codex also found
-  that `ConsentLedger.hasActiveConsent()` does not exist, an API-existence error the Claude subagent
-  reasoned past.
-
-The design re-prices this experiment at the rates below and puts a one-shot cross-vendor review at
-about 0.77× the in-harness cost.
-
-## Model prices for that re-pricing — 2026-09-23
-
-Standard API rates per million tokens: Claude Opus 5.5 is $4 uncached input, $0.20 cached input and
-$20 output; GPT-6 Sol is $2, $0.20 and $10. For an illustrative 40K uncached input and 8K output
-call, Opus 5.5 costs $0.32 and Sol $0.16. These are token-mix estimates, not observed cost per
-accepted review. Sources: [Opus 5.5](https://platform.claude.com/docs/en/models/opus-5-5/overview),
-[GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol).
+- Unattended two-task goal (`e2e_run.sh`): the loop is proven with a fake harness (three sessions,
+  `[T1]` and `[T2]` commits, `DONE`, `packet.md`); live `claude -p` and `codex exec` sessions were
+  skipped by founder decision (no credentials in disposable homes), so wall time, session count,
+  reported cost, the push-denial probe and the `--settings` merge question are owed to the first
+  authenticated run.
+- `install/` lines: 2,025 non-test, 2,469 test
+  (`git ls-files install | grep -v '/tests/' | xargs cat | wc -l`, and the same with `grep '/tests/'`).
+- Always-loaded words: 1,263 (`global.md` + `AGENTS.md` + `SKILL.md`, `wc -w`); ceiling 1,350.
+- One unattended session runs one fresh `claude -p` or `codex exec`, a `goal.py done` per stop
+  (blocked at most three times), and two `goal.py`/`gate.py` calls in `run.sh`. Claude reports
+  `total_cost_usd`, Codex tokens only; both go to `.runs/<id>/progress.md`. Dollar cost unmeasured.
+- Review catches, S-1: M1 15 blocking in one round, all closed by fix commits with closing tests;
+  M2: see `.runs/S-1/review.md` (filled at the M2 close).

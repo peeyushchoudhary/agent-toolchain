@@ -1,8 +1,7 @@
-"""Behaviour-level facts about the skill's rules: routes resolve and ceilings hold.
+"""Behaviour-level facts about the skill's prose: the files exist, what they name exists, nothing
+retired is named, and the reviewer cannot edit.
 
-No prose is pinned here. The tests check that every path the rules name exists (or is a named
-later deliverable), that the word ceilings of F-3 AC-9 hold for every role route, and that no routed
-file points at a retired reference.
+No prose is pinned here; the word ceiling is install/tests/test_size.py.
 """
 from __future__ import annotations
 
@@ -12,92 +11,87 @@ from pathlib import Path
 
 SKILL = Path(__file__).resolve().parents[1]
 REPO = SKILL.parents[2]
-REFS = SKILL / "references"
-
-# The route: the entry file, the shared core, and one reference per role.
 ENTRY = SKILL / "SKILL.md"
-CORE = SKILL / "methodology.md"
-ROLE_REFERENCES = ("planning.md", "run.md", "migrate.md")
-ROUTED = [ENTRY, CORE] + [REFS / name for name in ROLE_REFERENCES]
+REVIEWER = SKILL / "agents" / "reviewer.md"
+DESIGN = SKILL / "references" / "design.md"
+ALWAYS_LOADED = (REPO / "install" / "global.md", REPO / "AGENTS.md", ENTRY)
+SKILL_FILES = (ENTRY, REVIEWER, DESIGN)
 
-# Deliverables of a later task that the rules already name. Anything else must exist.
-NOT_YET_BUILT: frozenset = frozenset()
+# Named by the rules, delivered by a later task of the same goal. Anything else must exist.
+NOT_YET_BUILT = frozenset({"agents/builder.md"})
 
-RETIRED = ("execution-loop.md", "task-card.md", "specs.md", "junit-evidence.md",
-           "codex-gate-sandbox.md", "readme.md", "changelog-v1-v2.md", "history-v3-v5.md")
-
-CORE_CEILING = 1500
-ROUTE_CEILING = 3000
+# Machinery the v7 shape removed (D29). The rules must not send a session to any of it.
+RETIRED = ("execution-methodology/methodology.md", "references/run.md", "references/planning.md",
+           "references/migrate.md", "agent-personas", "sync_personas", "review.py", "run_goal",
+           "goal-session", "graphify", "graph-navigation", "progressive-disclosure",
+           "validate_disclosure", "check_github", "install_hooks", "identifier_guard", "push_guard",
+           "preflight", "goal.py guard", "goal.py attempt", "goal.py evidence", "goal.py start")
 
 LINK = re.compile(r"\]\(([^)\s]+)\)")
-SKILL_PATH = re.compile(r"(?<![\w-])((?:scripts|references)/[\w.-]+\.(?:py|md|html|sh|json|yaml))")
-REPO_PATH = re.compile(r"(?<![\w/.-])(install/[\w./-]+\.(?:py|md|html|sh|json|yaml))")
+SKILL_PATH = re.compile(r"(?<![\w/.-])((?:scripts|references|agents)/[\w.-]+\.(?:py|md|sh))")
 
 
-def words(path: Path) -> int:
-    return len(path.read_text(encoding="utf-8").split())
-
-
-def named_paths(path: Path, text: str | None = None):
-    """(label, resolved path) for every link and skill- or repo-relative path a rules file names."""
+def named_paths(path: Path, text: str | None = None) -> list[tuple[str, Path]]:
+    """(label, resolved path) for every relative link and skill-relative path a file names."""
     text = path.read_text(encoding="utf-8") if text is None else text
     out = []
     for target in LINK.findall(text):
         target = target.split("#", 1)[0]
-        if not target or re.match(r"^[a-z]+:", target):
-            continue
-        resolved = (path.parent / target).resolve()
-        out.append((resolved.relative_to(SKILL).as_posix() if SKILL in resolved.parents else target,
-                    resolved))
-    out += [(m, SKILL / m) for m in SKILL_PATH.findall(text)]
-    out += [(m, REPO / m) for m in REPO_PATH.findall(text)]
-    return out
+        if target and not re.match(r"^[a-z]+:", target):
+            resolved = (path.parent / target).resolve()
+            label = resolved.relative_to(SKILL).as_posix() if SKILL in resolved.parents else target
+            out.append((label, resolved))
+    return out + [(m, SKILL / m) for m in SKILL_PATH.findall(text)]
 
 
-class RoutesResolve(unittest.TestCase):
-    def test_every_routed_file_exists(self):
-        for path in ROUTED:
+def frontmatter(path: Path) -> dict[str, str]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    end = lines.index("---", 1)
+    return dict(l.split(":", 1) for l in lines[1:end] if ":" in l)
+
+
+class FilesAndNames(unittest.TestCase):
+    def test_the_always_loaded_files_and_the_skill_files_exist(self):
+        for path in ALWAYS_LOADED + SKILL_FILES:
             self.assertTrue(path.is_file(), path)
 
-    def test_every_named_path_resolves_or_is_a_named_later_deliverable(self):
-        for path in ROUTED:
+    def test_every_path_the_skill_names_resolves(self):
+        for path in SKILL_FILES:
             for label, resolved in named_paths(path):
                 with self.subTest(file=path.name, named=label):
                     self.assertTrue(resolved.exists() or label in NOT_YET_BUILT,
                                     f"{path.name} names {label}, which does not exist")
 
-    def test_the_entry_routes_to_the_core_and_every_role_reference(self):
+    def test_the_entry_links_the_reviewer_and_the_design_page(self):
         linked = {resolved for _label, resolved in named_paths(ENTRY)}
-        for target in [CORE] + [REFS / name for name in ROLE_REFERENCES]:
-            self.assertIn(target.resolve(), linked, f"SKILL.md does not route to {target.name}")
+        self.assertLessEqual({REVIEWER.resolve(), DESIGN.resolve()}, linked)
 
     def test_the_path_detector_sees_a_missing_path(self):
-        # Guard the guard: a file naming a missing reference must be reported, not skipped.
-        text = "[x](does-not-exist.md), [ok](run.md) and `scripts/nope.py`\n"
-        missing = [label for label, resolved in named_paths(REFS / "probe.md", text)
-                   if not resolved.exists()]
+        # Guard the guard: a file naming a missing path must be reported, not skipped.
+        text = "[x](does-not-exist.md), [ok](design.md) and `scripts/nope.py`\n"
+        missing = [label for label, resolved in named_paths(DESIGN, text) if not resolved.exists()]
         self.assertEqual(sorted(missing), ["references/does-not-exist.md", "scripts/nope.py"])
 
-
-class WordCeilings(unittest.TestCase):
-    def test_core_is_within_its_ceiling(self):
-        self.assertLessEqual(words(CORE), CORE_CEILING)
-
-    def test_every_role_route_is_within_its_ceiling(self):
-        shared = words(ENTRY) + words(CORE)
-        for name in ROLE_REFERENCES:
-            with self.subTest(reference=name):
-                self.assertLessEqual(shared + words(REFS / name), ROUTE_CEILING)
-
-
-class NoRetiredReferences(unittest.TestCase):
-    def test_no_routed_file_names_a_retired_reference(self):
-        for path in ROUTED:
+    def test_no_always_loaded_or_skill_file_names_retired_machinery(self):
+        for path in ALWAYS_LOADED + SKILL_FILES:
             text = path.read_text(encoding="utf-8")
             for name in RETIRED:
                 with self.subTest(file=path.name, retired=name):
                     self.assertIsNone(re.search(r"(?<![\w-])" + re.escape(name), text),
                                       f"{path.name} names retired {name}")
+
+
+class Frontmatter(unittest.TestCase):
+    def test_the_skill_is_never_invoked_by_the_model_on_its_own(self):
+        meta = frontmatter(ENTRY)
+        self.assertEqual(meta.get("name", "").strip(), "execution-methodology")
+        self.assertTrue(meta.get("description", "").strip())
+        self.assertEqual(meta.get("disable-model-invocation", "").strip(), "true")
+
+    def test_the_reviewer_is_read_only(self):
+        tools = {t.strip() for t in frontmatter(REVIEWER).get("tools", "").split(",") if t.strip()}
+        self.assertTrue(tools)
+        self.assertLessEqual(tools, {"Read", "Grep", "Glob"}, tools)
 
 
 if __name__ == "__main__":

@@ -227,17 +227,25 @@ def message(path: str, rules) -> list[str]:
     except OSError as exc:
         raise GuardError(f"the commit message file {display(path)} could not be read "
                          f"({type(exc).__name__}); the message was not scanned") from None
-    # Git drops comment lines (and, when editing, the scissors tail) only from an editor template
-    # or under commit.cleanup=strip; `git commit -m` keeps both, so then everything is scanned.
+    # Scan every line Git keeps; when unsure, scan it (a reported template comment is a nuisance, a
+    # missed retained line is a leak). As in Git: verbatim and whitespace keep every line; strip drops
+    # core.commentChar lines; scissors cuts at the scissors line, and the default also drops comment
+    # lines, but both only when Git opened the message in an editor. Without an editor (-m, -F,
+    # --no-edit) scissors and the default keep every line. "Edited" needs all of: the template marker,
+    # Git's edit file COMMIT_EDITMSG, a commit hook Git ran (GIT_INDEX_FILE set) and no GIT_EDITOR=:
+    # (Git sets that when no editor is used). The marker alone never drops a line.
     lines, hits, comment = text.split("\n"), [], None
+    mode = run_git(["config", "--get", "commit.cleanup"], codes=(0, 1))[1].strip() or "default"
     marker = next((m for m in map(EDITOR_MARKER.match, lines) if m), None)
-    if marker:
-        comment = marker[1]
-        lines = list(itertools.takewhile(lambda ln: not SCISSORS.match(ln.replace(comment, "#", 1)),
-                                         lines))
-    elif run_git(["config", "--get", "commit.cleanup"], codes=(0, 1))[1].strip() == "strip":
+    edited = bool(marker) and Path(path).name == "COMMIT_EDITMSG" and \
+        "GIT_INDEX_FILE" in os.environ and os.environ.get("GIT_EDITOR") != ":"
+    if mode == "strip":
         char = run_git(["config", "--get", "core.commentChar"], codes=(0, 1))[1].strip()
         comment = char if len(char) == 1 else "#"
+    elif mode in ("default", "scissors") and edited:
+        cut = marker[1]
+        lines = list(itertools.takewhile(lambda ln: not SCISSORS.match(ln.replace(cut, "#", 1)), lines))
+        comment = cut if mode == "default" else None
     for n, line in enumerate(lines, 1):
         if not (comment and line.lstrip().startswith(comment)):
             scan(line, f"commit message:{n}", rules, hits)

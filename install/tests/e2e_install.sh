@@ -30,7 +30,9 @@ done
 
 for file in "$tmp/.claude/settings.json" "$tmp/.codex/hooks.json"; do
   n="$(python3 - "$file" <<'PY'
-import json, sys
+import json, os, sys
+if not os.path.exists(sys.argv[1]):
+    print(0); raise SystemExit
 try:
     hooks = json.load(open(sys.argv[1], encoding="utf-8")).get("hooks", {})
 except (OSError, ValueError):
@@ -39,11 +41,12 @@ print(sum("goal.py stop-hook" in h.get("command", "")
           for e in hooks.get("Stop", []) for h in e.get("hooks", [])))
 PY
 )"
-  [ "$n" = "1" ] || fail "$file has $n Stop registration(s) of goal.py stop-hook, want 1"
+  # run.sh registers the Stop hook per session; the installer registers none (S-1 run security).
+  [ "$n" = "0" ] || fail "$file has $n Stop registration(s) of goal.py stop-hook, want 0"
 done
 
 if [ "$errors" -eq 0 ]; then
-  echo "e2e_install: PASS (installed into both harnesses; goal.py, guard.py, git-hooks.sh, run.sh present; one Stop hook each; goal.py --help and guard.py --self-test ok)"
+  echo "e2e_install: PASS (installed into both harnesses; goal.py, guard.py, git-hooks.sh, run.sh present; no Stop hook registered; goal.py --help and guard.py --self-test ok)"
   exit 0
 fi
 echo "e2e_install: FAIL ($errors)"

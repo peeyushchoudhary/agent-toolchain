@@ -1,12 +1,11 @@
 # Archive
 
-**Authority: NONE. Nothing in this directory is current.**
+Nothing here is current. Superseded material lives in git, reachable by tag:
 
-Superseded material lives here so a reader can tell current from superseded by path alone. The
-validator does not crawl into it and does not check it for freshness: an archived document SHOULD
-cite files that have since moved — that is what makes it history — and crawling it would bury the
-one real breakage in the live route under a pile of correct stale-path warnings.
+| Tag | Holds |
+|---|---|
+| `goal/F-3/approved`, `goal/F-3/M3`, `goal/F-3/M4` | Methodology v6 (lean execution) as approved and per milestone: its spec, design and plan; removed decisions |
+| `methodology/v6-base` | F-3 merged: the full v6 tree, and the rollback target for v7 |
+| `archive/v6-followups-2026-10-09` | F-4 (review-closure confirmation) and F-5 (graph context), never merged; decision D28 |
 
-Empty today. It is created rather than deferred because the standard requires the address to exist
-before the first document needs it; a document with no legal destination is how a front page comes
-to hold 2,520 words of a record nobody could move.
+Read a file with `git show <tag>:<path>`; older tags are `milestone/*`.

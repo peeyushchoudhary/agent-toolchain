@@ -1,122 +1,55 @@
-# Handoff — the Codex side
+# Codex
 
-Codex reads a different set of files from Claude Code. Everything shared has to be either **in the
-repository** (both harnesses read it) or **installed** (each harness reads its own copy).
+Codex and Claude Code share the repository layer: `AGENTS.md` and `docs/` (`CLAUDE.md` is the one
+line `@AGENTS.md`). Anything both must follow belongs there or in `install/`, never in one harness's
+settings, where the other silently ignores it.
 
-Getting this wrong fails silently: Codex quietly follows an older contract and never announces what
-it did not read.
+## Install
 
-## What Codex reads
+When `$CODEX_HOME` (default `~/.codex`) exists, `install/install.sh` writes `install/global.md` to
+`$CODEX_HOME/AGENTS.md` (the same bytes as `~/.claude/CLAUDE.md`) and the skill to
+`$CODEX_HOME/skills/execution-methodology/`. It does not touch `config.toml`, and it registers no
+hook. Check parity with `cd install && ./verify.sh --installed`.
 
-| Path | Contents | Kept fresh by |
-|---|---|---|
-| `~/.codex/AGENTS.md` | Global instructions: operating model, GitHub rules, the goal-execution section | Manual; text in [global-instructions.md](global-instructions.md) |
-| `~/.codex/config.toml` | Session and `[agents]` settings | `install.sh` appends `[agents]` once; the rest is manual |
-| `~/.codex/agents/*.toml` | Persona definitions | `install.sh`, or `sync_personas.py --scope global` |
-| `~/.codex/skills/` | The four published skills | `install.sh` |
-| `~/.codex/hooks.json` | The goal Stop hook | `install.sh`; trusted once by you |
-| `<repo>/AGENTS.md` | The project contract | Shared with Claude, the same file |
-| `<repo>/docs/agents/**` | The route | Shared with Claude, the same files |
-| `<repo>/.codex/hooks.json` | Project hooks for a migrated project | Written at migration; trusted once by you |
+## Codex as chief
 
-**The repository layer is genuinely shared.** `AGENTS.md`, the route and the guides are read by
-both. That is why knowledge belongs in the repo and only accelerators belong in a harness.
-
-`CLAUDE.md` must be exactly `@AGENTS.md`, one line, so neither harness reads a different contract.
-
-## Setup
-
-Run `install/install.sh`; it does steps 1 to 3 when the Codex home exists. The sections below say
-what it did and how to check it.
-
-### 1. Subagents enabled
-
-Codex will not spawn personas without an `[agents]` block. Check:
+`run.sh <id> --harness codex` starts each session as:
 
 ```bash
-python3 -c "import tomllib;print(tomllib.load(open('$HOME/.codex/config.toml','rb')).get('agents'))"
+codex --ask-for-approval never exec --sandbox workspace-write \
+  -c sandbox_workspace_write.network_access=false \
+  -c 'sandbox_workspace_write.writable_roots=["<repo>/.git"]' \
+  -c 'hooks.Stop=[{hooks=[{type="command",command="python3 <skill>/scripts/goal.py --goal <id> stop-hook"}]}]' \
+  --dangerously-bypass-hook-trust --ignore-user-config --ignore-rules \
+  -C <repo> --json "<goal.py resume prompt>" < /dev/null
 ```
 
-The installer appends the block only when none exists, after taking a backup. Its defaults apply
-only when a spawned agent specifies neither model nor effort; every persona sets both, so they are a
-backstop, and parent session settings are unaffected.
+The session loads neither your `config.toml` nor any execpolicy `.rules` file, so nothing there
+widens or narrows it; no `[agents]` block is needed, because builder subagents (`multi_agent`) are on
+by default. The Stop hook is registered for that session only and runs without prior trust
+(`--dangerously-bypass-hook-trust`), so you trust nothing once.
 
-### 2. Personas rendered
+The sandbox keeps writes in the workspace and `.git`, with the network off. That alone does not stop
+a push: git's local transport to a path remote needs no network. `run.sh` therefore denies pushes in
+the repository's own git config for the run's duration and restores it at exit: `core.hooksPath`
+points at a copy of the repository's hooks whose `pre-push` refuses, and
+`url.run-sh-denies-push://.pushInsteadOf` rewrites every push URL to a transport that does not exist,
+which `--no-verify` does not skip. Codex offers no per-session execpolicy rule (no flag or `-c` key
+names a rules file), so this git-level denial is the mechanism. A session that edits `.git/config`
+can undo it; it stops a push, not a hostile session. Claude sessions get the same denial, behind
+their `Bash(git push *)` deny rule.
 
-```bash
-python3 ~/.claude/skills/agent-personas/scripts/sync_personas.py --scope global --preview --json
-python3 ~/.claude/skills/agent-personas/scripts/sync_personas.py --check
-```
+## Codex as the other vendor's reviewer
 
-Expect four generated personas: advisor, builder, reviewer and security-reviewer. A hand-written
-worker file may also be present; the sync leaves it alone because it lacks the generated banner.
-
-### 3. Skills and hooks installed
-
-`install.sh` copies the four skills named in `install/skills/.gitignore` to `~/.codex/skills/` and
-registers the goal hooks in `~/.codex/hooks.json`. It never writes trust state. Codex runs a
-user-level hook only after you review and trust it, so open Codex once after the first install and
-trust the two goal hooks, and again whenever their entries change. An untrusted hook does not run and
-says nothing.
-
-### 4. Global instructions
-
-`~/.codex/AGENTS.md` is private and the installer does not touch it. Apply the execution section
-from [global-instructions.md](global-instructions.md) to it and to `~/.claude/CLAUDE.md` in the same
-sitting. The shared route block must be identical in both files.
-
-## Format differences that matter
-
-| | Claude Code | Codex |
-|---|---|---|
-| File | `.md`, YAML frontmatter, **body = system prompt** | `.toml`, `developer_instructions = '''…'''` |
-| Model field | `model:` — alias, ID or `inherit` | `model = "gpt-6.1-sol"` |
-| Effort | `effort:` low…max | `model_reasoning_effort` low…max, plus `ultra` |
-| Restricting a judge | `tools:` allow-list and a derived deny-list | `sandbox_mode = "read-only"` |
-
-Codex's sandbox is the **stronger** of the two: it constrains what shell commands can do, not just
-which tools are offered.
-
-Generated TOML uses literal `'''` strings, which take no escapes. A persona body containing `'''`
-would silently truncate the instructions, so the generator raises rather than emitting it.
-
-## Running Codex for goal work
-
-`run.sh` starts Codex sessions with `codex --ask-for-approval never exec --sandbox workspace-write`,
-and the other-vendor review calls it read-only:
+When Claude is the chief, the design, plan and merge reviews run the
+[reviewer prompt](../../install/skills/execution-methodology/agents/reviewer.md) through:
 
 ```bash
 codex exec -s read-only --ignore-user-config --ignore-rules \
-  -m <model> -c model_reasoning_effort=<effort> --json -C <dir> "<packet>"
+  -m <model> -c model_reasoning_effort=<effort> --json -C <dir> "<packet>" < /dev/null
 ```
 
-- `--ignore-user-config --ignore-rules` keeps the user's MCP servers, apps and hooks out of a judge
-- `--json` gives JSONL events including a `turn.completed` usage block
-- Outside a git repository, add `--skip-git-repo-check`; run with stdin closed (`< /dev/null`) when
-  calling it by hand, because it otherwise blocks reading stdin
-- Budget about 23K input tokens per invocation before your content: the base system prompt
-
-## Validation
-
-```bash
-# subagents on
-python3 -c "import tomllib;print(tomllib.load(open('$HOME/.codex/config.toml','rb'))['agents'])"
-
-# personas and skills present
-ls ~/.codex/agents/*.toml ~/.codex/skills/
-
-# installed copies match the repository
-cd install && ./verify.sh --installed
-```
-
-Then open Codex in a migrated repo and confirm it reads `AGENTS.md` and can spawn a persona by name.
-
-## What Codex does not get
-
-- **`~/.claude/settings.json` hooks** — Claude Code only. Codex gets the goal Stop hook through
-  `hooks.json`.
-- **`~/.claude/settings.json`** — including `skillOverrides`.
-
-Anything that must apply to both harnesses belongs in the repository, not in a hook or a skill.
-Guidance that lives only in one harness silently does not apply to the other, and the failure is
-invisible.
+`-m` names the reviewing model (Astra in S-1). The `--ignore` flags keep user servers and hooks out
+of the judge; outside a git repository add `--skip-git-repo-check`. Each call spends about
+23K input tokens on the base prompt. The chief saves the output, already in the `review.md` format,
+to `.runs/<id>/review.md`.

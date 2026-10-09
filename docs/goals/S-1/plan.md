@@ -112,8 +112,8 @@ the pre-commit hook written by T4. Root `AGENTS.md` gate line updated. New
 are present, runs `goal.py --help` from each installed copy, and exits 0. **M1 ends here**: the
 other vendor's diff review of `goal/S-1/approved..HEAD`, `done` for M1, merge.
 
-### [ ] T6 — the instructions; cut personas
-writes: install/global.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/methodology.md, install/skills/execution-methodology/references/**, install/skills/execution-methodology/agents/reviewer.md, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_rules.py, install/skills/agent-personas/**, install/skills/.gitignore, install/install.sh, install/verify.sh, install/tests/test_size.py, install/tests/test_install.py, AGENTS.md, docs/**
+### [x] T6 — the instructions; cut personas
+writes: install/global.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/methodology.md, install/skills/execution-methodology/references/**, install/skills/execution-methodology/agents/reviewer.md, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_rules.py, install/skills/agent-personas/**, install/skills/.gitignore, install/install.sh, install/verify.sh, install/tests/test_size.py, install/tests/test_install.py, AGENTS.md, README.md, docs/**
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, install/tests/test_install.py, install/skills/agent-personas/tests/**
 `SKILL.md` ≤900 words / ≤200 lines: the per-task loop, the `plan.md` format, the done contract in
 words, authority boundaries (defaults and logs; parks for the founder), the review procedure (the
@@ -126,7 +126,7 @@ Delete `methodology.md`, `run.md`, `planning.md`, `migrate.md`; the `agent-perso
 render-parity block. `test_size.py` becomes one assertion (always-loaded files ≤200 lines each,
 ≤1,350 words in total); `test_rules.py` reads the new files or is deleted.
 
-### [ ] T7 — `install.sh` and `verify.sh` rewritten to the new file set
+### [x] T7 — `install.sh` and `verify.sh` rewritten to the new file set
 writes: install/install.sh, install/verify.sh, install/README.md, install/tests/test_install.py, install/preserve_selftest.sh, install/skills/README.md, docs/**
 tests-may-change: install/tests/test_install.py
 `install.sh` ≈120 lines: copy `global.md` to `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` after
@@ -142,8 +142,8 @@ backing up any existing file to `<name>.bak-<date>`; copy the skill (with `guard
 `progressive-disclosure`, `graph-navigation`), `--installed` parity against both homes. Delete
 `preserve_selftest.sh` and `skills/README.md`.
 
-### [ ] T8 — `docs/` rewritten to current state
-writes: README.md, docs/**, NOTES-break-tests.md
+### [x] T8 — `docs/` rewritten to current state
+writes: README.md, docs/**, NOTES-break-tests.md, install/AGENTS.md, .github/pull_request_template.md
 Target about 4,300 words: root `README.md` ≤500; `docs/README.md` one index ≤150;
 `docs/architecture/methodology.md` ≤700 (the v7 design and accepted risks, from the council papers);
 `docs/architecture/repository-standard.md` ≤300; `docs/decisions/decisions.md` with every D-id as a
@@ -155,8 +155,9 @@ one-line row and full text for D2, D3, D4, D17, D18, D29; `docs/product/measurem
 `operating-model.md`, the F-3 spec and plan, `improvements-weekly.md`, `assets/readme/**`,
 `runbooks/global-instructions.md`, `NOTES-break-tests.md`. History and the tags keep them.
 
-### [ ] T9 — local end-to-end run; install, uninstall and rollback rehearsal; measurements
-writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/tests/e2e_install.sh, docs/product/measurements.md
+### [x] T9 — local end-to-end run; install, uninstall and rollback rehearsal; measurements
+writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/verify.sh, install/tests/**, install/README.md, docs/runbooks/codex.md, README.md, docs/product/measurements.md, docs/architecture/methodology.md
+tests-may-change: install/tests/**, install/skills/execution-methodology/tests/e2e_run.sh
 `e2e_run.sh`: for each harness separately, creates a fresh scratch repository with a two-task
 `plan.md`, runs `run.sh --harness <h> --sessions 3` for real, and asserts that harness's `goal.py
 done` prints DONE and its `packet.md` exists; then, in disposable homes, runs `install.sh`,
@@ -243,6 +244,65 @@ the other vendor's diff review, `done` for M2, merge.
   and `test_git_hooks.py` so the fix commits can extend them. R3 is settled as: plan-only commits may
   widen `writes:` and `tests-may-change:` only together with a new Decisions line, and `packet`
   lists both kinds of widening; R16 (the review packet omitted two asset files) is parked.
+- 2026-10-09 widening: T6 `writes` gains root `README.md`, which links to `references/migrate.md`;
+  the deletion de-links it (plain text until T8 writes `docs/runbooks/migrate-v5.md`).
+- 2026-10-09 T6 defaults: always-loaded prose is 1,263 words (`global.md` 133, `AGENTS.md` 232,
+  `SKILL.md` 898 in 134 lines); `references/design.md` (191 words) and `agents/reviewer.md` (201)
+  exceed their estimates because of the format blocks and load only on demand. `SKILL.md` states the
+  run permission model in words, not flags (`run.sh` carries the flags, T9). The 14 persona lines
+  left the retire list (the retire step never reached them); `agent-personas` joins
+  `RETIRED_SKILLS` in T7. `docs/agents/agent-personas.md` is cut to a note until T8 removes the
+  README link. `references/migrate.md` is deleted; its six links are plain text naming
+  `docs/runbooks/migrate-v5.md` until T8 writes it.
+- 2026-10-09 T7 defaults: `install.sh` is 213 lines (≈50 are the JSON hook editor that
+  `--uninstall` and `--retire-v5` share; T9 may remove the Stop registration but not the editor);
+  `verify.sh` 135. `--uninstall` removes a global file only while it still equals `global.md`, then
+  restores the newest backup; `--retire-v5` also removes the installed skill's `tests/`, marked
+  persona renders and the settings entries of the deleted hook scripts. The Codex `[agents]` block
+  left the installer — T9 confirms Codex builder subagents still run, or restores it. The
+  dangling-name exclusions still name root `README.md`, `test_rules.py`, the diagram and the v6
+  records until T8 deletes or rewrites them.
+- 2026-10-09 widening: T8 `writes` gains `install/AGENTS.md` (links to a page T8 deletes) and
+  `.github/pull_request_template.md` (names checks S-1 deleted).
+- 2026-10-09 T8 defaults: `docs/` (without `docs/goals/**`) is 4,729 words, not ≈4,300, because
+  D1–D19 are protected and stay byte-identical inside `decisions.md` (a 29-row status table sits above
+  them; D9, D10, D13–D16, D20–D27 are rows with their text at `goal/F-3/approved`, D28 at the
+  archive tag; D1, D5, D6 are marked superseded by D29 since the validator they governed is gone).
+  Six of sixteen lessons survive as one line each in `methodology.md`. `install/AGENTS.md` and the PR
+  template were brought to v7 by the controller. The `verify.sh` dangling-name exclusions for the
+  deleted records are now unnecessary; T9 or the next goal removes them.
+- 2026-10-09 widening: T9 `writes` gains `install/verify.sh` and `install/tests/**` (with
+  `tests-may-change`), because moving the Stop registration out of `install.sh` changes the installer
+  tests and the `--installed` parity check.
+- 2026-10-09 widening: T9 `writes` gains `install/README.md`, `docs/runbooks/codex.md` and root
+  `README.md`, which describe the Stop registration T9 moves out of `install.sh`.
+- 2026-10-09 T9 defaults: live `claude -p` and `codex exec` sessions are skipped in `e2e_run.sh`
+  by founder decision (no credentials copied into disposable homes); the loop is proven with a fake
+  harness, so wall time, cost, the push-denial probe and the `--settings` merge question are owed to
+  the pilot's first authenticated run. `run.sh` passes `--setting-sources ""` so only its own
+  settings file applies (one Stop hook, no global merge). Codex gets `.git` as an extra writable root
+  (commits need it) and the Stop hook inline through `-c hooks.Stop=…`, never a project file. The
+  Codex `[agents]` block is not restored: `multi_agent` is on by default. `install.sh` registers no
+  hook and strips an older install's `goal.py stop-hook` entries; the installer's JSON editor stays
+  for that. The e2e satisfies row 8 with a fixture `review.md` at the goal's HEAD. The stale
+  `verify.sh` dangling-name exclusions are left for the next goal.
+- 2026-10-09 Astra M2 diff review (one round, `.runs/S-1/review.md`, reviewed 92f43b2): BLOCK, 13
+  blocking and 3 non-blocking. Each blocking finding is closed by its own `[Tn][Rk]` fix commit with
+  the closing test the review names: R1–R3 in `e2e_run.sh`/`run.sh`, R4–R6 in `install.sh` (T9);
+  R7–R12 in `goal.py` (T2); R13 in `guard.py` (T4). R1's live-harness half stays deferred by the
+  founder's 2026-10-09 decision: the fix makes an explicitly requested harness fail rather than fall
+  back to the fake one, and the live evidence is owed to the pilot's first authenticated run. The
+  non-blocking R14–R16 are fixed inside the R1, R4 and R3 commits. Widening: T9 `writes` gains
+  `docs/architecture/methodology.md`, whose rollback command R14 corrects.
+- 2026-10-09 widening: T9 `tests-may-change` gains `install/skills/execution-methodology/tests/
+  e2e_run.sh`, which the R1–R3 fix commits change (it lives under a tests directory, so row 5
+  counts it as a test).
+- 2026-10-09 M2 fix defaults: Codex has no per-session execpolicy flag (0.160), so `run.sh` denies
+  pushes for both harnesses with run-owned git configuration (a `core.hooksPath` pre-push that
+  refuses, plus a `pushInsteadOf` rewrite for `--no-verify`), restored at exit; a session that edits
+  `.git/config` can undo it, and the runbook says so. `verify.sh --installed-only` runs the parity
+  check alone (the install suite would otherwise recurse). Row 5 flags a bare `skip(` only when the
+  file imports `skip`. `goal.py` is 568 lines after the six fixes.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 

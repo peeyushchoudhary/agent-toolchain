@@ -59,6 +59,21 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(goal.flow("'it''s'"), "it's")
         self.assertEqual(subprocess.run(intended, shell=True).returncode, 1)
 
+    def test_rejects_unconsumed_and_unterminated_flow_values(self):
+        for bad in ('"true" && false', "[T1, T2", '{tasks: [T1, T2], e2e: "x"', '{tasks: [T1], e2e: "x" junk}',
+                    "[T1] tail"):
+            with self.assertRaises(ValueError, msg=bad):
+                goal.flow(bad)
+        text = (plan_text().replace(f"gate: {FULL} -q", 'gate: "true" && false')
+                .replace(f'M1: {{tasks: [T1, T2], e2e: "{E2E}"}}', 'M1: {tasks: [T1, T2], e2e: "true" && false}')
+                .replace(f'M2: {{tasks: [T3], e2e: "{E2E}"}}', "M2: {tasks: [T3]"))
+        plan = goal.parse_plan(text)
+        self.assertNotIn("gate", plan["meta"])
+        self.assertEqual(plan["milestones"]["M1"], {"tasks": [], "e2e": ""})
+        errs = goal.lint(type("C", (), {"plan": plan})())
+        for n in (4, 7, 8):
+            self.assertTrue(any(e.startswith(f"line {n}: ") for e in errs), (n, errs))
+
 
 class RepoCase(unittest.TestCase):
     plan = None
@@ -145,6 +160,17 @@ class DoneTest(RepoCase):
         self.assertRowOk(3)
         self.assertRow(4, f"{sha[:10]} [T1] src/b/z.py outside writes")
 
+    def test_temporary_widening_cannot_authorize_protected_edits(self):
+        self.repo.edit(PLAN, "writes: src/a/**, tests/**", "writes: src/a/**, docs/design.md, tests/**")
+        self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n", "- 2026-01-01: fixture decision.\n- widen T1.\n")
+        self.repo.commit("F-9: widen T1 to the design")
+        sha = self.fix("docs/design.md", "# design, rewritten\n", "[T1] alpha rewrites the design")
+        self.repo.edit(PLAN, "writes: src/a/**, docs/design.md, tests/**", "writes: src/a/**, tests/**")
+        self.repo.edit(PLAN, "- widen T1.\n", "- widen T1.\n- narrow T1 again.\n")
+        self.repo.commit("F-9: narrow T1 again")
+        self.assertRowOk(3)
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected docs/design.md")
+
     def test_plan_only_cannot_expand_test_permissions(self):
         self.repo.edit(PLAN, "tests-may-change: tests/test_a.py", "tests-may-change: **")
         sha = self.repo.commit("F-9: let T2 change every test")
@@ -178,6 +204,22 @@ class DoneTest(RepoCase):
         self.fix("tests/test_a.py", text, "[T2] beta")
         self.assertRow(5, "adds a skip/only/xfail marker in tests/test_a.py")
 
+    def test_row5_rejects_spaced_and_imported_skip_calls(self):
+        # Each call is assembled so this file does not itself add the marker row 5 rejects.
+        for line in ("pytest.skip" + ' ("later")', "self.skipTest" + ' ("later")', "pytest.xfail" + "\t('x')"):
+            self.assertTrue(goal.SKIP_RE.search(line), line)
+        base = self.repo.read("tests/test_a.py")
+        for head, call in (("", "pytest.skip" + ' ("later")'), ("", "self.skipTest" + ' ("later")'),
+                           ("from pytest import " + "skip\n", "skip" + '("later")'),
+                           ("from unittest import (\n    " + "skip,\n)\n", "skip" + ' ("later")')):
+            text = head + base.replace("        self.assertFalse", f"        {call}\n        self.assertFalse")
+            self.fix("tests/test_a.py", text, "[T2] beta")
+            self.assertRow(5, "adds a skip/only/xfail marker in tests/test_a.py")
+            self.repo.git("reset", "-q", "--hard", "HEAD~1")
+        self.fix("tests/test_a.py", base.replace("    def test_flag", "    def skip(self):\n        pass\n\n"
+                                                 "    def test_flag"), "[T2] beta, a helper named like a skip")
+        self.assertRowOk(5)
+
     def test_row5_names_a_test_modified_outside_tests_may_change(self):
         self.fix("tests/test_a.py", self.repo.read("tests/test_a.py") + "\n", "[T1] alpha")
         self.assertRow(5, "modifies test tests/test_a.py")
@@ -186,6 +228,19 @@ class DoneTest(RepoCase):
         self.repo.edit(PLAN, "The fixture does two things.", "The fixture does one thing.")
         self.repo.commit("[T1] alpha")
         self.assertRow(6, "changed outside ticks")
+
+    def test_outcome_field_like_lines_remain_frozen(self):
+        self.repo.edit(PLAN, "The fixture does two things.\n",
+                       "The fixture does two things.\nwrites: must preserve customer records\n")
+        self.repo.commit("F-9: approve an outcome with a field-like line")
+        self.repo.git("tag", "-f", "goal/F-9/approved")
+        self.repo.edit(PLAN, "writes: must preserve", "writes: may erase")
+        sha = self.repo.commit("F-9: reword the outcome")
+        self.assertRow(3, f"{sha[:10]} names 0 tasks and is not plan-only")
+        self.assertRow(6, "changed outside ticks")
+        before = goal.frozen_view(plan_text())
+        self.assertEqual(goal.frozen_view(plan_text().replace("writes: src/a/**", "writes: src/a/**, src/z/**")),
+                         before)
 
     def test_row7_receipt_must_name_heads_tree(self):
         self.repo.close()
@@ -269,6 +324,39 @@ class ReviewRowTest(RepoCase):
             self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
             self.assertRow(8, f"R1: closes {target}")
         self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/test_c.js::security\n", "HEAD~1")
+        self.assertRow(8, "R1: closes tests/test_c.js::security")
+
+    def test_closure_requires_an_exact_discoverable_test(self):
+        self.repo.write("tests/test_c.js", "test('security holds', () => {});\n")
+        self.repo.write("tests/test_e.js", 'it("exact", () => {});\n')
+        self.repo.write("tests/test_d.py", "import unittest\n\n\ndef helper_check():\n    pass\n\n\n"
+                        "class Guard(unittest.TestCase):\n    def test_guard(self):\n        helper_check()\n\n\n"
+                        "class Other(unittest.TestCase):\n    async def test_other(self):\n        pass\n")
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] fix with tests")
+        for target in ("tests/test_c.js::security", "tests/test_d.py::helper_check",
+                       "tests/test_d.py::Other.test_guard", "tests/test_d.py::Guard.test_missing"):
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
+            self.assertRow(8, f"R1: closes {target}")
+        for target in ("tests/test_e.js::exact", "tests/test_d.py::test_guard", "tests/test_d.py::Guard.test_guard",
+                       "tests/test_d.py::Other::test_other"):
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
+            self.assertRowOk(8)
+
+    def test_closure_requires_a_post_review_ancestor_fix(self):
+        old = self.repo.git("rev-parse", "goal/F-9/approved")  # it added tests/test_a.py::test_value
+        self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {old} closes tests/test_a.py::test_value\n")
+        self.assertRow(8, f"R1: {old} is not a fix made after reviewed:")
+        self.repo.git("checkout", "-q", "-b", "side")
+        side = self.fix("tests/test_a.py", self.repo.read("tests/test_a.py") + "\n", "[T2][R1] fix on a side branch")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {side} closes tests/test_a.py::test_value\n")
+        self.assertRow(8, f"R1: {side} is not a fix made after reviewed:")
+        head = self.repo.git("rev-parse", "HEAD")
+        self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {head} closes tests/test_a.py::test_value\n")
+        self.assertRow(8, f"R1: {head} is not a fix made after reviewed:")
+        fix = self.fix("tests/test_a.py", self.repo.read("tests/test_a.py") + "\n", "[T2][R1] fix after the review")
+        self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {fix} closes tests/test_a.py::test_value\n",
+                         "HEAD~1")
         self.assertRowOk(8)
 
     def test_removed_by_passes_when_the_paths_are_deleted(self):

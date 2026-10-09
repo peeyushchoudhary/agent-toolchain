@@ -25,12 +25,16 @@ FIELD_RE = re.compile(r"^(writes|tests-may-change):\s*(.*)$")
 TEST_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)src/test/|(^|/)test_[^/]*\.py$"
                      r"|_(test|spec)\.[^/.]+$|\.(test|spec)\.[^/]+$|Tests?\.(java|kt|cs|swift)$")
 SKIP_RE = re.compile(r"\bunittest\.(skip\w*|expectedFailure)\b|@(skip|skipIf|skipUnless)\s*\(|@expectedFailure\b"
-                     r"|\.skipTest\(|\bpytest\.(skip|xfail)\("
+                     r"|\.skipTest\s*\(|\bpytest\.(skip|xfail)\s*\("
                      r"|\bpytest\.mark\.(skip|skipif|xfail)\b|\.only\s*\(|\b(it|describe|test)\.skip\s*\("
                      r"|\bx(it|describe)\(|@Disabled\b|@Ignore\b")
+# A bare skip(...) call counts only in a file that imports skip from pytest or unittest: a word
+# match everywhere would also flag earlier commits' strings, and an import is what makes it a skip.
+SKIP_IMPORT_RE = re.compile(r"^\s*from\s+(pytest|unittest)\s+import\s+(\([^)]*|[^\n]*)\bskip\b", re.M)
+BARE_SKIP_RE = re.compile(r"(?<![\w.])skip\s*\(")
 RUNTIME_PIN = "docs/agents/execution/runtime.json"
 MIGRATE_NOTICE = (f"this project still carries the v5.1 runtime pin ({RUNTIME_PIN}); "
-                  "migrate it first, following references/migrate.md")
+                  "migrate it first, following docs/runbooks/migrate-v5.md")
 
 class PlanError(Exception):
     pass
@@ -39,26 +43,31 @@ class SeveralPlans(PlanError):
     pass
 
 def flow(text: str):
-    """Parse a YAML-ish flow value: {k: v, ...}, [a, b], "quoted" or a bare scalar."""
+    """Parse a YAML-ish flow value: {k: v, ...}, [a, b], "quoted" or a bare scalar. ValueError when a
+    bracket is left open or text follows the value, so `"true" && false` is not read as `true`."""
     def value(i):
         while text[i:i + 1].isspace():
             i += 1
         ch = text[i:i + 1]
-        if ch in "[{":
+        if ch and ch in "[{":
             close, out, i = "]" if ch == "[" else "}", [] if ch == "[" else {}, i + 1
             while True:
                 while text[i:i + 1] in (" ", ","):
                     i += 1
-                if text[i:i + 1] in (close, ""):
+                if text[i:i + 1] == "":
+                    raise ValueError(f"unterminated {ch} in: {text}")
+                if text[i:i + 1] == close:
                     return out, i + 1
                 if close == "]":
                     item, i = value(i)
                     out.append(item)
                 else:
-                    key, _, _ = text[i:].partition(":")
+                    key, colon, _ = text[i:].partition(":")
+                    if not colon:
+                        raise ValueError(f"no ':' after {key.strip()!r} in: {text}")
                     item, i = value(i + len(key) + 1)
                     out[key.strip()] = item
-        if ch in "\"'":
+        if ch and ch in "\"'":
             # "..." takes \" and \\ escapes; '...' takes '' for a quote. Anything else is literal.
             out, i = [], i + 1
             while i < len(text):
@@ -77,7 +86,10 @@ def flow(text: str):
             raise ValueError(f"unterminated quoted value: {text}")
         m = re.match(r"[^,\]}]*", text[i:])
         return m.group(0).strip(), i + m.end()
-    return value(0)[0]
+    out, end = value(0)
+    if text[end:].strip():
+        raise ValueError(f"text after the value: {text}")
+    return out
 
 def parse_plan(text: str) -> dict:
     """Frontmatter, sections, tasks (with writes and tests-may-change), Decisions and Parked."""
@@ -86,14 +98,18 @@ def parse_plan(text: str) -> dict:
     if lines and lines[0].strip() == "---" and "---" in [l.strip() for l in lines[1:]]:
         end = 1 + [l.strip() for l in lines[1:]].index("---")
         key = None
-        for line in lines[1:end]:
+        for n, line in enumerate(lines[1:end], 2):
             m = re.match(r"^([A-Za-z_][\w-]*):\s*(.*)$", line)
-            if m:
-                key, val = m.group(1), m.group(2).strip()
-                plan["meta"][key] = flow(val) if val[:1] in "[{\"'" else val if val else {}
-            elif key == "milestones" and line.strip():
-                mid, _, val = line.strip().partition(":")
-                plan["meta"][key][mid.strip()] = flow(val.strip())
+            try:
+                if m:
+                    key, val = m.group(1), m.group(2).strip()
+                    plan["meta"][key] = flow(val) if val and val[0] in "[{\"'" else val if val else {}
+                elif key == "milestones" and line.strip():
+                    mid, _, val = line.strip().partition(":")
+                    plan["meta"].setdefault(key, {})[mid.strip()] = {}  # stays empty if malformed
+                    plan["meta"][key][mid.strip()] = flow(val.strip())
+            except ValueError as exc:  # a malformed key stays unset; lint names the line
+                plan["errors"].append(f"line {n}: {exc}")
         lines = lines[end + 1:]
     for mid, spec in (plan["meta"].get("milestones") or {}).items():
         spec = spec if isinstance(spec, dict) else {}
@@ -123,13 +139,16 @@ def parse_plan(text: str) -> dict:
     return plan
 
 def frozen_view(text) -> str:
-    """The plan with ticks normalised, writes/tests-may-change lines and Decisions/Parked bodies dropped."""
-    out, skip = [], False
+    """The plan with ticks normalised, Decisions/Parked bodies dropped, and writes/tests-may-change
+    lines dropped only where parse_plan reads them: under a task header in Tasks."""
+    out, skip, section, task = [], False, None, False
     for line in (text or "").splitlines():
         if line.startswith("## "):
-            skip = line[3:].strip() in ("Decisions", "Parked")
-        elif skip or FIELD_RE.match(line):
+            section, task = line[3:].strip().split(" (")[0].strip(), False
+            skip = section in ("Decisions", "Parked")
+        elif skip or (task and FIELD_RE.match(line)):
             continue
+        task = task or (section == "Tasks" and bool(TASK_RE.match(line)))
         out.append(re.sub(r"^(###\s+)\[[ x!]\]", r"\1[ ]", line))
     return "\n".join(out).rstrip()
 
@@ -168,13 +187,9 @@ def overlap(a_globs, b_globs) -> bool:
 
 def path_protected(plan):
     # An entry with a '#section' anchor protects part of a file, which a path glob cannot judge;
-    # lint and the writes check compare only whole-path entries, and row 4 compares anchored
-    # entries' sections commit by commit (anchored_protected, protected_text).
+    # lint and the HEAD writes check compare only whole-path entries. Row 4 also judges every entry,
+    # whole or anchored (protected_text), commit by commit against the plan at the commit's parent.
     return [p for p in plan["meta"].get("protected") or [] if isinstance(p, str) and "#" not in p]
-
-def anchored_protected(plan):
-    """[(path, anchor)] for protected entries like 'docs/x.md#D1-D19' or 'docs/x.md#D4'."""
-    return [tuple(p.split("#", 1)) for p in plan["meta"].get("protected") or [] if isinstance(p, str) and "#" in p]
 
 def protected_text(text, anchor):
     """The '## ' sections of text that anchor names (D1-D19 spans ## D1 … ## D19); an anchor of
@@ -288,10 +303,12 @@ def commit_findings(ctx, base):
             rows[4].append(f"{short} names {tids[0]}, which its parent's plan does not have")
             continue
         for status, path in ch:
-            for ppath, anchor in anchored_protected(plan):
-                if glob_re(ppath).match(path) and protected_text(file_at(ctx.root, parent, path) if parent else "",
-                                                                 anchor) != protected_text(file_at(ctx.root, c, path), anchor):
-                    rows[4].append(f"{short} [{tids[0]}] changes protected {ppath}#{anchor}")
+            for entry in [p for p in plan["meta"].get("protected") or [] if isinstance(p, str)]:
+                ppath, _, anchor = entry.partition("#")  # whole file, or only the anchored sections
+                if glob_re(ppath).match(path) and (not anchor or protected_text(
+                        file_at(ctx.root, parent, path) if parent else "", anchor)
+                        != protected_text(file_at(ctx.root, c, path), anchor)):
+                    rows[4].append(f"{short} [{tids[0]}] changes protected {entry}")
             if path == ctx.plan_rel and plan_same:
                 continue  # ticks and writes lines; the frozen view is row 6's to judge
             if not matches(path, task["writes"]):
@@ -301,12 +318,29 @@ def commit_findings(ctx, base):
             if TEST_RE.search(path) and status != "D":
                 diff = git(ctx.root, "diff", "-U0", parent or "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
                            c, "--", path)
-                if any(l.startswith("+") and SKIP_RE.search(l) for l in diff.splitlines()):
+                bare = SKIP_IMPORT_RE.search(file_at(ctx.root, c, path) or "")
+                if any(l.startswith("+") and (SKIP_RE.search(l) or bare and BARE_SKIP_RE.search(l))
+                       for l in diff.splitlines()):
                     rows[5].append(f"{short} adds a skip/only/xfail marker in {path}")
     if overlap([w for t in ctx.plan_at("HEAD")["tasks"].values() for w in t["writes"]],
                path_protected(ctx.plan_at("HEAD"))):
         rows[4].append("a writes glob at HEAD intersects protected")
     return rows
+
+def defines_test(body, name) -> bool:
+    """A runnable test: JS it/test('<name>') with exactly that name, or a Python def/async def whose
+    name starts with test (what unittest and pytest discover), inside class C for 'C.test_x'."""
+    if body is None:
+        return False
+    if re.search(rf"\b(it|test)\(\s*(?P<q>['\"`]){re.escape(name)}(?P=q)", body):
+        return True
+    *cls, fn = re.split(r"\.|::", name)
+    if not fn.startswith("test") or len(cls) > 1:
+        return False
+    if cls:  # the class body: from its header to the next line that starts in column 0
+        m = re.search(rf"^class {re.escape(cls[0])}\b.*?(?=^\S|\Z)", body, re.M | re.S)
+        body = m.group(0) if m else ""
+    return bool(re.search(rf"^\s*(async\s+)?def {re.escape(fn)}\(", body, re.M))
 
 def review_findings(ctx):
     path = ctx.runs / "review.md"
@@ -317,6 +351,7 @@ def review_findings(ctx):
     if not m or not rev_ok(ctx.root, m.group(1)) or subprocess.run(
             ["git", "merge-base", "--is-ancestor", m.group(1), "HEAD"], cwd=ctx.root).returncode:
         return ["review.md has no reviewed: <sha> that is HEAD or its ancestor"]
+    reviewed = git(ctx.root, "rev-parse", f"{m.group(1)}^{{commit}}")
     out += ["an open - [ ] BLOCKING finding"] if re.search(r"^\s*- \[ \] BLOCKING\b", text, re.M) else []
     closed = {}  # commit sha -> finding id, for every closure that holds
     lines = text.splitlines()
@@ -329,13 +364,15 @@ def review_findings(ctx):
         if not full:
             out.append(f"{rid}: {sha} is not a commit")
             continue
+        if full == reviewed or any(subprocess.run(["git", "merge-base", "--is-ancestor", a, b], cwd=ctx.root)
+                                   .returncode for a, b in ((reviewed, full), (full, "HEAD"))):
+            out.append(f"{rid}: {sha} is not a fix made after reviewed: {m.group(1)}")
+            continue
         ch = changes(ctx.root, git(ctx.root, "rev-parse", "-q", "--verify", f"{full}^1", check=False), full)
         if kind == "resolved":
             test, name = f.group(4), f.group(5)
             body = file_at(ctx.root, "HEAD", test) if test else None
-            defines = body is not None and re.search(
-                rf"^\s*(async\s+)?def {re.escape(name)}\(|\b(it|test)\(\s*['\"]{re.escape(name)}", body, re.M)
-            if not (test and TEST_RE.search(test) and defines and test in [p for _s, p in ch]):
+            if not (test and TEST_RE.search(test) and defines_test(body, name) and test in [p for _s, p in ch]):
                 out.append(f"{rid}: closes {test}::{name}, which is absent at HEAD or not changed by {sha}")
                 continue
         else:
