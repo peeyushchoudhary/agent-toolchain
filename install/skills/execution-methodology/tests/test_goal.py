@@ -140,9 +140,25 @@ class DoneTest(RepoCase):
     def test_row4_judges_writes_at_the_parent_despite_a_later_widening(self):
         sha = self.fix("src/b/z.py", "Z = 1\n", "[T1] alpha, reaching into src/b")
         self.repo.edit(PLAN, "writes: src/a/**, tests/**", "writes: src/a/**, src/b/**, tests/**")
+        self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n", "- 2026-01-01: fixture decision.\n- widen T1.\n")
         self.repo.commit("F-9: widen T1 writes")
         self.assertRowOk(3)
         self.assertRow(4, f"{sha[:10]} [T1] src/b/z.py outside writes")
+
+    def test_plan_only_cannot_expand_test_permissions(self):
+        self.repo.edit(PLAN, "tests-may-change: tests/test_a.py", "tests-may-change: **")
+        sha = self.repo.commit("F-9: let T2 change every test")
+        self.assertRow(3, f"{sha[:10]} changes writes or tests-may-change without adding a Decisions line")
+        self.repo.git("reset", "-q", "--hard", "HEAD~1")
+        self.repo.edit(PLAN, "tests-may-change: tests/test_a.py", "tests-may-change: **")
+        self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n",
+                       "- 2026-01-01: fixture decision.\n- T2 may change every test.\n")
+        sha = self.repo.commit("F-9: let T2 change every test, with a decision")
+        self.assertRowOk(3)
+        self.repo.goal("packet")
+        packet = self.repo.read(".runs/F-9/packet.md")
+        self.assertIn(f"{sha[:10]} T2 tests-may-change: tests/test_a.py -> **", packet)
+        self.assertIn("Widenings", packet)
 
     def test_row5_names_an_added_skip_marker(self):
         text = self.repo.read("tests/test_a.py").replace("    def test_flag", SKIP_DECORATOR + "    def test_flag")

@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -127,6 +128,15 @@ def frozen_view(text) -> str:
             continue
         out.append(re.sub(r"^(###\s+)\[[ x!]\]", r"\1[ ]", line))
     return "\n".join(out).rstrip()
+
+def widenings(old, new):
+    """['T5 tests-may-change: a -> a, b'] for every writes/tests-may-change field that differs."""
+    return [f"{tid} {k}: {', '.join(old['tasks'].get(tid, {}).get(k, [])) or '(none)'} -> {', '.join(t[k]) or '(none)'}"
+            for tid, t in new["tasks"].items() for k in ("writes", "tests-may-change")
+            if t[k] != old["tasks"].get(tid, {}).get(k, [])]
+
+def adds_decision(old, new) -> bool:
+    return bool(Counter(new["decisions"]) - Counter(old["decisions"]))
 
 def glob_re(pattern: str):
     """'**' spans directories, '*' and '?' stay within one segment, anything else is literal."""
@@ -249,6 +259,9 @@ def commit_findings(ctx, base):
         plan_same = frozen_view(file_at(ctx.root, parent, ctx.plan_rel) if parent else "") == \
             frozen_view(file_at(ctx.root, c, ctx.plan_rel))
         tids = sorted(set(re.findall(r"\[(T\d+)\]", subject)))
+        before = ctx.plan_at(parent) if parent and file_at(ctx.root, parent, ctx.plan_rel) else None
+        if before and widenings(before, ctx.plan_at(c)) and not adds_decision(before, ctx.plan_at(c)):
+            rows[3].append(f"{short} changes writes or tests-may-change without adding a Decisions line")
         if len(tids) != 1:
             if not (subject.startswith(f"{ctx.goal}:") and plan_same
                     and all(p == ctx.plan_rel for _s, p in ch)):
@@ -256,7 +269,7 @@ def commit_findings(ctx, base):
             continue
         # Writes are judged at the parent, so a later widening cannot excuse an earlier escape. The
         # one exception: a commit whose parent has no plan (the commit that adds it) is read at itself.
-        plan = ctx.plan_at(parent) if parent and file_at(ctx.root, parent, ctx.plan_rel) else ctx.plan_at(c)
+        plan = before or ctx.plan_at(c)
         task = plan["tasks"].get(tids[0])
         if task is None:
             rows[4].append(f"{short} names {tids[0]}, which its parent's plan does not have")
@@ -416,6 +429,9 @@ def cmd_packet(ctx, a):
     stat = git(ctx.root, "diff", "--stat", f"{approved}..HEAD", check=False)
     widen = [c for c in git(ctx.root, "log", "--format=%h %s", f"{approved}..HEAD", "--", ctx.plan_rel,
                             check=False).splitlines() if c.split(" ", 1)[1].startswith(f"{ctx.goal}:")]
+    fields = [f"{c[:10]} {w}" for c in git(ctx.root, "rev-list", "--reverse", f"{approved}..HEAD", "--",
+                                           ctx.plan_rel, check=False).split()
+              if file_at(ctx.root, f"{c}^", ctx.plan_rel) for w in widenings(ctx.plan_at(f"{c}^"), ctx.plan_at(c))]
     receipts = sorted(p.name for p in (ctx.runs / "receipts").glob(f"{tree}-*.json"))
     review = ctx.runs / "review.md"
     found = [l.strip() for l in (review.read_text().splitlines() if review.is_file() else [])
@@ -426,6 +442,7 @@ def cmd_packet(ctx, a):
            *[f"row {n} ok" if not w else f"row {n}: {'; '.join(w[:3])}" for n, w in rows.items()], "",
            "Receipts:", *(receipts or ["none"]), "", "Review findings:", *(found or ["none"]), "",
            "Decisions:", *plan["decisions"], "", "Parked:", *(plan["parked"] or ["none"]), "",
+           "Widenings (writes and tests-may-change):", *(fields or ["none"]), "",
            "Plan-only commits (widenings, ticks, decisions):", *(widen or ["none"])]
     ctx.runs.mkdir(parents=True, exist_ok=True)
     (ctx.runs / "packet.md").write_text("\n".join(out) + "\n")
