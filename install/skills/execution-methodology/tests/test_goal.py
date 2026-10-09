@@ -645,6 +645,14 @@ class CostTest(RepoCase):
         self.assertEqual(res.stdout.splitlines(), ["claude: input 668 output 51 (4 transcripts)",
                                                    "codex: input 302 output 17 (3 transcripts)"], res.stderr)
 
+    def test_codex_usage_before_the_session_meta_record_still_counts(self):
+        self.plant()
+        path = self.codex / "sessions" / "2026" / "01" / "02" / "rollout-a.jsonl"
+        rows = [json.loads(l) for l in path.read_text().splitlines()]
+        jsonl(path, [self.count(self.after, 1, 1, 1, 1), *rows])  # a usage record ahead of session_meta: in the window
+        res = self.cost("cost")
+        self.assertEqual(res.stdout.splitlines()[1], "codex: input 301 output 16 (1 transcripts)", res.stderr)
+
     def test_nothing_planted_prints_unknown_for_each_harness(self):
         res = self.cost("cost")
         self.assertEqual((res.returncode, res.stdout), (0, "claude: unknown\ncodex: unknown\n"), res.stderr)

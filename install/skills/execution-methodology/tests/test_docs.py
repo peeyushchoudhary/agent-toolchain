@@ -285,6 +285,17 @@ class PointersTest(DocsCase):
         self.assertFalse(self.repo.path(".claude/rules/a--b.md").exists())
         self.assertEqual(self.repo.read(".claude/rules/design.md"), RULE)
 
+    def test_an_agents_md_under_docs_is_a_pointer_target_not_a_page(self):
+        self.repo.write("docs/AGENTS.md", "<!-- docs.py pointers -->\n<!-- /docs.py pointers -->\n")
+        self.repo.write("docs/runbooks/run.md", page(when="running the fixture", covers="[docs/**]"))
+        self.repo.commit("a page covering docs/ itself")
+        self.assertDocs(0, "pointers", texts=("docs/AGENTS.md: written", ".claude/rules/runbooks--run.md: written"))
+        self.assertEqual(self.repo.read("docs/AGENTS.md"), (
+            "<!-- docs.py pointers -->\n[docs/runbooks/run.md](runbooks/run.md), read when: running the fixture\n"
+            "<!-- /docs.py pointers -->\n"))
+        self.assertDocs(0, "lint", texts=("docs.py lint: PASS",))  # no frontmatter wanted, no index row
+        self.assertEqual(self.assertDocs(0, "index"), INDEX)
+
     def test_a_destination_symlinked_outside_the_repository_is_refused(self):
         outside = Path(tempfile.mkdtemp(prefix="docsfx-"))
         self.addCleanup(shutil.rmtree, outside, True)

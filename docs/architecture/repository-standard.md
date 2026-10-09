@@ -1,7 +1,7 @@
 ---
 summary: The layout this repository keeps: where each kind of file belongs, from the contract and `install/` to the product, architecture, decision, runbook, goal and archive pages and the generated pointer files. Which pages are dated records and which state only what is true now. What enforces the standard in `install/verify.sh`: the link check, the dangling-name check, `docs.py lint` and the always-loaded size ceiling. And the smaller minimum a product repository needs.
 read-when: Adding, moving or removing a file, or deciding where something belongs
-covers: []
+covers: [docs/**]
 last-verified: 2026-10-09
 ---
 
@@ -24,7 +24,10 @@ docs/goals/<id>/               spec.md, design.md unless touches is none, plan.m
 docs/archive/                  pointers to tags; nothing current
 .claude/rules/<page-slug>.md   generated: one pointer file per page with a non-empty covers; the
                                slug is the page's path under docs/ with `/` as `--`
-AGENTS.md pointer block        generated: in the nearest AGENTS.md, the pages covering that directory
+AGENTS.md pointer block        generated: in the nearest AGENTS.md, which must carry the markers (an
+                               unmarked one is reported, never written), the pages covering that
+                               directory; docs/AGENTS.md holds only this page's block, since the
+                               root AGENTS.md is a table of contents under the 1,350-word ceiling
 ```
 
 **Generated files.** The index table, the pointer files and the block between

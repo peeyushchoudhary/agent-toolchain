@@ -125,10 +125,6 @@ EXCLUDE="docs/decisions/decisions.md docs/product/measurements.md install/verify
 EXCLUDE="$EXCLUDE install/skills/execution-methodology/tests/test_rules.py"
 # The skills .gitignore explains why it is an allowlist with the vendor tool that writes beside it.
 EXCLUDE="$EXCLUDE install/skills/.gitignore"
-# T8 deleted the v6 records and the diagram the old README embedded.
-EXCLUDE="$EXCLUDE docs/assets/readme/skill-surface.svg docs/architecture/lean-execution.md"
-EXCLUDE="$EXCLUDE docs/product/specs/F-3-lean-execution.md docs/product/plans/F-3-lean-execution.md"
-EXCLUDE="$EXCLUDE docs/product/improvements-weekly.md docs/agents/lessons.md"
 : > "$TMP/hits"
 git ls-files -z --cached --others --exclude-standard -- install README.md AGENTS.md docs | tr '\0' '\n' > "$TMP/files"
 [ -s "$TMP/files" ] || echo "verify: could not list the files to scan" > "$TMP/hits"

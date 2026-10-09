@@ -2,7 +2,7 @@
 """The pages under docs/: `lint [ROOT]`, `index [ROOT]`, `reads <Tn> [--goal <id>]`, `pointers [ROOT]
 [--check]`, `stale [ROOT]`.
 
-lint: every tracked docs/**/*.md but docs/README.md and docs/goals/** starts with summary (<=120
+lint: every tracked docs/**/*.md but docs/README.md, docs/goals/** and AGENTS.md starts with summary (<=120
 words), read-when, covers and last-verified, the table in docs/README.md is `index`'s output, and
 `pointers --check` finds nothing.
 reads: each entry of the task's reads: line as path:start-end, path, or term: <word>; the plan is
@@ -69,8 +69,10 @@ def covered(meta):
     return [g for g in meta["covers"] if relative(g)] if isinstance(meta.get("covers"), list) else []
 
 def pages(root):
+    """Tracked docs/**/*.md but the index, the goals and any AGENTS.md (a pointer target, not a page)."""
     files = git(root, "ls-files", "-z", "--", "docs/*.md").split("\0")
-    return sorted(f for f in files if f.endswith(".md") and f != "docs/README.md" and not f.startswith("docs/goals/"))
+    return sorted(f for f in files if f.endswith(".md") and f != "docs/README.md"
+                  and not f.startswith("docs/goals/") and not f.endswith("/AGENTS.md"))
 
 def frontmatter(root, page):
     return parse_plan((Path(root) / page).read_text(encoding="utf-8"))

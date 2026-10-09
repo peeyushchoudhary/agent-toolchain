@@ -40,8 +40,9 @@ and [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-plann
   one builder per task, one review round per stage, each agent's `maxTurns`, at most five planning
   questions.
 - **The session is the chief.** The founder's own open session runs the goal on the founder's word,
-  from `goal.py resume`; no launcher starts it, and no loop or Stop hook restarts it. Pushes pass the
-  guard's pre-push hook and the harness's own permission prompts. `goal.py cost` sums the input and
+  from `goal.py resume`; no launcher starts it, and no loop or Stop hook restarts it (the installer
+  registers none, and drops the one a v7.0 install wrote). Pushes pass the guard's pre-push hook and
+  the harness's own permission prompts. `goal.py cost` sums the input and
   output tokens in each harness's local transcripts since the approval tag; the packet records it and
   nothing enforces it.
 - **Gate receipts.** `gate.py` records PASS or FAIL against the tree that ran.
