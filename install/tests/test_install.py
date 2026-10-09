@@ -399,6 +399,26 @@ class GuardTest(InstallCase):
         self.assertNotEqual(link.returncode, 0, "a symlink's link text went unscanned")
 
 
+class LinkCheckTest(InstallCase):
+    def links(self, *anchors: str) -> list[str]:
+        import sys
+        sys.path.insert(0, str(INSTALL / "tests"))
+        from link_check import check_links
+        repo = self.home / "docsrepo"
+        self.write(repo / "docs" / "decisions" / "decisions.md",
+                   "# Decisions\n\n## D17 — Zeta rule\n\n## D18: Other (thing)\n")
+        self.write(repo / "AGENTS.md", "root\n")
+        self.write(repo / "README.md", "".join(f"[x](docs/decisions/decisions.md#{a})\n" for a in anchors))
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+        return check_links(str(repo))
+
+    def test_link_check_rejects_missing_decision_slug(self):
+        self.assertEqual(self.links("d17", "d17--zeta-rule", "d18-other-thing"), [])
+        bad = self.links("d17--nonexistent", "d99")
+        self.assertEqual(len(bad), 2, bad)
+
+
 class GoalStopHookTest(InstallCase):
     """The registered Stop command of each harness blocks a stop while a goal is not done."""
 
