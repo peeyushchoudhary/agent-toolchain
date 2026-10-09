@@ -38,7 +38,7 @@ reads: docs/decisions/decisions.md#d29, docs/architecture/methodology.md#accepte
 D30 amends D29's "no new mechanism during the pilot" for S-2 and records the three founder
 decisions; the stop-rule line in `methodology.md` says so; the index gains the three S-2 pages.
 
-### [ ] T2 — `goal.py`: `reads:`, `touches:`, spec and design lint, section protection, AC tracing
+### [x] T2 — `goal.py`: `reads:`, `touches:`, spec and design lint, section protection, AC tracing
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/**
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/**
 reads: docs/goals/S-2/design.md#interfaces, docs/goals/S-2/spec.md, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
@@ -304,6 +304,13 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   assertions are named (R7); the duplicated `pointers --check`, the D1–D19 sentence and the
   milestone-close procedure are dropped, and the Format notes say `touches` values are unvalidated
   until T2 (R8).
+- 2026-10-09 T2 defaults: a goal is v7.1 when `spec.md` is in the working tree (lint) or at the
+  approval tag (row 4, so deleting the spec is still caught); an anchor naming no heading protects
+  the whole file; spec headings match as bold labels or `#` headings at line start; `lint` prints
+  `Tn reads:` lines; `packet` gains a Reads section; the row-3 message stays generic. `slug()` is
+  copied into `goal.py` until `docs.py` (T3) is its single home; a lowercase `dNN` anchor still
+  falls into the case-sensitive D-range branch of `protected_text`, which predates T2 and matters
+  only for `protected:` entries. `goal.py` is +77/−22 lines.
 
 ## Parked
 

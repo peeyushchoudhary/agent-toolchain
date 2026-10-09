@@ -1,6 +1,7 @@
 """Throwaway git repositories holding a small v7 goal, for the goal.py, gate.py and run.sh tests.
 
-The fixture goal F-9 (docs/goals/F-9/plan.md) has two milestones: M1 (T1, T2) and M2 (T3). Its
+The fixture goal F-9 (docs/goals/F-9/plan.md) has two milestones: M1 (T1, T2) and M2 (T3);
+plan_text(v71=True) with V71_FILES (spec.md, design.md) makes it a v7.1 goal. Its
 gates are tiny unittest suites inside the repository, and `emit.py` prints canned test-runner
 output selected by the GATE_FIXTURE_MODE variable, so the same command string
 can be made to pass or fail without changing the committed tree.
@@ -22,12 +23,52 @@ FULL = "python3 -m unittest discover -s tests -t tests"
 E2E = "python3 -m unittest discover -s tests -t tests -p 'test_e2e*.py'"
 
 
-def task(tid, title, writes, tmc="", state=" "):
-    return (f"### [{state}] {tid} — {title}\nwrites: {writes}\n"
+def task(tid, title, writes, tmc="", state=" ", reads=""):
+    return (f"### [{state}] {tid} — {title}\nwrites: {writes}\n" + (f"reads: {reads}\n" if reads else "")
             + (f"tests-may-change: {tmc}\n" if tmc else "") + f"Do the {title} work.\n")
 
 
-def plan_text(t2_writes="src/b/**, tests/**"):
+SPEC = """# F-9 spec
+
+**Users and problem.** The fixture user has two problems.
+
+**What changes for the user.** Alpha and beta work.
+
+**Acceptance criteria.**
+
+- AC1 WHEN alpha runs THE SYSTEM SHALL do the alpha work.
+- AC2 WHEN beta runs THE SYSTEM SHALL do the beta work.
+
+**Non-goals.** Gamma.
+
+**Constraints.** Standard-library Python.
+"""
+
+DESIGN = """# F-9 design
+
+## Interfaces
+
+1. **alpha.** One function.
+
+### Interface detail
+
+Inside the Interfaces section.
+
+## Data touched
+
+Nothing in a store.
+
+## Smallest change
+
+One file.
+"""
+
+V71_FILES = {"docs/goals/F-9/spec.md": SPEC, "docs/goals/F-9/design.md": DESIGN}
+
+
+def plan_text(t2_writes="src/b/**, tests/**", v71=False):
+    """The fixture plan; v71 adds reads: to every task, names AC1 and AC2 in T1 and T2, touches an interface."""
+    r = "docs/goals/F-9/design.md#interfaces" if v71 else ""
     return f"""---
 goal: F-9
 title: Fixture outcome
@@ -36,7 +77,7 @@ full_gate: {FULL}
 milestones:
   M1: {{tasks: [T1, T2], e2e: "{E2E}"}}
   M2: {{tasks: [T3], e2e: "{E2E}"}}
-touches: [none]
+touches: [{"interface" if v71 else "none"}]
 protected: [docs/design.md]
 ---
 
@@ -46,9 +87,9 @@ The fixture does two things.
 
 ## Tasks
 
-{task("T1", "alpha", "src/a/**, tests/**")}
-{task("T2", "beta", t2_writes, tmc="tests/test_a.py")}
-{task("T3", "gamma", "src/c/**")}
+{task("T1", "alpha AC1" if v71 else "alpha", "src/a/**, tests/**", reads=r)}
+{task("T2", "beta AC2" if v71 else "beta", t2_writes, tmc="tests/test_a.py", reads=r)}
+{task("T3", "gamma", "src/c/**", reads=r)}
 ## Decisions
 
 - 2026-01-01: fixture decision.
