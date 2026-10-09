@@ -5,7 +5,8 @@
 #
 # Exit: 0 DONE (packet at .runs/<id>/packet.md), 3 STALLED (two sessions with no new tick or [Tn]
 # commit), 4 PARKED (the active milestone has a [!] task and no [ ] task), 5 sessions exhausted,
-# 2 usage. RUN_HARNESS_CMD, when set, replaces the harness command; it receives the prompt as $1.
+# 2 usage. RUN_HARNESS_CMD, when set, replaces the harness command; it receives the prompt as $1 and
+# then the full harness command line it replaces, with the session's Stop hook registration.
 # RUN_PROMPT, when set, replaces the goal.py resume prompt (e2e_run.sh's forbidden-push probe).
 #
 # Permissions (founder decision, S-1 plan): a scoped allowlist, a deny list and a sandbox with the
@@ -96,23 +97,25 @@ else:
 PY
 }
 session() {  # session PROMPT OUT — run one fresh session, its JSON output to OUT
-  if [ -n "${RUN_HARNESS_CMD:-}" ]; then
-    $RUN_HARNESS_CMD "$1" > "$2"
-  elif [ "$HARNESS" = claude ]; then
-    local settings rc; settings="$(mktemp)"
-    claude_settings > "$settings" || { rm -f "$settings"; return 2; }
-    claude -p "$1" --permission-mode dontAsk --setting-sources "" --settings "$settings" \
-      --output-format json > "$2"; rc=$?; rm -f "$settings"; return $rc
-  else
-    local hook; hook="python3 '$SCRIPTS/goal.py' --goal '$GOAL' stop-hook"
+  local cmd settings="" hook rc
+  if [ "$HARNESS" = codex ]; then
+    hook="python3 '$SCRIPTS/goal.py' --goal '$GOAL' stop-hook"
     hook="${hook//\\/\\\\}"; hook="${hook//\"/\\\"}"
     # .git is read-only under workspace-write, so it is the one extra writable root (commits).
-    codex --ask-for-approval never exec --sandbox workspace-write \
-      -c sandbox_workspace_write.network_access=false \
-      -c "sandbox_workspace_write.writable_roots=[\"$ROOT/.git\"]" \
-      -c "hooks.Stop=[{hooks=[{type=\"command\",command=\"$hook\"}]}]" --dangerously-bypass-hook-trust \
-      --ignore-user-config --ignore-rules -C "$ROOT" --json "$1" > "$2" < /dev/null
+    cmd=(codex --ask-for-approval never exec --sandbox workspace-write
+      -c sandbox_workspace_write.network_access=false
+      -c "sandbox_workspace_write.writable_roots=[\"$ROOT/.git\"]"
+      -c "hooks.Stop=[{hooks=[{type=\"command\",command=\"$hook\"}]}]" --dangerously-bypass-hook-trust
+      --ignore-user-config --ignore-rules -C "$ROOT" --json "$1")
+  else
+    settings="$(mktemp)"
+    claude_settings > "$settings" || { rm -f "$settings"; return 2; }
+    cmd=(claude -p "$1" --permission-mode dontAsk --setting-sources "" --settings "$settings" --output-format json)
   fi
+  if [ -n "${RUN_HARNESS_CMD:-}" ]; then $RUN_HARNESS_CMD "$1" "${cmd[@]}" > "$2"
+  elif [ "$HARNESS" = codex ]; then "${cmd[@]}" > "$2" < /dev/null
+  else "${cmd[@]}" > "$2"; fi
+  rc=$?; [ -z "$settings" ] || rm -f "$settings"; return $rc
 }
 prompt() {
   if [ -n "${RUN_PROMPT:-}" ]; then printf '%s\n' "$RUN_PROMPT"; return; fi

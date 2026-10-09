@@ -85,6 +85,14 @@ class E2ERunTests(unittest.TestCase):
             self.assertNotIn("fake harness", out)
             self.assertNotIn("run.sh", out)
 
+    def test_e2e_rejects_missing_session_stop_hook(self):
+        r = self.e2e(E2E_FAKE_NO_STOP_HOOK="1")
+        out = r.stdout + r.stderr
+        self.assertEqual(r.returncode, 1, out)
+        for harness in ("claude", "codex"):
+            self.assertRegex(out, rf"e2e_run: {harness} session stop hook +FAIL: .*Stop hook never ran", out)
+        self.assertIn("e2e_run: FAIL", out.splitlines()[-1])
+
 
 class InstallCase(unittest.TestCase):
     def setUp(self):

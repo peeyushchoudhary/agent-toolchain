@@ -17,9 +17,12 @@
 # 1. Per harness, on its own fresh repository with a two-task goal E-1: install the skill with the
 #    real install.sh into a disposable HOME/CODEX_HOME, probe a forbidden `git push`, then
 #    `run.sh E-1 --harness <h> --sessions 3`. Asserts: the push was refused, both [T1] and [T2]
-#    commits exist, a Stop hook registered outside run.sh never fired, the session did not write its
-#    own review, and, after the merge-review step (below), `goal.py done` prints DONE and packet.md
-#    exists. Credentials for a disposable home: Claude reads CLAUDE_CODE_OAUTH_TOKEN
+#    commits exist, run.sh's session Stop hook ran in every session (goal.py stop-hook wrote
+#    stop_state.json, at most three blocks each), a Stop hook registered outside run.sh never
+#    fired, the session did not write its own review, and, after the merge-review step (below),
+#    `goal.py done` prints DONE and packet.md exists. The fake harness ends each session the way a
+#    harness does: it runs the Stop hook its command line registers and, on a block, stops again.
+#    E2E_FAKE_NO_STOP_HOOK=1 (tests only) makes it skip the hook, so the check must fail. Credentials for a disposable home: Claude reads CLAUDE_CODE_OAUTH_TOKEN
 #    (`claude setup-token`) or ANTHROPIC_API_KEY from the environment; Codex reads CODEX_API_KEY,
 #    or E2E_CODEX_AUTH_JSON=<path to an auth.json> is copied into the disposable CODEX_HOME.
 #    A fake run has no push probe and no --settings experiment, and says so.
@@ -179,10 +182,21 @@ Then report its output verbatim and stop. Do not try any other command.' \
   done
   [ -s "$marker" ] && bad "$h stop hook" "a user-level Stop hook fired $(wc -l < "$marker" | tr -d ' ') time(s) beside run.sh's" \
     || ok "$h stop hook" "no user-level Stop hook fired"
-  if [ "$h" = claude ]; then
-    n=$(python3 -c 'import json,os,sys; p=sys.argv[1]; s=json.load(open(p)) if os.path.isfile(p) else {}; print(max(s.values() or [0]))' "$repo/.runs/E-1/stop_state.json")
-    [ "$n" -le 3 ] && ok "$h stop blocks" "at most $n per session (cap 3)" || bad "$h stop blocks" "$n in one session"
-  fi
+  # run.sh's per-session Stop hook ran: goal.py stop-hook itself writes stop_state.json, one key per
+  # session it blocked (every session here stops with the goal not done), at most three blocks each.
+  if why="$(python3 - "$repo/.runs/E-1/stop_state.json" "$(grep -c ' session ' "$repo/.runs/E-1/progress.md")" <<'PY'
+import json, os, sys
+path, sessions = sys.argv[1], int(sys.argv[2])
+if not os.path.isfile(path):
+    print("no stop_state.json: run.sh's session Stop hook never ran"); sys.exit(1)
+state = {k: v for k, v in json.load(open(path)).items() if not k.startswith("several:")}
+if len(state) < sessions:
+    print(f"the Stop hook recorded {len(state)} of {sessions} session(s)"); sys.exit(1)
+if max(state.values()) > 3:
+    print(f"{max(state.values())} blocks in one session (cap 3)"); sys.exit(1)
+print(f"ran in all {sessions} session(s), at most {max(state.values())} block(s) each (cap 3)")
+PY
+)"; then ok "$h session stop hook" "$why"; else bad "$h session stop hook" "$why"; fi
   if [ -e "$repo/.runs/E-1/review.md" ]; then bad "$h review" "the session wrote its own review.md"
   else
     # rows 1-7 must hold before the merge review; then the fixture stands in for it.
@@ -229,8 +243,41 @@ done
 # experiment), so the loop, commits, receipts, done and packet are proven per harness; the first
 # authenticated run takes the live path.
 cat > "$tmp/fake_harness.py" <<'FAKE'
-"""Stand-in for one harness session: the next open task, else the two receipts. Not a harness."""
-import os, pathlib, re, subprocess, sys
+"""Stand-in for one harness session: the next open task, else the two receipts; then, as a harness
+does at the end of its session, the Stop hook its command line registers. Not a harness.
+argv: the prompt, then the claude or codex command line run.sh would have run."""
+import json, os, pathlib, re, subprocess, sys, tomllib, uuid
+
+
+def stop_hooks(argv):
+    """The Stop hook commands registered by Claude's --settings file or Codex's -c hooks.Stop=..."""
+    cmds = []
+    for flag, value in zip(argv, argv[1:]):
+        if flag == "--settings":
+            hooks = json.loads(pathlib.Path(value).read_text()).get("hooks", {})
+        elif flag == "-c" and value.startswith("hooks.Stop="):
+            hooks = tomllib.loads(value)["hooks"]
+        else:
+            continue
+        cmds += [h["command"] for e in hooks.get("Stop", []) for h in e.get("hooks", [])]
+    return cmds
+
+
+def end_session():
+    """The Stop event; on a block the session continues and stops again (goal.py caps blocks at 3)."""
+    sid = str(uuid.uuid4())
+    for cmd in stop_hooks(sys.argv[2:]):
+        for turn in range(5):
+            event = {"session_id": sid, "transcript_path": "", "cwd": os.getcwd(),
+                     "hook_event_name": "Stop", "stop_hook_active": turn > 0}
+            out = subprocess.run(cmd, shell=True, input=json.dumps(event), capture_output=True, text=True).stdout
+            try:
+                if json.loads(out).get("decision") != "block":
+                    break
+            except ValueError:
+                break
+
+
 plan = pathlib.Path("docs/goals/E-1/plan.md")
 text = plan.read_text()
 m = re.search(r"^### \[ \] (T[12]) ", text, re.M)
@@ -252,6 +299,8 @@ else:
                       ("e2e", "python3 -m unittest discover -s tests -t . -v")):
         subprocess.run([sys.executable, os.environ["FAKE_GATE"], "receipt", "--goal", "E-1", "--cmd", cmd,
                         "--name", name], check=True, capture_output=True)
+if os.environ.get("E2E_FAKE_NO_STOP_HOOK") != "1":
+    end_session()
 print('{"type": "result", "total_cost_usd": 0, "num_turns": 0, "permission_denials": []}')
 FAKE
 for h in $HARNESSES; do
