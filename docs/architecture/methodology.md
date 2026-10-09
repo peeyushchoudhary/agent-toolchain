@@ -1,3 +1,10 @@
+---
+summary: How a goal runs under methodology v7 and why: one plan per goal frozen at the approval tag, gate receipts bound to the tree that ran, the eight-row mechanical done check, one read-only review by the other vendor at design, plan and merge, one guard, two founder touchpoints per milestone and one instruction source for both harnesses. Also what v6 was and the measurements that retired it, the accepted risks with the pilot's stop rule, the v6 lessons that still hold, and the rollback to `methodology/v6-base`.
+read-when: Changing anything under `install/`, or asking how a goal runs, what v7 replaced, its risks or its rollback
+covers: [install/**]
+last-verified: 2026-10-09
+---
+
 # Methodology v7
 
 How a goal runs, and why. The rules are in the

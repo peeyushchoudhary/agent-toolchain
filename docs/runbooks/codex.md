@@ -1,3 +1,10 @@
+---
+summary: Codex beside Claude Code: the repository layer both share, what the installer writes into `$CODEX_HOME`, how `run.sh` starts a Codex session as the chief (the sandbox, the per-session Stop hook, the git-level push denial and its limits), and the exact `codex exec` call that runs the read-only review when Claude is the chief.
+read-when: Running Codex as the chief or as the other vendor's reviewer
+covers: []
+last-verified: 2026-10-09
+---
+
 # Codex
 
 Codex and Claude Code share the repository layer: `AGENTS.md` and `docs/` (`CLAUDE.md` is the one

@@ -19,11 +19,13 @@ fi
 
 for root in "$tmp/.claude" "$tmp/.codex"; do
   scripts="$root/skills/execution-methodology/scripts"
-  for f in goal.py guard.py git-hooks.sh run.sh; do
+  for f in goal.py docs.py guard.py git-hooks.sh run.sh; do
     [ -f "$scripts/$f" ] || fail "$scripts/$f is missing"
   done
   [ -f "$scripts/goal.py" ] && { HOME="$tmp" python3 "$scripts/goal.py" --help > /dev/null 2>&1 ||
     fail "$scripts/goal.py --help exited non-zero"; }
+  [ -f "$scripts/docs.py" ] && { HOME="$tmp" python3 "$scripts/docs.py" --help > /dev/null 2>&1 ||
+    fail "$scripts/docs.py --help exited non-zero"; }
   [ -f "$scripts/guard.py" ] && { HOME="$tmp" python3 "$scripts/guard.py" --self-test > "$tmp/self-test.log" 2>&1 ||
     { cat "$tmp/self-test.log"; fail "$scripts/guard.py --self-test exited non-zero"; }; }
 done
@@ -46,7 +48,7 @@ PY
 done
 
 if [ "$errors" -eq 0 ]; then
-  echo "e2e_install: PASS (installed into both harnesses; goal.py, guard.py, git-hooks.sh, run.sh present; no Stop hook registered; goal.py --help and guard.py --self-test ok)"
+  echo "e2e_install: PASS (installed into both harnesses; goal.py, docs.py, guard.py, git-hooks.sh, run.sh present; no Stop hook registered; goal.py --help, docs.py --help and guard.py --self-test ok)"
   exit 0
 fi
 echo "e2e_install: FAIL ($errors)"

@@ -1,3 +1,10 @@
+---
+summary: How to migrate a project still on v5.1, which holds `docs/agents/execution/runtime.json`, by hand in one commit at a milestone boundary: map its overlay into `AGENTS.md` and the first plan, remove the v5 execution files, rendered personas and hook registrations, ignore `/.runs/`, write the first plan, then install the guard. The rollback, and when `install.sh --retire-v5` may run.
+read-when: Migrating a v5.1 project, or deciding whether `--retire-v5` may run
+covers: []
+last-verified: 2026-10-09
+---
+
 # Migrating a v5.1 project
 
 A project is unmigrated while it holds `docs/agents/execution/runtime.json`; the skill does nothing

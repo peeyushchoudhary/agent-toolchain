@@ -1,3 +1,10 @@
+---
+summary: The one decisions record: a table of every decision id with its date, a one-line statement and its status (standing, superseded, removed or archived), then the full text of the decisions that keep it, D1 to D19 among them. A section whose row is not standing is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles.
+read-when: Making or citing a decision, or asking why the methodology is the way it is
+covers: []
+last-verified: 2026-10-09
+---
+
 # Decisions
 
 A **standing** decision is in force; other rows are history. D1–D19 keep their full text because

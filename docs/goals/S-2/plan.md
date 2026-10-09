@@ -131,7 +131,7 @@ what was left out and where it lives instead (the public record of the council).
 the agent files join `SKILL_FILES`, the scout and the reviewer are read-only, each agent body is at
 or under its budget. `docs/README.md` gains the personas row.
 
-### [ ] T6 — this repository's `docs/` under the standard; `docs.py lint` in the gate; M1's e2e
+### [x] T6 — this repository's `docs/` under the standard; `docs.py lint` in the gate; M1's e2e
 writes: docs/README.md, docs/architecture/**, docs/product/**, docs/runbooks/**, docs/archive/**, docs/decisions/decisions.md, README.md, install/verify.sh, install/tests/e2e_install.sh, install/tests/test_install.py, install/README.md
 tests-may-change: install/tests/e2e_install.sh, install/tests/test_install.py
 reads: docs/goals/S-2/design.md#interfaces, docs/architecture/repository-standard.md, install/verify.sh, install/tests/e2e_install.sh
@@ -342,6 +342,16 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   described, not named. Follow-ups: `SKILL.md` step 3's "until it exists" clause is stale
   (T6 or T9 may drop it); T8 checks `install.sh`'s `RETIRED_PERSONAS` against the new
   agent files; `docs.py lint .` is at 33 findings for T6.
+- 2026-10-09 T6 defaults: `docs/README.md` keeps one prose line saying goals live under
+  `goals/<id>/` and the table is generated, since `docs.py index` excludes `docs/goals/`; the
+  PRD describes `goal.py` as it is (no `cost`, no `run.sh`) and states D30's "no launcher,
+  loop or Stop hook"; the product minimum reads "`prd.md` with at least its frontmatter
+  `summary`"; `verify.sh` check 6 is `docs`, later checks renumbered; `test_install.py`
+  pins no script list, so it is unchanged. The T6 packet mislabelled the PRD as AC10 (AC10 is
+  `packet --approval`, T10); the builder followed the task text. Follow-ups: `methodology.md`,
+  root `README.md` and `install/README.md` still describe `run.sh` as current (T9's writes cover
+  only `install/README.md`; T11 covers `methodology.md`; root `README.md` needs a plan-only
+  widening or a T11 Decisions line); the plan's `M2:` line is indented four spaces.
 
 ## Parked
 

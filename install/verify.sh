@@ -47,7 +47,7 @@ run_suite() {
   else pass "$id ($ran tests)"; fi
 }
 
-# 8. Installed parity (--installed: after check 7; --installed-only: alone). Each harness home holds
+# 9. Installed parity (--installed: after check 8; --installed-only: alone). Each harness home holds
 # this skill (tests/ excepted) and global.md byte-equal, and no Stop registration of goal.py
 # stop-hook (run.sh registers it per session). Files the installed skill carries forward from an
 # older install are listed, not counted (--retire-v5 judges them).
@@ -95,7 +95,12 @@ check guard bash -c 'python3 "$1/install/tests/tree_scan.py" "$1" "$2" && cd "$2
 section "links"
 python3 install/tests/link_check.py "$ROOT" || failed links   # prints `verify: links ok` itself
 
-# 6. No current file names a deleted component. Over the tracked and non-ignored files in install/,
+# 6. Every page under docs/ but the index and docs/goals/** carries summary, read-when, covers and
+# last-verified, and docs/README.md's table is `docs.py index`'s output (the skill's docs.py lint).
+section "docs"
+check docs python3 "$ROOT/install/skills/execution-methodology/scripts/docs.py" lint "$ROOT"
+
+# 7. No current file names a deleted component. Over the tracked and non-ignored files in install/,
 # README.md, AGENTS.md and docs/. Records may name them as rationale and are excluded: decisions.md,
 # measurements.md, docs/goals/**, install.sh's retire list (between its markers), and this file.
 # The rest of EXCLUDE is owed to later tasks or to files this one may not edit; each says why.
@@ -132,7 +137,7 @@ while IFS= read -r f; do
 done < "$TMP/files"
 if [ -s "$TMP/hits" ]; then cat "$TMP/hits"; failed dangling_references; else pass dangling_references; fi
 
-# 7. The installer's dry run, against a scratch HOME so the result describes this repository.
+# 8. The installer's dry run, against a scratch HOME so the result describes this repository.
 section "install.sh --dry-run (scratch HOME)"
 mkdir -p "$TMP/hm/.codex"
 if HOME="$TMP/hm" CODEX_HOME="$TMP/hm/.codex" bash install/install.sh --dry-run > "$TMP/dry.log" 2>&1; then
