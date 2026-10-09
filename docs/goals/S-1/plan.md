@@ -156,7 +156,7 @@ one-line row and full text for D2, D3, D4, D17, D18, D29; `docs/product/measurem
 `runbooks/global-instructions.md`, `NOTES-break-tests.md`. History and the tags keep them.
 
 ### [x] T9 — local end-to-end run; install, uninstall and rollback rehearsal; measurements
-writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/verify.sh, install/tests/**, install/README.md, docs/runbooks/codex.md, README.md, docs/product/measurements.md
+writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/verify.sh, install/tests/**, install/README.md, docs/runbooks/codex.md, README.md, docs/product/measurements.md, docs/architecture/methodology.md
 tests-may-change: install/tests/**
 `e2e_run.sh`: for each harness separately, creates a fresh scratch repository with a two-task
 `plan.md`, runs `run.sh --harness <h> --sessions 3` for real, and asserts that harness's `goal.py
@@ -286,6 +286,14 @@ the other vendor's diff review, `done` for M2, merge.
   hook and strips an older install's `goal.py stop-hook` entries; the installer's JSON editor stays
   for that. The e2e satisfies row 8 with a fixture `review.md` at the goal's HEAD. The stale
   `verify.sh` dangling-name exclusions are left for the next goal.
+- 2026-10-09 Astra M2 diff review (one round, `.runs/S-1/review.md`, reviewed 92f43b2): BLOCK, 13
+  blocking and 3 non-blocking. Each blocking finding is closed by its own `[Tn][Rk]` fix commit with
+  the closing test the review names: R1–R3 in `e2e_run.sh`/`run.sh`, R4–R6 in `install.sh` (T9);
+  R7–R12 in `goal.py` (T2); R13 in `guard.py` (T4). R1's live-harness half stays deferred by the
+  founder's 2026-10-09 decision: the fix makes an explicitly requested harness fail rather than fall
+  back to the fake one, and the live evidence is owed to the pilot's first authenticated run. The
+  non-blocking R14–R16 are fixed inside the R1, R4 and R3 commits. Widening: T9 `writes` gains
+  `docs/architecture/methodology.md`, whose rollback command R14 corrects.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 
