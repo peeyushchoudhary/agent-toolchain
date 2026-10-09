@@ -413,6 +413,23 @@ class M2InstallFixes(InstallCase):
         self.assertEqual(r.stdout.strip().splitlines()[-1], "verify: PASS")
         self.assertEqual(sorted(p.name for p in self.home.iterdir()), ["my home"])
 
+    def test_uninstall_preserves_preexisting_unknown_skill_files(self):
+        skill = self.claude / "skills" / SKILL
+        mine = self.write(skill / "scripts" / "my_local_tool.py", "mine\n")
+        notes = self.write(skill / "notes" / "todo.md", "mine too\n")
+        self.install()
+        dry = self.install("--uninstall", "--dry-run").stdout
+        self.assertIn(f"left in place (not in this package): {mine}", dry)
+        out = self.install("--uninstall").stdout
+        self.assertEqual(mine.read_text(), "mine\n")
+        self.assertEqual(notes.read_text(), "mine too\n")
+        self.assertIn(f"left in place (not in this package): {mine}", out)
+        self.assertIn(f"left in place (not in this package): {notes}", out)
+        # Only the foreign files and the directories holding them remain; every shipped file is gone.
+        left = sorted(str(p.relative_to(skill)) for p in skill.rglob("*"))
+        self.assertEqual(left, ["notes", "notes/todo.md", "scripts", "scripts/my_local_tool.py"])
+        self.assertFalse((self.codex / "skills").exists(), "a skill holding only shipped files goes whole")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -85,6 +85,21 @@ install_skill() {  # install_skill ROOT
   if { [ ! -e "$dest" ] || mv "$dest" "$old"; } && mv "$st" "$dest"; then rm -rf "$old"; say "installed $dest"; return 0; fi
   [ -e "$dest" ] || [ ! -e "$old" ] || mv "$old" "$dest"; rm -rf "$st"; return 1
 }
+# Uninstall removes the files this package ships and the directories that leaves empty; files it
+# does not ship (the ones install_skill carries forward) stay, with their directories, and are reported.
+uninstall_skill() {  # uninstall_skill ROOT
+  local src="$HERE/skills/$SKILL" dest="$1/skills/$SKILL" kept rel
+  { [ -e "$dest" ] || [ -L "$dest" ]; } || return 0
+  kept="$(extras "$src" "$dest")"
+  [ -n "$kept" ] || { step "removed $dest" rm -rf "$dest"; return; }
+  if [ "$DRY" -eq 0 ]; then
+    (cd "$src" && find . \( -type f -o -type l \) -not -path '*/__pycache__/*') | sed 's|^\./||' |
+      while IFS= read -r rel; do rm -f "$dest/$rel" || exit 1; done &&
+      find "$dest" -name __pycache__ -prune -exec rm -rf {} + && find "$dest" -depth -type d -empty -delete || return 1
+  fi
+  say "$([ "$DRY" -eq 1 ] && echo 'would: ')removed this package's files from $dest"
+  while IFS= read -r rel; do say "left in place (not in this package): $dest/$rel"; done <<< "$kept"
+}
 
 # ── Global instructions ──────────────────────────────────────────────────────────────────────────
 install_global() {  # install_global DEST: back up a file that differs, then write global.md
@@ -184,7 +199,7 @@ for r in "${ROOTS[@]}"; do
   echo "$r"
   if [ "$MODE" = uninstall ]; then
     uninstall_global "$(global_of "$r")" || fail "uninstall: $(global_of "$r")"
-    [ ! -e "$r/skills/$SKILL" ] || step "removed $r/skills/$SKILL" rm -rf "$r/skills/$SKILL" || fail "uninstall: $r/skills/$SKILL"
+    uninstall_skill "$r" || fail "uninstall: $r/skills/$SKILL"
     [ "$DRY" -eq 1 ] || rmdir "$r/skills" 2>/dev/null || true   # only when the skill was all it held
     [ ! -f "$(hooks_of "$r")" ] || edit_hooks "$r" "goal.py stop-hook" || fail "uninstall: $(hooks_of "$r")"
   else
