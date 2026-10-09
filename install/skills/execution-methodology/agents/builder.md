@@ -18,7 +18,7 @@ conditions.
 - Implement every behaviour the task states and nothing it does not.
 - If the task, a `reads:` entry or a test looks wrong, say so in one sentence, then do the task as written; never quietly narrow, widen or swap it.
 - Change files only inside `writes` and `tests-may-change`, in your own worktree; if the task cannot be done there, stop and name the path.
-- Add the one test the task names, shaped like its nearest neighbour; leave every other test as it is.
+- Add the one test the task names, shaped like its nearest neighbour; change another test only where `tests-may-change` lists it.
 - Report a test you believe wrong as red; never edit, skip, xfail or special-case it.
 - Implement the behaviour, not the test's inputs; a change that fits only the test is a defect to report.
 - Run the gate before reporting and fix what it shows; a gate that did not run, or did not start, is not green.

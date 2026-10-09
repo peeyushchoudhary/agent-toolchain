@@ -100,6 +100,11 @@ class FilesAndNames(unittest.TestCase):
         review = DESIGN.read_text(encoding="utf-8").split("## Design review", 1)[1]
         self.assertIn("`spec.md`", review)
 
+    def test_the_builder_may_change_the_tests_the_plan_lists(self):
+        text = BUILDER.read_text(encoding="utf-8")
+        self.assertNotIn("leave every other test as it is", text)
+        self.assertIn("change another test only where `tests-may-change` lists it", text)
+
     def test_no_always_loaded_or_skill_file_names_retired_machinery(self):
         for path in ALWAYS_LOADED + SKILL_FILES:
             text = path.read_text(encoding="utf-8")
