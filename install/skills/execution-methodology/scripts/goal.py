@@ -667,15 +667,17 @@ def records(path):
         return
 
 def claude_usage(root, start):
-    """Claude Code: every *.jsonl under $HOME/.claude/projects/<slug>/, the session transcripts and the
-    subagent ones in <session>/subagents/; <slug> is the root with every character but a letter or
-    digit as `-`. Record: {"type": "assistant", "timestamp": "...Z", "message": {"id",
+    """Claude Code: every *.jsonl under $HOME/.claude/projects/<slug>/ and <slug>-*/ (a session opened
+    in a subdirectory or a worktree under the root), the session transcripts and the subagent ones in
+    <session>/subagents/; <slug> is the root with every character but a letter or digit as `-`. Record: {"type": "assistant", "timestamp": "...Z", "message": {"id",
     "usage": {"input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
     "output_tokens"}}}; input is the three input fields. One response is written as one record per
     content block, each repeating message.id and its usage, so an id counts once across all files."""
-    slug = re.sub(r"[^A-Za-z0-9]", "-", str(root))
+    slug, projects = re.sub(r"[^A-Za-z0-9]", "-", str(root)), Path.home() / ".claude" / "projects"
+    dirs = [d for d in (sorted(projects.iterdir()) if projects.is_dir() else [])
+            if d.name == slug or d.name.startswith(slug + "-")]
     usage, files = {}, 0
-    for path in sorted((Path.home() / ".claude" / "projects" / slug).rglob("*.jsonl")):
+    for path in sorted(p for d in dirs for p in d.rglob("*.jsonl")):
         hit = False
         for n, r in enumerate(records(path)):
             m = r.get("message")
@@ -692,7 +694,7 @@ def claude_usage(root, start):
 
 def codex_usage(root, start):
     """Codex: $CODEX_HOME/sessions/**/*.jsonl (default ~/.codex), kept when the first {"type":
-    "session_meta", "payload": {"cwd"}} names the root. Record: {"type": "event_msg", "timestamp":
+    "session_meta", "payload": {"cwd"}} names the root or a directory under it. Record: {"type": "event_msg", "timestamp":
     "...Z", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens",
     "output_tokens", ...}, "last_token_usage": {...}}}}. Codex repeats a token_count record with
     unchanged numbers, so a session counts the growth of its running total_token_usage between
@@ -704,7 +706,8 @@ def codex_usage(root, start):
         rs = records(path)
         meta = next((r for r in rs if r.get("type") == "session_meta"), None)
         cwd = ((meta or {}).get("payload") or {}).get("cwd")
-        if not isinstance(cwd, str) or os.path.realpath(cwd) != str(root):
+        if not isinstance(cwd, str) or not (os.path.realpath(cwd) == str(root)
+                                            or os.path.realpath(cwd).startswith(str(root) + os.sep)):
             continue
         totals = [(t >= start, p["info"]["total_token_usage"]) for r in rs if r.get("type") == "event_msg"
                   and isinstance(p := r.get("payload"), dict) and p.get("type") == "token_count"

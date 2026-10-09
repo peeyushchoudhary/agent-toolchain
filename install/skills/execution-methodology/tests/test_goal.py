@@ -616,6 +616,23 @@ class CostTest(RepoCase):
         res = self.cost("cost")
         self.assertEqual(res.stdout.splitlines()[1], "codex: input 300 output 15 (1 transcripts)", res.stderr)
 
+    def test_repository_cost_includes_subdirectory_and_worktree_sessions(self):
+        self.plant()
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.repo.dir))
+        usage = {"input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 1}
+        for sub in ("install", ".claude/worktrees/agent-1"):  # a session opened in a subdirectory, a builder's worktree
+            jsonl(self.home / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(self.repo.dir / sub)) / "s.jsonl",
+                  [{"type": "assistant", "timestamp": self.after, "message": {"id": f"m-{sub}", "usage": usage}}])
+            jsonl(self.codex / "sessions" / "2026" / "01" / "03" / f"rollout-{len(sub)}.jsonl",
+                  [self.meta(str(self.repo.dir / sub)), self.count(self.after, 1, 1, 1, 1)])
+        jsonl(self.home / ".claude" / "projects" / f"{slug}2" / "s.jsonl",  # a sibling: its slug is not <slug>-…
+              [{"type": "assistant", "timestamp": self.after, "message": {"id": "m-sibling", "usage": usage}}])
+        jsonl(self.codex / "sessions" / "2026" / "01" / "03" / "rollout-sibling.jsonl",
+              [self.meta(str(self.repo.dir) + "2"), self.count(self.after, 1, 1, 1, 1)])
+        res = self.cost("cost")
+        self.assertEqual(res.stdout.splitlines(), ["claude: input 668 output 51 (4 transcripts)",
+                                                   "codex: input 302 output 17 (3 transcripts)"], res.stderr)
+
     def test_nothing_planted_prints_unknown_for_each_harness(self):
         res = self.cost("cost")
         self.assertEqual((res.returncode, res.stdout), (0, "claude: unknown\ncodex: unknown\n"), res.stderr)
