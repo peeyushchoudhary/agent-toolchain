@@ -355,6 +355,15 @@ if tid == "T2":
 """
 
 
+LATE_REVIEW = """import pathlib
+calls = pathlib.Path(".runs/F-9/calls")
+n = int(calls.read_text()) + 1 if calls.exists() else 1
+calls.write_text(str(n))
+if n == 2:
+    pathlib.Path(".runs/F-9/review.saved").rename(".runs/F-9/review.md")
+"""
+
+
 class RunShTest(RepoCase):
     plan = plan_text().replace("src/a/**, tests/**", "src/**").replace("src/b/**, tests/**", "src/**")
 
@@ -380,6 +389,17 @@ class RunShTest(RepoCase):
         res = subprocess.run(["bash", str(RUN_SH), "F-9", "--harness", "codex"], cwd=other.dir, timeout=300,
                              capture_output=True, text=True, env=env(RUN_HARNESS_CMD="true", RUN_NO_NOTIFY="1"))
         self.assertEqual((res.returncode, res.stdout.strip()), (3, "STALLED"), res.stderr)
+
+    def test_done_takes_precedence_over_stalled(self):
+        self.repo.close()  # ticks, commits, receipts: done holds except for the review
+        self.repo.path(".runs/F-9/review.md").rename(self.repo.path(".runs/F-9/review.saved"))
+        fake = self.repo.dir.parent / f"{self.repo.dir.name}-late.py"
+        self.addCleanup(lambda: fake.unlink(missing_ok=True))
+        fake.write_text(LATE_REVIEW)  # session 1 does nothing; session 2 only lands the review
+        res = self.run_sh(f"{sys.executable} {fake}")
+        self.assertEqual((res.returncode, res.stdout.strip().splitlines()[-1]), (0, "DONE"), res.stdout + res.stderr)
+        self.assertEqual(self.repo.read(".runs/F-9/progress.md").count(" session "), 2)
+        self.assertIn("DONE M1", self.repo.read(".runs/F-9/packet.md"))
 
 
 if __name__ == "__main__":

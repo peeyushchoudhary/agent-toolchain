@@ -53,16 +53,17 @@ session() {
   fi
 }
 
+done_or_continue() { goal done >/dev/null 2>&1 && { goal packet >/dev/null; stop 0 DONE; }; }
 stalled=0
+done_or_continue
 for i in $(seq 1 "$SESSIONS"); do
-  goal done >/dev/null 2>&1 && { goal packet >/dev/null; stop 0 DONE; }
   before="$(score)"
   session "$(goal resume)"; rc=$?
   after="$(score)"
   echo "$(date -u +%FT%TZ) session $i/$SESSIONS ($HARNESS${RUN_HARNESS_CMD:+ test}) exit $rc, progress $before -> $after" >> "$RUNS/progress.md"
+  done_or_continue  # DONE outranks STALLED: a session can close receipts and review without a tick
   if [ "$after" -gt "$before" ]; then stalled=0; else stalled=$((stalled + 1)); fi
   [ "$stalled" -ge 2 ] && stop 3 STALLED
   goal next >/dev/null 2>&1 || { goal status | grep -E ' active: ' | grep -qF '[!]' && stop 4 PARKED; }
 done
-goal done >/dev/null 2>&1 && { goal packet >/dev/null; stop 0 DONE; }
 stop 5 "SESSIONS EXHAUSTED"
