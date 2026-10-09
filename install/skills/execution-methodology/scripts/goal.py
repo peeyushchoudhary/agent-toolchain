@@ -250,6 +250,16 @@ def lint(ctx):
             errs.append(f"{t['id']}: writes intersect protected")
     return errs
 
+def plan_only(ctx, subject, ch, plan_same) -> bool:
+    """Row 3's plan-only commit: subject '<id>:', only plan.md changed, its frozen view unchanged."""
+    return subject.startswith(f"{ctx.goal}:") and plan_same and all(p == ctx.plan_rel for _s, p in ch)
+
+def commit_plan_only(ctx, c):
+    parent = git(ctx.root, "rev-parse", "-q", "--verify", f"{c}^1", check=False)
+    same = frozen_view(file_at(ctx.root, parent, ctx.plan_rel) if parent else "") == \
+        frozen_view(file_at(ctx.root, c, ctx.plan_rel))
+    return plan_only(ctx, git(ctx.root, "log", "-1", "--format=%s", c), changes(ctx.root, parent, c), same)
+
 def commit_findings(ctx, base):
     """Rows 3, 4 and 5 over every commit in base..HEAD."""
     rows = {3: [], 4: [], 5: []}
@@ -264,8 +274,7 @@ def commit_findings(ctx, base):
         if before and widenings(before, ctx.plan_at(c)) and not adds_decision(before, ctx.plan_at(c)):
             rows[3].append(f"{short} changes writes or tests-may-change without adding a Decisions line")
         if len(tids) != 1:
-            if not (subject.startswith(f"{ctx.goal}:") and plan_same
-                    and all(p == ctx.plan_rel for _s, p in ch)):
+            if not plan_only(ctx, subject, ch, plan_same):
                 rows[3].append(f"{short} names {len(tids)} tasks and is not plan-only")
             continue
         # Writes are judged at the parent, so a later widening cannot excuse an earlier escape. The
@@ -331,11 +340,14 @@ def review_findings(ctx):
                 out.append(f"{rid}: {sha} does not remove or change the finding's paths")
                 continue
         closed[full] = rid
+    for rid in re.findall(r"^\s*- \[x\] BLOCKING (R\d+)\b", text, re.M):
+        if rid not in closed.values():
+            out.append(f"{rid}: checked BLOCKING without a resolved-by or removed-by closure that holds")
     for c in git(ctx.root, "rev-list", "--reverse", f"{m.group(1)}..HEAD").split():
         subject = git(ctx.root, "log", "-1", "--format=%s", c)
         fix = re.search(r"\[T\d+\]\[(R\d+)\]", subject)
-        if not fix or closed.get(c) != fix.group(1):
-            out.append(f"{c[:10]} after reviewed: is not a fix commit named by a closed finding")
+        if (not fix or closed.get(c) != fix.group(1)) and not commit_plan_only(ctx, c):
+            out.append(f"{c[:10]} after reviewed: is neither a fix commit named by a closed finding nor plan-only")
     return out
 
 def done_rows(ctx, mid):

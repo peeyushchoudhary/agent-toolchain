@@ -227,7 +227,26 @@ class ReviewRowTest(RepoCase):
 
     def test_a_non_fix_commit_after_reviewed_is_named(self):
         sha = self.fix("src/b/w.py", "W = 1\n", "[T2] more beta")
-        self.assertRow(8, f"{sha[:10]} after reviewed: is not a fix commit")
+        self.assertRow(8, f"{sha[:10]} after reviewed: is neither a fix commit")
+
+    def test_row8_accepts_plan_only_commit_after_review(self):
+        self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n", "- 2026-01-01: fixture decision.\n- reviewed.\n")
+        self.repo.commit("F-9: record the review verdict")
+        self.assertRowOk(8)
+        self.repo.edit(PLAN, "- reviewed.\n", "- reviewed.\n- again.\n")
+        self.repo.write("docs/design.md", "# design, edited\n")
+        sha = self.repo.commit("F-9: a decision and a design edit")
+        self.assertRow(8, f"{sha[:10]} after reviewed: is neither a fix commit named by a closed finding nor plan-only")
+
+    def test_checked_blocker_requires_closure(self):
+        self.repo.review("- [x] BLOCKING R1 defect still present\n")
+        self.assertRow(8, "R1: checked BLOCKING without a resolved-by or removed-by closure")
+        self.repo.write("tests/test_b_value.py", "import unittest\n\n\nclass V(unittest.TestCase):\n"
+                        "    def test_beta_value(self):\n        self.assertTrue(True)\n")
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] fix the beta value")
+        self.repo.review(f"- [x] BLOCKING R1 defect fixed\n"
+                         f"- [x] R1 resolved-by {sha} closes tests/test_b_value.py::test_beta_value\n", "HEAD~1")
+        self.assertRowOk(8)
 
     def test_a_fix_without_a_changed_closing_test_is_named(self):
         sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] fix the beta value")
