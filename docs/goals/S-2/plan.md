@@ -24,8 +24,8 @@ spec [spec.md](spec.md).
 
 ## Format notes (frozen with this plan; T2 teaches `goal.py` to read them)
 
-`reads:` lines are prose to `goal.py` until T2 adds the field. `touches: [interface]` is read by
-T2's lint; until then the key is carried unread. Anchors in `reads:` and `protected:` are GitHub
+`reads:` lines are prose to `goal.py` until T2 adds the field. `touches:` is parsed and required today;
+its values are validated only from T2. Anchors in `reads:` and `protected:` are GitHub
 heading slugs; `dNN` and `D1-D19` keep their meaning. Until T2, `goal.py` protects `design.md`
 whole, which no task writes after approval. The approval commit creates `spec.md` and `design.md`,
 so no task lists them in `writes`; from T2 on they are protected by default.
@@ -43,21 +43,25 @@ writes: install/skills/execution-methodology/scripts/goal.py, install/skills/exe
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/**
 reads: docs/goals/S-2/design.md#interfaces, docs/goals/S-2/spec.md, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 `FIELD_RE` gains `reads`, treated like `writes`: outside the frozen view, reported by `widenings`,
-a change in a plan-only commit needs a Decisions line, `packet` lists it. A task with `writes:` and
-no `reads:` is a lint error (AC1). `touches:` values are validated; any value but `none` without
-`docs/goals/<id>/design.md` is a lint error; `spec.md` is required for a goal whose approval tag is
-absent or whose approved commit contains the file (S-1 is exempt, S-2 is subject), at or under 400
-words, with the five headings or in the two-line form (AC2). Row 4 and lint treat `spec.md` whole
+a change in a plan-only commit needs a Decisions line, `packet` lists it. One policy for the new
+checks: a goal with `docs/goals/<id>/spec.md` is a v7.1 goal; one without is a v7 goal, which
+keeps linting as today (S-1 stays green, S-2 is subject). For a v7.1 goal: a task with `writes:`
+and no `reads:` is a lint error (AC1); `touches:` values are validated and any value but `none`
+without `design.md` is a lint error; the spec is at or under 400 words with the five headings or
+in the two-line form (AC2); a goal whose approval tag is absent and which has no spec is also an
+error, so every new goal is v7.1. Row 4 and lint treat `spec.md` whole
 and `design.md#interfaces` and `design.md#data-touched` as protected without listing (AC3);
 `protected_text` learns slug anchors: a slug protects its `## ` section from the heading to the
 next heading of the same or a higher level, and the `D1-D19` range form stays. Every `ACn` bullet
 in the spec must appear in at least one task section, else lint fails (AC4). `lint` and `packet`
 print each task's `reads:`. About 100 lines. Planted tests in `test_goal.py`: a task without
-`reads:`; a `reads:` change in a plan-only commit without a Decisions line (row 3); a goal without
-a spec; `touches: [interface]` without a design; a post-approval `[Tn]` commit editing `spec.md`
+`reads:`; a `reads:` change in a plan-only commit without a Decisions line (row 3); a new goal
+without a spec; a 401-word spec; a spec missing *Non-goals*; `touches: [interface]` without a
+design; a post-approval `[Tn]` commit editing `spec.md`
 reported by row 4 with nothing listed in `protected:`; an edit outside the Interfaces section of a
 design page passing row 4 while one inside it fails; an untraced `AC3`; this plan parses (ten
-tasks, two milestones, every task with `reads:`); the S-1 plan still lints.
+tasks, two milestones, every task with `reads:`); the S-1 plan still lints
+(`ParseTest.test_parses_this_repositorys_s1_plan`, unchanged).
 
 ### [ ] T3 — `docs.py`: frontmatter lint, the generated index, `reads` resolution
 writes: install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/tests/test_docs.py, install/tests/link_check.py
@@ -66,7 +70,8 @@ reads: docs/goals/S-2/design.md#interfaces, install/tests/link_check.py, install
 New `scripts/docs.py` (about 150 lines by T7): `lint [ROOT]` checks every tracked `docs/**/*.md`
 except `docs/README.md` and `docs/goals/**` for the four frontmatter keys, `summary` at or under
 120 words, `last-verified` a date, `covers` a list of repository-relative globs (no `..`, no
-absolute path), and `docs/README.md`'s table equal to `index`'s output (AC5); `index [ROOT]` prints
+absolute path), and the table in `docs/README.md` (from its header row to the end of the table, prose above and
+below kept) equal to `index`'s output (AC5; `test_index_contract_with_surrounding_prose`); `index [ROOT]` prints
 the table, one row per page with its link and `read-when`; `reads <Tn> --goal <id>` resolves each
 entry of the task's `reads:` line to `path:start-end` (anchor = the GitHub slug of a heading, or
 `dNN`; the range runs to the next heading of the same or a higher level), `path` for a whole file,
@@ -78,10 +83,12 @@ resolved by slug and by `dNN`; a `reads:` line with all three entry kinds; a `co
 escapes the repository.
 
 ### [ ] T4 — the instructions: `SKILL.md`, planning, roles, security checklist, design
-writes: install/global.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/**, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, AGENTS.md
-tests-may-change: install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py
+writes: install/global.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/**, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, install/install.sh, install/tests/test_install.py, AGENTS.md
+tests-may-change: install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, install/tests/test_install.py
 reads: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/design.md, install/skills/execution-methodology/tests/test_rules.py, docs/goals/S-2/design.md#interfaces, analysis/councils-2026-10-09/personas/drafts/chief-planning.md
-`SKILL.md`: loop step 2 names `reads:` and `docs.py reads`; the format block gains `reads:` and
+`SKILL.md`: the "Unattended runs" section becomes "Console runs": `run.sh` opens one
+interactive session the founder watches, interrupts and relaunches, with the same scoped
+permissions; loop step 2 names `reads:` and `docs.py reads`; the format block gains `reads:` and
 the six `touches:` values; a "Before a goal" paragraph points at `references/planning.md`; the
 design-review trigger is widened; a closed blocking finding carries `cause: context|logic|spec`;
 one line points at `references/roles.md`. Always-loaded total stays at or under 1,350 words (AC11;
@@ -98,8 +105,12 @@ reasoning model at high effort; chief the session; `high` is the portable effort
 never enforced; the structural caps. New `references/security-checklist.md` ≤150 words, handed to
 the merge reviewer when `touches:` names data, auth or external. `references/design.md`: the
 widened trigger; builders read Interfaces. `test_rules.py`: the new references join
-`SKILL_FILES`, `references/planning.md` leaves `RETIRED`. Root `AGENTS.md` stays a table of
-contents under 300 words.
+`SKILL_FILES`, `references/planning.md` leaves `RETIRED`; it also leaves `install.sh`'s
+`RETIRED_FILES`, and `RetireTest` in `test_install.py` stops planting it
+(`test_a_plain_install_removes_nothing`,
+`test_retire_v5_deletes_exactly_the_named_set_and_reports_the_rest` keep passing). AC11's prose
+bound is proved by `test_size.py`'s existing ceiling test, unchanged. Root `AGENTS.md` stays a
+table of contents under 300 words.
 
 ### [ ] T5 — the personas: builder, reviewer, scout; the public evidence page
 writes: install/skills/execution-methodology/agents/**, install/skills/execution-methodology/tests/test_rules.py, docs/architecture/personas.md, docs/README.md
@@ -123,7 +134,7 @@ writes: docs/README.md, docs/architecture/**, docs/product/**, docs/runbooks/**,
 tests-may-change: install/tests/e2e_install.sh, install/tests/test_install.py
 reads: docs/goals/S-2/design.md#interfaces, docs/architecture/repository-standard.md, install/verify.sh, install/tests/e2e_install.sh
 Frontmatter on every page under `docs/` outside `goals/` and the index, `decisions.md` and
-`measurements.md` included (their D1–D19 text stays byte-identical below the frontmatter). New
+`measurements.md` included. New
 `docs/product/prd.md` for this repository (summary ≤120 words: the methodology as a product; its
 users the founder and the chief session; the jobs; the principles D29 fixes; the surface
 `install/` ships; the body unbounded). `methodology.md` gains `covers: [install/**]` and is the
@@ -133,8 +144,7 @@ and the product-repository minimum gains the PRD summary and `docs.py lint` in t
 `docs/README.md` is regenerated by `docs.py index` (its first line and the install link stay as
 prose above the table). `verify.sh` runs `docs.py lint` over this repository as check `docs`
 (AC5). `e2e_install.sh` asserts `docs.py` is installed inside the skill in both homes and
-`docs.py --help` runs from each copy; agent-file assertions belong to T8. **M1 ends here**: the
-other vendor's diff review of `goal/S-2/approved..HEAD`, `done` for M1, merge.
+`docs.py --help` runs from each copy; agent-file assertions belong to T8. M1 ends here.
 
 ### [ ] T7 — `docs.py`: pointer generation and staleness
 writes: install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/tests/test_docs.py, .claude/rules/**, install/AGENTS.md, install/verify.sh, docs/architecture/repository-standard.md
@@ -151,17 +161,18 @@ lie inside the repository. `--check` exits 1 when a regeneration would change a 
 runs it (AC7). `stale [ROOT]`: a page is stale when a covered path's last commit is on a day after
 `last-verified`, or on that day and later than the page's own last commit (committer timestamps;
 `git log -1 --format=%cI -- <globs>`); lists the stale pages, exit 1 when any (AC8). `verify.sh`
-runs `pointers --check` inside `docs` and `stale` as a printed warning that never fails the gate:
-the milestone close re-verifies the page and bumps the date. This repository's own pointers are
+runs `stale` as a printed warning that never fails the gate: the milestone close re-verifies the
+page and bumps the date. This repository's own pointers are
 generated and committed: `.claude/rules/methodology.md`, `.claude/rules/personas.md` and one block
-in `install/AGENTS.md` (`.claude/` is not ignored here). `test_docs.py` plants: first generation
+in `install/AGENTS.md`, whose markers this task adds by hand once, since the generator never
+writes an unmarked file (`.claude/` is not ignored here). `test_docs.py` plants: first generation
 into a directory holding an unmarked `AGENTS.md` (left alone, exit 1); a hand-edited pointer
 caught by `--check`; an `AGENTS.md` with other content kept around the block; two pages mapping
 to the same file; a page that drops `covers` (its pointer removed); a symlinked destination
 outside the repository (refused); a covered path changed the same day before, and after, the
 page's own commit.
 
-### [ ] T8 — roles shipped to both harnesses: Codex agent TOML, the installer, the worktree base
+### [ ] T8 — roles shipped to both harnesses: Codex agent TOML, the installer; `run.sh` as a console launcher
 writes: install/skills/execution-methodology/agents/**, install/install.sh, install/verify.sh, install/skills/execution-methodology/scripts/run.sh, install/tests/test_install.py, install/tests/e2e_install.sh, install/README.md, docs/runbooks/codex.md
 tests-may-change: install/tests/test_install.py, install/tests/e2e_install.sh
 reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology/references/roles.md, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/tests/test_install.py, docs/runbooks/codex.md, analysis/councils-2026-10-09/personas/drafts/builder.toml, analysis/councils-2026-10-09/personas/synthesis.md#harness-caveats-t4-and-t7-must-handle
@@ -171,15 +182,19 @@ test in `test_install.py` so the two never drift), `model`, `model_reasoning_eff
 `sandbox_mode`; the schema was verified against `codex-cli 0.160.0` on 2026-10-09 and the file
 header records the version checked. `install.sh` copies the `.md` agents to `~/.claude/agents/`
 and the `.toml` agents to `$CODEX_HOME/agents/`, each with a marker line; an unmarked file of the
-same name is left alone and reported. It sets `worktree.baseRef: "head"` in
-`~/.claude/settings.json` only when the key is absent, after backing the file up as
-`settings.json.bak-<date>` (a subagent worktree otherwise branches from the default branch rather
-than the chief's HEAD); a pre-existing different value is left alone and reported, and the runbook
-says what to set. `--dry-run` lists all of it; `--uninstall` removes only marked files and the key
-only while its value is still `"head"` (AC9). `verify.sh --installed` parity covers the agent
-files. `e2e_install.sh` asserts both harnesses' agent files and the setting after install, their
-absence after uninstall, a pre-existing value preserved through install and uninstall, and a value
-edited after install preserved at uninstall. A test asserts `run.sh` never exports
+same name is left alone and reported; `--dry-run` lists them; `--uninstall` removes a marked file
+only while it still equals the shipped copy and leaves an edited one alone, reported
+(`test_uninstall_preserves_edited_marked_agent`; AC9). No settings file is written. `run.sh` becomes a one-shot console launcher (AC12; founder
+decision below): `run.sh <id> --harness claude|codex` opens one interactive session in the
+terminal with `goal.py resume` as its first prompt, keeping the scoped allowlist, deny list,
+sandbox, per-session Stop hook and push denial it has today, and adding `worktree.baseRef:
+"head"` to the per-session settings it passes to Claude, since those sessions load no user
+settings (`test_claude_session_settings_include_worktree_base`); the `--sessions` loop, stall
+detection, notification and `RUN_HARNESS_CMD`'s headless assumptions go, and `RUN_HARNESS_CMD`
+stays as the test seam (`test_run_sh_opens_one_console_session_and_never_loops`). The runbook
+tells a chief started by hand which key to set. `verify.sh --installed`
+parity covers the agent files. `e2e_install.sh` asserts both harnesses' agent files after install
+and their absence after uninstall. A test asserts `run.sh` never exports
 `CLAUDE_CODE_EFFORT_LEVEL`. `run.sh` passes `-c agents.<name>.config_file=<installed path>` for
 the three agents to its Codex session, because `--ignore-user-config` is not documented to load
 `$CODEX_HOME/agents/`; the static checks are the installed files, parity and the schema test, and
@@ -195,11 +210,12 @@ reads: docs/goals/S-2/design.md#interfaces, install/skills/execution-methodology
 Interfaces, the task table (title, `writes`, `reads`, the named test), `touches` and `protected`,
 and the `- Q:` lines (AC10); about 60 lines, standard library only, no external script or style.
 `packet` counts `cause:` tags across closed blocking findings in `review.md` and prints the `cost:`
-lines of `progress.md`. `run.sh` appends one `cost:` line per session to `.runs/<id>/progress.md`:
-harness, wall seconds, and the cost or token totals the harness's JSON output carries when present
-(Claude `total_cost_usd`; Codex token usage), never a verdict (AC11). Tests: the approval page from
-the fixture goal names every task; `cause:` counts; a fake-harness `run.sh` session writes the line
-(in `test_run.py`, new, or inside `test_goal.py` where the existing `run.sh` test lives).
+lines of `progress.md`. `goal.py stop-hook` appends one `cost:` line per session to `.runs/<id>/progress.md`: the token
+totals summed from the transcript the hook payload names (`transcript_path`), or `unknown` when
+the payload names none; `run.sh` adds the wall seconds at exit; never a verdict (AC11). Tests: the approval page from the fixture goal contains the spec text, the design's Interfaces
+section, every task with its `reads`, and the `- Q:` lines; `cause:` counts; the Stop hook writes
+the line from a planted transcript and `unknown` without one (in `test_run.py`, new, or inside
+`test_goal.py` where the existing `run.sh` test lives).
 
 ### [ ] T10 — end-to-end, measurements, the pages to v7.1
 writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/fixtures/**, docs/product/measurements.md, docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/runbooks/**, docs/README.md, README.md, install/README.md, AGENTS.md
@@ -207,13 +223,13 @@ tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh, install
 reads: install/skills/execution-methodology/tests/e2e_run.sh, docs/product/measurements.md, docs/architecture/methodology.md, docs/goals/S-2/spec.md
 `e2e_run.sh`'s scratch goal gains a `spec.md` with two criteria traced to its tasks, `reads:`
 lines, one `docs/` page with frontmatter and `covers`, its generated pointer files, and a gate
-that runs `docs.py lint`; the run asserts the approval page and a `cost:` line exist and that
-`goal.py done` prints DONE for each harness as today. `measurements.md`, dated: `install/` non-test
+that runs `docs.py lint`; the script relaunches `run.sh` with the fake harness until DONE, in
+place of the removed session loop, and asserts the approval page and a `cost:` line exist and that
+`goal.py done` prints DONE for each harness. `measurements.md`, dated: `install/` non-test
 and test line counts, `goal.py` and `docs.py` sizes, always-loaded words (AC11), on-demand reference
 words. `methodology.md` describes v7.1 (the document set, the disclosure layers, the roles, the
 amended stop rule) and `last-verified` is bumped; `repository-standard.md`, the runbooks, the
-README and `AGENTS.md` say what is true after S-2. **M2 ends here**: the other vendor's diff review,
-`done` for M2, merge.
+README and `AGENTS.md` say what is true after S-2. M2 ends here.
 
 ## Decisions
 
@@ -237,6 +253,10 @@ README and `AGENTS.md` say what is true after S-2. **M2 ends here**: the other v
   words, scout ≤200, chief planning ≤200. Aliases: `opus`/`gpt-6.1-sol` at `high` (the founder's
   frontier choice), `haiku`/`gpt-6-luna`. `isolation: worktree` is kept with the installer setting
   the worktree base to the chief's HEAD.
+- 2026-10-09 founder: a goal runs in a console session bound to the founder's terminal, like an
+  ordinary interactive session, so the founder can watch and course-correct; never a headless
+  restart loop. `run.sh` keeps its permission scoping and becomes a one-shot launcher (T8); the
+  cost line moves to the Stop hook (T9); the e2e relaunches instead of looping (T10).
 - 2026-10-09 chief: a design page is written although v7 requires none for `touches: [interface]`,
   because S-2 is the first goal under the widened trigger it introduces; its review runs before
   the plan review. `docs.py` is a separate script rather than more `goal.py`, so the document checks
@@ -262,6 +282,18 @@ README and `AGENTS.md` say what is true after S-2. **M2 ends here**: the other v
   agent config files per session and the live spawn check is parked for the authenticated run
   (R9); T4 is split into instructions (T4) and personas (T5) and the repeated gate sentences are
   removed (R10).
+- 2026-10-09 Astra plan review, round 1 (`.runs/S-2/plan-review.md`, reviewed ba103b0): BLOCK, 6
+  blocking and 2 non-blocking, all resolved in the spec, the design and this plan before the
+  approval tag (D29): one policy for the new checks, a goal with a spec is v7.1 and one without is
+  v7 and lints as today (R1); T4 removes `references/planning.md` from the installer's retire
+  list and its planting in `RetireTest` (R2); the installer writes no settings file at all, the
+  worktree base goes into `run.sh`'s per-session settings and the runbook tells an interactive
+  chief what to set, which replaces the design review's R2 resolution (R3, R4); the index
+  contract is table-only in spec, design and T3 (R5); uninstall removes a marked agent only while
+  it equals the shipped copy (R6); the AC2 branches, the AC11 proof and the approval-page
+  assertions are named (R7); the duplicated `pointers --check`, the D1–D19 sentence and the
+  milestone-close procedure are dropped, and the Format notes say `touches` values are unvalidated
+  until T2 (R8).
 
 ## Parked
 
@@ -270,4 +302,5 @@ README and `AGENTS.md` say what is true after S-2. **M2 ends here**: the other v
 - The stale `verify.sh` dangling-name exclusions from S-1 T8 (T6 or T10 may drop them when the
   named files are confirmed gone).
 - Live check that a `run.sh` Codex session can select the installed custom agents and that a
-  Claude subagent worktree branches from the chief's HEAD: the pilot's first authenticated run.
+  Claude subagent worktree under `run.sh` branches from the chief's HEAD: the pilot's first
+  console run.
