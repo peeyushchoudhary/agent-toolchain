@@ -95,8 +95,11 @@ def resolve(root, entry):
         return True, path
     lines = target.read_text(encoding="utf-8").splitlines()
     heads, number = headings(lines), re.fullmatch(r"d(\d+)", anchor, re.I)
+    slugs, seen = [], {}
+    for _n, _l, text in heads:  # GitHub suffixes a repeated slug: examples, examples-1, examples-2
+        s = slug(text); slugs.append(f"{s}-{seen[s]}" if s in seen else s); seen[s] = seen.get(s, 0) + 1
     for k, (n, level, text) in enumerate(heads):  # the section ends before a heading of its level or higher
-        if slug(text) == anchor.lower() or (number and re.match(rf"D{number[1]}\b", text, re.I)):
+        if slugs[k] == anchor.lower() or (number and re.match(rf"D{number[1]}\b", text, re.I)):
             return True, f"{path}:{n}-{next((m - 1 for m, lv, _t in heads[k + 1:] if lv <= level), len(lines))}"
     return False, f"{entry}: no heading matches #{anchor}"
 

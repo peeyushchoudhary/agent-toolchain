@@ -157,6 +157,11 @@ class ReadsTest(DocsCase):
         self.assertEqual(docs.resolve(self.repo.dir, "Makefile"), (True, "Makefile"))
         self.assertEqual(docs.resolve(self.repo.dir, "fixture"), (True, "term: fixture"))
 
+    def test_duplicate_heading_anchor_resolves(self):
+        self.repo.write("docs/dup.md", "# D\n\n## Examples\n\nOne.\n\n## Examples\n\nTwo.\n")
+        self.assertEqual(docs.resolve(self.repo.dir, "docs/dup.md#examples"), (True, "docs/dup.md:3-6"))
+        self.assertEqual(docs.resolve(self.repo.dir, "docs/dup.md#examples-1"), (True, "docs/dup.md:7-9"))
+
     def test_fenced_heading_does_not_end_range(self):
         self.repo.write("docs/tilde.md", "# T\n\n## Interfaces\n\nOne.\n\n~~~\n## Example\n~~~\n\n"
                         "Contract text.\n\n## Data touched\n\nTwo.\n")
