@@ -46,6 +46,19 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(goal.flow('{tasks: [T1, T2], e2e: "a, b: c"}'), {"tasks": ["T1", "T2"], "e2e": "a, b: c"})
         self.assertEqual(goal.flow("[none]"), ["none"])
 
+    def test_quoted_command_round_trip(self):
+        intended = 'true "ignored" && false'
+        text = (plan_text().replace(f"gate: {FULL} -q", r'gate: "true \"ignored\" && false"')
+                .replace(f'M1: {{tasks: [T1, T2], e2e: "{E2E}"}}',
+                         r'M1: {tasks: [T1, T2], e2e: "true \"ignored\" && false"}'))
+        plan = goal.parse_plan(text)
+        self.assertEqual(plan["meta"]["gate"], intended)
+        self.assertEqual(plan["milestones"]["M1"]["e2e"], intended)
+        self.assertEqual(plan["milestones"]["M2"]["e2e"], E2E)
+        self.assertEqual(goal.flow(r'"a \\ b"'), "a \\ b")
+        self.assertEqual(goal.flow("'it''s'"), "it's")
+        self.assertEqual(subprocess.run(intended, shell=True).returncode, 1)
+
 
 class RepoCase(unittest.TestCase):
     plan = None

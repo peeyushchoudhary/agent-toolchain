@@ -54,8 +54,22 @@ def flow(text: str):
                     item, i = value(i + len(key) + 1)
                     out[key.strip()] = item
         if ch in "\"'":
-            end = text.index(ch, i + 1)
-            return text[i + 1:end], end + 1
+            # "..." takes \" and \\ escapes; '...' takes '' for a quote. Anything else is literal.
+            out, i = [], i + 1
+            while i < len(text):
+                c = text[i]
+                if ch == '"' and c == "\\" and text[i + 1:i + 2] in ('"', "\\"):
+                    out.append(text[i + 1])
+                    i += 2
+                elif c == ch and ch == "'" and text[i + 1:i + 2] == "'":
+                    out.append("'")
+                    i += 2
+                elif c == ch:
+                    return "".join(out), i + 1
+                else:
+                    out.append(c)
+                    i += 1
+            raise ValueError(f"unterminated quoted value: {text}")
         m = re.match(r"[^,\]}]*", text[i:])
         return m.group(0).strip(), i + m.end()
     return value(0)[0]
