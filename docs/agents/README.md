@@ -8,29 +8,21 @@
 | Understand what the installer places, and where | [what-gets-installed.md](what-gets-installed.md) | `./install/install.sh --dry-run` |
 | Understand the route itself and its validator | [progressive-disclosure.md](progressive-disclosure.md) | `python3 install/skills/progressive-disclosure/scripts/validate_disclosure.py . --standard` |
 | Route work to a persona, or add one | [agent-personas.md](agent-personas.md) | `python3 install/skills/agent-personas/scripts/sync_personas.py --list --format markdown` |
-| Assess, set up, repair, migrate or upgrade methodology | [../runbooks/methodology-management.md](../runbooks/methodology-management.md) | `python3 install/skills/execution-methodology/scripts/sync_methodology.py --repo . --status-json` |
+| Move a project off v5.1 | [migrate.md](../../install/skills/execution-methodology/references/migrate.md) | `python3 install/skills/execution-methodology/scripts/goal.py --help` |
 | Learn how the route works in THIS repository | [disclosure.md](disclosure.md) | `./install/verify.sh` |
 | Find where a document belongs | [../architecture/repository-standard.md](../architecture/repository-standard.md) | `python3 install/skills/progressive-disclosure/scripts/migrate_to_standard.py .` |
 | Read a settled decision before re-opening it | [../decisions/decisions.md](../decisions/decisions.md) | — |
 | Read what an earlier agent already learned here | [lessons.md](lessons.md) | — |
-| Follow the explicit onboarding compatibility route | [../runbooks/onboarding-a-project.md](../runbooks/onboarding-a-project.md) | `python3 install/skills/progressive-disclosure/scripts/install_hooks.py . --scope project --preview --json` |
-| Execute methodology efficiency M1 | [spec](../product/specs/F-1-methodology-efficiency-vendoring.md), [plan](../product/plans/F-1-methodology-efficiency-vendoring.md), [milestone](../product/milestones/M1-methodology-efficiency-vendoring.md) | `python3 install/skills/execution-methodology/scripts/plan_waves.py --root . --milestone M1 --json` |
-| Read the dated optimization analysis and proposal | [research index](../product/research/README.md) | — research only; no activation |
-| Execute approved goal-directed autonomy M2 | [definition](../product/specs/F-2-goal-directed-autonomy.md), [design](../architecture/goal-directed-execution.md), [plan](../product/plans/F-2-goal-directed-autonomy.md), [non-authoritative stage boundaries](../product/plans/goal-directed-autonomy-task-boundaries.md) | `python3 install/skills/execution-methodology/scripts/plan_waves.py --root . --milestone M2 --json` |
+| Execute approved v6 lean goal execution (F-3) | [spec](../product/specs/F-3-lean-execution.md), [design](../architecture/lean-execution.md), [plan](../product/plans/F-3-lean-execution.md) | `git tag -l 'goal/F-3/*'` |
 
-Everything else is one hop further: [../README.md](../README.md) is the documentation index.
-Implementation, validation and remaining limits have one public summary in
-[the repository's current state](../../README.md#current-state).
+Everything else is one hop further: [../README.md](../README.md) is the documentation index. The
+current state has one public summary in [the front page](../../README.md#current-state).
 
 ## What is NOT here, and why
 
-<!-- agent-personas: {"mode":"base-only","reason":"This repository AUTHORS the base pool (install/skills/agent-personas/personas, 14 sources) and drives no project of its own, so a project overlay here would be a specialist derived from the toolchain for the toolchain. Base-only is the decision, not the default."} -->
-
 No `personas/`. The standard lists it, and it would be empty here: the persona pool is SOURCE
-(`install/skills/agent-personas/personas/`, 14 compatibility definitions, 11 active), not a project overlay, and the decision above
-records that in the one form the validator reads. The standard's own rule is that a required
-directory must not become "empty ceremony"; a directory created to satisfy a checker that does not
-check for it would be exactly that. Create it the day this repository needs a specialist of its own.
+(`install/skills/agent-personas/personas/`), not a project overlay. The standard's own rule is that a
+required directory must not become "empty ceremony". Create it the day this repository needs a
+specialist of its own.
 
-`lessons.md` IS here, and it was not created empty — see
-[lessons.md](lessons.md). It carries what this migration measured.
+`lessons.md` IS here, as a curated list of what still applies. See [lessons.md](lessons.md).

@@ -11,66 +11,23 @@ and reports the ways that route can silently break:
   WARN    a code directory with no scoped entry file     (proximity disclosure has a hole)
   WARN    an entry or guide over its word budget         (disclosure degrades into a dump)
   WARN    route deeper than --max-depth hops             (too many reads before real work)
-  WARN    no rendered execution methodology                (docs/agents/execution/, or minor drift)
-  ERROR   an execution methodology a MAJOR version behind  (the repo documents withdrawn rules)
   NOTE    a lessons file past its entry count             (accretion, not a rule violation)
 
-`--readme` adds the human-facing README contract: the front page a person meets on the forge, and
-the one document that must answer "what is this, where is it, what is left" without a repo tour.
+`--readme` adds the human-facing README contract; `--standard` the repository taxonomy; `--vs REF`
+warns when source changed since REF and the README did not.
 
-EXIT CODES — three states, because two were not enough:
+EXIT CODES: 0 checked and clean (warnings and notes allowed); 1 at least one ERROR; 2 NOT checked —
+a file this depends on could not be read or decoded.
 
-  0  the route was checked and is clean (or has only warnings and notes)
-  1  the route was checked and something is wrong: at least one ERROR
-  2  the route was NOT checked — a file this depends on could not be read or decoded
+REPORTED STATES: `clean`, `findings` or `partial`. `partial` means a flag-gated family (`--standard`,
+`--readme`, `--vs`) did not run; `NOT RUN` lines name it and the word `clean` is unreachable. The
+status and the exit code are independent: the exit code is decided by ERRORS ALONE, so a consumer
+decides pass/fail from `exit`, never from `status` (`test_not_evaluated_never_changes_the_exit_code`).
 
-REPORTED STATES — also three, and NOT the same three. A run reports `clean`, `findings` or
-`partial`, and `partial` is the state this script used to have no way to say. `--standard`,
-`--readme` and `--vs` each gate a whole family of ERROR-producing checks at the CALL SITE, and a
-run that skipped them printed, verbatim, `clean — every route resolves, every documented command
-exists`. Measured: one repository, no flags, exit 0, that line; the same repository with `--readme`,
-exit 1, five `readme-missing-section` ERRORs. Nothing about the tree changed between the two runs.
-
-THE STATUS AND THE EXIT CODE ARE INDEPENDENT, and a consumer must not infer either from the other.
-The rule, stated once and asserted by `test_not_evaluated_never_changes_the_exit_code`:
-
-    the exit code is decided by ERRORS ALONE. A family that did not run never raises it and never
-    lowers it. `partial` therefore exits 1 whenever the checks that DID run found an ERROR, which
-    on the current fleet is most of the time.
-
-An earlier version of this paragraph said "a `partial` run still exits 0". That was true of the
-mechanism it originally described — nothing about a not-run family touches the code — and it became
-false the moment the exit computation moved into `verdict()`, because the same sentence then read as
-a claim about the whole status. It is called out here rather than quietly corrected because a
-maintainer who believed it and mapped `status == "partial"` to non-blocking would swallow every
-ERROR in every default-flag invocation on the fleet: this file's own defect class, one consumer
-downstream, installed by its documentation.
-
-FOR A CONSUMER, therefore: decide pass/fail from `exit` (or `len(errors)`), NEVER from `status`.
-`status` describes the SCOPE of the run, not its outcome. Note also that `partial` outranks
-`findings` in `verdict()`, so a run that skipped any family reports `partial` however many errors it
-found — and since `disclosure-check.sh` passes only `--readme`, and nothing on the fleet passes both
-`--standard` and `--vs`, `findings` is in practice unreachable and a switch on
-{clean, findings, partial} will only ever see `partial`.
-
-What a not-run family DOES change is the summary, which is what was actually false: `NOT RUN` lines
-name every family that did not execute, and the word `clean` is unreachable when any did not.
-See `Report.verdict`.
-
-The third state is the one this script lacked, and its absence was a fail-open. Every read used to
-end in `except OSError: continue`, `except (JSONDecodeError, OSError): pass`, or nothing at all, so
-an unreadable file was skipped and the run then declared the route clean. Measured: a root AGENTS.md
-holding two broken links exits 1 and names them; the same file at `chmod 000` exits 0 and prints
-`0 error(s), 1 warning(s)`. A failing route could be made to pass by making a file unreadable, and
-the report said nothing about it.
-
-The remedy is the ABSENCE of the swallow, not a longer list of cases it handles. All reading goes
-through `read_doc`, which raises `Unexaminable`; no call site catches it; `main` catches it once and
-exits 2 without printing a count it never established. See `Unexaminable` for why this is exit 2
-rather than one more entry in the findings list, and why there is no flag to turn it off.
-
-A WARN never blocks a commit — severity is a property of the finding, decided here, not a flag
-chosen at the call site.
+All reading goes through `read_doc`, which raises `Unexaminable`; no call site catches it; `main`
+catches it once and exits 2. An unreadable file once let a broken route exit 0, so there is no
+swallow and no flag to turn this off. A WARN never blocks: severity is decided here, not at the
+call site.
 
 Usage:
   validate_disclosure.py [ROOT] [--json] [--max-depth N]
@@ -107,34 +64,21 @@ CODE_SUFFIXES = {
 
 MD_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
-# The architecture diagram, and what may serve as one. A raster is refused on two measured grounds,
-# not on taste: it cannot be diffed, so it goes stale in silence -- this repository's own README
-# carried an architecture PNG through 93 commits and a major version while its work-loop box stayed
-# wrong -- and `identifier_guard.py` scans `git diff --cached --text`, where image bytes arrive as
-# mojibake, so a private project name drawn as PIXELS is the one artifact class that walks past the
-# commit guard. A ```mermaid fence is text: the forge renders it, git diffs it, the guard reads it,
-# and `readme-diagram-drift` below can compare it with the prose it claims to summarise.
+# The architecture diagram. A raster is refused: it cannot be diffed, so it goes stale in silence,
+# and the identifier guard reads image bytes as mojibake. A ```mermaid fence is text the forge
+# renders, git diffs and the guard reads, and `readme-diagram-drift` compares it with the prose.
 MERMAID_FENCE = re.compile(r"^```mermaid\s*$(.*?)^```\s*$", re.DOTALL | re.MULTILINE)
-# A node label, quoted, in any of Mermaid's shape brackets. Quoted edge labels are deliberately not
-# matched: an edge says how two boxes relate, and that sentence has no reason to appear in a table.
+# A quoted node label in any shape bracket. Edge labels are not matched.
 MERMAID_NODE_LABEL = re.compile(r"[\[({>]{1,2}\s*\"([^\"]+)\"\s*[\])}]{1,2}")
-# A label may carry a description after a line break or a spaced em-dash —
-# `":core-api<br/>framework-free ports and events"`. The NAME is the half that must appear in
-# the prose; the description is decoration. Comparing the WHOLE label made every described box
-# unsatisfiable, because going green demanded the literal `<br/>` appear inside a sentence — so
-# the only way to satisfy it was to strip the diagram or pad the prose, damaging a correct
-# README so a defective matcher would go quiet. Drift detection is unaffected: the name is
-# still what is compared, so renaming a module still fails.
+# Only the NAME before a line break or spaced em-dash must appear in the prose.
 MERMAID_LABEL_BREAK = re.compile(r"<\s*br\s*/?\s*>|\s+—\s+", re.IGNORECASE)
 RASTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".avif"}
 ARCHITECTURE_IMAGE_MARKER = re.compile(
     r"<!--\s*readme-architecture-image:\s*(\{[^\r\n]*\})\s*-->", re.IGNORECASE)
 ARCHITECTURE_IMAGE_MARKER_ANY = re.compile(
     r"<!--\s*readme-architecture-image:", re.IGNORECASE)
-# An @import must look like a path. Without the dot-or-slash requirement this matches a bare Java
-# annotation sitting on its own line — `@Entity`, `@RestController` — and every design document that
-# quotes Spring code reports dozens of broken "imports". Matching is also done against code-stripped
-# text, because an import inside a fence is an illustration, not a directive.
+# An @import must look like a path, or a bare `@Entity` annotation line reads as a broken import.
+# Matched against code-stripped text: an import inside a fence is an illustration.
 MD_IMPORT = re.compile(r"^@([^\s]*[./][^\s]*)\s*$", re.MULTILINE)
 CODE_FENCE = re.compile(r"(?:```.*?```|~~~.*?~~~)", re.DOTALL)
 INLINE_CODE = re.compile(r"`[^`]*`")
@@ -144,25 +88,11 @@ CMD_PNPM = re.compile(r"\bpnpm(?:\s+run)?\s+([a-z][\w:.-]*)")
 CMD_NPM = re.compile(r"\b(?:npm|yarn)\s+run\s+([a-z][\w:.-]*)")
 CMD_JUST = re.compile(r"\bjust\s+([a-zA-Z][\w:.-]*)")
 CMD_TASK = re.compile(r"\btask\s+([a-zA-Z][\w:.-]*)")
-PERSONA_MARKER = re.compile(r"<!--\s*agent-personas:\s*(\{[^\r\n]*\})\s*-->", re.IGNORECASE)
-PERSONA_MARKER_ANY = re.compile(r"<!--\s*agent-personas:", re.IGNORECASE)
-# Same single-line JSON comment spelling, for the rendered execution methodology.
-EXECUTION_MARKER = re.compile(r"<!--\s*execution-methodology:\s*(\{[^\r\n]*\})\s*-->", re.IGNORECASE)
-EXECUTION_MARKER_ANY = re.compile(r"<!--\s*execution-methodology:", re.IGNORECASE)
-SEMVER2 = re.compile(r"^(\d{1,4})\.(\d{1,4})$")
 
-# A lessons file grows by accretion — entries get added, rarely removed — so a total word budget
-# is a budget on entry *count*, not entry length. It was answered by sharding lessons.md into two
-# compliant files with more total text, not shorter text: the split gamed the metric instead of
-# answering it. Lessons files get no total budget; the per-append convention in every project's
-# "How to append" section is what actually keeps an entry short, not this validator.
-#
-# Matched tightly on purpose. A bare `startswith("lessons-")` exempts
-# `lessons-and-onboarding-guide.md` — an ordinary guide that then escapes its budget entirely — and
-# the two failure directions are not symmetric: a shard this does not recognise merely gets the
-# warning it would have got anyway, while a guide this wrongly recognises gets no budget at all.
-# So: `lessons.md`, or `lessons` plus one separator plus a single unbroken token
-# (`lessons-archive.md`, `lessons_2026.md`). A multi-word tail is a different document.
+# A lessons file grows by accretion, so a total word budget was answered by sharding it — gaming
+# the metric rather than answering it. Lessons files get no total budget. Matched tightly:
+# `lessons.md`, or `lessons` plus one separator and one token; `lessons-and-onboarding-guide.md`
+# is an ordinary guide and keeps its budget.
 LESSONS_NAME = re.compile(r"^lessons(?:[-_][a-z0-9]+)?\.md$")
 
 
@@ -170,31 +100,10 @@ def is_lessons_file(name: str) -> bool:
     return bool(LESSONS_NAME.match(name.lower()))
 
 
-# The same reasoning, one document further. A measurements file is a RECORD: each entry is a dated
-# fact that stays true, so the file grows by accretion exactly as a lessons file does, and a total
-# word budget on it has the same two exits — evict evidence, or shard the file and game the metric.
-# It reached 1194 of 1200 words with every routed guide in the fleet at 1178-1199, so the next
-# measurement could not land at all while AGENTS.md still routed measurements there. The budget and
-# the address were in direct conflict, and the budget was the wrong half.
-#
-# A record is not exempt from being readable. It gets the same entry-count observation, set from
-# the same measured basis: this file holds 8 sections today, so the threshold speaks only when the
-# document has grown into something that wants archiving.
-# `decisions.md` belongs here for the same reason and was missed on the first pass, which is worth
-# recording: the first fix named the file that happened to be full rather than the CLASS the rule
-# was about. A decision record accretes by definition — a decision that stops being listed stops
-# being findable — and it sat at 1185 of 1200 words, so it was two decisions from the same wall
-# measurements had just hit. A rule aimed at one filename would have had to be written a third time.
-#
-# It was written a third time anyway, and this is that third time — so the CLASS is now stated once
-# and completed, rather than one more filename being appended. A weekly improvement record accretes
-# for exactly the reason the two above do: an entry that stops being listed stops being findable,
-# and the honest fix for a full one is archiving old entries, not shortening true ones. MEASURED on
-# this repository: 2,520 words of weekly entries occupied 51% of the front page, and every routed
-# guide that could have received them sat at 1,178-1,200 of 1,200 words. The move had no legal
-# destination until the destination could be recognised. `changelog` and `history` join it because
-# they are the other two names the same document is given, and a class named by one of its three
-# spellings is the same mistake in a smaller font.
+# The same reasoning, one document further: a RECORD (measurements, decisions, a weekly improvement
+# log, a changelog) accretes dated entries that stay true. A total word budget on it can only be
+# met by evicting evidence or by sharding, which games the metric rather than answering it. A
+# record keeps the entry-count note below. Keyed on the basename, so renaming one drops it.
 RECORD_NAME = re.compile(
     r"^(measurements|benchmarks|decisions|adr|rulings|improvements|changelog|history)"
     r"(?:[-_][a-z0-9]+)?\.md$")
@@ -205,30 +114,15 @@ def is_record_file(name: str) -> bool:
     return bool(RECORD_NAME.match(name.lower()))
 
 
-# The one constraint that survives. Not a word budget in any form — the total budget was gamed by
-# sharding, and a per-entry word rule fires on compliant content today (real entries across the
-# fleet run ~120-200 words, well past the ~150 that was proposed as a limit).
-#
-# Entry COUNT is the honest measure of accretion, and it is informational: it names the moment a
-# lessons file stopped being readable in one sitting, and never blocks anything. The threshold is
-# set from measured data — the largest routed lessons file in the fleet holds 8 entries — with
-# roughly 3x headroom, so it fires on nothing that exists today and only speaks when a file has
-# grown into something that wants archiving. At the observed ~150 words/entry, 24 entries is
-# already ~3,600 words.
+# Entry COUNT is the honest measure of accretion, and it is informational only: about 3x the
+# largest measured lessons file, so it speaks when a file wants archiving.
 LESSONS_ENTRY_NOTE_AT = 24
 
 ENTRY_HEADING = re.compile(r"^(#{2,6})\s+\S")
 
 
 def lessons_entry_count(text: str) -> int:
-    """How many entries a lessons file holds.
-
-    There is no cross-project convention for the heading level of an entry: some projects use `##`
-    per entry, others nest `###` entries under a `## Lessons` wrapper. So rather than fixing a
-    level, take the level used most often and count that — ties broken toward the deeper level,
-    since the wrapper is always shallower and rarer than the entries it wraps. Headings inside code
-    fences are not entries.
-    """
+    """How many entries a lessons file holds: the most-used heading level, ties toward the deeper."""
     levels: dict[int, int] = {}
     for line in strip_code(text).splitlines():
         m = ENTRY_HEADING.match(line)
@@ -262,56 +156,22 @@ class Report:
         self.warns.append({"kind": kind, "where": where, "detail": detail})
 
     def note(self, kind: str, where: str, detail: str) -> None:
-        """Informational: worth saying, never worth blocking or nagging about.
-
-        A third level exists because the alternative to "warn" was "nothing at all", and a rule
-        with no observation behind it stops being a rule. Notes never affect the exit code and are
-        listed after warnings everywhere.
-        """
+        """Informational: never affects the exit code; listed after warnings."""
         self.notes.append({"kind": kind, "where": where, "detail": detail})
 
     def not_evaluated(self, check: str, why: str) -> None:
         """A whole check family that did not execute. NOT a finding, and NOT nothing.
 
-        The third state. `Unexaminable` covers "I started and could not finish"; this covers "I was
-        never asked to start", which the previous code expressed by producing no output at all — so
-        a run that skipped seven ERROR-producing README checks printed the same
-        `clean — every route resolves, every documented command exists` as a run that ran them.
-        Measured on a real repository the day this was written: no flags, exit 0, that exact line;
-        `--readme`, exit 1, five `readme-missing-section` ERRORs against the same unchanged tree.
-
-        Calling this NEVER changes the exit code, in either direction: a check the caller did not
-        request is a scope decision, not a defect in the repository. What it does is deny the word
-        `clean` to the summary, which is the claim that was actually false.
-
-        Note what that does NOT say. It does not say the run exits 0 — the errors found by the
-        checks that DID run still decide that, so a `partial` run with an ERROR exits 1. The
-        difference between "this never raises the code" and "a partial run exits 0" is the whole of
-        finding R1; see the module docstring.
+        It never changes the exit code in either direction; it denies the word `clean` to the
+        summary. A `partial` run with an ERROR still exits 1.
         """
         self.not_run.append({"check": check, "why": why})
 
     def verdict(self) -> tuple[str, int, str]:
         """`(status, exit_code, summary)` — the ONE place this run becomes a verdict.
 
-        Three states, never two: `clean`, `findings`, `partial`. There is no path from a check that
-        did not run to the word `clean`.
-
-        THE EXIT CODE COMES FROM HERE, not from a second computation at the bottom of `main`. It
-        used to, and two independent decision sites with nothing holding them consistent is exactly
-        how a summary and an exit code come to disagree — the defect class of this card, one level
-        up. One function decides; `main` reports what it decided.
-
-        THE STATUS DOES NOT DETERMINE THE EXIT CODE. `code` is computed from `self.errors` alone,
-        above and independent of the status branches below, so that `not_run` cannot move it in
-        either direction — a family nobody requested must not fail a pre-commit hook, and must not
-        rescue one either. Consequently `partial` exits 1 whenever the checks that ran found an
-        ERROR. Read `exit`, never `status`, to decide pass/fail.
-
-        PRECEDENCE, stated because a consumer will switch on this: `partial` is tested FIRST, so it
-        outranks `findings`. A run that skipped any family reports `partial` no matter how many
-        errors it found, which makes `findings` reachable only when both `--standard` and `--vs`
-        are passed. Nothing on the fleet does that today.
+        There is no path from a check that did not run to the word `clean`. `code` comes from
+        `self.errors` alone, so `not_run` cannot move it. `partial` outranks `findings`.
         """
         code = 1 if self.errors else 0
         counts = (f"{len(self.errors)} error(s), {len(self.warns)} warning(s), "
@@ -333,28 +193,9 @@ class Report:
 class Unexaminable(Exception):
     """Something this check had to read could not be read, so no verdict was reached.
 
-    Deliberately NOT a `Report` finding, and deliberately not catchable per call site.
-
-    A finding says "I looked, and this is wrong." This says "I could not look." Those are different
-    claims and they need different exit codes, because the second one invalidates everything else
-    the run would otherwise print. An unread entry file is not one missing observation: its links
-    were never followed, so every document beyond it went unvisited, its documented commands were
-    never checked, its budget was never counted — and the documents it would have routed to now
-    look like orphans while the broken links it holds vanish from the report. The measured shape of
-    that was a route with two broken links reporting `0 error(s), 1 warning(s)` and exiting 0 the
-    moment its AGENTS.md was made unreadable. Making a file unreadable must never be a way to make
-    a failing route pass.
-
-    THERE IS NO PER-CALL-SITE HANDLING OF THIS, AND THAT IS THE POINT. Every read goes through
-    `read_doc`, which raises; nothing between there and `main` catches it. The previous shape was
-    four separate `except OSError: continue` clauses, one `except (JSONDecodeError, OSError): pass`,
-    and nine reads with no guard at all that would have exited 1 with a traceback — nine reads that
-    nobody had thought about, which is what a per-site convention always decays into. A rule
-    enforced by the absence of a swallow cannot regress. A rule enforced by remembering to handle
-    each new read can, and did.
-
-    There is no flag to switch this off. "Ignore files I cannot read" is a request to be told the
-    route is fine when nobody knows whether it is.
+    Not a `Report` finding: "I could not look" invalidates everything else the run would print, so
+    it exits 2. There is no per-call-site handling and no flag to switch it off; every read goes
+    through `read_doc`, and only `main` catches this.
     """
 
     def __init__(self, where: str, detail: str) -> None:
@@ -364,12 +205,7 @@ class Unexaminable(Exception):
 
 
 def _display(path: Path, root: Path | None) -> str:
-    """Repository-relative when it is inside the repository, absolute when it is not.
-
-    A machine-global path — an optional skill under the home directory — is genuinely not part of
-    the repository, and abbreviating it to something repo-shaped would send the reader looking in
-    the wrong tree.
-    """
+    """Repository-relative when it is inside the repository, absolute when it is not."""
     if root is not None:
         try:
             return str(path.resolve().relative_to(root.resolve()))
@@ -381,21 +217,9 @@ def _display(path: Path, root: Path | None) -> str:
 def read_doc(path: Path, root: Path | None = None, *, binary: bool = False) -> str | bytes:
     """Read a file this check depends on. Every way of not reading it raises. No exceptions.
 
-    Text is decoded as utf-8-sig, and STRICTLY, which is the second half of the same defect and was
-    the quieter half. Binary callers receive the same checked raw bytes for hashing. `errors="replace"`
-    never raises, so a UTF-16 or latin-1 entry file was read as a
-    wall of replacement characters in which no markdown link matches, no `@import` matches, and no
-    documented command matches — a clean report over a file the checker never actually understood.
-    That is the same fail-open as the swallow, arrived at by a different road, and it is worse
-    because it leaves no trace at all. `-sig` because editors on this platform write a BOM without
-    being asked, and an unstripped BOM is glued to the first character of the first line, which is
-    exactly where `MD_IMPORT`'s `^@` anchor lives.
-
-    The counter-argument for `errors="replace"` — that mangling costs at most a garbled character —
-    holds when you are scanning text for a pattern that must be present. It does not hold here,
-    where absence of a match is read as absence of a problem. Same asymmetry `identifier_guard.py`
-    reasons about between `_decode` and `read_denylist`, resolved the same way and for the same
-    reason: the direction of the risk, not the likelihood of the failure.
+    Text is decoded as utf-8-sig STRICTLY: with `errors="replace"` an undecodable file matches no
+    link and no command, and absence of a match would read as absence of a problem. `-sig` strips a
+    BOM that would otherwise defeat `MD_IMPORT`'s `^@` anchor. Binary callers get the raw bytes.
     """
     try:
         raw = path.read_bytes()
@@ -447,13 +271,8 @@ def walk_files(root: Path) -> list[Path]:
     return found
 
 
-# Material the standard declares non-authoritative: superseded documents, tool output, dated plans
-# and handoffs. Links *into* it are still checked — a dead link is a dead link — but the crawl does
-# not descend, and its contents are exempt from freshness checks.
-#
-# Following it would be actively wrong. A plan written months ago SHOULD cite files that have since
-# moved; that is what makes it history. Crawling it turns every correct archival document into a
-# pile of stale-path warnings and buries the one real breakage in the live route.
+# Non-authoritative history. Links INTO it are checked, but the crawl does not descend: an old plan
+# SHOULD cite files that have since moved.
 HISTORY_PREFIXES = ("docs/archive", "docs/superpowers", ".superpowers", "docs/eval-reports")
 
 
@@ -471,11 +290,9 @@ def strip_code(text: str) -> str:
 
 
 def code_only(text: str) -> str:
-    """The inverse: just the fenced blocks and inline spans.
+    """The inverse: just the fenced blocks and inline spans, where commands are read from.
 
-    Commands are read from here and nowhere else. A documented command is always written in code
-    formatting, while running the patterns over prose matches ordinary English — "make the", "make
-    you", "make active" were all reported as missing Makefile targets before this existed.
+    Prose is never scanned for commands: "make the" is English, not a Makefile target.
     """
     return "\n".join(CODE_FENCE.findall(text) + INLINE_CODE.findall(text))
 
@@ -662,29 +479,10 @@ def source_dirs(root: Path, files: list[Path]) -> dict[str, int]:
 def check_scoped_coverage(root: Path, files: list[Path], depth: dict[Path, int],
                           report: Report) -> list[str]:
     """Every top-level directory holding source should carry its own entry file — or hold a
-    reachable document somewhere beneath it.
+    reachable document strictly beneath it (so `docs/` is cleared by a routed `docs/agents/`).
 
-    `docs/` in a repo where `docs/agents/` is the routed index is the case this exists for: a
-    reader landing in `docs/` finds the route one hop down, so the top-level bucket does not also
-    need its own AGENTS.md/CLAUDE.md.
-
-    Be precise about the clearing predicate, because it is broader than "has a route into it" and
-    the difference is the whole judgement call. `reached_dirs` below is the parent directory of
-    *every* document in the crawled graph, so the test a directory has to pass is: **some markdown
-    file strictly beneath me is reachable from the entry point.** Any linked document one level
-    down clears the directory — not only an entry file, and not only an index. That is deliberate.
-    The signal being protected is "a reader landing here finds their way out", and a reachable doc
-    provides that; demanding an AGENTS.md/CLAUDE.md specifically would re-fire on `docs/` in every
-    repo whose route lives in `docs/agents/README.md`, which is the exact false positive this
-    narrowing exists to remove.
-
-    What still fires, and must: a directory holding only documents nobody links to. Reachability is
-    the crawled graph, not the filesystem, so an unrouted doc sitting in an unrouted directory
-    clears nothing.
-
-    Name collision, since one file now spells it twice: `check_orphans` also binds `routed_dirs`,
-    and it means something else there — directories the index routes *into*, requiring two or more
-    linked docs. This function's set is deliberately named `reached_dirs` to keep the two apart.
+    Reachability is the crawled graph, not the filesystem: a directory holding only unrouted
+    documents still fires.
     """
     by_dir = source_dirs(root, files)
     reached_dirs = {doc.parent.resolve() for doc in depth}
@@ -705,10 +503,7 @@ def check_scoped_coverage(root: Path, files: list[Path], depth: dict[Path, int],
 def check_orphans(root: Path, depth: dict[Path, int], files: list[Path], report: Report) -> None:
     """A doc sitting beside routed docs but reachable from nothing is written-and-forgotten.
 
-    Only applies to directories the index actually routes *into* — two or more docs reached by a
-    link, not by proximity. Counting the scoped AGENTS.md/CLAUDE.md pair would make every source
-    directory look like an agent-docs directory and flag its README, training readers to ignore
-    this check.
+    Only applies to directories the index routes *into*: two or more docs reached by a link.
     """
     counts: dict[Path, int] = {}
     for doc, d in depth.items():
@@ -726,13 +521,7 @@ def check_orphans(root: Path, depth: dict[Path, int], files: list[Path], report:
 
 
 # ── The README contract (opt-in via --readme, implied by --standard) ─────────────────────────────
-# The README is the only document a human meets before deciding whether the project is real. It has
-# to answer four questions without a repo tour: what is this, what is its state, how is it built,
-# and where is the detail. Each section below is one of those questions.
-#
-# Heading matching is deliberately loose. A repo that already says "Getting started" instead of
-# "Run locally" is not wrong, and renaming everyone's headings to satisfy a linter would be the
-# tail wagging the dog. What is enforced is that the *question* is answered somewhere.
+# Heading matching is deliberately loose: what is enforced is that each question is answered.
 README_SECTIONS: tuple[tuple[str, str, str], ...] = (
     ("overview", r"^#{2,3}\s*(overview|why\b|what is\b|summary|about\b|the problem)",
      "what this project is"),
@@ -763,10 +552,7 @@ SECRET_PATTERNS: tuple[tuple[str, str], ...] = (
     ("Google API key", r"\bAIza[0-9A-Za-z_\-]{35}\b"),
     ("Slack token", r"\bxox[baprs]-[0-9A-Za-z-]{10,}"),
     ("Stripe live key", r"\bsk_live_[0-9a-zA-Z]{20,}"),
-    # Split so this file does not itself contain a matching literal. Without the split, any
-    # repository carrying this scanner — or documentation quoting a PEM header — trips its own
-    # guard, and the only way past is the --no-verify habit this is meant to prevent.
-    # The [A-Z ]+ alternative already covers OPENSSH, RSA, EC and the rest.
+    # Split so this file does not itself contain a matching literal.
     ("private key block", r"-----BEGIN (?:[A-Z ]+ )?PRIVATE" + r" KEY-----"),
 )
 
@@ -782,12 +568,7 @@ def readme_path(root: Path) -> Path | None:
 
 
 def section_body(text: str, pattern: str) -> str:
-    """The lines under the first heading matching `pattern`, up to the next heading of that level.
-
-    Needed because a document-wide search for a diagram is satisfied by the logo at the top. The
-    question is not "does this README contain an image" but "does the architecture section show
-    the architecture".
-    """
+    """The lines under the first heading matching `pattern`, up to the next heading of that level."""
     lines = text.splitlines()
     start = level = None
     for i, line in enumerate(lines):
@@ -831,9 +612,6 @@ def check_readme(root: Path, files: list[Path], report: Report) -> None:
         linked.add(dest.resolve())
 
     # A diagram inside the architecture section specifically, and one this toolchain can read.
-    # "Prefer Mermaid to an exported image" was advice in references/standard.md and advice is what
-    # a rule becomes when the check accepts both: any `![...](...)` satisfied this for 17 days here
-    # while the picture said the work loop had four steps and it had ten. See MERMAID_FENCE.
     arch_pattern = next(p for k, p, _ in README_SECTIONS if k == "architecture")
     arch_body = section_body(text, arch_pattern)
     if arch_body:
@@ -926,17 +704,12 @@ def check_readme(root: Path, files: list[Path], report: Report) -> None:
                 report.error("readme-raster-diagram", rel_readme,
                              f"{target} draws the architecture as pixels — no diff shows it going "
                              "stale, and a private name inside it is invisible to the guard")
-        # The half that actually stops drift: a fence whose boxes no longer match the prose beside
-        # them is a second, contradicting source of truth. Every node's NAME must appear verbatim in
-        # the rest of the section, so renaming a stage in the table renames it here too. The name is
-        # the label up to its first line break or spaced em-dash; what follows is description, and
-        # requiring that too made the rule unsatisfiable rather than strict.
+        # Every node's NAME must appear verbatim in the rest of the section, so the diagram cannot
+        # drift from the prose beside it.
         if fence is not None:
             rest = arch_body[:fence.start()] + arch_body[fence.end():]
             for label in MERMAID_NODE_LABEL.findall(fence.group(1)):
-                # `or label` matters: a label opening with its own separator would otherwise yield
-                # an empty name, and `"" in rest` is always true — silencing the check instead of
-                # failing it. A rule that goes quiet on a malformed input is worse than a strict one.
+                # `or label`: an empty name would match everything and silence the check.
                 name = MERMAID_LABEL_BREAK.split(label, 1)[0].strip() or label
                 if name.casefold() not in rest.casefold():
                     report.error("readme-diagram-drift", rel_readme,
@@ -979,83 +752,12 @@ def _standard_repo(root: Path) -> bool:
     return "progressive-disclosure standard v" in read_doc(disclosure, root)
 
 
-def check_persona_decision(root: Path, depth: dict[Path, int], report: Report) -> None:
-    """Require a deliberate project-persona decision in every routed repository.
-
-    Persona sources are the positive decision. A project that needs only the shared base pool
-    records one exact JSON marker in the routed index. Missing decisions are warnings during the
-    fleet migration; contradictory or unreachable specialist sources are structural errors.
-    """
-    index = root / "docs" / "agents" / "README.md"
-    overlays = root / "docs" / "agents" / "personas"
-    sources = (sorted(p for p in overlays.glob("*.md")
-                      if p.is_file() and p.name.lower() != "readme.md")
-               if overlays.is_dir() else [])
-    text = read_doc(index, root) if index.is_file() else ""
-    marker_text = strip_code(text)
-    raw_markers = PERSONA_MARKER.findall(marker_text)
-    marker_count = len(PERSONA_MARKER_ANY.findall(marker_text))
-    any_marker = marker_count > 0
-    decision: dict | None = None
-
-    if marker_count > 1:
-        report.error("persona-decision-invalid", "docs/agents/README.md",
-                     "contains more than one `agent-personas` decision marker; keep exactly one")
-    elif marker_count == 1 and len(raw_markers) == 1:
-        try:
-            parsed = json.loads(raw_markers[0])
-        except json.JSONDecodeError as exc:
-            report.error("persona-decision-invalid", "docs/agents/README.md",
-                         f"`agent-personas` marker is not valid JSON: {exc.msg}")
-        else:
-            if not isinstance(parsed, dict) or parsed.get("mode") != "base-only":
-                report.error("persona-decision-invalid", "docs/agents/README.md",
-                             "`agent-personas` marker mode must be `base-only`")
-            elif not isinstance(parsed.get("reason"), str) or not parsed["reason"].strip():
-                report.error("persona-decision-invalid", "docs/agents/README.md",
-                             "`agent-personas` base-only decision needs a non-empty reason")
-            else:
-                decision = parsed
-    elif marker_count == 1:
-        report.error("persona-decision-invalid", "docs/agents/README.md",
-                     "`agent-personas` marker must contain one single-line JSON object")
-
-    if sources:
-        if decision is not None:
-            report.error("persona-decision-conflict", "docs/agents/README.md",
-                         "declares `base-only` but docs/agents/personas/ contains persona sources")
-        guide = root / "docs" / "agents" / "personas.md"
-        direct_links = set()
-        if index.is_file():
-            for target in MD_LINK.findall(strip_code(text)):
-                path = target.split("#", 1)[0]
-                if not path or "://" in path:
-                    continue
-                direct_links.add((index.parent / path).resolve())
-        if not guide.is_file() or guide.resolve() not in direct_links or guide.resolve() not in depth:
-            report.error("persona-route-missing", "docs/agents/personas.md",
-                         "persona sources exist but docs/agents/README.md does not directly route "
-                         "to the maintained personas guide")
-        return
-
-    if not index.is_file():
-        return
-    if decision is None and not any(item["kind"] == "persona-decision-invalid"
-                                    for item in report.errors):
-        report.warn("persona-decision-missing", "docs/agents/README.md",
-                    "record either project persona sources or "
-                    '`<!-- agent-personas: {"mode":"base-only","reason":"..."} -->`')
-
-
 def check_personas(root: Path, report: Report) -> None:
     """Generated agent files must match the persona sources they came from.
 
-    Runs for every standard repository, including a base-only decision: deleting the last source
-    must not leave a generated project agent dispatchable. The generated `.claude/agents/` and
-    `.codex/agents/` files are committed, so drift is invisible in review — the diff looks
-    intentional. Same reason a generated API client gets a drift check.
-
-    Degrades quietly when the tool is absent, like every other machine-local check here.
+    Runs for every standard repository, including one with no persona sources, because generated
+    agents are committed and their drift is invisible in review. Degrades to a warning when the
+    tool is absent.
     """
     overlays = root / "docs" / "agents" / "personas"
     has_sources = (overlays.is_dir()
@@ -1088,113 +790,10 @@ def check_personas(root: Path, report: Report) -> None:
         report.warn("persona-check-failed", "docs/agents/personas", r.stderr.strip()[:160])
 
 
-def installed_methodology_version() -> str | None:
-    """The methodology version this machine has installed, or None if it cannot be determined.
-
-    Read from the renderer's own constant rather than duplicated here. Two copies of a version
-    number drift, and the copy inside a validator is the one nobody remembers to bump.
-
-    ABSENCE stays soft, and only absence. The methodology skill is an optional machine-global
-    install; a machine that does not have it is not a repository with a problem, and turning a
-    missing optional skill into a blocked commit would be the opposite mistake. So
-    `FileNotFoundError` returns None and the version comparison is skipped.
-
-    PRESENT-BUT-UNREADABLE does not stay soft, because it used to return the same None down the
-    same path — the two states were indistinguishable in the output, which is the whole pattern
-    this file was audited for. An installed skill this process cannot read is a broken machine, not
-    an absent feature, and `read_doc` says so.
-    """
-    script = (Path.home() / ".claude" / "skills" / "execution-methodology"
-              / "scripts" / "sync_methodology.py")
-    if not script.exists():
-        return None
-    text = read_doc(script)
-    m = re.search(r'^METHODOLOGY_VERSION\s*=\s*"(\d{1,4}\.\d{1,4})"', text, re.MULTILINE)
-    return m.group(1) if m else None
-
-
-def check_execution_methodology(root: Path, report: Report) -> None:
-    """Check the rendered execution methodology at docs/agents/execution/methodology.md.
-
-    Codex has no Skill tool, so the methodology only reaches both harnesses as in-repo markdown. A
-    repo carrying a copy from a MAJOR-older methodology is following rules that have since been
-    withdrawn, which is an error.
-
-    This checks a rendered copy and says nothing about a repository that has none. Whether a repo
-    *should* have adopted the methodology is not this script's question: adoption is staggered, a
-    repo may have deliberately deferred it with a recorded reason, and only
-    `sync_methodology.py --adoption-check` can tell the four states apart. Two scripts reporting the
-    same fact is how a deferred repo ends up being told off for a decision it recorded on purpose.
-
-    Fail-soft about JUDGEMENT, not about COVERAGE. An unparseable or missing marker is still a
-    finding rather than a crash, and a repo with no rendered copy is still left alone. But the
-    rendered file being unreadable was previously a `warn`, and a warn exits 0 — so chmod-ing the
-    rendered methodology made a major-version-behind repository pass. Unreadable is now
-    `read_doc`'s business, like every other read in this file.
-    """
-    if not (root / "docs" / "agents" / "README.md").is_file():
-        return                      # not a routed repository; nothing to be behind on
-    installed = installed_methodology_version()
-    rel = "docs/agents/execution/methodology.md"
-    rendered = root / "docs" / "agents" / "execution" / "methodology.md"
-
-    if not rendered.is_file():
-        return                      # not adopted — the adoption check owns that report
-
-    text = strip_code(read_doc(rendered, root))
-
-    count = len(EXECUTION_MARKER_ANY.findall(text))
-    raw = EXECUTION_MARKER.findall(text)
-    if count == 0:
-        report.warn("execution-marker-missing", rel,
-                    "carries no `execution-methodology` version marker; re-render it with "
-                    "`sync_methodology.py --repo .`")
-        return
-    if count > 1:
-        report.error("execution-marker-invalid", rel,
-                     "contains more than one `execution-methodology` marker; keep exactly one")
-        return
-    if len(raw) != 1:
-        report.error("execution-marker-invalid", rel,
-                     "`execution-methodology` marker must contain one single-line JSON object")
-        return
-    try:
-        parsed = json.loads(raw[0])
-    except json.JSONDecodeError as exc:
-        report.error("execution-marker-invalid", rel,
-                     f"`execution-methodology` marker is not valid JSON: {exc.msg}")
-        return
-    if not isinstance(parsed, dict):
-        report.error("execution-marker-invalid", rel,
-                     "`execution-methodology` marker must be a JSON object")
-        return
-
-    found = parsed.get("v")
-    m = SEMVER2.match(found.strip()) if isinstance(found, str) else None
-    if m is None:
-        report.error("execution-marker-invalid", rel,
-                     f"`execution-methodology` marker version {found!r} is not MAJOR.MINOR")
-        return
-    if installed is None:
-        return
-    cur = SEMVER2.match(installed)
-    if cur is None:
-        return
-    if int(m.group(1)) < int(cur.group(1)):
-        report.error("execution-version-drift", rel,
-                     f"rendered from methodology v{found}; current is v{installed} — a major "
-                     "version behind, so this repo documents withdrawn rules. Re-render it.")
-    elif int(m.group(1)) == int(cur.group(1)) and int(m.group(2)) < int(cur.group(2)):
-        report.warn("execution-version-drift", rel,
-                    f"rendered from methodology v{found}; current is v{installed}")
-
-
 def check_readme_freshness(root: Path, base: str, report: Report) -> None:
     """Warn when a branch changed source but left the README alone.
 
-    A warning, never an error. Plenty of real changes — a refactor, a test fix, a dependency bump —
-    correctly leave the front page untouched, and a gate that fires on those gets muted within a
-    week. The judgement stays with the author; this only makes sure the question is asked.
+    A warning, never an error: many real changes correctly leave the front page untouched.
     """
     try:
         merge_base = subprocess.run(["git", "-C", str(root), "merge-base", base, "HEAD"],
@@ -1359,10 +958,7 @@ def collect(args: argparse.Namespace, root: Path) -> tuple[Report, list[Path]]:
     files = [f for f in files if f.exists()]
     depth, seeds = crawl(root, files, report)
 
-    # Budgets and depth describe the *route* — the files an agent reads on the way to a task. They
-    # are not a judgement on reference material the route happens to link. A 2,800-word PRD is not
-    # a disclosure failure; it is a PRD. Applying the guide budget to it produces warnings that are
-    # correct by the letter and wrong by the purpose, which is how a report gets ignored.
+    # Budgets and depth describe the *route*, not reference material it links: a long PRD is a PRD.
     index_dir = (root / "docs" / "agents") if (root / "docs" / "agents" / "README.md").is_file() else None
     for doc, d in sorted(depth.items(), key=lambda kv: kv[1]):
         rel = doc.relative_to(root) if doc.is_relative_to(root) else doc
@@ -1394,30 +990,11 @@ def collect(args: argparse.Namespace, root: Path) -> tuple[Report, list[Path]]:
     check_orphans(root, depth, files, report)
     check_scoped_coverage(root, files, depth, report)
     check_stale_paths(root, depth, files, report)
-    check_persona_decision(root, depth, report)
     check_personas(root, report)
-    check_execution_methodology(root, report)
-    # THE OPT-IN FAMILIES, and the one place their absence is recorded.
-    #
-    # Each of these is a whole family of ERROR-producing checks selected at the CALL SITE, which
-    # the module docstring's "severity is a property of the finding, decided here, not a flag
-    # chosen at the call site" flatly contradicts. That contradiction is not fixed by flipping the
-    # defaults — see below — it is fixed by never again letting a run that skipped them describe
-    # itself as clean. Three hand-written if/else pairs, NOT a table — the sibling file has a table
-    # (`DEFAULT_CHECKS` in check_toolchain.py) and this comment once claimed one here, which was
-    # simply untrue of the code beneath it. What actually stops a fourth opt-in family being added
-    # without declaring its absence is a structural test,
-    # `test_every_flag_gated_check_declares_its_absence`, which walks this function and fails on any
-    # `args.<flag>`-gated call to a `check_*` with no `report.not_evaluated(...)` in its else.
-    #
-    # WHY THE DEFAULTS ARE NOT FLIPPED. Turning `--readme` on by default was the alternative
-    # remedy and it was rejected on evidence: the README contract is seven required sections, and
-    # the public repository this was measured against deliberately omits two of them — it says so
-    # in a section of its own README titled "Two sections a software project would have, and this
-    # does not". Defaulting the flag on would convert a documented, intentional editorial choice
-    # into a commit-blocking ERROR in every repository at once, and the pre-commit hook text that
-    # would start failing is generated by install_hooks.py, which is outside this change. A checker
-    # that must be silenced on day one teaches the reader to silence it.
+    # THE OPT-IN FAMILIES, and the one place their absence is recorded. Each flag-gated `check_*`
+    # declares its absence in its else (`test_every_flag_gated_check_declares_its_absence`).
+    # `--readme` is not on by default: that would turn a repository's deliberate omission of a
+    # section into a commit-blocking ERROR everywhere at once.
     if args.standard:
         check_standard(root, report)
     else:
@@ -1444,27 +1021,13 @@ def collect(args: argparse.Namespace, root: Path) -> tuple[Report, list[Path]]:
 
 
 def report_could_not_run(args: argparse.Namespace, root: Path, exc: Unexaminable) -> int:
-    """Say that no verdict was reached, in the same sentence as the verdict would have been.
-
-    The count and the caveat must not be two lines. The measured failure mode of this whole class
-    is a reader skimming to the bottom line — `0 error(s), 1 warning(s)` — and taking it at face
-    value, so a reassuring summary with an honest note above it is still a lie by layout. Here
-    there is no count at all, because none was established: the run stopped at the first thing it
-    could not read, and everything downstream of that file went unvisited.
-
-    Exit 2, not 1. See the module docstring.
-    """
+    """Say that no verdict was reached, with no count, because none was established. Exit 2."""
     detail = f"{exc.where}: {exc.detail}"
     if args.as_json:
-        # No `errors`/`warnings`/`notes` keys, deliberately. Emitting them empty would let a
-        # consumer read `len(errors) == 0` as a clean route, which is the defect one layer up.
-        # Their absence makes a naive consumer raise instead of concluding.
+        # No `errors`/`warnings`/`notes` keys: empty ones would read as a clean route. `exit` is
+        # present on every payload this script emits.
         print(json.dumps({
             "status": "could-not-run",
-            # `exit` is present on EVERY payload this script emits, including this one. A consumer
-            # doing `payload["exit"]` must not have to special-case the path where the answer
-            # matters most; omitting it here would have raised KeyError at the moment the run was
-            # least trustworthy.
             "exit": 2,
             "could_not_run": {"where": exc.where, "detail": exc.detail},
             "info": {"root": str(root)},
@@ -1510,11 +1073,6 @@ def main() -> int:
     status, code, summary = report.verdict()
 
     if args.as_json:
-        # `status` is no longer the constant "ok": a consumer must be able to tell a run that
-        # checked everything from one that checked part of it, and "ok" said the first about both.
-        # `errors`/`warnings`/`notes` keep their shape; `not_run` is additive.
-        # `exit` mirrors check_toolchain.py's payload deliberately. TC-37 consumes both, and an
-        # asymmetry there is a special case in the caller for no reason on this side.
         print(json.dumps({"status": status, "exit": code, "info": report.info,
                           "errors": report.errors, "warnings": report.warns,
                           "notes": report.notes, "not_run": report.not_run,
@@ -1526,12 +1084,7 @@ def main() -> int:
             print(f"WARN [{item['kind']}] {item['where']}: {item['detail']}")
         for item in report.notes:
             print(f"NOTE [{item['kind']}] {item['where']}: {item['detail']}")
-        # Scope, but only when this mode is already speaking. `--hook` is contractually silent on a
-        # healthy project — it fires at every session start in every directory — so printing "the
-        # README contract was not requested" unconditionally would put two permanent lines into
-        # every session in every repository on the fleet and train the reader to skip the block.
-        # Whenever it does speak, though, the reader is entitled to know what the run did not look
-        # at, because that is the sentence that changes what they do next.
+        # Scope, but only when this mode is already speaking: `--hook` is silent on a healthy route.
         if report.errors or report.warns or report.notes:
             for item in report.not_run:
                 print(f"NOT RUN [{item['check']}] {item['why']}")
@@ -1550,9 +1103,7 @@ def main() -> int:
             print(f"  NOTE   [{item['kind']}] {item['where']}: {item['detail']}")
         for item in report.not_run:
             print(f"  NOT RUN  {item['check']}: {item['why']}")
-        # One line, composed from what ran. Never a literal, because a literal is how
-        # `clean — every route resolves, every documented command exists` came to be printed over
-        # a README contract the run had not looked at.
+        # One line, composed from what ran; never a literal.
         print(f"  {summary}")
 
     return code

@@ -85,8 +85,7 @@ validate_disclosure.py . --vs main          # + warn if source changed and READM
 | `lessons-entries` (note) | A lessons file accreted past readable-in-one-sitting |
 
 Exit 1 on any error, never on a warning or a note — severity belongs to the finding, not the call
-site; there is no `--strict`. (The card validator keeps one deliberately: a card is a proposal, not
-an existing repository.) Wire into the repo's gate — in the reference project it is
+site; there is no `--strict`. Wire into the repo's gate — in the reference project it is
 `make check-docs`, part of `make check`.
 
 ## Declaring a repository deliberately public

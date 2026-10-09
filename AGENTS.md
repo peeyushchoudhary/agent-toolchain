@@ -10,37 +10,31 @@ This public repository must contain no project names, personal paths, account id
 private business facts — in commit messages as well as files: no `Claude-Session:` trailers here.
 Nothing enforces the commit-message half; it is a rule, not a guard.
 
-<!-- public-exception: {"reason":"documentation and tooling repo, deliberately public so the setup is checkable by anyone; no project names or personal data belong here by invariant","date":"2026-07-30"} -->
-
-Published behaviour comes from `install/`. Edits to vendored skills and hooks originate in their
-maintained source and are re-vendored; see
-[what-gets-installed.md](docs/agents/what-gets-installed.md). Executable tooling and tests override
-prose. Claims need executable or documented evidence; measurements route to
+Published behaviour comes from `install/`, which is the single authored source for the skills and
+hooks; edit it there, never in an installed copy. Executable tooling and tests override prose.
+Claims need executable or documented evidence; measurements route to
 [measurements.md](docs/product/measurements.md).
 
 Keep false starts and reversals as labelled rationale, never as current authority. `gh`, `ripgrep`,
 and `graphify` remain optional to the core. This repository complies with the standard it ships;
 see [D17](docs/decisions/decisions.md#d17--this-repository-complies-with-the-standard-it-ships).
 
-## Goal-bound execution
+## Methodology
 
-Execution is goal-bound: bind every dispatch to the approved outcome or a named invariant, state its
-observable delta, and classify every finding. Judges are independent and structurally unable to
-edit; a builder never approves their own work. Execution continues through approved completion by
-default. Technical corrections follow the owning gate's approved causal recovery; renaming an
-attempt does not reset it. Failed checks block acceptance and integration. Numeric review spend
-triggers technical diagnosis and never changes a verdict or requires founder permission by itself.
-
-The rest of the review contract — freshness and its harness primitive, what a blocker needs, one
-correction and one scoped rereview, apply-and-close, escalation and its default action, the
-over-engineering ceiling — is owned by the execution methodology, routed through
-[operating-model.md](docs/architecture/operating-model.md). See the
-[superseding recovery decision](docs/decisions/decisions.md#d27--approved-completion-and-technical-recovery)
-for the change to D14. Substantive product, UX, design and plan decisions and external actions
-outside existing grants still require founder authority.
+This repository follows methodology v6, lean goal execution: a goal is a spec, a design and a plan,
+and the founder's routine touchpoints are exactly goal approval and merge per milestone. Scripts
+compute done, scope and test integrity; review runs where it has measured yield, and the reviewer
+comes from the other vendor at design, plan and acceptance. A builder never approves their own
+work, and judges cannot edit. Decisions the plan does not settle are defaulted, escalated or queued.
+The rules are in the
+[execution methodology](install/skills/execution-methodology/methodology.md) and the
+[design](docs/architecture/lean-execution.md). Substantive product decisions and external actions
+outside existing grants still need the founder.
 
 ## Verification
 
-Run `cd install && ./install.sh --dry-run && ./verify.sh`. Its repository verdict line must be
-PASS; it runs `validate_disclosure.py --standard` against this repository, so the route check is
-no longer a separate command.
+The repository gate is `cd install && ./install.sh --dry-run && ./verify.sh`; its last line,
+`verify: PASS`, is the verdict. During a goal, run it through `gate.py receipt`: a failure recorded
+in the goal's baseline is not attributed to the change, and a new one is. It runs
+`validate_disclosure.py --standard` against this repository, so the route check is not a separate
+command.

@@ -11,37 +11,10 @@ the three cases below the damage survives any later cleanup of the local branch.
   warn   a newly added .env-style file     — sometimes deliberate, so it asks rather than stops
   warn   source changed, README untouched  — the front-page question, asked while it is cheap
 
-TWO MORE, AND ONLY IN A REPOSITORY THAT HAS ADOPTED THE PRODUCT-DEFINITION STANDARD — that is,
-one holding `docs/product/`. Elsewhere this half does nothing and says nothing; see PRODUCT_ROOT.
-
-  BLOCK  the product definition is not current-state — spec_check.py's findings, at the one
-         boundary in this toolchain that has been measured to fire. A specification says what is
-         TRUE NOW; a document appended to instead of updated accumulates conflicting decisions and
-         every reader then works out which of four statements is current, differently.
-  BLOCK  a milestone sealed without evidence — a document moving to `status: shipped` is the claim
-         that the cross-feature journeys no single feature's suite can prove were proved. Only the
-         transition is gated, and the evidence is a receipt from milestone_seal.py bound to the
-         pushed tree.
-
-ONE MORE, IN ANY REPOSITORY HOLDING A REVIEW WORKSPACE — a different adoption fact from the two
-above, so a repository with review workspaces and no `docs/product/` still gets it.
-
-  BLOCK  the review budget refuses the workspace — check_review_budget.py exit 1: a subject past
-         its round cap with no founder grant, a judge verdict past its documented thirty lines, a
-         banned artifact class. That checker is ADVISORY BY FOUNDER RULING and stays advisory: the
-         ruling is that it cannot bind the ORCHESTRATOR THAT RUNS IT, whose filenames it reads. A
-         pre-push hook is a different party at a different moment — git, on the push that opens
-         the pull request the ruling calls the merge gate — so this carries the receipt to that
-         gate rather than replacing the human at it. Every KNOWN-OPEN bypass in that module is
-         inherited whole and none is claimed closed. `PD_ALLOW_REVIEW_BUDGET=1` skips it, loudly.
-
 Reads the standard pre-push payload on stdin: `<local ref> <local oid> <remote ref> <remote oid>`.
 
-Three escape hatches, each of which PRINTS that it fired — a silent escape leaves a push that looks
-identical to a checked one. `PD_ALLOW_MAIN_PUSH=1` for an intentional main push,
-`PD_SKIP_SPEC_CHECK=1` for the product-definition lint, `PD_ALLOW_UNSEALED_MILESTONE=1` for the
-seal, `PD_ALLOW_REVIEW_BUDGET=1` for the review budget. Secret and size findings have none and must
-be fixed before pushing.
+One escape hatch: `PD_ALLOW_MAIN_PUSH=1` for an intentional main push. Secret and size findings
+have none and must be fixed before pushing.
 """
 
 from __future__ import annotations
@@ -98,52 +71,6 @@ except Exception as _exc:                                                   # no
     raise SystemExit(2) from _exc
 
 DEFAULT_BRANCHES = ("refs/heads/main", "refs/heads/master")
-
-# THE ADOPTION GUARD, AND IT IS THE LOAD-BEARING PART OF THE PRODUCT-DEFINITION WIRING BELOW.
-# A repository with no `docs/product/` has not adopted the product-definition standard, and this
-# guard then does nothing and SAYS nothing there — not a warning, not a hint, not a blank line.
-# Adoption is staggered across a fleet, so the great majority of repositories are in that state on
-# any given day, and a gate that blocks (or even chatters at) a push in a repository that never
-# opted in is a gate that gets removed from the machine. Removed from the machine, it protects
-# nothing anywhere — including the repositories that DID opt in. Silence in the unadopted case is
-# what buys the right to block in the adopted one.
-PRODUCT_ROOT = "docs/product"
-
-# The sibling skill's scripts. push_guard.py lives at
-# `<skills>/progressive-disclosure/scripts/push_guard.py`, so two levels up is `<skills>`.
-#
-# Resolved at RUNTIME and never imported. `import spec_check` would put that module's import graph
-# (ratio_meter today, anything tomorrow) inside this process, so a breakage over there would take
-# the credential scan down with it — and the credential scan is the check that must survive
-# everything. A subprocess boundary keeps the two skills decoupled in exactly the way install_hooks.py
-# already relies on: neither imports the other.
-METHODOLOGY_SCRIPTS = Path(__file__).resolve().parents[2] / "execution-methodology" / "scripts"
-PRODUCT_CHECKERS = ("spec_check.py", "plan_waves.py")
-BUDGET_CHECKER = "check_review_budget.py"
-
-# THE REVIEW WORKSPACE, and how this guard finds one without growing a second opinion about what a
-# verdict is. The methodology fixes the workspace's CONTENTS (`<subject>-r<N>-<kind>.md`, git-
-# ignored, one per plan) and deliberately fixes no PATH: the fleet writes `.superpowers/sdd/...`,
-# `work/sdd/...` and `analysis/.workspace/...`, three spellings of one thing. So the anchor is a
-# DIRECTORY NAME, the list is short and written down, and everything below it is handed WHOLE to
-# check_review_budget.py — which owns every question about what the files inside it are. This
-# guard never reads an artifact name. Adding a spelling here is a one-line change; teaching this
-# file to classify a verdict would be a second classifier that drifts from the first.
-WORKSPACE_ANCHORS = frozenset({"sdd", ".workspace", "workspaces"})
-# Depth from the repository root, and it is a COST bound, not a semantic one. `.superpowers/sdd`
-# is two, `analysis/.workspace` is two, `work/sdd/plans` is the deepest real spelling at three.
-WORKSPACE_MAX_DEPTH = 4
-# Never descended into. `.git` alone is tens of thousands of entries and holds no workspace.
-WORKSPACE_SKIP = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", "target",
-                            "dist", "build", ".mypy_cache", ".pytest_cache", ".tox"})
-
-# A milestone document, and the seal that this guard gates. `M<n>-<slug>.md` under
-# `docs/product/milestones/`, matched on the full repository-relative path so a file of the same
-# shape somewhere else is not mistaken for one.
-MILESTONE_DOC_RE = re.compile(r"^docs/product/milestones/M\d+-[^/]+\.md$")
-SHIPPED = "shipped"
-FRONT_FENCE = "---"
-FINDING_CAP = 10   # Findings a hook prints before it stops; the checker prints the rest on request.
 
 # Not configurable, deliberately. A limit chosen at the call site is a limit that will eventually be
 # chosen at its weakest — this was `float(os.environ.get("PD_MAX_FILE_MB", "10"))`, which also
@@ -467,294 +394,14 @@ def readme_stale(base: str | None, local: str) -> bool:
     return bool(top - {"docs", ".github", ".claude", "graphify-out"})
 
 
-def product_definition_adopted(root: Path) -> bool:
-    """Has this repository opted into the product-definition standard? See PRODUCT_ROOT."""
-    return (root / PRODUCT_ROOT).is_dir()
-
-
 def repo_root() -> Path:
     """The worktree this push is leaving from.
 
-    Derived from git rather than from `Path.cwd()`. git runs a hook with the cwd set to the top
-    level of the worktree today, but `core.hooksPath`, a `git -C` invocation and a bare-repo push
-    are all shapes where that is not something to rely on, and every one of them would silently
-    move the adoption probe to a directory with no `docs/product/` — which is the exact failure the
-    adoption guard is designed to be quiet about, arriving where it must NOT be quiet.
+    Derived from git rather than from `Path.cwd()`. It once located the product-definition
+    checks, which are retired. The probe stays, once per push and before the ref loop, so a push
+    from where it fails (a bare repository, say) still exits 2 exactly as it did.
     """
     return Path(git("rev-parse", "--show-toplevel").strip())
-
-
-def checker(name: str, *args: str, applies: str = "") -> tuple[int, list[str]]:
-    """Run one methodology checker and return (exit code, output lines).
-
-    A missing checker is a GuardError, not a skip, and that asymmetry against PRODUCT_ROOT is the
-    whole design. `docs/product/` absent means the repository never agreed to the rule — nothing to
-    check, so nothing to say. `docs/product/` present with the checker absent means the repository
-    DID agree and the check could not run, which is not a clean result and must never read as one.
-    It is the same sentence the identifier guard says twice in install_hooks.py.
-
-    `applies` names the ADOPTION FACT that made this checker run, because there are now two of them
-    — `docs/product/` for the product-definition lint, a review workspace for the budget check —
-    and a message naming the wrong one sends the reader to a directory that has nothing to do with
-    the block. It defaults to the product sentence, which is what every existing caller means.
-
-    Exit 2 from the checker itself lands here too: both of these reserve 2 for "the tree could not
-    be read", so it arrives already meaning what GuardError means.
-    """
-    script = METHODOLOGY_SCRIPTS / name
-    if not script.is_file():
-        why = applies or (f"this repository has {PRODUCT_ROOT}/, so the product-definition checks "
-                          f"apply")
-        raise GuardError(
-            f"{why} — but {name} is not installed at {script}. The check did NOT run, and a check "
-            f"that did not run is not a clean result. Reinstall the execution-methodology skill")
-    try:
-        proc = subprocess.run([sys.executable, str(script), *args],
-                              capture_output=True, timeout=120, check=False,
-                              env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
-    except subprocess.TimeoutExpired as exc:
-        raise GuardError(f"{name} timed out after 120s — the product definition was not "
-                         f"checked") from exc
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise GuardError(f"{name} could not execute: {exc}") from exc
-    if proc.returncode not in (0, 1):
-        detail = _decode(proc.stderr or b"").strip().splitlines()
-        raise GuardError(f"{name} exited {proc.returncode}"
-                         f"{': ' + detail[-1] if detail else ''} — the product definition was NOT "
-                         f"checked, so this is not a clean result")
-    return proc.returncode, [ln for ln in _decode(proc.stdout).splitlines() if ln.strip()]
-
-
-def indented(lines: list[str], remedy: str) -> str:
-    """One blocking entry carrying a checker's findings, capped, in the guard's own indentation."""
-    body = "\n".join(f"      {ln}" for ln in lines[:FINDING_CAP])
-    if len(lines) > FINDING_CAP:
-        body += f"\n      ... and {len(lines) - FINDING_CAP} more"
-    return f"{body}\n      {remedy}"
-
-
-def product_findings(root: Path) -> list[str]:
-    """Blocking entries from the current-state lint and the wave planner.
-
-    Both are run over the WHOLE tree rather than over the pushed range, and that is a measurement
-    rather than a preference. On a real repository holding 204 product documents, median of seven
-    runs: spec_check.py 107 ms, plan_waves.py 41 ms, and 154 ms added to the guard end to end.
-    Range-scoping would buy a hook nothing a human can feel, and it would add a second, subtler way
-    to be wrong — a spec broken by an edit OUTSIDE `docs/product/` (a route added with no approved
-    Surface, a plan whose feature spec moved milestone) would then push clean. Re-measure before
-    changing this; the number is the argument, not the preference for whole-tree checking.
-    """
-    entries: list[str] = []
-    code, lines = checker("spec_check.py", "--root", str(root))
-    if code == 1:
-        entries.append(
-            f"the product definition is not in current-state form ({len(lines)} finding(s)). A "
-            f"spec states what is TRUE NOW; history lives in git and WHY lives in a decision "
-            f"record:\n" + indented(lines, f"Full report: spec_check.py --root {root}"))
-    code, lines = checker("plan_waves.py", "--root", str(root))
-    if code == 1:
-        entries.append(
-            f"the wave plan does not schedule ({len(lines)} finding(s)). Two tasks in one wave "
-            f"writing one path corrupt a parallel run:\n"
-            + indented(lines, f"Full report: plan_waves.py --root {root}"))
-    return entries
-
-
-def review_workspaces(root: Path) -> list[Path]:
-    """Every review-workspace anchor in the tree, shallowest first.
-
-    A depth-bounded `scandir` walk rather than `rglob`, because this runs on every push in every
-    repository on the machine and `rglob("*")` over a large checkout is the kind of cost that gets
-    a hook uninstalled. Symlinks are not followed: a link out of the tree is not this repository's
-    workspace, and following one is how a bounded walk stops being bounded.
-
-    An anchor is not descended into. `sdd/` holds one directory per plan and the checker walks
-    recursively, so handing it the anchor covers every plan in one run; handing it each plan
-    separately would multiply the runs and split one workspace budget into several.
-    """
-    found: list[Path] = []
-    frontier = [(root, 0)]
-    while frontier:
-        here, depth = frontier.pop(0)
-        if depth >= WORKSPACE_MAX_DEPTH:
-            continue
-        try:
-            entries = sorted(os.scandir(here), key=lambda e: e.name)
-        except OSError:
-            # An unreadable directory is not a finding and must not be a crash: the guard's job
-            # here is to find workspaces, and one it cannot read is one it does not find.
-            continue
-        for entry in entries:
-            if not entry.is_dir(follow_symlinks=False) or entry.name in WORKSPACE_SKIP:
-                continue
-            if entry.name in WORKSPACE_ANCHORS:
-                found.append(Path(entry.path))
-                continue
-            frontier.append((Path(entry.path), depth + 1))
-    return found
-
-
-def review_budget_findings(root: Path) -> list[str]:
-    """Blocking entries from the review-budget check, one per workspace it refuses.
-
-    THIS IS THE PART THAT MAKES THE EXIT CODE BIND, and it is worth saying exactly what it does not
-    claim. check_review_budget.py is ADVISORY BY FOUNDER RULING (2026-08-20, its module docstring):
-    "The tool is run BY the orchestrator, on inputs the orchestrator controls ... No in-process
-    control can bind its own operator." That ruling is about the tool binding the party that RUNS
-    it, and it stands untouched — the same sentence also says what the exit code is FOR: "it FAILS
-    LOUDLY on the shapes it can see, so that drift costs a deliberate act rather than an oversight
-    — the exit code is a tripwire against forgetting, not a gate against intent", and "THE BINDING
-    CONTROL IS A HUMAN READING THE RECEIPT AT THE MERGE GATE."
-
-    A pre-push hook is a DIFFERENT PARTY at a DIFFERENT MOMENT: git runs it on the push, and the
-    push is what opens the pull request the ruling calls the merge gate. So this does not make the
-    instrument bind its own operator. It carries the receipt to the gate the ruling names, before
-    the content leaves the machine, and it makes skipping cost a deliberate, printed act rather
-    than a silence. Every KNOWN-OPEN bypass in that module is inherited WHOLE: rename the artifact,
-    delete it, move it, pass a narrower workspace or append a ledger row and this goes quiet, in
-    exactly the way it goes quiet for the orchestrator. Nothing here closes any of them and nothing
-    here should be read as claiming to.
-
-    THE WORKSPACE IS GIT-IGNORED, so this blocks a push on content the push does not carry. That is
-    deliberate and it is the whole point: the workspace is the record of the review that justifies
-    the commits which ARE being pushed, and it is deleted at promotion. After the push it is gone
-    and the question cannot be asked again.
-    """
-    entries: list[str] = []
-    applies = "this repository holds a review workspace, so the review-budget check applies"
-    for ws in review_workspaces(root):
-        code, lines = checker(BUDGET_CHECKER, str(ws), applies=applies)
-        if code != 1:
-            continue
-        rel = ws.relative_to(root) if ws.is_relative_to(root) else ws
-        entries.append(
-            f"the review budget refuses {rel} ({len(lines)} receipt line(s)). NOTHING HERE IS "
-            f"AUTO-GRANTED — each finding names a decision a human makes:\n"
-            + indented(lines, f"A ROUND_CAP is the one that needs a person: either the subject "
-                              f"CLOSES at its final verdict (apply the smallest named correction "
-                              f"and stop — the methodology's own answer, no third round), or a "
-                              f"founder appends one row per (subject, round) to the grants ledger "
-                              f"naming that exact pair. A VERDICT_OVER_CAP is cut, never dropped: "
-                              f"the findings stay and the prose goes. A BANNED_CLASS is deleted — "
-                              f"git regenerates a diff from the commit range. "
-                              f"Full receipt: {BUDGET_CHECKER} {rel} --json\n"
-                              f"      Deliberate exception: PD_ALLOW_REVIEW_BUDGET=1 git push"))
-    return entries
-
-
-def front_scalar(text: str, key: str) -> str:
-    """One scalar out of a leading `---` block, with no YAML parser and no third-party dependency.
-
-    Deliberately not a re-implementation of spec_check.py's parser. This reads two keys off a
-    document whose shape that checker is already asserting on the same push — `status:` and
-    `milestone:` — and everything richer (flow lists, duplicate keys, an unclosed block) is that
-    checker's finding to make, not this one's. An unparseable document therefore yields "" here and
-    is reported over there, which is the right split: the guard must not grow a second, weaker
-    opinion about the same file.
-    """
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != FRONT_FENCE:
-        return ""
-    for line in lines[1:]:
-        if line.strip() == FRONT_FENCE:
-            break
-        name, separator, value = line.partition(":")
-        if separator and name.strip() == key:
-            return value.strip().strip("'\"")
-    return ""
-
-
-def gate_command(text: str) -> str | None:
-    """The `Gate:` line under `## Cross-feature validation`. Kept identical to milestone_seal.py.
-
-    Two readers of one line is a second copy, and the two would drift. They do not drift silently:
-    `test_the_two_gate_readers_agree` drives both over the same documents and fails when they
-    disagree. A shared import would be the alternative, and it is rejected above — this guard does
-    not put the other skill's import graph inside the process that runs the credential scan.
-    """
-    inside, found = False, None
-    for line in text.splitlines():
-        if line.startswith("#"):
-            inside = line.strip().lower() == "## cross-feature validation"
-            continue
-        if inside:
-            stripped = line.strip()
-            if stripped.startswith("Gate:") and stripped[5:].strip():
-                found = stripped[5:].strip()
-    return found
-
-
-def show(ref: str, path: str) -> str:
-    """A file's content at a revision, or "" when it did not exist there.
-
-    The one tolerated failure in this function's family, and it is the same carve-out `base_for`
-    documents: a path absent from a commit is answered by git with a non-zero exit, and that IS the
-    answer — a milestone document added by this push has no previous status to compare against.
-    """
-    return git("show", f"{ref}:{path}", tolerate_failure=True)
-
-
-def sealing_milestones(base: str | None, local: str) -> list[tuple[str, str | None]]:
-    """(document path, declared gate) for every milestone this push moves TO `status: shipped`.
-
-    ONLY THE TRANSITION GATES, and the restriction is what makes the gate affordable. A milestone
-    that is already shipped, or is still building, is not re-validated on every later push through
-    the same branch — that would re-run an end-to-end suite for a typo fix and teach the founder to
-    reach for --no-verify, which is the habit this whole file exists to prevent. The seal is a
-    one-time claim, so it is checked exactly once, on the push that makes it.
-    """
-    sealing: list[tuple[str, str | None]] = []
-    for path in changed_files(base, local):
-        if not MILESTONE_DOC_RE.match(path):
-            continue
-        after = show(local, path)
-        if front_scalar(after, "status") != SHIPPED:
-            continue
-        # A document absent from the base is a milestone added already shipped, which is a seal.
-        if base and front_scalar(show(base, path), "status") == SHIPPED:
-            continue
-        sealing.append((path, gate_command(after)))
-    return sealing
-
-
-def unsealed(base: str | None, local: str) -> list[str]:
-    """Blocking entries for a milestone sealed without evidence that its gate ran and passed."""
-    seals = sealing_milestones(base, local)
-    if not seals:
-        return []
-    if env_allows("PD_ALLOW_UNSEALED_MILESTONE"):
-        for path, _ in seals:
-            print(f"  pre-push SKIPPED: {path} is being sealed and its cross-feature gate was NOT "
-                  f"verified (PD_ALLOW_UNSEALED_MILESTONE). This is not a clean result.")
-        return []
-
-    script = METHODOLOGY_SCRIPTS / "milestone_seal.py"
-    entries: list[str] = []
-    for path, command in seals:
-        name = Path(path).stem.split("-")[0]
-        if not command:
-            entries.append(
-                f"{path} moves to `status: {SHIPPED}` but declares no cross-feature gate. A seal "
-                f"is the claim that the journeys no single feature's suite can prove were proved:\n"
-                f"      add a `## Cross-feature validation` section ending in `Gate: <command>`")
-            continue
-        if not script.is_file():
-            raise GuardError(
-                f"{path} is being sealed, but milestone_seal.py is not installed at {script}, so "
-                f"whether its gate passed is UNKNOWN. That is not the same as it having passed. "
-                f"Reinstall the execution-methodology skill")
-        tree = git("rev-parse", f"{local}^{{tree}}").strip()
-        code, lines = checker("milestone_seal.py", "--verify", "--tree", tree,
-                              "--command", command)
-        if code == 1:
-            reason = lines[0] if lines else "no gate receipt for the pushed tree"
-            entries.append(
-                f"{path} moves to `status: {SHIPPED}` without evidence: {reason}.\n"
-                f"      The gate is `{command}` and a seal is the claim it passed against the "
-                f"content being pushed:\n"
-                f"      python3 {script} --root . --record {name}\n"
-                f"      Deliberate exception: PD_ALLOW_UNSEALED_MILESTONE=1 git push")
-    return entries
 
 
 def main() -> int:
@@ -823,37 +470,8 @@ def run() -> int:
     blocking: list[str] = []
     warnings: list[str] = []
 
-    # ONCE PER PUSH, NOT ONCE PER REF. The lint reads the worktree and the wave planner reads the
-    # plans; neither answer changes between the refs of a single `git push`, and running them per
-    # ref would multiply the cost by the number of refs while printing every finding twice.
-    root = repo_root()
-    adopted = product_definition_adopted(root)
-    if adopted and env_allows("PD_SKIP_SPEC_CHECK"):
-        # LOUD, AND ON THE SAME CHANNEL AS EVERY OTHER LINE THIS GUARD PRINTS. An escape hatch has
-        # to exist — the alternative is --no-verify, which turns off the credential scan too, and a
-        # founder who learns that reflex has disabled every check on the machine to skip one. But a
-        # SILENT escape is worse than none: it leaves a push that looks identical to a checked one,
-        # and an environment variable exported months ago in a shell profile then reads as a clean
-        # result forever. So it says, every time, that the check did not run.
-        print(f"  pre-push SKIPPED: the product-definition checks "
-              f"({', '.join(PRODUCT_CHECKERS)}) did NOT run — PD_SKIP_SPEC_CHECK is set. This is "
-              f"not a clean result; nothing below is a verdict about {PRODUCT_ROOT}/.")
-    elif adopted:
-        blocking += product_findings(root)
-
-    # THE REVIEW BUDGET, and it is adopted on a DIFFERENT fact from the product checks above: a
-    # review workspace in the tree, not `docs/product/`. A repository with neither says nothing,
-    # a repository with one gets one check, and the two do not gate each other — the budget is a
-    # rule about process artifacts and it applies wherever those artifacts are written.
-    workspaces = review_workspaces(root)
-    if workspaces and env_allows("PD_ALLOW_REVIEW_BUDGET"):
-        # Loud, every time, on the guard's own channel — see the PD_SKIP_SPEC_CHECK note above.
-        # An escape that prints nothing leaves a push that looks identical to a checked one.
-        print(f"  pre-push SKIPPED: the review-budget check ({BUDGET_CHECKER}) did NOT run over "
-              f"{len(workspaces)} review workspace(s) — PD_ALLOW_REVIEW_BUDGET is set. This is not "
-              f"a clean result; no round cap, verdict cap or banned class was checked.")
-    elif workspaces:
-        blocking += review_budget_findings(root)
+    # Once per push, before the ref loop: see repo_root.
+    repo_root()
 
     for parts in payload:
         if len(parts) != 4:
@@ -890,13 +508,6 @@ def run() -> int:
         for path in added_files(base, local_oid):
             if ENV_FILE.search(path) and not ENV_ALLOWED.search(path):
                 warnings.append(f"{path} is a new .env-style file. Confirm it holds no secrets.")
-
-        # Range-derived, unlike the two checks above, and it has to be: the question is which
-        # milestone this PUSH moves to shipped, and the working tree cannot answer it. A tree shows
-        # the current status and nothing about what the remote already has, so a tree-derived
-        # version would re-gate an already-sealed milestone on every later push through the branch.
-        if adopted:
-            blocking += unsealed(base, local_oid)
 
         # The README advisory is about branch work becoming a PR. A tag names a commit; it never
         # becomes a PR, and an archive tag exists precisely to preserve a superseded snapshot, so
