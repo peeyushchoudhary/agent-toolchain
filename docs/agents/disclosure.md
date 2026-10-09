@@ -19,7 +19,7 @@
 | `docs/architecture/` | how the system is built: the operating model, the repository standard | current |
 | `docs/product/` | intent read through shipped behaviour: measurements, the weekly record | current; measurements are dated |
 | `docs/decisions/` | accepted decision records | current |
-| `docs/runbooks/` | operational procedures: onboarding, adoption, Codex, GitHub | current |
+| `docs/runbooks/` | operational procedures: Codex, GitHub, global instructions | current |
 | `docs/archive/` | superseded material | NOT authoritative |
 
 ## Depth is the constraint, and it is checked

@@ -3,16 +3,13 @@
 Solo founder, several ideas in parallel, one laptop, no team, no hosted CI. Every other decision in
 this documentation set follows from those four facts.
 
-Shared machine entry instructions route both harnesses to the adopted repository guide.
-The procedure is owned by the [execution methodology](../../install/skills/execution-methodology/methodology.md);
-this page explains the operating priorities and does not restate its repair state machine.
-
-Ordinary work resolves the project's approved runtime inventory, route and overlay before governed
-execution. A valid approved older bundle remains authoritative for that project. Global-source or
-candidate differences are reported rather than substituted. Assessment, setup, repair, migration
-and upgrade coordination belong to
-[methodology management](../../install/skills/methodology-management/SKILL.md), outside ordinary
-execution context.
+Both harnesses carry short global instructions that route to the adopted repository guide; the
+replacement text for v6 is in the [global-instructions runbook](../runbooks/global-instructions.md).
+The procedure itself is owned by the
+[execution methodology](../../install/skills/execution-methodology/methodology.md), and the
+structure behind it by the [lean execution design](lean-execution.md). This page explains the
+operating priorities and does not restate either. A project that still follows v5.1 migrates with
+[the migration guide](../../install/skills/execution-methodology/references/migrate.md).
 
 ## The three stages, in order
 
@@ -29,33 +26,28 @@ Do not skip ahead. Stage 2 is the one that gets skipped, because stage 1 feels l
 
 ## What follows from it
 
-**Local gates are the only gates.** Report the command and its real output. Never claim a state you
-have not observed. If something is flaky or environmental, say which and prove it by re-running.
-This is why `make check` exists as one facade per project and why `test-judge` is forbidden from
-paraphrasing a failure.
+**The founder touches a goal twice.** The routine touchpoints are exactly goal approval, where the
+spec, design and plan are approved together with their grants, and merge per milestone. Decisions
+the plan does not settle are defaulted, escalated to an advisor, or queued for the founder to
+answer whenever they choose, while independent work continues. Founder attention is the scarcest
+resource here, so every extra transaction delays the run.
+
+**Machines decide done.** Completion, scope, test integrity and freshness are computed by
+`goal.py` and `gate.py` from git and executed commands, and rechecked at completion. Report the
+command and its real output; never claim a state you have not observed. If something is flaky or
+environmental, say which and prove it by re-running. A failure already recorded in the goal's
+baseline is not attributed to the change; a new one is.
 
 **There is no second reviewer.** Independent verification has to be manufactured rather than
-assumed. That is the entire reason the persona pool exists, and why its judging roles are
-structurally unable to edit — see [agent-personas.md](../agents/agent-personas.md).
+assumed. Judging roles cannot edit, by construction, and the reviewer comes from the other vendor
+at design, plan and acceptance; see [agent-personas.md](../agents/agent-personas.md). Review runs
+where it has measured yield, each subject gets at most one correction and one scoped rereview, and
+spend never changes a verdict.
 
-**Design and plan receive independent review before approval.** Use the fresh read-only reviewer
-and the frozen criteria required by the execution methodology. Numeric review spend prompts
-technical diagnosis; it does not require founder permission by itself or turn an unresolved defect
-into a passing verdict. The same authority defines review width, finding classification,
-correction, scoped rereview and terminal states.
-
-**Approved execution continues through completion by default.** Checkpoints, elapsed time and
-session changes do not revoke authority. Explicit deadlines, actual required-resource exhaustion,
-revocation and consequential choices stop affected work. Substantive product, UX, design and plan
-approvals remain founder gates; external actions retain their separate grants.
-
-**A failed check blocks acceptance and integration.** The chief routes unchanged technical
-corrections to the existing owner under approved recovery in Design, Plan and Implementation.
-Repairing an unchanged safety invariant remains Full-lane work with independent security review.
-Changing that invariant or a durable boundary requires founder authority. Necessary companion
-paths require a fresh reviewed plan amendment before writes; equivalent or stronger verification
-requires independent confirmation before evidence admission. The exact boundary and proof rules
-remain in the execution methodology and its execution loop.
+**The approved plan is the scope.** A run cannot add tasks, widen a write set or edit criteria.
+Criteria, durable interfaces, safety policy and external or irreversible actions, such as merge,
+deploy, data deletion and paid services, are never decided by an agent: they are queued for the
+founder and block only the tasks that depend on them.
 
 **Context switches across projects are constant.** Assume no memory of another project. This is why
 every repo carries its own route (`docs/agents/README.md`) and its own `docs/agents/lessons.md`,
@@ -64,44 +56,26 @@ harness.
 
 **GitHub is storage.** Nothing deploys from it, nothing runs on it. See [github.md](../runbooks/github.md).
 
-**Execution is goal-bound.** The approved plan owns one Goal Capsule: the actor outcome, one primary
-externally observable outcome, the named safety and regression invariants that make it trustworthy,
-non-goals and prohibited claims, the allowed interface/write boundary, known and unknown external
-facts, and the stop condition. Both lanes reference its criteria; full-lane cards use their existing fields and do not copy it or invent another authority.
-
-Before implementation or a review repair, classify the finding and name the capsule criterion or
-invariant advanced plus the expected observable delta. A vague request produces a proposed capsule
-for approval. Ambiguity that changes acceptance, safety, authority, or an irreversible boundary
-returns to the appropriate founder gate; bounded non-material ambiguity is recorded as an assumption.
-The detailed admission and repair rules live in the execution methodology. See
-[D27](../decisions/decisions.md#d27--approved-completion-and-technical-recovery), which supersedes
-D14's automatic return for unchanged technical recurrence.
-
 ## Deliberately not done
 
 These look like gaps and are not. Do not "fix" them.
 
 | Not done | Why |
-| --- | --- |
+|---|---|
 | Hosted CI / GitHub Actions | The founder laptop is the only release runner. A push is not evidence |
 | Committed `.claude/settings.json` | Sole-founder mode; machine-local config stays machine-local |
 | Committed graph (`graphify-out/`) | 22 MB rewritten wholesale each rebuild; regenerate instead |
 | Bulk migration of other projects | Deliberate adoption at a project boundary |
 | Automatic methodology or model upgrade | Installation, project adoption and model activation are separate decisions |
-| Cross-harness agent dispatch | One dated experiment measured 1.7× in-harness cost — [decisions.md](../decisions/decisions.md) |
+| A chief subagent under a long-lived session | The chief is always the root session; layering it cost most of the spend and added no judgement |
+| Cross-harness persona dispatch | The only cross-harness call is the one-shot read-only reviewer; see [decisions.md](../decisions/decisions.md) |
 
 ## Delegation posture
 
-Substantive work goes to a controller-led multi-agent workflow: contract-bounded tasks, specialist
-subagents with isolated context and exclusive write sets, independent file-disjoint tasks in
-parallel, one integration owner, and serialised edits to shared interfaces and generated artifacts.
+Builders write inside one task's write set, at most two at a time and in separate worktrees; the
+chief is the only other writer. Reviewers, advisors and councils read and advise and never act. A
+builder never approves their own work.
 
-A builder never approves its own work.
-
-Direct single-agent implementation is correct only for genuinely trivial, low-risk changes where
-delegation would add no isolation, parallelism, or independent verification.
-
-The light lane retains a plan task ID, explicit lane, write boundary, criteria, independent
-review and area check. A full card adds boundary and safety context only when needed. The
-controller owns planning and bounded resume state; product changes stay with writers. Committed
-decisions and distillations remain append-only. Detailed commands stay in the execution loop.
+Doing a task directly is correct when it takes a handful of tool calls and delegation would add no
+isolation, parallelism or independent verification. Committed decisions and distillations stay
+append-only.

@@ -320,8 +320,8 @@ class CorpusTest(unittest.TestCase):
             self.assertEqual(["readme-architecture-image", "readme-no-diagram",
                               "readme-raster-diagram"], diagram_findings(root))
         else:
-            self.assertIn("| 3. Harness layer |", text, "the stage table no longer has this row")
-            readme.write_text(text.replace("| 3. Harness layer |", "| 3. Harness plane |"),
+            self.assertIn("| Goal trio |", text, "the stage table no longer has this row")
+            readme.write_text(text.replace("| Goal trio |", "| Goal plane |"),
                               encoding="utf-8")
             self.assertEqual(["readme-diagram-drift"], diagram_findings(root))
 

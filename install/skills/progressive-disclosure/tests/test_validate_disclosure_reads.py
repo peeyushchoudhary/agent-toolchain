@@ -55,15 +55,60 @@ def load_module(name: str, path: Path):
 
 validator = load_module("validate_disclosure_reads_test", VALIDATOR)
 
-# The claim/uniqueness AST helpers live next door and are deliberately NOT copied here. Two copies
-# of a rule are two rules, and they drift; this whole card exists because something stated in more
-# than one place ended up stating more than one thing. Importing the sibling only defines its test
-# classes — nothing runs, because it is guarded by `__main__`.
-_shared = load_module("check_toolchain_ast_helpers",
-                      Path(__file__).resolve().parent / "test_check_toolchain.py")
-claim_strings = _shared.claim_strings
-printed_nodes = _shared.printed_nodes
-find_function = _shared.find_function
+# The claim/uniqueness AST helpers. They lived beside the old toolchain suite; this is now their
+# only user, so they live here.
+CLAIM_MARKERS = ("clean", "no drift", "in sync", "no findings", "up to date", "nothing to report",
+                 "all match", "matches on both sides", "everything matches")
+# A DENIAL is not a claim, however many claim words it contains.
+CLAIM_DENIALS = ("not a clean", "not clean", "no verdict", "cannot be read as clean",
+                 "is not a clean result")
+
+
+def _docstring_ids(tree: ast.AST) -> set[int]:
+    out = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) \
+                and body and isinstance(body[0], ast.Expr) \
+                and isinstance(body[0].value, ast.Constant):
+            out.add(id(body[0].value))
+    return out
+
+
+def claim_strings(tree: ast.AST) -> list[ast.Constant]:
+    """Every string constant in a PARSED tree that asserts success, excluding docstrings and denials."""
+    skip = _docstring_ids(tree)
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+            continue
+        if id(node) in skip:
+            continue
+        lowered = node.value.lower()
+        if any(d in lowered for d in CLAIM_DENIALS):
+            continue
+        if any(m in lowered for m in CLAIM_MARKERS):
+            found.append(node)
+    return found
+
+
+def printed_nodes(tree: ast.AST) -> set[int]:
+    """Ids of every node underneath a `print(...)` call — everything that can reach a stream."""
+    out: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                and node.func.id == "print":
+            out.update(id(child) for child in ast.walk(node))
+    return out
+
+
+def find_function(case: unittest.TestCase, tree: ast.AST, name: str) -> ast.FunctionDef:
+    """Locate a function by name, FAILING rather than raising StopIteration if it was renamed."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    case.fail(f"no function named `{name}` — if it was renamed, this rule now protects nothing "
+              f"and the new name must be recorded here deliberately")
 
 
 def run(root: Path, *flags: str) -> tuple[int, str]:
@@ -75,9 +120,8 @@ def run(root: Path, *flags: str) -> tuple[int, str]:
     this one's.
 
     `HOME` IS REDIRECTED to an empty scratch directory. `validate_disclosure.py` reaches
-    `Path.home()`, and `installed_methodology_version()` runs BEFORE the early return, so every
-    one of these fixture runs otherwise stats the real `~/.claude/skills/execution-methodology/`
-    and the answer depends on what this machine happens to have installed. Every assertion here is
+    `Path.home()` in `check_personas()`, so every one of these fixture runs otherwise stats the
+    real `~/.claude/skills/agent-personas/` and the answer depends on what this machine happens to have installed. Every assertion here is
     about the FIXTURE ROOT, so an empty home is the honest input; the alternative is a suite whose
     result changes when an unrelated skill is installed.
     """

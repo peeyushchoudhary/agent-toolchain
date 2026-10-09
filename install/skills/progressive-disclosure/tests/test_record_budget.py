@@ -50,7 +50,7 @@ validator = load_module("validate_disclosure_record_test", VALIDATOR)
 def run(root: Path, *flags: str) -> tuple[int, str]:
     """The real CLI, with HOME redirected.
 
-    `installed_methodology_version()` reads `~/.claude`, so a suite that left HOME alone would
+    `check_personas()` reads `~/.claude`, so a suite that left HOME alone would
     change its answer when an unrelated skill was installed on the machine running it.
     """
     home = Path(tempfile.mkdtemp(prefix="pd-record-home-"))

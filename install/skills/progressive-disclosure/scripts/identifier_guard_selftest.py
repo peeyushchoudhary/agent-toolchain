@@ -1005,6 +1005,7 @@ def _load_install_hooks():
     spec = importlib.util.spec_from_file_location("install_hooks_under_test_ig",
                                                   GUARD.parent / "install_hooks.py")
     ih = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = ih  # @dataclass in install_hooks resolves its module through sys.modules
     spec.loader.exec_module(ih)
     return ih
 

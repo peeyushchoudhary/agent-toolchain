@@ -1,32 +1,22 @@
 #!/usr/bin/env bash
-# Break-test for install_tree's PRESERVE_ACROSS_INSTALLS carve-out.
+# Break-test for install_tree's carry-forward. verify.sh runs it.
 #
-# Run by hand: ./preserve_selftest.sh
-#
-# Why this exists as a test rather than as care. install_tree replaces a skill directory wholesale,
-# so every path under it that the vendored tree does not carry is deleted on each run. For a stale
-# script that is the correct behaviour and the reason the function is written that way. For content
-# that lives only on the installed machine it is destruction, and the two are indistinguishable by
-# inspection — both are simply "a file the vendored tree does not have".
-#
-# The list was a single hard-coded `if` for ROUND-GRANTS.tsv for as long as there was one such path.
-# The second one, agent-personas/tests, was never added, and so every install silently deleted a
-# suite that existed in no other copy anywhere. Nothing failed. Nothing printed. It was noticed a
-# milestone later, by which point four live files cited a suite that was not on disk.
-#
-# So the property under test is not "the code looks right" but "a path on the list survives being
-# installed over, and one that is not on the list does not" — the second half matters as much,
-# because a carve-out that preserved everything would resurrect deleted files forever.
+# install_tree replaces a skill directory by a staged swap. A plain install must remove nothing
+# (AC-12), so every file the installed copy has and the vendored tree lacks is carried into the
+# staged tree. The property under test: such a file survives being installed over, at any depth,
+# while a vendored file still wins over an installed one of the same name, and the vendored content
+# lands. Deleting carried files is --retire-v5's job, tested in tests/test_install.py.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fails=0
 
-# Source install.sh for install_tree and the list, without running the installer: it executes from
-# the top, so it is read as text and the two pieces under test are extracted. Sourcing the whole
-# file would install the toolchain as a side effect of testing it.
-eval "$(sed -n '/^PRESERVE_ACROSS_INSTALLS="/,/^"$/p' "$HERE/install.sh")"
-eval "$(sed -n '/^chmod_scripts()/,/^}/p;/^install_tree()/,/^}/p' "$HERE/install.sh")"
+# install.sh runs from the top, so the functions under test are extracted as text, not sourced.
+eval "$(sed -n '/^chmod_scripts()/,/^}/p;/^extras_between()/,/^}/p;/^install_tree()/,/^}/p' "$HERE/install.sh")"
+say() { printf '  %s\n' "$1"; }
+for fn in chmod_scripts extras_between install_tree; do
+  declare -F "$fn" >/dev/null || { echo "$fn could not be read from install.sh" >&2; exit 2; }
+done
 
 check() {  # check DESCRIPTION EXPECTED ACTUAL
   if [ "$2" = "$3" ]; then
@@ -40,68 +30,34 @@ check() {  # check DESCRIPTION EXPECTED ACTUAL
 root="$(mktemp -d)" || { echo "could not create a fixture root" >&2; exit 2; }
 trap 'rm -rf "$root"' EXIT
 
-# The vendored source: a skill as this repository ships it. No tests/, no ledger.
-mkdir -p "$root/src/agent-personas/scripts" "$root/src/execution-methodology/scripts"
-echo 'vendored' > "$root/src/agent-personas/SKILL.md"
-echo 'vendored' > "$root/src/execution-methodology/SKILL.md"
+# Vendored source: a skill as this repository ships it.
+mkdir -p "$root/src/skill/scripts"
+echo 'vendored' > "$root/src/skill/SKILL.md"
+echo 'vendored tool' > "$root/src/skill/scripts/tool.py"
 
-# The installed machine: the same skills, plus the two machine-only paths, plus one file that is
-# genuinely stale — a script the vendored tree dropped, which MUST NOT come back.
-mkdir -p "$root/dest/agent-personas/tests" "$root/dest/agent-personas/scripts" \
-         "$root/dest/execution-methodology"
-echo 'old' > "$root/dest/agent-personas/SKILL.md"
-echo 'the only copy anywhere' > "$root/dest/agent-personas/tests/test_repo_sync.py"
-echo 'retired last release' > "$root/dest/agent-personas/scripts/removed_checker.py"
-echo 'old' > "$root/dest/execution-methodology/SKILL.md"
-printf 'subject\tr3\tabc\t2026-08-21\tfounder ruling\n' > "$root/dest/execution-methodology/ROUND-GRANTS.tsv"
-
-# ASSERT THE FIXTURE BEFORE ASSERTING ANYTHING ABOUT IT. Both interesting checks below are
-# absence/presence claims, and an absence check passes hardest when the file was never created --
-# the fail-open shape this whole test exists to catch, reproduced inside the test itself.
-for f in "$root/dest/agent-personas/tests/test_repo_sync.py" \
-         "$root/dest/agent-personas/scripts/removed_checker.py" \
-         "$root/dest/execution-methodology/ROUND-GRANTS.tsv"; do
-  [ -f "$f" ] || { echo "FIXTURE NOT BUILT: $f was never created, so the checks below prove nothing" >&2; exit 2; }
+# Installed copy: an older SKILL.md and tool.py, plus files the package no longer ships, one nested.
+mkdir -p "$root/dest/skill/scripts" "$root/dest/skill/references/deep"
+echo 'old' > "$root/dest/skill/SKILL.md"
+echo 'old tool' > "$root/dest/skill/scripts/tool.py"
+echo 'machine-only data' > "$root/dest/skill/ledger.tsv"
+echo 'older release script' > "$root/dest/skill/scripts/removed_checker.py"
+echo 'older reference' > "$root/dest/skill/references/deep/old.md"
+for f in ledger.tsv scripts/removed_checker.py references/deep/old.md; do
+  [ -f "$root/dest/skill/$f" ] || { echo "FIXTURE NOT BUILT: $f" >&2; exit 2; }
 done
 
-install_tree "$root/src/agent-personas" "$root/dest/agent-personas"
-check "install_tree succeeded (agent-personas)" 0 "$?"
-install_tree "$root/src/execution-methodology" "$root/dest/execution-methodology"
-check "install_tree succeeded (execution-methodology)" 0 "$?"
-
-# THE REGRESSION. This is the file whose absence went unnoticed for a milestone.
-check "the non-vendored persona suite survived" \
-  "the only copy anywhere" "$(cat "$root/dest/agent-personas/tests/test_repo_sync.py" 2>/dev/null)"
-check "the operator ledger survived" \
-  "founder ruling" "$(cut -f5 "$root/dest/execution-methodology/ROUND-GRANTS.tsv" 2>/dev/null)"
-
-# THE OTHER HALF, and it is not decoration. A carve-out that preserved anything the vendored tree
-# lacked would keep every retired file alive forever, which is a slower version of the same bug:
-# the installed machine stops matching what this repository ships and nobody can see the difference.
-check "a retired vendored file did NOT come back" \
-  "absent" "$([ -e "$root/dest/agent-personas/scripts/removed_checker.py" ] && echo present || echo absent)"
-
-# The vendored copy is what an install is FOR.
-check "the vendored content actually landed" \
-  "vendored" "$(cat "$root/dest/agent-personas/SKILL.md" 2>/dev/null)"
-
-# A vendored copy must WIN, so that vendoring a listed path later needs no edit to the list.
-rm -rf "$root/dest2"; mkdir -p "$root/dest2/execution-methodology"
-printf 'machine copy\n' > "$root/dest2/execution-methodology/ROUND-GRANTS.tsv"
-printf 'vendored copy\n' > "$root/src/execution-methodology/ROUND-GRANTS.tsv"
-install_tree "$root/src/execution-methodology" "$root/dest2/execution-methodology"
-check "a vendored copy wins over the preserved one" \
-  "vendored copy" "$(cat "$root/dest2/execution-methodology/ROUND-GRANTS.tsv" 2>/dev/null)"
-rm -f "$root/src/execution-methodology/ROUND-GRANTS.tsv"
-
-# Every entry must name a skill that exists, or it is a line that silently protects nothing — which
-# is the state agent-personas/tests was in before it was a line at all.
-while IFS= read -r rel; do
-  [ -n "$rel" ] || continue
-  check "entry names a shipped skill: $rel" \
-    "yes" "$([ -d "$HERE/skills/${rel%%/*}" ] && echo yes || echo no)"
-done <<< "$PRESERVE_ACROSS_INSTALLS"
+install_tree "$root/src/skill" "$root/dest/skill"
+check "install_tree succeeded" 0 "$?"
+check "machine-only data survived" "machine-only data" "$(cat "$root/dest/skill/ledger.tsv" 2>/dev/null)"
+check "an unshipped script survived" "older release script" "$(cat "$root/dest/skill/scripts/removed_checker.py" 2>/dev/null)"
+check "a nested unshipped file survived" "older reference" "$(cat "$root/dest/skill/references/deep/old.md" 2>/dev/null)"
+check "the vendored SKILL.md won" "vendored" "$(cat "$root/dest/skill/SKILL.md" 2>/dev/null)"
+check "the vendored script won" "vendored tool" "$(cat "$root/dest/skill/scripts/tool.py" 2>/dev/null)"
+check "no staging or aside directory was left" "0" "$(ls -d "$root/dest/"*.staging.* "$root/dest/"*.replacing.* 2>/dev/null | wc -l | tr -d ' ')"
+check "extras_between lists exactly the carried files" \
+  "ledger.tsv references/deep/old.md scripts/removed_checker.py" \
+  "$(extras_between "$root/src/skill" "$root/dest/skill" | sort | tr '\n' ' ' | sed 's/ $//')"
 
 echo
-if [ "$fails" -eq 0 ]; then echo "PASS — install_tree preserves what is listed and nothing else"; exit 0; fi
+if [ "$fails" -eq 0 ]; then echo "PASS — install_tree carries forward what the package lacks"; exit 0; fi
 echo "FAIL — $fails check(s)"; exit 1

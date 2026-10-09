@@ -7,9 +7,11 @@
 
 ## Overview
 
-Agent Toolchain keeps coding-agent work grounded in the repository. It gives each project a short
-context route, explicit roles, bounded execution, independent review, and local evidence that can
-be rerun. Its local checks make stale routes and inconsistent generated files visible across sessions.
+Agent Toolchain carries an approved goal to merged milestones with the founder involved only twice:
+once to approve the goal, and once per milestone to merge it. Everything between those two points
+is run by scripts and agents on one machine, and "done" is computed from git and executed commands
+rather than reported in prose. A project keeps a short context route so that any session, in either
+harness, finds the same contract.
 
 > [!NOTE]
 > This repository ships conventions, scripts, hooks, personas, and skills. It is not a runtime,
@@ -17,168 +19,120 @@ be rerun. Its local checks make stale routes and inconsistent generated files vi
 
 ## Architecture
 
-<!-- readme-architecture-image: {"path": "docs/assets/readme/architecture.png", "sha256": "dea1af9fd1b4fc0af30f0e533808cda94e9a0e84d3c93b3bfbf95f4acbdca252", "text": "docs/assets/readme/README.md"} -->
+```mermaid
+flowchart LR
+  Goal["Goal trio"] --> Approval["One approval"]
+  Approval --> Driver["Driver and Stop hook"]
+  Driver --> Chief["Chief session"]
+  Chief --> Builders["Builders"]
+  Chief --> Gate["Deterministic gate"]
+  Gate --> Review["Cross-vendor review"]
+  Review --> Merge["One merge per milestone"]
+  Chief -. unplanned decision .-> Escalation["Escalation"]
+```
 
-![Agent Toolchain architecture: project knowledge feeds execution and methodology-management workflows, shared helpers, Claude Code or Codex, repository artifacts and evidence, then lessons return to project knowledge](docs/assets/readme/architecture.png)
-
-Project knowledge supplies the contract and lessons. Work then enters one of two workflows:
-ordinary delivery through **execution methodology**, or methodology maintenance through
-**methodology management**. Shared helpers serve both. Claude Code or Codex produces code or
-documentation plus evidence; lessons return to the project route. The execution workflow keeps its
-common policy compact and routes detailed loop and task-card procedure to focused references.
-Agents stay in their harness.
+A goal is three documents: a spec, a design and a plan. The founder gives **one approval** for the
+trio, and the **driver** then starts the **chief** session, whose **Stop hook** keeps it working
+until the milestone is done or genuinely blocked. The chief dispatches **builders** inside each
+task's write set and runs the **deterministic gate**: tests, scope, test-integrity and freshness
+checks computed by scripts. A **cross-vendor review** by the other harness's model runs at design,
+plan and acceptance. A decision the plan does not settle goes to **escalation**, which asks an
+advisor once and queues anything the founder owns. Each milestone ends in **one merge**.
 
 <details>
-<summary>Text equivalent for the architecture image</summary>
+<summary>Text equivalent for the architecture diagram</summary>
 
 | Stage | Responsibility |
 |---|---|
-| Project knowledge | Supplies `AGENTS.md`, routed guides, approved product intent, and lessons. |
-| Two workflows | Execute approved work, or explicitly assess, set up, repair, migrate, or upgrade the methodology. |
-| Shared helpers | Provide personas, route validation, graph navigation, and isolated gate execution. |
-| Harness | Claude Code or Codex follows the same repository-owned contract. |
-| Repository result | Stores code/docs, command evidence, decisions, and durable lessons. |
+| Goal trio | Spec, design and plan, each holding current decisions only. |
+| One approval | The founder approves the trio and its grants together. |
+| Driver and Stop hook | Start fresh sessions per milestone and keep a session working until done. |
+| Chief session | The root session: plans, dispatches, commits, ticks tasks. |
+| Builders | Write inside one task's write set; never approve their own work. |
+| Deterministic gate | Scripts compute done, scope, test integrity and freshness. |
+| Cross-vendor review | A read-only reviewer from the other vendor judges design, plan and acceptance. |
+| One merge per milestone | The founder reads the explainer and merges, or sends it back. |
+| Escalation | An advisor answers once; founder-owned decisions are queued, not guessed. |
 
 </details>
 
-## Data flow
-
-![Execution flow: approved outcome, repository route, scoped task, build, independent review, local checks, and milestone PR merge; findings loop to build and lessons return to the repository route](docs/assets/readme/execution-flow.png)
-
-An approved outcome moves through the route, a scoped task, build, independent review, local checks,
-and milestone PR merge. Findings return to build; lessons return to the route. Founder approval
-remains at design, plan, and merge. Deployment is a separate, authorized action.
-
 ## Components
 
-![Published skill surface: 2 primary workflow skills, 5 helper skills, and 3 compatibility or routed entry skills](docs/assets/readme/skill-surface.svg)
+![Published skill surface: execution-methodology, agent-personas, progressive-disclosure and graph-navigation](docs/assets/readme/skill-surface.svg)
 
-| Surface | Published skills | Responsibility |
-|---|---|---|
-| Primary workflows | `execution-methodology`, `methodology-management` | Deliver approved work through compact policy and routed procedure; manage assessment, setup, repair, migration, and upgrades. |
-| Supporting helpers | `progressive-disclosure`, `agent-personas`, `agent-persona-factory`, `graph-navigation`, `gate-sandbox` | Route context, define roles, derive specialists, navigate graphs, and isolate write-producing gates. |
-| Compatibility / read-only routes | `project-onboarding`, `project-migration`, `project-conformance` | Preserve explicit setup and migration names; expose conformance assessment without silently starting a change. |
+| Skill | Responsibility |
+|---|---|
+| `execution-methodology` | The chief's rules, the goal and gate tools, the driver, read-only review, migration from v5.1 |
+| `agent-personas` | Five persona sources (builder, reviewer, security-reviewer, advisor, chief) rendered per harness |
+| `progressive-disclosure` | The route standard, its validator, the hooks installer, the push guard |
+| `graph-navigation` | A symbol-first ladder for querying a knowledge graph |
 
 | Component | Entry point | Deep dive |
 |---|---|---|
 | Published tooling | [`install/`](install/) | [Installed inventory](docs/agents/what-gets-installed.md) |
 | Repository route | [`docs/agents/`](docs/agents/) | [Progressive disclosure](docs/agents/progressive-disclosure.md) |
 | Operating rules | [`docs/architecture/`](docs/architecture/) | [Operating model](docs/architecture/operating-model.md) |
-
-### Execution or management?
-
-| | `execution-methodology` | `methodology-management` |
-|---|---|---|
-| Use it for | Approved product work in an adopted project | Assessing, setting up, repairing, migrating, or upgrading the methodology |
-| Owns | Gates, task lanes, independent evidence, milestone seal | Maintenance routing and separately authorized scope |
-| Starts | From the repository-approved runtime and plan | By explicit maintenance intent |
-| Does not imply | Push, merge, deployment, or production writes | Global install, project adoption, model activation, publication, or deployment |
+| Lean execution design | [`docs/architecture/lean-execution.md`](docs/architecture/lean-execution.md) | [Goal plan](docs/product/plans/F-3-lean-execution.md) |
 
 ## Current state
 
-The approved approval-friction repair is **implemented and installed** for Codex and Claude. It makes execution through approved
-completion the default, routes unchanged technical corrections through their existing owners,
-and applies causal recovery to Design, Plan and Implementation. Numeric review spend prompts
-diagnosis; failed checks continue to block acceptance and integration. Necessary companion paths
-and equivalent or stronger proof require independent confirmation before admission. Substantive
-founder decisions and external-action grants remain in force. See the
-[operating model](docs/architecture/operating-model.md) and
-[superseding decision](docs/decisions/decisions.md#d27--approved-completion-and-technical-recovery).
-Candidate validation passed 264 methodology tests, 85 persona tests and 35 budget self-test
-assertions. Independent semantic and security reviews passed; the test judge confirmed the scoped
-equivalent per-suite proof while preserving the original failed fixture run. Maintained, public and
-installed source bytes match. Consumer bindings remain unchanged while their sessions are active;
-installation alone does not upgrade a project's approved runtime. Authenticated Claude inference
-remains deferred. Publication still requires the full local gate, an exact-tree seal and fresh
-acceptance; those receipts are kept outside the published tree.
+Methodology v6 (lean goal execution) is approved and in implementation on the
+`v6-lean-execution` branch. It replaces the v5.1 task-card pipeline with three documents per goal,
+a script-computed definition of done, and review only where it has measured yield. The founder's
+routine touchpoints are exactly goal approval and merge per milestone; decisions the plan does not
+settle are defaulted, escalated or queued, and answered asynchronously.
 
-The execution methodology is **v5.1**. After Gate 2, `chief-of-staff` is the sole scheduling owner
-and may dispatch, resume, recover, and use resources only within the approved plan's bounded
-authority. Resume state stays compact and is rebuilt from the plan and git. The route uses compact
-file handoffs, reuses still-valid validation evidence only while its inputs match, and checks a
-representative integrated slice before the full gate. Weekly and ad hoc observations gathered
-during explicit methodology-management work map through existing joined identifiers and inform
-later proposals; they do not activate policy, model assignments, runtime upgrades, or project
-migrations. The approved
-[methodology efficiency vendoring plan](docs/product/plans/F-1-methodology-efficiency-vendoring.md)
-tracks this public bundle update. Eleven roles are active; three superseded or retired persona
-definitions remain for compatibility.
+v5.1 is retired. A project that still carries the v5.1 runtime pin is migrated by hand with the
+[migration reference](install/skills/execution-methodology/references/migrate.md); until then v6
+refuses to execute there. Global v5.1 files are removed only by `install.sh --retire-v5`, after
+every project is migrated.
 
-The earlier core-first M2 release candidate was implemented, projected to maintained source and the
-public package, installed, locally validated, sealed and independently accepted for its recorded
-tree. Its complete source/public task reviews passed, and its 13
-candidate/public/installed-Claude/installed-Codex mappings were byte-equal. The repository gate
-returned repository and machine PASS, four focused installed scheduler tests passed, and the real
-installed scheduler accepted T1's eight normalized writes. A fresh native Codex
-read-only run under normal configuration returned `ACTIVATION PASS` for checkpoint continuation,
-ready-set selection and refusal, dependent-only stops, the publication boundary and same-cause
-A/B/C recovery. Claude skills, hooks, personas and bytes were statically verified; authenticated
-Claude inference remains deferred. M2's guarded conditional branch push, pull request and merge
-route requires an exact-tree seal and independent acceptance. Existing pinned consumer bindings are
-unchanged; tag and deployment remain excluded, and the one-week business-value review remains
-future work.
-
-The completed velocity follow-up source changes close product context and milestone planning before
-dispatch, support named working trees for concurrent builders, and separate file ownership from
-shared service/runtime serialization. Validation retains actual card, duplicate-ID and
-write-boundary checks. Semantic review may overlap independent focused validation on a frozen
-referent; both passes, the strict post-check and identity confirmation remain prerequisites for
-integration. Fixture tests use ordinary routes; source-writing gates retain required isolation and
-original receipts. Mechanical projection, installation and the full local gate use existing owners.
-Each candidate requires its own exact-tree seal and independent acceptance. Context, runtime and
-elapsed delivery evidence remain separate from committed churn; improvements in elapsed delivery
-and handoff efficiency remain unmeasured.
-
-Current [persona routing](docs/agents/agent-personas.md) uses Sol 6.1 with effort proportional to
-reasoning depth and Luna for retrieval and gate reporting. No maintained persona defaults to Astra;
-supported native Astra overrides require concrete reasoning complexity, a failed reasoning attempt
-warranting a stronger retry, or a blocker needing deeper diagnosis. Claude uses Opus 5.5 and Sonnet
-5.5. Persona frontmatter is the sole default authority. Runtime model and effort metadata for this
-tuning remain unexposed; the assignments do not establish a measured optimum or proven subscription
-gains.
-See [measurements](docs/product/measurements.md) for the honest limits and the
-[weekly record](docs/product/improvements-weekly.md) for v5.1 and earlier rationale.
+Reference points: the [spec](docs/product/specs/F-3-lean-execution.md), the
+[design](docs/architecture/lean-execution.md), the [plan](docs/product/plans/F-3-lean-execution.md),
+[measurements](docs/product/measurements.md) and the
+[weekly record](docs/product/improvements-weekly.md). Persona routing is in
+[agent-personas](docs/agents/agent-personas.md); it is an engineering choice, not a measured optimum.
 
 ## Product requirements
 
 | Authority | Defines |
 |---|---|
+| [Lean execution spec](docs/product/specs/F-3-lean-execution.md) | Why, actors, acceptance criteria and non-goals for methodology v6 |
 | [Repository contract](AGENTS.md) | Public boundaries, source authority, and verification |
 | [Operating model](docs/architecture/operating-model.md) | Local-first priorities and the meaning of done |
-| [Published surface](docs/README.md#what-is-published-and-what-is-not) | Deliberately shipped and excluded capabilities |
 | [GitHub policy](docs/runbooks/github.md) | Storage-only GitHub, local push protection, and milestone PRs |
 
 ## Quickstart
 
 ```bash
-cd install && ./install.sh && ./verify.sh
+cd install
+./install.sh --dry-run     # see what it would do
+./install.sh               # install the four skills, hooks and personas
+./verify.sh                # the repository gate
 ```
 
-Then open the target project in Claude Code or Codex and give it this prompt:
-
-> Invoke `methodology-management`. Assess this repository for adoption, show the exact proposed
-> project changes first, and wait for my approval before applying them.
-
-The compatibility name `project-onboarding` reaches the same setup procedure. Installation and
-project adoption are separate decisions.
+A plain install removes nothing. Once every project is migrated,
+`./install.sh --retire-v5 --dry-run` lists exactly what retiring v5.1 would delete. Installation and
+project adoption are separate decisions; see [install/README.md](install/README.md).
 
 ## Documentation
 
 | Read | When |
 |---|---|
 | [Documentation index](docs/README.md) | Find any maintained guide in one hop |
-| [Methodology management](docs/runbooks/methodology-management.md) | Choose the maintenance route and understand authorization boundaries |
+| [Lean execution design](docs/architecture/lean-execution.md) | Understand the goal lifecycle, tools and review rules |
+| [Founder-side instructions](docs/runbooks/global-instructions.md) | Update the private global instruction files for v6 |
 | [Agent personas](docs/agents/agent-personas.md) | Inspect role, model, effort, and write restrictions |
 | [Decisions](docs/decisions/decisions.md) | Read accepted rationale; history does not override current tooling |
 
 ## Working in this repository
 
 Start at [AGENTS.md](AGENTS.md), then follow [docs/README.md](docs/README.md) to the one guide needed
-for the task. Published behavior comes from `install/`; maintained sources are re-vendored rather
-than edited only in their installed copy.
+for the task. `install/` is the single authored source for the published skills and hooks; edit it
+there and verify with `install/verify.sh`.
 
 <details>
-<summary>Contributor verification and historical notes</summary>
+<summary>Contributor verification</summary>
 
 Run the complete local repository gate before review:
 
@@ -187,9 +141,8 @@ cd install && ./install.sh --dry-run && ./verify.sh
 ```
 
 Report the real verdict and any skipped or environmental checks. GitHub stores code and history;
-it does not validate or deploy them. Changes land through milestone pull requests with independent
-review and merge commits. Current behavior lives in executable tooling and maintained guides;
-superseded procedures and measurements remain in the linked decision and weekly records.
+it does not validate or deploy them. Changes land through milestone pull requests with merge
+commits.
 
 </details>
 

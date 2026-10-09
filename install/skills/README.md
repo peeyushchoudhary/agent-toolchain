@@ -18,15 +18,9 @@ declares its own state**, and every check is evaluated against the one repositor
 | Skill | What it settles |
 | --- | --- |
 | `progressive-disclosure` | The route standard: how a repository tells an agent what to read, in what order, and how much. Ships the validator, the git hooks, and the push guard. |
-| `execution-methodology` | The pipeline from product spec to merged milestone — its artifacts, its three human gates, the task card, the ledger contract. Rendered into each repository so both harnesses read the same rules. |
-| `agent-personas` | The fourteen harness-neutral roles, with model and effort already chosen, generated into `~/.claude/agents/` and `~/.codex/agents/`. |
-| `agent-persona-factory` | Deriving project-specific specialists from a repository's own guardrails, architecture, and PRD. |
+| `execution-methodology` | Driving an approved goal (spec, design and plan) to completion, with executed checks deciding "done" — see [methodology.md](execution-methodology/methodology.md). |
+| `agent-personas` | The five harness-neutral roles, with model and effort already chosen, generated into `~/.claude/agents/` and `~/.codex/agents/`. |
 | `graph-navigation` | Navigating an existing knowledge graph without falling back to prose queries. |
-| `methodology-management` | Explicit entry for assessment, setup, repair, migration and upgrade decisions; calls owning tools and loads only the relevant procedure. Ordinary execution follows its repository route. |
-| `project-onboarding` | Compatibility entry to methodology-management setup; preserves explicit invocation. |
-| `project-conformance` | Read-only assessment entry; its existing checker aggregates owning results and permits only approved mechanical repair under `--fix`. |
-| `project-migration` | Explicit compatibility entry to methodology-management product-document migration; preserves the existing executable paths and review authority. |
-| `gate-sandbox` | Running a write-producing gate against a manifest-equal standalone copy inside an enforced macOS profile, with a readiness phase that refuses to spend an attempt on an unready machine. Machinery only; every project fact arrives from configuration outside this repository. |
 
 ## The two ideas it is built on
 
@@ -41,9 +35,9 @@ branches — are enforced by `pre-push` instead.
 
 ## Installing
 
-Invoke [methodology-management](methodology-management/SKILL.md) for setup, repair, migration or
-upgrades. It assesses the current binding and coordinates the authorized scope through owning tools.
-These low-level examples preview an explicitly selected project scope without writing:
+A project on methodology v5.1 migrates with
+[references/migrate.md](execution-methodology/references/migrate.md). These low-level examples
+preview an explicitly selected project scope without writing:
 
 ```bash
 python3 progressive-disclosure/scripts/install_hooks.py <repo> --scope project --preview --json
@@ -51,8 +45,7 @@ python3 agent-personas/scripts/sync_personas.py --repo <repo> --scope project --
 ```
 
 Global synchronization uses an explicitly authorized `--scope global` or `--scope all` and its own
-preview. Methodology rendering adopts an identity; assessment or project hook setup does not
-implicitly authorize it. Unadopted projects retain their existing contract or recorded deferral.
+preview.
 
 ## Changing it
 

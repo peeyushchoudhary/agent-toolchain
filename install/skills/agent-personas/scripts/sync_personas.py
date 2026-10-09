@@ -1,28 +1,19 @@
 #!/usr/bin/env python3
-"""Render one persona pool into the formats Claude Code and Codex each require.
+"""Render one persona pool into the agent formats Claude Code and Codex each require.
 
-A persona is authored once, harness-neutral, in `personas/<name>.md`. This renders it to:
-
-  ~/.claude/agents/<name>.md      YAML frontmatter + markdown body as the system prompt
-  ~/.codex/agents/<name>.toml     TOML with developer_instructions
-
-Generation is not a convenience. Claude Code's project-level agents *override* a same-named user
-agent wholesale, so "the base persona plus a project-specific instruction" cannot be expressed by
-putting files in two places — the project file would silently replace the base. Merging has to
-happen before the harness sees it.
-
-Per-project use: an overlay at `<repo>/docs/agents/personas/<name>.md` is appended to the base
-persona and the merged result written into that repo's `.claude/agents/` and `.codex/agents/`.
-A project only needs files for personas it actually specialises; the rest resolve to the user-level
-copies.
+Sources in `personas/<name>.md` render to `~/.claude/agents/<name>.md` and, when Codex is
+installed, `$CODEX_HOME/agents/<name>.toml`. Routing lives only in their frontmatter; a profile
+marked `spawnable: no` (the chief) is read through `routing()` or `--route` and never rendered.
+Project personas at `<repo>/docs/agents/personas/` render into the repository's agent trees; one
+named like a base persona is skipped with a warning, because overlays of base personas are retired.
 
 Usage:
-  sync_personas.py                       # render the pool to user level
-  sync_personas.py --repo PATH           # also render that repo's overlays
-  sync_personas.py --repo PATH --check   # exit 1 if generated output is stale (for gates)
-  sync_personas.py --list                # show active personas with both harness settings
-  sync_personas.py --list --include-retired
-  sync_personas.py --list --format markdown
+  sync_personas.py                             render the pool to user level
+  sync_personas.py --repo PATH                 also render that repository's personas
+  sync_personas.py [--repo PATH] --check       exit 0 current, 1 stale, 2 source error
+  sync_personas.py --scope S [--repo PATH] --preview [--json]
+  sync_personas.py --list [--format markdown]
+  sync_personas.py --route NAME [--variant V]  print one persona's routing as JSON
 """
 
 from __future__ import annotations
@@ -30,532 +21,71 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
-import shutil
 import sys
 from pathlib import Path
 
 SKILL = Path(__file__).resolve().parent.parent
 POOL = SKILL / "personas"
 CLAUDE_AGENTS = Path.home() / ".claude" / "agents"
-CODEX_ROOT = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+# An empty CODEX_HOME is unset; `Path("")` would otherwise be the working directory.
+CODEX_ROOT = Path(os.environ.get("CODEX_HOME") or str(Path.home() / ".codex"))
 CODEX_AGENTS = CODEX_ROOT / "agents"
-BASE_PERSONA_NAMES = frozenset({
-    "acceptance",
-    "architect",
-    "chief-of-staff",
-    "contract-architect",
-    "developer",
-    "docs-steward",
-    "migration-validator",
-    "planner",
-    "product-steward",
-    "reviewer",
-    "scout",
-    "security-validator",
-    "senior-developer",
-    "test-judge",
-})
-
-
-# The judging roster: the personas whose whole value is that they cannot change what they judge.
-#
-# This is a ROSTER, not a filter over a self-declared field, and the distinction is the entire point
-# of it. `writes: no` is a line a persona writes ABOUT ITSELF in the very file the checks police, so
-# deriving the protected set from it means a persona can leave the protected set by editing one line
-# about itself — reproduced: reviewer.md with `writes: product specs only`, no `disallowedTools` and
-# `codex.sandbox: workspace-write` could edit in both harnesses and every check declined to look at
-# it, because it no longer matched the filter that selects who gets checked.
-#
-# Membership is therefore not the subject's to decide. `writes: no` becomes a claim the roster
-# CHECKS (see `restrict_for_roster` and the pool tests) rather than the definition of who is checked.
-JUDGING_PERSONA_NAMES = frozenset({
-    "acceptance",
-    "migration-validator",
-    "planner",
-    "reviewer",
-    "scout",
-    "security-validator",
-    "test-judge",
-})
-
-# THE POLICY IS AN ALLOW-LIST. The deny-list below is the second half of an intersection, not the
-# mechanism.
-#
-# Five successive fixes closed five real holes in one invariant — Write/Edit/NotebookEdit, then the
-# Codex harness, then self-declared membership, then Agent/SendMessage, then Monitor (which brought
-# EnterWorktree, ExitWorktree and TaskStop with it). Nine names where there were three. Every fix was
-# correct and every fix was incomplete, because a deny-list is DEFAULT-OPEN against a tool roster
-# that grows without asking. That is not five mistakes; it is one wrong shape.
-#
-# The decisive evidence: `Monitor` was found by a judge reading its own granted roster, not by
-# anything in this repository. No test here detected it and no test here could have, because nothing
-# here enumerates the complement of a list. Enumeration cannot close this class.
-#
-# So a roster member must declare `claude.tools` — an explicit allow-list — and A TOOL NOT NAMED IS
-# NOT GRANTED, whether or not anyone thought to deny it. Absence of an allow-list is a FAILURE, never
-# a default. See `restrict_for_roster`, and ~/.claude/docs/decisions.md for the classification the lists were
-# built from and for the three surfaces (`Skill`, MCP, `WebFetch`/`WebSearch`) that are denied
-# because they could not be classified — an unclassified tool is a denied tool.
-#
-# Denied to every roster member, expressed ONCE. Previously this list was hand-copied into six
-# persona files, so a seventh judge inherited nothing and any one of the six could edit its own copy.
-#
-# `Agent` is here because dispatch capability IS write capability, transitively: a judge denied
-# Write/Edit/NotebookEdit that can still dispatch a general-purpose subagent has that subagent carry
-# every tool and write on its behalf. The restriction blocked the judge's hand and left its mouth
-# open. `test-judge` is the persona that already demonstrated exactly this — it chained to a
-# sub-subagent rather than say it could not do the work — so it loses `Agent` along with the rest.
-# It keeps `Bash`, declared locally, because running a gate genuinely requires a shell; dispatch has
-# no equivalent argument. See ~/.claude/docs/decisions.md.
-#
-# `SendMessage` is here for the same reason as `Agent` and is a judgement call recorded in
-# ~/.claude/docs/decisions.md: it continues an ALREADY-RUNNING agent, which is dispatch without the dispatch
-# call. Denying it stops a judge sending instructions to a sibling that holds write tools; it does
-# not stop a controller sending instructions TO the judge, because the sender holds the tool.
-#
-# `Monitor` is ARBITRARY SHELL. Its own schema calls `command` a "Shell command or script" and says
-# "the script runs in the same shell environment as Bash", so a judge holding it runs `sed -i`,
-# `git checkout`, `git apply`, or an edit to this very file. It was granted to all six judges at the
-# moment `Agent` was denied — the long transitive route to a write was closed while a shorter one
-# stood open. `Bash` remains the single SANCTIONED shell exception, held only by `test-judge`, with
-# an argument behind it and its residual risk recorded. `Monitor` had none of that.
-#
-# `EnterWorktree`/`ExitWorktree`: `ExitWorktree(action="remove", discard_changes=True)` deletes a
-# worktree and its branch. `TaskStop`: a judge that can halt a sibling judge changes a verdict
-# without writing a byte.
-#
-# Every name here is a live tool in this harness. Dead names are deliberately NOT listed — a
-# deny-list entry for a tool that does not exist reads as coverage and provides none.
-#
-# WHY THIS SURVIVES THE INVERSION rather than being deleted. It is BELT AND BRACES: two mechanisms
-# that must agree, with `test_the_allow_list_and_the_deny_list_agree_in_every_emitted_artifact`
-# asserting they do. The allow-list is only as good as the roster's completeness; the deny-list
-# catches a name nobody thought to consider — including a name added to an allow-list by mistake,
-# which `restrict_for_roster` rejects outright rather than silently filtering. If the two ever
-# disagree that is a FINDING, not something to reconcile silently.
-#
-# It is still a deny-list and it is still exactly "the names somebody thought of". It is no longer
-# load-bearing on its own: what a judge holds is now decided by `claude.tools`.
-JUDGE_DENIED_TOOLS = (
-    "Write", "Edit", "NotebookEdit",        # direct modification
-    "Agent", "SendMessage",                 # dispatch, and dispatch-without-the-dispatch-call
-    "Monitor",                              # arbitrary shell, unsanctioned
-    "EnterWorktree", "ExitWorktree",        # create and destroy trees and branches
-    "TaskStop",                             # silence a sibling judge
-)
-
-# THE ALLOW-LIST'S VOCABULARY, CLOSED. Follows BASE_PERSONA_NAMES and KNOWN_WRITES_VALUES: a new
-# name requires a deliberate edit here, where the reviewer of that edit is asked what the tool lets a
-# judge do.
-#
-# Without it the allow-list had the deny-list's own disease one level in. `claude.tools: Read, Grep,
-# Glob, TodoWrite, mcp__ruflo__agent_spawn` passed every test and `--check` exited 0 — a judge
-# holding dispatch again, through the key that was supposed to close dispatch. And `claude.tools:
-# Reed` was emitted verbatim: it grants nothing, reads like policy, and nothing objected.
-#
-# Each name here is granted to at least one judge and carries an argument in ~/.claude/docs/decisions.md:
-#   Read, Grep, Glob   a judge must read and search; none of them can modify anything
-#   TodoWrite          per-session scratch state, visible only to the agent that writes it; it
-#                      touches no file the repository tracks and reaches nothing outside the turn.
-#                      Named for the same reason `Bash` is: because a name that looks like a write
-#                      tool should be argued for rather than waved through on a table row
-#   Bash               `test-judge` only, the single sanctioned shell exception
-KNOWN_JUDGE_TOOLS = frozenset({"Read", "Grep", "Glob", "TodoWrite", "Bash"})
-
-# THE `writes:` VOCABULARY, CLOSED — and it has to live here rather than only in the test suite.
-#
-# It was asserted over `pool_personas()` only, and every project check compared against the literal
-# `"no"`. So an overlay declaring `writes: none`, `writes: No` (YAML 1.1 boolean-false, a plausible
-# typo) or `writes: never` read as a non-writing persona to every human reviewing it and produced no
-# warning whatsoever — the identical rogue the test suite documents as REPRODUCED in the base pool,
-# reachable from one directory over, in a branch nothing had tested.
-#
-# `claims_no_writes()` is the single predicate. Two call sites comparing this field by hand is how
-# the filter at one site and the verdict at the other came to disagree in the first place.
-KNOWN_WRITES_VALUES = frozenset({
-    "no",
-    "yes",
-    # Compatibility values may still exist in project overlays generated before the current role
-    # boundaries. They remain explicit writer admissions, never fail-closed judge claims.
-    "ledger, task cards, and reports only",
-    "plans and bounded workspace state only",
-    "product specs only",
-    "product definition only — the PRD and feature specs",
-    "product definition and documentation only",
-})
-
-
-def claims_no_writes(declared: str | None) -> bool:
-    """Whether this value should be READ as a claim not to write.
-
-    Fail-closed on the reader's side: anything outside the vocabulary counts as a claim, because the
-    risk being managed is a persona that reads as a judge to a human while inheriting no restriction.
-    `writes: none` looks exactly like `writes: no` to the person reviewing that file, so it must
-    produce the same warning — the alternative is a typo silently removing a persona from the
-    population every check examines.
-    """
-    return declared is not None and (declared == "no" or declared not in KNOWN_WRITES_VALUES)
-
-
-# WHAT A PROJECT PERSONA ACTUALLY LACKS — which is NOT "everything the roster would have derived".
-#
-# The warning below used to say a project judge "receives NO write, dispatch or shell restriction in
-# either harness". Two of those three nouns were true and one was not: nothing is DERIVED for such a
-# persona, but whatever it DECLARES is still rendered verbatim into the artifact the harness loads,
-# and the factory template declares a real tool policy. A partially-true warning is the worst
-# available shape — a reader who goes to check it meets the confirming evidence first and cheapest,
-# and stops — so the warning now names, per persona, only the restrictions that are genuinely absent,
-# and says what is present so nothing is left to inference.
-#
-# Claude-side only, and deliberately: `claude.tools`/`claude.disallowedTools` are the only keys that
-# express tool policy. Codex has no such key at all, so its half is reported separately from
-# `codex.sandbox` rather than folded into these three nouns.
-#
-# THE THREE NOUNS ARE NOT A PARTITION OF JUDGE_DENIED_TOOLS AND MUST NEVER READ AS ONE. They OVERLAP
-# it: `Bash` is a noun here and is not denied to `test-judge`, while worktree control and `TaskStop`
-# are denied there and are named by no noun here. The first version of this warning closed with a
-# parenthetical saying the nouns missed "worktree control and TaskStop" — which is a COMPLETENESS
-# SIGNAL, telling a reader the nouns miss exactly two things and everything else is accounted for.
-# That is the same defect the old sentence had, one level down: the old one was wrong about a noun,
-# that one was wrong about the size of the universe. The message now says the set is open and says
-# WHY it is open. The guard is `test_known_key_sets_match_the_renderer` in
-# ~/.claude/skills/agent-personas/tests/test_repo_sync.py — it pins this tuple against
-# JUDGE_DENIED_TOOLS and fails if a name is added there that neither a noun here nor the message's
-# own text accounts for.
-# (Cited by the name that resolves in that file. A comment naming a test that does not exist tells a
-# maintainer who greps for it that the guard was deleted, which is worse than citing nothing. Cited
-# by ABSOLUTE path for the same reason one level up: that suite is not vendored, so in a published
-# copy of this file a relative path names a file that is not there — the "deleted guard" reading,
-# from a copy where nothing was deleted.)
-CLAUDE_RESTRICTIONS = (
-    ("write", ("Write", "Edit", "NotebookEdit")),
-    ("dispatch", ("Agent", "SendMessage")),
-    ("shell", ("Bash", "Monitor")),  # `Monitor` runs a command in the same shell environment as Bash
-)
-
-
-def grants(meta: dict, tool: str) -> bool:
-    """Whether this persona's own frontmatter leaves `tool` available in the Claude harness.
-
-    Same doctrine the test suite applies: an allow-list, when present and non-empty, is the policy
-    and anything unnamed is withheld; a present-but-empty allow-list is dropped by `render_claude`
-    and so is no allow-list at all; and a tool named in BOTH keys counts as GRANTED, because which
-    key the harness honours is not established anywhere and that is the safe direction to be wrong.
-    """
-    allow = _tools(meta.get("claude.tools"))
-    if tool in allow:
-        return True
-    if allow:
-        return False
-    return tool not in _tools(meta.get("claude.disallowedTools"))
-
-
-def absent_restrictions(meta: dict) -> list[tuple[str, list[str]]]:
-    """The restrictions this persona does NOT have, each with the tools that prove it.
-
-    A restriction counts as present only when every tool expressing it is withheld: denying `Bash`
-    while leaving `Monitor` granted is not a shell restriction, and reporting it as one is how a
-    hand-written deny-list came to read as policy while granting the capability it named.
-    """
-    out = []
-    for noun, tools in CLAUDE_RESTRICTIONS:
-        still_granted = [t for t in tools if grants(meta, t)]
-        if still_granted:
-            out.append((noun, still_granted))
-    return out
-
-
-def declared_policy(meta: dict) -> list[str]:
-    """The persona's EFFECTIVE Claude tool policy, quoted back verbatim rather than summarised.
-
-    "Effective", not "as authored": at the overlay call site this is the MERGED meta, because what
-    the harness receives is what the merge produced and that is the only thing a warning may
-    describe. `codex.sandbox` is deliberately not in here — it is not a tool policy, it is evaluated
-    against JUDGE_SANDBOX and reported as its own clause, because quoting it beside the Claude keys
-    let `codex.sandbox: workspace-write` read as a restriction while granting writes.
-    """
-    return [f"`{key}: {meta[key]}`"
-            for key in ("claude.tools", "claude.disallowedTools")
-            if meta.get(key)]
-
-
-def unprotected_judge_warning(name: str, meta: dict) -> str:
-    """One warning line, every clause of it true of THIS persona and scoped to a named harness.
-
-    Every claim here is per-harness on purpose. The original sentence's central sin was "in either
-    harness" over a fact that is only ever true of one of them, and a branch that silently drops the
-    qualifier restores that sin by omission.
-
-    That guarantee includes the persona's OWN WORDS. The head quoted ``writes: no`` at every persona
-    it fired for, while `claims_no_writes` fires on `none`, `never` and `No` as well — so the one
-    clause a reader could check against the file in front of them was the clause most likely to be a
-    misquote, on exactly the personas whose declaration is already suspect. It now quotes what the
-    persona actually wrote, and says why an unrecognised value is being read as a claim not to write.
-    """
-    absent = absent_restrictions(meta)
-    allow_list = _tools(meta.get("claude.tools"))
-    if absent:
-        lacks = ("Still granted in the Claude harness, because nothing withholds it: "
-                 + "; ".join(f"{noun} ({', '.join(tools)})" for noun, tools in absent) + ".")
-    else:
-        lacks = ("In the Claude harness its own declaration does withhold write, dispatch and "
-                 "shell — its own, so an edit that removes it is checked by nothing.")
-
-    # THE SIZE OF THE UNIVERSE, which is the part three nouns cannot carry on their own.
-    if allow_list:
-        scope = ("That allow-list is closed, so a tool it does not name is not granted — including "
-                 "tools nobody here has thought of.")
-    else:
-        scope = ("AND THAT LIST IS NOT THE WHOLE OF WHAT IT HOLDS: with no `claude.tools` "
-                 "allow-list the emitted artifact carries no `tools:` key at all, so the harness "
-                 "grants every tool outside the deny-list — for example `Artifact`, `Skill`, "
-                 "`WebFetch`, `WebSearch` and `ToolSearch`, plus every MCP tool mounted now or "
-                 "later. Three nouns cannot enumerate an open set; only an allow-list closes it.")
-
-    policy = declared_policy(meta)
-    present = ("Self-declared and rendered verbatim, never derived and never validated: "
-               + "; ".join(policy) + ".") if policy else \
-              ("It declares no `claude.tools` and no `claude.disallowedTools`, so nothing in the "
-               "Claude harness restricts it at all.")
-
-    # Codex, EVALUATED rather than quoted, in THREE cases and not two. `read-only` is the only value
-    # that withholds writes; a different value does not. But an ABSENT key is a third thing: what
-    # Codex does for an agent TOML declaring no sandbox has not been observed from here, and the
-    # suite's own record at `granted_write_capability` says absent is treated as write-capable
-    # BECAUSE the default is unknown and that is the safe direction to be wrong in — not because a
-    # permissive default was verified. Folding it into the `workspace-write` branch stated that
-    # unverified default as an observed effect, in the one artifact a human reads.
-    sandbox = meta.get("codex.sandbox")
-    if sandbox == JUDGE_SANDBOX:
-        # `{sandbox}` rather than `{JUDGE_SANDBOX}` — identical here by construction, and a mutation
-        # test showed the hard-coded form reporting `read-only` for a `workspace-write` persona the
-        # moment the branch condition was loosened. Quote the value you tested, not the one you hoped
-        # for.
-        codex = (f"In the Codex harness it declares `codex.sandbox: {sandbox}`, which does "
-                 f"withhold writes — its own declaration again, checked by nothing here.")
-    elif sandbox is None:
-        codex = (f"In the Codex harness it declares no `codex.sandbox` at all. What Codex grants an "
-                 f"agent that declares none has not been observed from here, so this is treated as "
-                 f"write-capable because that is the safe direction to be wrong in — not because a "
-                 f"permissive default was verified. Declare `{JUDGE_SANDBOX}` and the question does "
-                 f"not arise.")
-    else:
-        codex = (f"In the Codex harness it has NO write restriction: `codex.sandbox` is "
-                 f"{sandbox or '<empty>'}, and only `{JUDGE_SANDBOX}` withholds writes.")
-
-    # The persona's OWN WORDS in the head, not the vocabulary's. See the docstring.
-    declared = meta.get("writes")
-    claim = (f"declares `writes: {declared}`" if declared in KNOWN_WRITES_VALUES else
-             f"declares `writes: {declared}`, which is not a recognised value and is being READ as "
-             f"a claim not to write")
-
-    # The tail says the roster's set and these nouns are DIFFERENT, not that one contains the other:
-    # `Bash` is a noun here and is not withheld from `test-judge`. "among other things" is what keeps
-    # the roster's side open, and `test_the_unprotected_judge_warning_names_only_what_is_absent`
-    # asserts that phrase — without it this sentence is the closed-set parenthetical again.
-    return (f"  WARNING {name}: {claim}, but is a PROJECT persona, so it is not on the judging "
-            f"roster and NOTHING is derived or validated for it. {lacks} {scope} {present} {codex} "
-            f"What the roster withholds from a base judge is a different set from these three nouns "
-            f"— worktree control and `TaskStop` among other things — and it covers base personas "
-            f"only.")
-
-
-# Codex expresses the same rule with an OS-level sandbox rather than a tool deny-list. `read-only`
-# is the only value that withholds write capability. Codex has NO key that expresses dispatch
-# denial; that gap is recorded in ~/.claude/docs/decisions.md rather than papered over with an invented key.
-JUDGE_SANDBOX = "read-only"
-
-
-# THE RECORD A HUMAN READS, AND NOW A LOAD-BEARING INPUT TO THE RENDER.
-#
-# Nothing detected a roster that had SHRUNK. `JUDGING_PERSONA_NAMES` and the test suite's pinned
-# `JUDGING_ROSTER` pin each OTHER, which catches disagreement between two copies and never removal
-# from both; `set(JUDGING_ROSTER) <= BASE_NAMES` is an UPPER bound. Shrink both copies, shrink the
-# marker, and change that persona's `writes:`, and every check exits 0.
-#
-# So there is now a LOWER bound, and it lives in ~/.claude/docs/decisions.md as a ratchet that may only ever
-# grow. It is read HERE, in the renderer, and not only by the test suite, for one concrete reason:
-# `sync_personas.py --check` runs at every session start (settings.json -> disclosure-check.sh ->
-# check_toolchain.py), while nothing runs the installed
-# ~/.claude/skills/agent-personas/tests/test_repo_sync.py automatically. A guard wired to a
-# manually-invoked test is a guard that runs when someone remembers.
-#
-# WHERE THE FLOOR LIVES, and why it moved. The first version of this read the machine-readable
-# floor out of ~/.claude/docs/decisions.md. That made the SKILL depend on a file outside it, and a
-# fresh public install ships no such file — `install.sh` runs this script and fails the whole
-# installer, so "the record is missing" became the DEFAULT STATE of a new machine rather than the
-# alarm it is meant to be.
-#
-# The founder's requirement is that defection must also edit the record a human reads. That is a
-# property of the PIN, not of which file this function happens to open: `ROSTER` here and the marker
-# in ~/.claude/docs/decisions.md are asserted equal by
-# `test_the_roster_is_pinned_to_the_record_a_human_reads`, so the human record still has to be
-# rewritten in the same commit. So the machine-readable floor lives INSIDE the skill and the
-# human-readable argument stays in ~/.claude/docs/decisions.md.
-#
-# Honest about what this is: a coordination cost, not a boundary. Every one of these files is
-# writable by an agent holding a shell. The boundary is the harness permission system.
-ROSTER_FILE = SKILL / "ROSTER"
-RECORD = SKILL.parent.parent / "docs" / "decisions.md"
-ROSTER_MARKER = "<!-- JUDGING_ROSTER: "
-
-
-def recorded_floor() -> frozenset[str]:
-    """The roster's lower bound, from the skill's own ROSTER file.
-
-    Every failure mode of reading it is a PersonaError, including the ones that are not this
-    module's fault. An OSError or a decode error escaping to the caller was rendered by `sync()`'s
-    generic handler as "0 generated agent file(s) do not match" — a security check reporting its own
-    inability to run as a clean result.
-    """
-    try:
-        text = ROSTER_FILE.read_text(encoding="utf-8")
-    except OSError as e:
-        raise PersonaError(
-            f"cannot read the judging roster's floor at {ROSTER_FILE}: {e}. It carries the lower "
-            f"bound that stops the roster shrinking silently, so an unreadable floor is a failure, "
-            f"not an absence."
-        ) from e
-    names = frozenset(
-        line.strip() for line in text.splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    )
-    if not names:
-        raise PersonaError(
-            f"{ROSTER_FILE} names no personas. An empty floor bounds nothing, which is "
-            f"indistinguishable from having no floor at all."
-        )
-    return names
-
-
-def _recorded_names(text: str, marker: str) -> frozenset[str]:
-    start = text.find(marker)
-    if start == -1:
-        raise PersonaError(
-            f"{RECORD} carries no `{marker.strip()}` marker — the judging roster's record is "
-            f"missing from the file a human reads, so the roster has no witness outside the code "
-            f"that defines it."
-        )
-    end = text.find("-->", start)
-    if end == -1:
-        raise PersonaError(
-            f"{RECORD}: the `{marker.strip()}` marker is never closed with `-->`. An unterminated "
-            f"marker is not a roster."
-        )
-    return frozenset(n.strip() for n in text[start + len(marker):end].split(",") if n.strip())
-
-
-def check_roster_against_the_record() -> tuple[str | None, str | None]:
-    """Return `(finding, warning)` describing how the roster departs from its record.
-
-    RETURNS RATHER THAN RAISES, and that is the point. When this was an early `return 2` from
-    `sync()`, deleting the record bought TWO disablements for one edit: the roster check failed AND
-    the staleness comparison never ran, so a hand-edited ~/.claude/agents/reviewer.md stopped being
-    compared against the pool. Both halves were documented; the composition was not, and the
-    composition is the attack. Collected as a finding, every other check still runs.
-
-    WHAT FAILS AND WHAT ONLY WARNS, because the two records are not the same kind of thing. The
-    FLOOR ships inside the skill and is always present, so anything wrong with it is a hard finding.
-    The human record in ~/.claude/docs/decisions.md is NOT shipped by the installer, so its absence is the
-    normal state of a fresh machine and cannot be a failure — that was the whole defect of reading
-    the floor out of it. Absent: warn. Present and disagreeing: fail, because a record that
-    contradicts the code is worse than no record.
-
-    The suite closes the other half: `test_the_roster_is_pinned_to_the_record_a_human_reads` asserts
-    the record EXISTS and equals the floor. So deleting it is a hard failure in this repository,
-    where the record lives, and a warning on a machine that never had it.
-    """
-    floor = recorded_floor()
-    dropped = sorted(floor - JUDGING_PERSONA_NAMES)
-    if dropped:
-        return (
-            f"the judging roster has SHRUNK below the minimum recorded in {ROSTER_FILE.name}: "
-            f"{', '.join(dropped)} no longer protected. That list is a ratchet and may only grow. "
-            f"Removing a persona from the protected set is a deliberate reduction of the no-edit "
-            f"guarantee and must be argued for in ~/.claude/docs/decisions.md, not performed by deletion."
-        ), None
-    if not RECORD.is_file():
-        return None, (
-            f"no human record of the judging roster at {RECORD}. The floor in {ROSTER_FILE.name} "
-            f"still holds and is what the renderer enforces, but the argument for it — what the "
-            f"guarantee covers and what it does not — is not on this machine."
-        )
-    recorded = _recorded_names(RECORD.read_text(encoding="utf-8"), ROSTER_MARKER)
-    if recorded != JUDGING_PERSONA_NAMES:
-        return (
-            f"the judging roster in {RECORD.name} disagrees with JUDGING_PERSONA_NAMES — "
-            f"recorded only: {sorted(recorded - JUDGING_PERSONA_NAMES) or 'none'}; "
-            f"in code only: {sorted(JUDGING_PERSONA_NAMES - recorded) or 'none'}."
-        ), None
-    if floor - recorded:
-        return (
-            f"{RECORD.name} no longer records every persona on the floor in {ROSTER_FILE.name}: "
-            f"{sorted(floor - recorded)} missing from the record a human reads."
-        ), None
-    return None, None
-
-
-def codex_present() -> bool:
-    """Only render Codex agents where Codex actually lives.
-
-    Rendering unconditionally creates a ~/.codex tree on a machine that has no Codex — files nothing
-    will ever read, in a directory the user did not ask for. Absence of ~/.codex is the only
-    reliable signal available here.
-    """
-    return CODEX_ROOT.is_dir()
-
 GENERATED = "# GENERATED by agent-personas/scripts/sync_personas.py — edit the persona, not this."
 
-# Keys read from a persona's frontmatter. Flat and dotted rather than nested, because the format has
-# to be parsed without PyYAML (not in the stdlib) and a hand-rolled nested parser is where silent
-# misreads come from.
+BASE_PERSONA_NAMES = frozenset({"advisor", "builder", "chief", "reviewer", "security-reviewer"})
+
+# The read-only roles. Membership is decided here, not by the persona's own `writes:` line, so a
+# persona cannot leave the protected set by editing one line about itself; `writes: no` is a claim
+# this set checks in both directions.
+JUDGING_PERSONA_NAMES = frozenset({"advisor", "reviewer", "security-reviewer"})
+
+# Denied to every judge in the Claude harness, whatever its source says. The allow-list below is the
+# policy; this list is the second half of an intersection that must agree with it. `Agent` and
+# `SendMessage` are here because dispatching a writer is writing by proxy; `Monitor` and `Bash` run
+# arbitrary shell; worktree control and `TaskStop` change state without writing a file.
+JUDGE_DENIED_TOOLS = ("Write", "Edit", "NotebookEdit", "Agent", "SendMessage", "Monitor",
+                      "EnterWorktree", "ExitWorktree", "TaskStop", "Bash")
+# The closed vocabulary a judge's `claude.tools` allow-list may use. A tool nobody has classified
+# is a capability granted without an argument, so a new name needs a deliberate edit here.
+KNOWN_JUDGE_TOOLS = frozenset({"Read", "Grep", "Glob", "TodoWrite"})
+JUDGE_SANDBOX = "read-only"
+# Codex has no tool list, so a judge's role file also pins no escalation and no sub-agents. The
+# Codex 0.160 role-file schema accepts both (`codex doctor` rejects unknown fields and wrong types);
+# their runtime effect on a spawned role has not been observed.
+JUDGE_CODEX_PINS = ('approval_policy = "never"', "", "[features]", "multi_agent = false")
+
+# Flat dotted keys, because the format is parsed without PyYAML and a hand-rolled nested parser is
+# where silent misreads come from.
 CLAUDE_KEYS = {"claude.model": "model", "claude.effort": "effort",
                "claude.tools": "tools", "claude.disallowedTools": "disallowedTools"}
 CODEX_KEYS = {"codex.model": "model", "codex.effort": "model_reasoning_effort",
               "codex.sandbox": "sandbox_mode"}
+TOP_KEYS = frozenset({"name", "description", "writes", "spawnable"})
+VARIANT_KEY = re.compile(r"^variant\.([a-z][a-z0-9-]*)\.(claude|codex)\.(model|effort)$")
+# A persona name reaches YAML, TOML and a filename. Anything beyond this pattern (spaces, `#`,
+# quotes, capitals) can make a harness read a different name than the one checked here.
+NAME = re.compile(r"[a-z][a-z0-9-]*")
 
 
 class PersonaError(Exception):
     pass
 
 
-def pool_sources() -> list[Path]:
-    """Return the canonical base pool or reject global specialist leakage."""
-    sources = sorted(
-        p for p in POOL.glob("*.md") if p.name.lower() != "readme.md"
-    )
-    if not sources:
-        raise PersonaError(f"no personas in {POOL}")
-    actual_names = {p.stem for p in sources}
-    if actual_names != BASE_PERSONA_NAMES:
-        details = []
-        missing = sorted(BASE_PERSONA_NAMES - actual_names)
-        unexpected = sorted(actual_names - BASE_PERSONA_NAMES)
-        if missing:
-            details.append("missing: " + ", ".join(missing))
-        if unexpected:
-            details.append("unexpected: " + ", ".join(unexpected))
-        raise PersonaError(
-            "base persona pool must contain exactly the canonical 14 ("
-            + "; ".join(details)
-            + ")"
-        )
-    return sources
-
-
 def parse(path: Path) -> tuple[dict, str]:
     """Split `---` frontmatter from the body. Values are plain strings; no type coercion."""
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        raise PersonaError(f"{path.name}: unreadable source: {e}") from e
     if not text.startswith("---"):
         raise PersonaError(f"{path.name}: no frontmatter")
-    _, _, rest = text.partition("---")
-    fm, sep, body = rest.partition("\n---")
+    fm, sep, body = text[3:].partition("\n---")
     if not sep:
         raise PersonaError(f"{path.name}: unterminated frontmatter")
-
     meta: dict[str, str] = {}
-    for i, line in enumerate(fm.splitlines(), start=2):
+    for i, line in enumerate(fm.splitlines(), start=1):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -563,270 +93,180 @@ def parse(path: Path) -> tuple[dict, str]:
             raise PersonaError(f"{path.name}:{i}: not a `key: value` line -> {line!r}")
         k, _, v = line.partition(":")
         meta[k.strip()] = v.strip().strip('"').strip("'")
-
     for required in ("name", "description"):
         if not meta.get(required):
             raise PersonaError(f"{path.name}: missing required `{required}`")
     if meta["name"] != path.stem:
-        raise PersonaError(
-            f"{path.name}: filename must match persona name `{meta['name']}.md`"
-        )
+        raise PersonaError(f"{path.name}: filename must match persona name `{meta['name']}.md`")
+    if not NAME.fullmatch(meta["name"]):
+        raise PersonaError(f"{path.name}: persona name {meta['name']!r} must match [a-z][a-z0-9-]*")
     return meta, body.lstrip("\n")
-
-
-def yaml_scalar(v: str) -> str:
-    """Quote only when a bare scalar would be misread. Keeps generated frontmatter readable."""
-    return f'"{v}"' if any(c in v for c in ':#{}[]&*!|>%@`"') or v != v.strip() else v
 
 
 def _tools(value: str | None) -> list[str]:
     return [t.strip() for t in (value or "").split(",") if t.strip()]
 
 
-def restrict_for_roster(meta: dict) -> dict:
-    """Apply the judging roster's restrictions to a persona about to be rendered.
+def spawnable(meta: dict) -> bool:
+    return meta.get("spawnable", "yes") == "yes"
 
-    Called by BOTH renderers, so the guarantee reaches both harnesses from this one expression —
-    two parallel mechanisms that agree today and drift tomorrow is the defect class this exists to
-    remove. Called in the renderer rather than at parse time because the claim that matters is not
-    "the source says the right thing", it is "the harness receives the right thing": a project
-    overlay that retunes `reviewer` still emits a restricted `reviewer`.
 
-    SCOPE, and do not read it as broader than it is: this protects the personas NAMED IN THE ROSTER,
-    which are base personas only. A project specialist derived by agent-persona-factory —
-    `privacy-auditor`, `consent-validator` — is not on the roster and is returned UNCHANGED from
-    here, with full write and dispatch, however plainly its description says it only judges. That
-    gap is open and is stated in ~/.claude/docs/decisions.md; `sync()` warns by name while it stands.
-
-    Derivation, not correction of a copy, for the DENY half: a roster member need declare nothing at
-    all and is still denied every write tool and dispatch, so removing a declared line can only ever
-    loosen a local exception (`test-judge`'s `Bash`) and never the derived core.
-
-    The ALLOW half cannot be derived and is therefore MANDATORY. What a judge legitimately needs is
-    a fact about that judge's job, not about the roster, so it has to be written down per persona —
-    and the price of that is that a roster member declaring nothing must FAIL rather than fall back
-    to the deny-list. It does.
-
-    CLAUDE-ONLY BY NECESSITY. Codex has no key expressing tool policy at all — its whole model is the
-    OS sandbox — so the two harnesses now diverge in MECHANISM as well as in strength. `read-only` is
-    still derived here for Codex, and no allow-list key is invented for it. ~/.claude/docs/decisions.md states
-    this plainly rather than leaving a reader to assume parity.
-
-    A source that CONTRADICTS the roster is rejected rather than silently corrected. Quietly
-    rendering the right thing from a persona file that claims it may write would hide the defection
-    in the one artifact a human reads.
-    """
-    name = meta.get("name")
-    if name not in JUDGING_PERSONA_NAMES:
-        return meta
-
-    declared_writes = meta.get("writes")
-    if declared_writes != "no":
+def validate(meta: dict, *, base: bool) -> None:
+    """Reject a source that cannot be rendered honestly. Nothing is ever silently corrected."""
+    name = meta["name"]
+    if meta.get("writes") not in ("yes", "no"):
+        raise PersonaError(f"{name}: `writes:` must be `yes` or `no`, not {meta.get('writes')!r}")
+    if meta.get("spawnable", "yes") not in ("yes", "no"):
+        raise PersonaError(f"{name}: `spawnable:` must be `yes` or `no`")
+    if not base:
+        return
+    unknown = [k for k in meta if k not in TOP_KEYS and k not in CLAUDE_KEYS
+               and k not in CODEX_KEYS and not VARIANT_KEY.match(k)]
+    if unknown:
+        # An unrenderable key reads as policy in the source and reaches the harness as nothing.
+        raise PersonaError(f"{name}: unknown frontmatter key(s) {', '.join(unknown)}")
+    judging = name in JUDGING_PERSONA_NAMES
+    if judging != (meta["writes"] == "no"):
         raise PersonaError(
-            f"{name}: on the judging roster (JUDGING_PERSONA_NAMES) but declares "
-            f"`writes: {declared_writes}` — a judging persona may not declare itself a writer. "
-            f"Membership is not the persona's to decide: remove it from the roster deliberately, "
-            f"or fix the declaration."
-        )
+            f"{name}: declares `writes: {meta['writes']}` but is "
+            f"{'' if judging else 'not '}a judging persona; membership is fixed by "
+            f"JUDGING_PERSONA_NAMES, so fix the declaration or change the set deliberately")
+    if judging:
+        check_judge(meta)
+
+
+def check_judge(meta: dict) -> None:
+    """A judge must declare a closed read-only allow-list and a read-only Codex sandbox."""
+    name = meta["name"]
     sandbox = meta.get("codex.sandbox")
-    if sandbox is not None and sandbox != JUDGE_SANDBOX:
-        raise PersonaError(
-            f"{name}: on the judging roster but declares `codex.sandbox: {sandbox}` — the roster "
-            f"requires {JUDGE_SANDBOX!r} in the Codex harness."
-        )
-
-    # An unrenderable key on a roster member is rejected here, not merely reported by the tests.
-    # `claude.allowedTools: Write` is dropped silently by the renderer, so it reads as policy in the
-    # source and reaches the harness as nothing at all. For any other persona that is a lint; on a
-    # persona this function is otherwise willing to reject at exit 2, leaving the renderer more
-    # permissive than its own test suite made no sense.
-    for key in sorted(meta):
-        if key.startswith("claude.") and key not in CLAUDE_KEYS:
-            raise PersonaError(
-                f"{name}: on the judging roster and declares unrenderable key `{key}` — this is "
-                f"dropped before the harness sees it, so it reads as a restriction and is none."
-            )
-        if key.startswith("codex.") and key not in CODEX_KEYS:
-            raise PersonaError(
-                f"{name}: on the judging roster and declares unrenderable key `{key}` — this is "
-                f"dropped before the harness sees it, so it reads as a restriction and is none."
-            )
-
-    out = dict(meta)
-    extra = [t for t in _tools(meta.get("claude.disallowedTools")) if t not in JUDGE_DENIED_TOOLS]
-    out["claude.disallowedTools"] = ", ".join([*JUDGE_DENIED_TOOLS, *extra])
-
-    # THE ALLOW-LIST IS THE POLICY, AND IT IS MANDATORY.
-    #
-    # Absence of an allow-list is not "no opinion", it is "grant everything the deny-list did not
-    # think of" — which is how a judge came to hold `Artifact`, the whole MCP surface, and `Monitor`.
-    # A roster member that declares nothing is therefore REJECTED and named, rather than rendered
-    # with the derived deny-list and called restricted.
-    #
-    # It is validated, never filtered. Filtering is what made it dangerous: dropping denied names
-    # could leave the list EMPTY, and `render_claude`'s `if meta.get(src)` then omits the key
-    # entirely, so the harness receives NO allow-list and grants everything outside the deny-list.
-    # Reproduced: `claude.tools: Read` held one tool; `claude.tools: Edit` held every tool except the
-    # denied ones. Adding a denied tool to your allow-list made you strictly more capable.
-    #
-    # So: no silent filtering at all. Any overlap with the deny-list is REJECTED, and a
-    # present-but-empty allow-list is rejected too rather than being read as "no allow-list".
-    # Rejecting the whole overlap rather than only the case that empties the list is what makes the
-    # two mechanisms REQUIRED TO AGREE: silently dropping `Edit` from an author's list would hide an
-    # authoring mistake in exactly the file that is now the authority. Disagreement is a finding.
-    if "claude.tools" not in meta:
-        raise PersonaError(
-            f"{name}: on the judging roster and declares NO `claude.tools` allow-list. A judge's "
-            f"tool policy is an allow-list, so absence of one is not a default — it grants every "
-            f"tool the deny-list did not happen to name, which is the shape that let `Monitor`, "
-            f"`Artifact` and the entire MCP surface reach six judges unnoticed. Name the tools this "
-            f"persona needs to read, search and report; a tool not named is not granted."
-        )
-    declared = _tools(meta["claude.tools"])
+    if sandbox not in (None, JUDGE_SANDBOX):
+        raise PersonaError(f"{name}: a judge requires `codex.sandbox: {JUDGE_SANDBOX}`, "
+                           f"not {sandbox!r}")
+    declared = _tools(meta.get("claude.tools"))
     if not declared:
-        raise PersonaError(
-            f"{name}: declares an EMPTY `claude.tools` allow-list. Read literally that is "
-            f"maximally restrictive, but the renderer drops an empty key and the harness then "
-            f"grants every tool outside the deny-list. Name the tools this persona needs."
-        )
-    overlap = [t for t in declared if t in JUDGE_DENIED_TOOLS]
-    if overlap:
-        raise PersonaError(
-            f"{name}: `claude.tools` allow-list names denied tool(s) {', '.join(overlap)}. A "
-            f"judging persona's allow-list may not re-grant what the roster withholds; the two "
-            f"must agree, and this is the channel through which an allow-list could WIDEN."
-        )
-    # AND against the persona's OWN deny-list extras, not only the derived core. `claude.tools:
-    # …, Bash` beside `claude.disallowedTools: Bash` rendered at exit 0 emitting both, so the
-    # docstring's claim that this function "refuses to author the contradiction" was false for the
-    # one tool the two mechanisms actually treat differently between personas. The emitted-artifact
-    # test asserted a state the renderer could produce from source.
-    self_contradiction = sorted(set(declared) & set(extra))
-    if self_contradiction:
-        raise PersonaError(
-            f"{name}: names {', '.join(self_contradiction)} in BOTH `claude.tools` and "
-            f"`claude.disallowedTools`. The two mechanisms must agree; which one the harness "
-            f"honours is not established anywhere, so this is a finding, not a tie to break."
-        )
+        # Without an allow-list the harness grants every tool the deny-list did not think of.
+        raise PersonaError(f"{name}: a judge must declare a non-empty `claude.tools` allow-list")
+    if "Bash" in declared:
+        raise PersonaError(f"{name}: no judging persona may hold Bash; a shell can write anything")
+    denied = [t for t in declared if t in JUDGE_DENIED_TOOLS]
+    if denied:
+        raise PersonaError(f"{name}: `claude.tools` re-grants denied tool(s) {', '.join(denied)}")
     unknown = [t for t in declared if t not in KNOWN_JUDGE_TOOLS]
     if unknown:
-        raise PersonaError(
-            f"{name}: `claude.tools` names unrecognised tool(s) {', '.join(unknown)}. The "
-            f"vocabulary is closed — see KNOWN_JUDGE_TOOLS. A typo (`Reed`) is emitted verbatim and "
-            f"grants nothing while reading like policy; a real tool nobody classified (`Skill`, "
-            f"`mcp__…__agent_spawn`) is a capability granted without an argument. Add the name to "
-            f"KNOWN_JUDGE_TOOLS only after deciding what it lets a judge do."
-        )
-    out["claude.tools"] = ", ".join(declared)
+        raise PersonaError(f"{name}: `claude.tools` names unclassified tool(s) "
+                           f"{', '.join(unknown)}; see KNOWN_JUDGE_TOOLS")
+    both = sorted(set(declared) & set(_tools(meta.get("claude.disallowedTools"))))
+    if both:
+        raise PersonaError(f"{name}: {', '.join(both)} named in both `claude.tools` and "
+                           f"`claude.disallowedTools`")
 
+
+def restricted(meta: dict) -> dict:
+    """The judge restriction both renderers apply, so both harnesses get it from one place."""
+    if meta.get("name") not in JUDGING_PERSONA_NAMES:
+        return meta
+    check_judge(meta)
+    out = dict(meta)
+    extra = [t for t in _tools(meta.get("claude.disallowedTools")) if t not in JUDGE_DENIED_TOOLS]
+    out["claude.tools"] = ", ".join(_tools(meta.get("claude.tools")))
+    out["claude.disallowedTools"] = ", ".join([*JUDGE_DENIED_TOOLS, *extra])
     out["codex.sandbox"] = JUDGE_SANDBOX
     return out
 
 
+def routing(meta: dict, variant: str | None = None) -> dict:
+    """Model and effort per harness, with a named variant's keys over the defaults.
+
+    A variant overrides only the keys it declares; the rest inherit the persona's default.
+    """
+    if variant and not any(VARIANT_KEY.match(k) and k.split(".")[1] == variant for k in meta):
+        raise PersonaError(f"{meta['name']}: no variant `{variant}`")
+    out: dict[str, dict] = {}
+    for harness in ("claude", "codex"):
+        out[harness] = {}
+        for field in ("model", "effort"):
+            value = meta.get(f"{harness}.{field}")
+            if variant:
+                value = meta.get(f"variant.{variant}.{harness}.{field}", value)
+            out[harness][field] = value
+    return out
+
+
+def yaml_scalar(v: str) -> str:
+    """Quote only when a bare scalar would be misread."""
+    return json.dumps(v) if any(c in v for c in ':#{}[]&*!|>%@`"') or v != v.strip() else v
+
+
 def render_claude(meta: dict, body: str) -> str:
-    meta = restrict_for_roster(meta)
-    # The banner goes inside the frontmatter as a YAML comment, never into the body. The body IS the
-    # agent's system prompt, so a note addressed to a human reader — "edit the persona, not this" —
-    # would sit there as a stray instruction the agent has to interpret.
-    lines = ["---", GENERATED, f"name: {meta['name']}",
+    meta = restricted(meta)
+    # The banner is a YAML comment inside the frontmatter; the body is the agent's system prompt.
+    lines = ["---", GENERATED, f"name: {yaml_scalar(meta['name'])}",
              f"description: {yaml_scalar(meta['description'])}"]
-    for src, dest in CLAUDE_KEYS.items():
-        if meta.get(src):
-            lines.append(f"{dest}: {yaml_scalar(meta[src])}")
-    lines += ["---", "", body.rstrip(), ""]
-    return "\n".join(lines)
+    lines += [f"{dest}: {yaml_scalar(meta[src])}" for src, dest in CLAUDE_KEYS.items()
+              if meta.get(src)]
+    return "\n".join(lines + ["---", "", body.rstrip(), ""])
 
 
 def render_codex(meta: dict, body: str) -> str:
-    meta = restrict_for_roster(meta)
+    meta = restricted(meta)
     if "'''" in body:
-        # TOML literal strings take no escapes, which is exactly why they are safe for prose. A body
-        # containing the delimiter would silently truncate the instructions.
+        # TOML literal strings take no escapes; the delimiter would truncate the instructions.
         raise PersonaError(f"{meta['name']}: body contains ''' which cannot go in a TOML literal")
-    out = [GENERATED,
-           f'name = "{meta["name"]}"',
-           f'description = "{meta["description"]}"',
-           "developer_instructions = '''",
-           body.rstrip(),
-           "'''", ""]
-    for src, dest in CODEX_KEYS.items():
-        if meta.get(src):
-            out.append(f'{dest} = "{meta[src]}"')
+    out = [GENERATED, f"name = {json.dumps(meta['name'])}",
+           f"description = {json.dumps(meta['description'], ensure_ascii=False)}",
+           "developer_instructions = '''", body.rstrip(), "'''"]
+    out += [f"{dest} = {json.dumps(meta[src])}" for src, dest in CODEX_KEYS.items()
+            if meta.get(src)]
+    if meta["name"] in JUDGING_PERSONA_NAMES:
+        out += JUDGE_CODEX_PINS  # the table header comes last, after every top-level key
     return "\n".join(out) + "\n"
 
 
-def merge_overlay(base: dict, overlay: dict) -> dict:
-    """Merge a project overlay onto a base persona so it can only ever NARROW capability.
+def _all_sources() -> list[Path]:
+    return sorted(p for p in POOL.glob("*.md") if p.name.lower() != "readme.md")
 
-    A plain `{**base, **overlay}` let a project overlay REPLACE the base's tool policy, and both
-    halves broke. Reproduced against a roster member — an overlay declaring
-    `claude.tools: Read, Grep, Glob, TodoWrite, Bash, Skill, WebFetch` with
-    `claude.disallowedTools: NotebookEdit` rendered rc=0 and emitted a project `reviewer.md` holding
-    `Bash`, `Skill` and `WebFetch`, whose deny-list no longer carried the base's `Bash` because the
-    overlay's value replaced it. Claude Code's project agents override same-named user agents
-    wholesale, so that artifact IS the reviewer in that repository.
 
-    So the two tool keys are merged by rule rather than by precedence:
+def pool_sources() -> list[Path]:
+    """The base pool: exactly the BASE_PERSONA_NAMES sources. A missing one is an error.
 
-      claude.tools           INTERSECTED with the base's. An overlay may drop a tool it does not
-                             want; it can never introduce one. A name the base did not grant is
-                             rejected outright rather than dropped, because silently discarding it
-                             hides an authoring mistake in the file meant to carry the intent.
-      claude.disallowedTools UNION with the base's. Extras add; nothing an overlay omits is thereby
-                             granted.
-
-    Every other key still takes the overlay's value — model, effort and description are retuning,
-    not capability. `writes` and `codex.sandbox` are left to `restrict_for_roster`, which rejects a
-    roster member contradicting either.
+    Any other source is ignored here and reported by retired_sources(): an installed skill keeps
+    the v5.1 sources until `install.sh --retire-v5`, and they must not stop the v6 pool rendering.
     """
-    merged = {**base, **{k: v for k, v in overlay.items() if v}}
-    name = base.get("name", overlay.get("name", "<unknown>"))
-
-    if "claude.tools" in overlay and overlay["claude.tools"]:
-        base_allowed = _tools(base.get("claude.tools"))
-        over_allowed = _tools(overlay["claude.tools"])
-        if base_allowed:
-            widened = [t for t in over_allowed if t not in base_allowed]
-            if widened:
-                raise PersonaError(
-                    f"{name}: project overlay's `claude.tools` adds {', '.join(widened)}, which the "
-                    f"base persona does not grant. An overlay may narrow a judge's allow-list and "
-                    f"may never widen it — the project artifact overrides the user-level one "
-                    f"wholesale, so this is the whole tool policy that repository would receive."
-                )
-            kept = [t for t in base_allowed if t in over_allowed]
-            if not kept:
-                raise PersonaError(
-                    f"{name}: project overlay's `claude.tools` intersects the base allow-list to "
-                    f"nothing. An empty allow-list is dropped by the renderer and the harness then "
-                    f"grants every tool outside the deny-list, so this fails closed instead."
-                )
-            merged["claude.tools"] = ", ".join(kept)
-
-    base_denied = _tools(base.get("claude.disallowedTools"))
-    over_denied = _tools(overlay.get("claude.disallowedTools"))
-    if base_denied or over_denied:
-        merged["claude.disallowedTools"] = ", ".join(
-            base_denied + [t for t in over_denied if t not in base_denied]
-        )
-    return merged
+    sources = [p for p in _all_sources() if p.stem in BASE_PERSONA_NAMES]
+    missing = BASE_PERSONA_NAMES - {p.stem for p in sources}
+    if missing:
+        raise PersonaError(
+            f"base persona pool must hold {', '.join(sorted(BASE_PERSONA_NAMES))} "
+            f"(missing: {', '.join(sorted(missing))})")
+    return sources
 
 
-def overlay_body(base: str, extra: str, project: str) -> str:
-    """Base persona, then the project's additions. Order matters: the general rule is established
-    first, so a project instruction reads as a refinement rather than a replacement."""
-    return (f"{base.rstrip()}\n\n"
-            f"## Project-specific direction — {project}\n\n"
-            f"{extra.strip()}\n")
+def retired_sources() -> list[Path]:
+    """Pool sources outside BASE_PERSONA_NAMES; never parsed, validated or rendered."""
+    return [p for p in _all_sources() if p.stem not in BASE_PERSONA_NAMES]
 
+
+def load(name: str) -> tuple[dict, str]:
+    """One base persona, parsed and validated; the driver's entry point for routing."""
+    if name not in BASE_PERSONA_NAMES:
+        raise PersonaError(f"unknown persona `{name}`")
+    meta, body = parse(POOL / f"{name}.md")
+    validate(meta, base=True)
+    return meta, body
+
+
+def codex_present() -> bool:
+    """Render Codex agents only where Codex lives, rather than creating a tree nothing reads."""
+    return CODEX_ROOT.is_dir()
+
+
+# ---- safe commit: atomic, no-follow writes beneath roots frozen before the first mutation ----
 
 def _open_directory_nofollow(path: Path, *, create: bool) -> int:
-    """Open an absolute directory path one component at a time without following symlinks."""
+    """Open an absolute directory one component at a time without following symlinks."""
     nofollow = getattr(os, "O_NOFOLLOW", None)
     if nofollow is None:
-        raise PersonaError(
-            "this platform cannot safely commit generated personas: O_NOFOLLOW is unavailable"
-        )
+        raise PersonaError("this platform cannot commit safely: O_NOFOLLOW is unavailable")
     flags = os.O_RDONLY | os.O_DIRECTORY | nofollow
     current = os.open(path.anchor, flags)
     try:
@@ -839,9 +279,7 @@ def _open_directory_nofollow(path: Path, *, create: bool) -> int:
                 try:
                     os.mkdir(component, mode=0o777, dir_fd=current)
                 except FileExistsError:
-                    # Another process won the creation race. The no-follow open below decides
-                    # whether what appeared is an acceptable directory.
-                    pass
+                    pass  # lost a creation race; the no-follow open decides what appeared
                 child = os.open(component, flags, dir_fd=current)
             os.close(current)
             current = child
@@ -855,17 +293,14 @@ def _open_commit_root(path: Path, *, create: bool) -> int:
     try:
         return _open_directory_nofollow(path, create=create)
     except OSError as e:
-        raise PersonaError(
-            f"unsafe generated target root {path}: it changed or contains a symlink at commit time"
-        ) from e
+        raise PersonaError(f"unsafe generated target root {path}: it changed or contains a "
+                           f"symlink at commit time") from e
 
 
 def _assert_commit_root_unchanged(path: Path, held_fd: int) -> None:
-    """Reject a rename/symlink swap that occurred after the approved directory was opened."""
     fresh_fd = _open_commit_root(path, create=False)
     try:
-        held = os.fstat(held_fd)
-        fresh = os.fstat(fresh_fd)
+        held, fresh = os.fstat(held_fd), os.fstat(fresh_fd)
         if (held.st_dev, held.st_ino) != (fresh.st_dev, fresh.st_ino):
             raise PersonaError(f"unsafe generated target root {path}: it changed during commit")
     finally:
@@ -873,17 +308,14 @@ def _assert_commit_root_unchanged(path: Path, held_fd: int) -> None:
 
 
 def _atomic_write_at(directory_fd: int, name: str, content: str) -> None:
-    """Replace one direct child of an already validated directory without following its target."""
-    payload = content.encode("utf-8")
+    payload = memoryview(content.encode("utf-8"))
     temp_name = f".{name}.tmp-{os.getpid()}-{secrets.token_hex(8)}"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
     temp_fd = os.open(temp_name, flags, 0o666, dir_fd=directory_fd)
     temp_exists = True
     try:
-        view = memoryview(payload)
-        while view:
-            written = os.write(temp_fd, view)
-            view = view[written:]
+        while payload:
+            payload = payload[os.write(temp_fd, payload):]
         os.fsync(temp_fd)
         os.close(temp_fd)
         temp_fd = -1
@@ -899,107 +331,63 @@ def _atomic_write_at(directory_fd: int, name: str, content: str) -> None:
                 pass
 
 
-def _commit_operations(operations: list[dict[str, str]], content_by_path: dict[str, str],
-                       frozen_roots: dict[Path, Path], compare_only: bool) -> None:
-    """Commit only direct children of the exact roots frozen during validation.
-
-    Root descriptors are opened before the first mutation. A later rename or symlink swap cannot
-    redirect an operation: directory-relative replace/unlink stays attached to the opened inode,
-    and the post-operation identity check rejects the concurrent change.
-    """
-    if compare_only:
-        return
-
-    operation_roots: dict[Path, Path] = {}
-    for operation in operations:
-        path = Path(operation["path"])
-        lexical_root = path.parent.absolute()
-        if lexical_root not in frozen_roots or path.name in {"", ".", ".."}:
-            raise PersonaError(f"unsafe generated target {path}: outside exact generated roots")
-        operation_roots[lexical_root] = frozen_roots[lexical_root]
-
+def _commit_operations(operations: list[dict], content: dict[str, str],
+                       frozen_roots: dict[Path, Path]) -> None:
+    """Apply operations as direct children of roots opened before the first mutation."""
     descriptors: dict[Path, int] = {}
     try:
-        for lexical_root, frozen_root in sorted(operation_roots.items(), key=lambda item: str(item[0])):
-            descriptors[lexical_root] = _open_commit_root(frozen_root, create=True)
-        for operation in operations:
-            path = Path(operation["path"])
-            lexical_root = path.parent.absolute()
-            directory_fd = descriptors[lexical_root]
-            if operation["action"] == "delete":
-                os.unlink(path.name, dir_fd=directory_fd)
+        for op in operations:
+            path = Path(op["path"])
+            root = path.parent.absolute()
+            if root not in frozen_roots or path.name in {"", ".", ".."}:
+                raise PersonaError(f"unsafe generated target {path}: outside generated roots")
+            if root not in descriptors:
+                descriptors[root] = _open_commit_root(frozen_roots[root], create=True)
+        for op in operations:
+            path = Path(op["path"])
+            root = path.parent.absolute()
+            if op["action"] == "delete":
+                os.unlink(path.name, dir_fd=descriptors[root])
             else:
-                _atomic_write_at(directory_fd, path.name, content_by_path[operation["path"]])
-            _assert_commit_root_unchanged(operation_roots[lexical_root], directory_fd)
-    except PersonaError:
-        raise
+                _atomic_write_at(descriptors[root], path.name, content[op["path"]])
+            _assert_commit_root_unchanged(frozen_roots[root], descriptors[root])
     except OSError as e:
         raise PersonaError(f"generated persona commit failed safely: {e}") from e
     finally:
-        for descriptor in descriptors.values():
-            os.close(descriptor)
-
-
-def _scope_for(repo: Path | None, check: bool, scope: str | None) -> str:
-    """Resolve an explicit scope or preserve the historical invocation contract."""
-    if scope is not None:
-        if scope == "project" and repo is None:
-            raise PersonaError("--scope project requires --repo PATH")
-        if scope == "global" and repo is not None:
-            raise PersonaError("--scope global forbids --repo PATH")
-        if scope == "all" and repo is None:
-            raise PersonaError("--scope all requires --repo PATH")
-        return scope
-    if repo is None:
-        return "global"
-    return "project" if check else "all"
+        for fd in descriptors.values():
+            os.close(fd)
 
 
 def _safe_target(path: Path, root: Path) -> Path:
-    """Return the resolved target after rejecting escapes and lexical symlink components."""
-    absolute = path.absolute()
-    root_absolute = root.absolute()
-    root_resolved = root_absolute.resolve()
-    target_resolved = absolute.resolve(strict=False)
+    """Return the canonical target after rejecting escapes and symlinked components."""
+    absolute, root_abs = path.absolute(), root.absolute()
+    root_resolved = root_abs.resolve()
     try:
-        target_resolved.relative_to(root_resolved)
+        absolute.resolve(strict=False).relative_to(root_resolved)
+        relative = absolute.relative_to(root_abs)
     except ValueError as e:
-        raise PersonaError(
-            f"unsafe generated target {absolute}: it resolves outside selected root {root_resolved}"
-        ) from e
-    try:
-        relative = absolute.relative_to(root_absolute)
-    except ValueError as e:
-        raise PersonaError(
-            f"unsafe generated target {absolute}: outside selected root {root_absolute}"
-        ) from e
-    current = root_absolute
-    if current.is_symlink():
-        raise PersonaError(f"unsafe generated target {absolute}: contains a symlink at {current}")
-    for component in relative.parts:
-        current = current / component
+        raise PersonaError(f"unsafe generated target {absolute}: outside {root_resolved}") from e
+    current = root_abs
+    for component in (None, *relative.parts):
+        current = current / component if component else current
         if current.is_symlink():
-            raise PersonaError(f"unsafe generated target {absolute}: contains a symlink at {current}")
-    # Preserve the intended components beneath the selected authority while using its canonical
-    # spelling (macOS temporary roots commonly enter through the /var system alias).
+            raise PersonaError(f"unsafe generated target {absolute}: symlink at {current}")
     return root_resolved / relative
 
 
-def _operation_plan(rendered: list[tuple[Path, str]], prune_dirs: list[Path],
-                    expected: set[Path]) -> list[dict[str, str]]:
-    """Compare one rendered plan with disk and return its complete deterministic write set."""
-    operations: list[dict[str, str]] = []
-    for path, content in rendered:
+def _operation_plan(plan: list[tuple[Path, str]], prune_dirs: list[Path],
+                    expected: set[Path]) -> list[dict]:
+    """Compare the rendered plan with disk; prune only files carrying the GENERATED marker."""
+    operations = []
+    for path, content in plan:
         current = path.read_text(encoding="utf-8") if path.is_file() else None
         if current != content:
-            operations.append({
-                "action": "create" if current is None else "update",
-                "path": str(path.absolute()),
-            })
+            operations.append({"action": "create" if current is None else "update",
+                               "path": str(path.absolute())})
     for directory in prune_dirs:
         if not directory.is_dir():
             continue
-        for path in sorted(list(directory.glob("*.md")) + list(directory.glob("*.toml"))):
+        for path in sorted([*directory.glob("*.md"), *directory.glob("*.toml")]):
             if path.resolve() in expected:
                 continue
             try:
@@ -1011,517 +399,230 @@ def _operation_plan(rendered: list[tuple[Path, str]], prune_dirs: list[Path],
     return operations
 
 
-def _unmanaged_paths(directories: list[Path], expected: set[Path]) -> list[str]:
-    """Return unsourced definitions for the legacy repository-check diagnostic only."""
-    unmanaged: list[str] = []
-    for directory in directories:
-        if not directory.is_dir():
+def _root_for(path: Path, repo: Path | None) -> Path:
+    """The authority a generated path must stay beneath: the repository, Codex home, or home."""
+    if repo and (path == repo or repo in path.parents):
+        return repo
+    return CODEX_ROOT if path == CODEX_ROOT or CODEX_ROOT in path.parents else Path.home()
+
+
+def _scope_for(repo: Path | None, check: bool, scope: str | None) -> str:
+    if scope is None:
+        return "global" if repo is None else ("project" if check else "all")
+    if scope in ("project", "all") and repo is None:
+        raise PersonaError(f"--scope {scope} requires --repo PATH")
+    if scope == "global" and repo is not None:
+        raise PersonaError("--scope global forbids --repo PATH")
+    return scope
+
+
+def build(repo: Path | None, scope: str):
+    """Phase A: parse, validate and render everything into a plan. Nothing is written here."""
+    findings: list[str] = []
+    warnings: list[str] = []
+    plan: list[tuple[Path, str]] = []
+    expected: set[Path] = set()
+
+    def add(path: Path, render, meta: dict, body: str) -> None:
+        expected.add(path.resolve())
+        try:
+            plan.append((path, render(meta, body)))
+        except PersonaError as e:
+            findings.append(str(e))
+
+    include_global = scope in ("global", "all")
+    for src in retired_sources():
+        warnings.append(f"retired persona source {src.stem} ({src}); nothing is rendered from it — "
+                        f"run install.sh --retire-v5")
+        # Its earlier render is kept, not pruned: v5.1 files go only through --retire-v5, which
+        # removes the source and the render together.
+        if include_global:
+            expected.update({(CLAUDE_AGENTS / f"{src.stem}.md").resolve(),
+                             (CODEX_AGENTS / f"{src.stem}.toml").resolve()})
+    for src in pool_sources():
+        try:
+            meta, body = parse(src)
+            validate(meta, base=True)
+        except PersonaError as e:
+            # Still expected, so a broken source is not also reported as an orphan; this run
+            # exits 2 regardless. A valid non-spawnable profile is not expected, so a stale
+            # rendering of it is pruned.
+            expected.update({(CLAUDE_AGENTS / f"{src.stem}.md").resolve(),
+                             (CODEX_AGENTS / f"{src.stem}.toml").resolve()})
+            findings.append(str(e))
             continue
-        for path in sorted(list(directory.glob("*.md")) + list(directory.glob("*.toml"))):
-            if path.resolve() in expected:
+        if include_global and spawnable(meta):
+            add(CLAUDE_AGENTS / f"{meta['name']}.md", render_claude, meta, body)
+            if codex_present():
+                add(CODEX_AGENTS / f"{meta['name']}.toml", render_codex, meta, body)
+
+    targets = ([CLAUDE_AGENTS] + ([CODEX_AGENTS] if codex_present() else [])
+               if include_global else [])
+    if scope in ("project", "all"):
+        claude_dir, codex_dir = repo / ".claude" / "agents", repo / ".codex" / "agents"
+        targets += [claude_dir, codex_dir]
+        sources_dir = repo / "docs" / "agents" / "personas"
+        for src in sorted(sources_dir.glob("*.md")) if sources_dir.is_dir() else []:
+            if src.name.lower() == "readme.md":
+                continue
+            if src.stem.lower() in BASE_PERSONA_NAMES:
+                warnings.append(f"{src}: overlays of base personas are retired, so this file is "
+                                f"skipped; migrate its direction into the project's docs or give "
+                                f"it a name of its own")
                 continue
             try:
-                if GENERATED not in path.read_text(encoding="utf-8", errors="replace"):
-                    unmanaged.append(f"{path} (unmanaged — no persona source)")
-            except OSError:
+                meta, body = parse(src)
+                validate(meta, base=False)
+            except PersonaError as e:
+                expected.update({(claude_dir / f"{src.stem}.md").resolve(),
+                                 (codex_dir / f"{src.stem}.toml").resolve()})
+                findings.append(f"project {e}")
                 continue
-    return unmanaged
+            if not spawnable(meta):
+                continue
+            # A project persona's tool policy is its own declaration, rendered as written; the
+            # derived judge restriction covers the base judging set only.
+            add(claude_dir / f"{meta['name']}.md", render_claude, meta, body)
+            add(codex_dir / f"{meta['name']}.toml", render_codex, meta, body)
+    return plan, expected, targets, findings, warnings
 
 
-def _json_plan(scope: str, operations: list[dict[str, str]], findings: list[str],
-               unmanaged: list[str] | None = None) -> dict:
-    return {
-        "schema_version": 1,
-        "scope": scope,
-        "operations": operations,
-        "findings": [
-            {"code": "persona_invalid", "message": finding} for finding in findings
-        ] + [
-            {"code": "unmanaged_persona", "message": finding}
-            for finding in (unmanaged or [])
-        ],
-    }
+def _json_plan(scope: str, operations: list, findings: list[str], warnings: list[str]) -> str:
+    return json.dumps({
+        "schema_version": 1, "scope": scope, "operations": operations,
+        "findings": [{"code": "persona_invalid", "severity": "error", "message": f}
+                     for f in findings]
+        + [{"code": "persona_warning", "severity": "warning", "message": w} for w in warnings],
+    }, sort_keys=True)
 
 
 def sync(repo: Path | None, check: bool, *, scope: str | None = None,
          preview: bool = False, json_output: bool = False) -> int:
-    try:
-        selected_scope = _scope_for(repo, check, scope)
-    except PersonaError as e:
-        if json_output:
-            print(json.dumps(_json_plan(scope or "invalid", [], [str(e)]), sort_keys=True))
-        else:
-            print(f"  ERROR {e}", file=sys.stderr)
-        return 2
-    include_global = selected_scope in {"global", "all"}
-    include_project = selected_scope in {"project", "all"}
-    if not POOL.is_dir():
-        message = f"no persona pool at {POOL}"
-        if json_output:
-            print(json.dumps(_json_plan(selected_scope, [], [message]), sort_keys=True))
-        else:
-            print(message, file=sys.stderr)
-        return 2
-    # THE ONE HARD EARLY RETURN, and it is deliberate. Every other validation below is collected as
-    # a finding so that one failure cannot suppress the others — see `findings`. This one cannot be,
-    # because it establishes WHICH personas exist: without a source list there is no expected set,
-    # so the staleness comparison has nothing to compare against and `prune` would report every
-    # generated file as an orphan. Continuing here would produce a louder wrong answer, not a
-    # fuller right one. Named explicitly in ~/.claude/docs/decisions.md rather than hidden behind
-    # "every check now runs".
-    try:
-        sources = pool_sources()
-    except PersonaError as e:
-        message = (f"{e}; the pool itself is unusable, so nothing else could be checked against "
-                   f"it")
-        if json_output:
-            print(json.dumps(_json_plan(selected_scope, [], [message]), sort_keys=True))
-        else:
-            print(f"  ERROR {e}", file=sys.stderr)
-            print("  the pool itself is unusable, so nothing else could be checked against it",
-                  file=sys.stderr)
-        return 2
-
-    # Is the protected set still the protected set? The only check in the toolchain that establishes
-    # a LOWER bound on the roster, and it is here rather than in the test suite because this is the
-    # entry point a hook actually runs.
-    #
-    # COLLECTED AS A FINDING, NOT RETURNED ON. An early `return 2` here meant one deletion bought two
-    # disablements: the roster check failed AND the staleness comparison never ran, so a hand-edited
-    # generated agent stopped being compared against the pool for as long as the record was missing.
-    # The exit code is still 2 — it is decided at the end, after every other check has had its turn.
-    try:
-        roster_finding, roster_warning = check_roster_against_the_record()
-    except PersonaError as e:
-        roster_finding, roster_warning = str(e), None
-
-    changed: list[str] = []
-    removed: list[str] = []
-    stale: list[str] = []
-    declared_no_writes: set[str] = set()
-    unprotected_judges: list[tuple[str, dict]] = []
-    vocabulary_warnings: list[tuple[str, str]] = []
-    expected: set[Path] = set()
-    overlays_dir = (repo / "docs" / "agents" / "personas") if include_project and repo else None
-    project_specific = 0
-    check_global = include_global
-
-    # EVERY VALIDATION FAILURE IS A FINDING, NOT A RETURN.
-    #
-    # `roster_finding` was made a finding in the last round for a specific reason: one deletion
-    # bought two disablements, because the roster check failed AND the staleness comparison never
-    # ran. Four other paths still returned early — an unparseable persona, the roster/`writes:`
-    # mismatch, a `restrict_for_roster` contradiction, and an overlay rejection — so the same
-    # composition survived through a different door. Adding `writes: no` to any non-roster persona
-    # source, then hand-editing a generated agent, meant the hand-edit was never compared, and
-    # `check_toolchain.py` labels a rc=2 as NOT_RUN.
-    #
-    # So: collect, keep going, decide the exit code at the end. The one exception is `pool_sources()`
-    # above, which cannot be collected because it defines the expected set.
-    findings: list[str] = [roster_finding] if roster_finding else []
-
-    def expect(p: Path) -> Path:
-        expected.add(p.resolve())
-        return p
-
-    # PARSE AND VALIDATE THE WHOLE POOL BEFORE WRITING ANYTHING.
-    #
-    # Validation used to happen inside the render loop, so a pool containing a defection had already
-    # had some artifacts rewritten by the time the run exited 2 — and it exited before the summary
-    # and the prune, so it changed what the harness loads and named no files. The half-written state
-    # was the *restricted* artifacts, so nothing unsafe shipped, but "failed" and "silently modified
-    # your agent definitions" must not be the same run.
-    #
-    # It also fixes a real coverage hole: under `--repo PATH --check` the renderers are never called
-    # for base personas, so `restrict_for_roster` never ran, so a defection that left `writes: no`
-    # intact and flipped only `codex.sandbox` passed with rc=0 — in the exact invocation every
-    # repository is told to put in its gate.
-    parsed: list[tuple[Path, dict, str]] = []
-    for src in sources:
-        try:
-            meta, body = parse(src)
-        except PersonaError as e:
-            findings.append(str(e))
-            # Its generated artifacts are still EXPECTED, so `prune` does not additionally report
-            # them as orphaned. The persona has a source; that source is broken. Those are
-            # different findings and reporting the second would bury the first.
-            expect(CLAUDE_AGENTS / f"{src.stem}.md")
-            expect(CODEX_AGENTS / f"{src.stem}.toml")
-            continue
-        parsed.append((src, meta, body))
-        # A FINDING in the base pool, a warning for overlays. The asymmetry is deliberate: this
-        # pool is in this repository and can be verified, so an unrecognised value here is a
-        # defect to fix now. Overlays live in repositories this card may not touch.
-        if meta.get("writes") not in KNOWN_WRITES_VALUES:
-            findings.append(
-                f"{meta['name']}: `writes: {meta.get('writes')}` is not a recognised value. "
-                f"Every check reads this field, and a value none of them recognise reads as a "
-                f"judge to a human while matching no filter."
-            )
-        if claims_no_writes(meta.get("writes")):
-            declared_no_writes.add(meta["name"])
-
-    # The roster and the pool's own declarations must agree, in BOTH directions, and disagreement is
-    # a failure rather than a skip. A roster member declaring anything but `writes: no` is a
-    # defection. A persona declaring `writes: no` that is NOT on the roster is the quieter half: it
-    # reads as a judge to every human and to `--list`, and inherits none of the derived restrictions.
-    if declared_no_writes != JUDGING_PERSONA_NAMES:
-        off_roster = sorted(declared_no_writes - JUDGING_PERSONA_NAMES)
-        defected = sorted(JUDGING_PERSONA_NAMES - declared_no_writes)
-        why = []
-        if defected:
-            why.append("on the judging roster but not declaring `writes: no`: "
-                       + ", ".join(defected))
-        if off_roster:
-            why.append("declaring `writes: no` but absent from the judging roster: "
-                       + ", ".join(off_roster))
-        findings.append("roster mismatch — " + "; ".join(why))
-
-    # Every other roster contradiction — sandbox, allow-list, unrenderable key — asked for here so
-    # it is caught in every invocation mode rather than only the ones that happen to render. A
-    # persona that fails is recorded and EXCLUDED from the plan below: rendering it would raise the
-    # same error again, one layer further in, where it would abort a loop instead of being reported.
-    contradicting: set[str] = set()
-    for _src, meta, _body in parsed:
-        try:
-            restrict_for_roster(meta)
-        except PersonaError as e:
-            findings.append(str(e))
-            contradicting.add(meta["name"])
-
-    # PHASE A — RENDER EVERYTHING INTO A PLAN. Nothing is written yet.
-    #
-    # "The whole pool is parsed and validated before any artifact is written" was FALSE while two
-    # validations lived inside the write loop: `merge_overlay`'s rejection and `render_codex`'s `'''`
-    # rejection. Measured on this suite's own overlay-widening fixture: NINE global artifacts were
-    # written before the loop reached `reviewer` and returned 2, and `prune` never ran, so orphans
-    # survived a failed run. The requirement this comment has always stated is that "failed" and
-    # "silently modified your agent definitions" must not be the same run.
-    #
-    # THE GUARANTEE IS THE PLAN-THEN-COMMIT SPLIT. READ THIS BEFORE ADDING A VALIDATION.
-    #
-    # Phase A renders every artifact into `plan` and may reject. Phase B commits the plan. Nothing
-    # touches the filesystem until Phase B, so a run that rejects cannot also have changed what the
-    # harness loads.
-    #
-    # WHERE REJECTIONS ACTUALLY LIVE — derived by AST, stated as function names because line numbers
-    # in this file have gone stale twice mid-review:
-    #
-    #   inside the renderers   `restrict_for_roster` via render_claude() and render_codex();
-    #                          render_codex()'s own `'''` check
-    #   outside them           parse(); merge_overlay(); restrict_for_roster() called DIRECTLY from
-    #                          sync(); pool_sources(); recorded_floor(); the `writes:` vocabulary
-    #                          check; and plan_write(), which catches whatever a renderer raises
-    #
-    # A PREVIOUS VERSION OF THIS COMMENT SAID EVERY REMAINING REJECTION HAPPENS INSIDE THE RENDERERS,
-    # AND THAT THE PROPERTY THEREFORE HELD "BY CONSTRUCTION". Do not restore it, and do not be
-    # reassured when you check it: the two renderer-internal calls above are real, so the claim
-    # CONFIRMS ITSELF on a quick look. The disconfirming half — the direct sync() call, parse(),
-    # merge_overlay() — takes longer to find, and nothing prompts you to look. That asymmetry is why
-    # the sentence survived four hand corrections. `merge_overlay` is the one whose early return
-    # caused the nine-artifact partial write, and it is the site the old wording implied did not
-    # exist.
-    #
-    # WHAT ACTUALLY HOLDS is an ORDERING, not a location: every validation rejection appends to
-    # `findings`, and every append runs before `compare_only` is computed. `compare_only` then gates
-    # `_commit_operations()`, the sole entry to the descriptor-relative mutation helpers below.
-    #
-    # ADDING A VALIDATION: append to `findings`, above `compare_only`. Never `return`. Location is
-    # free; position is not.
-    #
-    # Three tests hold this instead of this comment, which is the point — the comment is the thing
-    # that was wrong four times, and a test addressed to structure cannot go stale the way a cited
-    # line number does:
-    #   test_no_filesystem_mutation_is_reachable_before_the_commit_point   pins the commit helpers
-    #   test_findings_are_all_collected_before_compare_only_is_computed    pins the ordering
-    #   test_a_validation_failure_does_not_suppress_the_staleness_comparison  drives every door
+    selected = scope or "invalid"
+    operations: list[dict] = []
+    findings: list[str] = []
+    warnings: list[str] = []
     plan: list[tuple[Path, str]] = []
-
-    def plan_write(path: Path, render, *args) -> bool:
-        """Render into the plan, or record why it could not be rendered. Never writes."""
-        expect(path)
-        try:
-            plan.append((path, render(*args)))
-            return True
-        except PersonaError as e:
-            findings.append(str(e))
-            return False
-
-    for src, meta, body in parsed:
-        name = meta["name"]
-
-        if check_global:
-            if name in contradicting:
-                # Still expected, so `prune` does not also call it orphaned.
-                expect(CLAUDE_AGENTS / f"{name}.md")
-                expect(CODEX_AGENTS / f"{name}.toml")
-            else:
-                plan_write(CLAUDE_AGENTS / f"{name}.md", render_claude, meta, body)
-                if codex_present():
-                    plan_write(CODEX_AGENTS / f"{name}.toml", render_codex, meta, body)
-
-        if overlays_dir and (overlays_dir / f"{name}.md").is_file():
-            project_specific += 1
-            claude_target = expect(repo / ".claude" / "agents" / f"{name}.md")
-            codex_target = expect(repo / ".codex" / "agents" / f"{name}.toml")
-            try:
-                o_meta, o_body = parse(overlays_dir / f"{name}.md")
-                # An overlay may retune model/effort for this project and may NARROW capability;
-                # `merge_overlay` is what stops it widening. This used to be a plain dict merge, and
-                # a project overlay could re-grant a judge everything the roster withholds.
-                m = merge_overlay(meta, o_meta)
-            except PersonaError as e:
-                findings.append(f"overlay {e}")
-                continue
-            # THE OVERLAY HALF OF THE BIDIRECTIONAL `writes:` CHECK, which did not exist. The
-            # standalone branch below warns for a project persona declaring `writes: no`; this
-            # branch never looked at the overlay's `writes:` at all, because a name on the base
-            # roster routes down here and cannot reach that warning. So an overlay on a base WRITER
-            # — `developer` — declaring `writes: no` exited 0, warned nothing, and emitted a fully
-            # write- and dispatch-capable agent whose source read `writes: no` to every human and
-            # every reviewer. Roster members are already covered: `restrict_for_roster` rejects a
-            # merged contradiction outright. This is the non-roster case.
-            if o_meta.get("writes") is not None \
-                    and o_meta["writes"] not in KNOWN_WRITES_VALUES:
-                vocabulary_warnings.append((name, o_meta["writes"]))
-            if claims_no_writes(m.get("writes")) and name not in JUDGING_PERSONA_NAMES:
-                # The MERGED meta, not the base's and not the overlay's: what the harness receives
-                # is what the merge produced, and that is the only thing the warning may describe.
-                unprotected_judges.append((name, m))
-            merged = overlay_body(body, o_body, repo.name)
-            plan_write(claude_target, render_claude, m, merged)
-            plan_write(codex_target, render_codex, m, merged)
-
-    # A specialist the factory produced for this repo only: an overlay with no base persona behind
-    # it. It is a whole persona, so it renders from itself.
-    if overlays_dir and overlays_dir.is_dir():
-        base_names = {m["name"] for _s, m, _b in parsed}
-        for ov in sorted(overlays_dir.glob("*.md")):
-            if ov.name.lower() == "readme.md":
-                continue
-            try:
-                meta, body = parse(ov)
-            except PersonaError as e:
-                findings.append(f"overlay {e}")
-                continue
-            if meta["name"] in base_names:
-                continue
-            if meta.get("writes") is not None \
-                    and meta["writes"] not in KNOWN_WRITES_VALUES:
-                vocabulary_warnings.append((meta["name"], meta["writes"]))
-            if claims_no_writes(meta.get("writes")):
-                # A project judge gets NOTHING from the roster, which covers base names only. This
-                # is the largest known gap in the guarantee and the personas most likely to hit it
-                # are the sensitive ones — a factory derives them from the project's own PRD and
-                # guardrails, so a `consent-validator` on a health-data path is exactly the shape.
-                # Warned by name, loudly, for as long as the gap is open: a silent gap is how a
-                # deferred fix becomes a forgotten one.
-                unprotected_judges.append((meta["name"], meta))
-            plan_write(repo / ".claude" / "agents" / f"{meta['name']}.md", render_claude, meta, body)
-            plan_write(repo / ".codex" / "agents" / f"{meta['name']}.toml", render_codex, meta, body)
-            project_specific += 1
-
-    global_targets = []
-    if check_global:
-        global_targets = [CLAUDE_AGENTS] + ([CODEX_AGENTS] if codex_present() else [])
-    project_targets = ([repo / ".claude" / "agents", repo / ".codex" / "agents"]
-                       if include_project and repo else [])
-
-    # PHASE B — COMPARE ONCE. Preview, check and apply consume this exact operation list. A run
-    # with any finding exposes no partial plan and never mutates what either harness loads.
+    frozen: dict[Path, Path] = {}
     try:
-        for path, _content in plan:
-            is_project_path = bool(repo and (path == repo or repo in path.parents))
-            is_codex_path = path == CODEX_ROOT or CODEX_ROOT in path.parents
-            root = repo if is_project_path else (CODEX_ROOT if is_codex_path else Path.home())
-            _safe_target(path, root)
-        frozen_roots: dict[Path, Path] = {}
-        for directory in global_targets:
-            root = CODEX_ROOT if directory == CODEX_AGENTS else Path.home()
-            frozen_roots[directory.absolute()] = _safe_target(directory, root)
-        for directory in project_targets:
-            frozen_roots[directory.absolute()] = _safe_target(directory, repo)
-        operations = _operation_plan(plan, global_targets + project_targets, expected)
-        unmanaged_project = _unmanaged_paths(project_targets, expected)
-        legacy_unmanaged = unmanaged_project if scope is None and check else []
-        scoped_unmanaged = unmanaged_project if scope is not None and include_project else []
-    except (OSError, PersonaError) as e:
+        selected = _scope_for(repo, check, scope)
+        plan, expected, targets, findings, warnings = build(repo, selected)
+        # Phase B: compare once. Preview, check and apply all consume this operation list, and
+        # every finding is collected before anything is written.
+        for path, _ in plan:
+            _safe_target(path, _root_for(path, repo))
+        frozen = {d.absolute(): _safe_target(d, _root_for(d, repo)) for d in targets}
+        operations = _operation_plan(plan, targets, expected)
+    except (OSError, UnicodeDecodeError, PersonaError) as e:
         findings.append(str(e))
-        operations = []
-        frozen_roots = {}
-        legacy_unmanaged = []
-        scoped_unmanaged = []
 
     if json_output:
-        blocked = bool(findings or scoped_unmanaged)
-        print(json.dumps(_json_plan(selected_scope, operations if not blocked else [], findings,
-                                    scoped_unmanaged),
-                         sort_keys=True))
-        if blocked:
-            return 2
-        if check and operations:
-            return 1
-        return 0
+        print(_json_plan(selected, [] if findings else operations, findings, warnings))
+        return 2 if findings else (1 if check and operations else 0)
 
+    for w in warnings:
+        print(f"  WARNING {w}", file=sys.stderr)
     if preview:
-        print(f"personas: {len(operations)} planned operation(s) ({selected_scope})")
-        for operation in operations:
-            print(f"  {operation['action']:<6} {operation['path']}")
-        if findings or scoped_unmanaged:
-            for finding in findings + scoped_unmanaged:
-                print(f"  ERROR {finding}", file=sys.stderr)
-            return 2
-        return 0
-
-    if scoped_unmanaged:
-        findings.extend(scoped_unmanaged)
-    compare_only = check or bool(findings)
-    commit_error = None
-    if compare_only:
-        stale.extend(operation["path"] for operation in operations)
-        stale.extend(legacy_unmanaged)
-    else:
-        content_by_path = {str(path.absolute()): content for path, content in plan}
-        try:
-            _commit_operations(operations, content_by_path, frozen_roots, compare_only)
-        except PersonaError as e:
-            commit_error = str(e)
-        else:
-            changed.extend(op["path"] for op in operations if op["action"] != "delete")
-            removed.extend(op["path"] for op in operations if op["action"] == "delete")
-
-    print(f"personas: {len(sources)} in the pool"
-          + (f", {project_specific} project persona source"
-             f"{'' if project_specific == 1 else 's'} for {repo.name}"
-             if include_project and repo else ""))
-    if roster_warning:
-        print(f"  WARNING {roster_warning}", file=sys.stderr)
-    for persona, value in vocabulary_warnings:
-        print(f"  WARNING {persona}: `writes: {value}` is not a recognised value "
-              f"({', '.join(sorted(KNOWN_WRITES_VALUES))}). It is being READ as a claim not to "
-              f"write, because that is the fail-closed direction, but no check matches it "
-              f"literally and it reads as a judge to every human.", file=sys.stderr)
-    for judge, judge_meta in unprotected_judges:
-        print(unprotected_judge_warning(judge, judge_meta), file=sys.stderr)
-    # The staleness comparison is reported unconditionally, even when a validation has already
-    # failed. One deletion used to buy two disablements — the record went missing, `sync()` returned
-    # 2 before ever comparing, and a hand-edited generated agent stopped being caught for as long as
-    # that lasted. Nine `return 2` paths in this function had that property; three remain, and the
-    # two that fire before this point (no pool directory, unusable pool) are the ones where there is
-    # no expected set to compare against at all.
-    if stale:
-        print(f"  STALE — {len(stale)} generated file(s) do not match the persona source:")
-        for s in stale[:12]:
-            print(f"    {s}")
-        print("  run: sync_personas.py" + (f" --repo {repo}" if repo else ""))
-    elif compare_only:
-        print("  in sync")
-
+        print(f"personas: {len(operations)} planned operation(s) ({selected})")
+        for op in operations:
+            print(f"  {op['action']:<6} {op['path']}")
+    elif check or findings:
+        # A validation failure does not suppress the staleness comparison.
+        if operations:
+            print(f"  STALE — {len(operations)} generated file(s) do not match the source:")
+            for op in operations:
+                print(f"    {op['path']}")
+        elif not findings:
+            print("  in sync")
     if findings:
         for f in findings:
             print(f"  ERROR {f}", file=sys.stderr)
-        if not check:
-            print(f"  NOTHING WAS WRITTEN — {len(findings)} finding(s). A run that reports a "
-                  f"failure must not also change what the harness loads.", file=sys.stderr)
+        if not (preview or check):
+            print("  nothing was written: a run that reports a failure must not also change what "
+                  "the harness loads.", file=sys.stderr)
         return 2
-    if commit_error:
-        print(f"  ERROR {commit_error}", file=sys.stderr)
-        print("  COMMIT ABORTED — no operation followed the changed target path.", file=sys.stderr)
+    if preview or check:
+        return 1 if check and operations else 0
+
+    content = {str(path.absolute()): text for path, text in plan}
+    try:
+        _commit_operations(operations, content, frozen)
+    except PersonaError as e:
+        print(f"  ERROR {e}", file=sys.stderr)
         return 2
-    if stale:
-        return 1
-    if check:
-        return 0
-    for c in changed:
-        print(f"  wrote   {c}")
-    for r in removed:
-        print(f"  removed {r}  (orphaned — persona no longer in the pool)")
-    if not changed and not removed:
+    print(f"personas: {len(BASE_PERSONA_NAMES)} in the pool ({selected})")
+    for op in operations:
+        verb = "removed" if op["action"] == "delete" else "wrote  "
+        print(f"  {verb} {op['path']}")
+    if not operations:
         print("  already up to date")
     return 0
 
 
-def persona_status(description: str) -> str:
-    """Derive compatibility status from the source's existing authority prefix."""
-    if description.startswith("SUPERSEDED "):
-        return "superseded"
-    if description.startswith("RETIRED "):
-        return "retired"
-    return "active"
-
-
-def show_roster(include_retired: bool = False, output_format: str = "text") -> int:
-    rows = []
+def show_roster(output_format: str = "text") -> int:
+    headings = ("persona", "spawnable", "writes", "claude", "effort", "codex", "effort")
     try:
-        sources = pool_sources()
-        for src in sources:
+        rows = []
+        for src in pool_sources():
             m, _ = parse(src)
-            status = persona_status(m["description"])
-            if status != "active" and not include_retired:
-                continue
-            rows.append((m["name"], status, m.get("writes", "?"),
+            rows.append((m["name"], m.get("spawnable", "yes"), m.get("writes", "?"),
                          m.get("claude.model", "-"), m.get("claude.effort", "-"),
                          m.get("codex.model", "-"), m.get("codex.effort", "-")))
     except PersonaError as e:
         print(e, file=sys.stderr)
         return 2
     if output_format == "markdown":
-        print("| Persona | Status | Writes | Claude model | Claude effort | Codex model | "
-              "Codex effort |")
-        print("|---|---|---|---|---|---|---|")
+        print("| " + " | ".join(h.capitalize() for h in headings) + " |")
+        print("|" + "---|" * len(headings))
         for row in rows:
             print("| " + " | ".join(row) + " |")
         return 0
-
-    widths = [max(len(label), *(len(row[i]) for row in rows))
-              for i, label in enumerate(("persona", "status", "writes", "claude", "effort",
-                                         "codex", "effort"))]
-    headings = ("persona", "status", "writes", "claude", "effort", "codex", "effort")
-    print("  ".join(f"{heading:<{widths[i]}}" for i, heading in enumerate(headings)))
-    for row in rows:
-        print("  ".join(f"{value:<{widths[i]}}" for i, value in enumerate(row)))
+    widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headings)]
+    for row in (headings, *rows):
+        print("  ".join(f"{v:<{widths[i]}}" for i, v in enumerate(row)).rstrip())
     return 0
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--repo", default=None, help="also render this repository's overlays")
+    ap.add_argument("--repo", default=None, help="also render this repository's personas")
     ap.add_argument("--check", action="store_true", help="exit 1 when generated output is stale")
-    ap.add_argument("--scope", choices=("project", "global", "all"), default=None,
-                    help="limit reconciliation to project agents, global agents, or both")
-    ap.add_argument("--preview", action="store_true",
-                    help="construct and report the exact operation plan without writing")
+    ap.add_argument("--scope", choices=("project", "global", "all"), default=None)
+    ap.add_argument("--preview", action="store_true", help="report the operation plan only")
     ap.add_argument("--json", action="store_true", dest="json_output",
-                    help="emit the reconciliation plan as one JSON object")
-    ap.add_argument("--list", action="store_true", dest="show", help="print the roster")
-    ap.add_argument("--include-retired", action="store_true",
-                    help="include superseded and retired compatibility definitions in --list")
-    ap.add_argument("--format", choices=("text", "markdown"), default=None,
-                    help="select --list output format (default: text)")
+                    help="emit the preview plan as one JSON object")
+    ap.add_argument("--list", action="store_true", dest="show", help="print the pool")
+    ap.add_argument("--format", choices=("text", "markdown"), default=None)
+    ap.add_argument("--route", default=None, help="print one persona's routing as JSON")
+    ap.add_argument("--variant", default=None, help="with --route: a named variant")
     args = ap.parse_args()
 
-    if not args.show and (args.include_retired or args.format is not None):
-        ap.error("--include-retired and --format require --list")
-    if args.show and (args.scope is not None or args.preview or args.json_output or args.check or
-                      args.repo):
-        ap.error("--list cannot be combined with reconciliation options")
+    reconcile = args.scope or args.preview or args.json_output or args.check or args.repo
+    if args.format and not args.show:
+        ap.error("--format requires --list")
+    if args.variant and not args.route:
+        ap.error("--variant requires --route")
+    if ((args.show or args.route) and reconcile) or (args.show and args.route):
+        ap.error("--list and --route stand alone")
     if args.json_output and not args.preview:
         ap.error("--json requires --preview")
     if args.show:
-        return show_roster(args.include_retired, args.format or "text")
+        return show_roster(args.format or "text")
+    if args.route:
+        try:
+            meta, _ = load(args.route)
+            print(json.dumps(routing(meta, args.variant), sort_keys=True))
+            return 0
+        except (OSError, PersonaError) as e:
+            print(f"  ERROR {e}", file=sys.stderr)
+            return 2
     repo = Path(args.repo).resolve() if args.repo else None
     if repo and not repo.is_dir():
         print(f"not a directory: {repo}", file=sys.stderr)
         return 2
-    try:
-        return sync(repo, args.check, scope=args.scope, preview=args.preview,
-                    json_output=args.json_output)
-    except PersonaError as e:
-        # Renderer-level rejections (roster contradictions, un-renderable bodies) reach here. They
-        # are a finding about the pool, not a crash, and must exit 2 rather than traceback.
-        print(f"  ERROR {e}", file=sys.stderr)
-        return 2
+    return sync(repo, args.check, scope=args.scope, preview=args.preview,
+                json_output=args.json_output)
 
 
 if __name__ == "__main__":

@@ -1,113 +1,62 @@
 ---
 name: agent-personas
-description: Use when delegating work to a subagent and you need to pick the right role, model, and effort — developer, senior-developer, reviewer, architect, scout, acceptance and the rest. Also use when adding or editing a persona, when a project needs its own specialist, or when generated agent files are out of sync with the persona pool.
+description: Use when choosing which role does a piece of goal work (builder, reviewer, security-reviewer, advisor) and at what model and effort, when editing a persona, or when generated agent files are out of sync with the persona pool.
 ---
 
-# Select and render personas
+# Personas
 
-The pool decides who acts. The `execution-methodology` skill owns stage order, lane admission,
-review packets and rounds, gates, and terminal states. Persona source files define each role's
-responsibilities and permissions.
+The pool is five sources in `personas/`. The execution methodology says when each role runs; a
+persona says how it behaves and which model and effort it uses. Routing lives only in persona
+frontmatter, so cost and quality do not depend on a choice made in the moment.
 
-## Select a role
+| Persona | Does | Writes |
+| --- | --- | --- |
+| `builder` | implements one task inside its write set | yes |
+| `reviewer` | judges design, plan, boundary, data or acceptance | no |
+| `security-reviewer` | judges `risk: safety` tasks | no |
+| `advisor` | answers one escalated question, or sits on a council | no |
+| `chief` | routing profile for the root session; never rendered | yes |
 
-The source pool has fourteen compatibility definitions. Ordinary selection shows active roles;
-`docs-steward`, `planner`, and `contract-architect` remain renderable but their `SUPERSEDED` or
-`RETIRED` description prefixes exclude them from the default list. The source descriptions are the
-status authority; do not create a second status table.
+`sync_personas.py --list` prints the current models and efforts for both harnesses.
 
-```bash
-sync_personas.py --list
-sync_personas.py --list --include-retired
-sync_personas.py --list --include-retired --format markdown
-```
+## Frontmatter
 
-The Markdown form reports status, writes, model, and effort for both harnesses. Use the role source
-for its complete boundary. For routine selection:
+Flat `key: value` lines, parsed without YAML:
 
-- `scout` locates code and does not judge or edit.
-- `developer` implements a bounded, single-module task with a complete spec and an existing pattern;
-  it stops when interface, migration, contract, security, concurrency, or placement judgement is
-  required. `senior-developer` owns implementation that needs that judgement.
-- `product-steward` owns product definition and documentation custody. `architect` judges system
-  structure. `chief-of-staff` owns plans, scheduling, and bounded workspace state.
-- `reviewer` independently falsifies design, plan, or implementation. `security-validator` owns
-  consent, authorization, privacy, token, and public-capability invariants.
-  `migration-validator` owns schema, migration, and backfill invariants and requires the dispatched
-  parse, dry run, and contract-test evidence before review.
-- `test-judge` runs declared checks and reports their real output. `acceptance` judges the sealed
-  milestone against frozen criteria.
+- `name`, `description`, `writes: yes|no`, and `spawnable: no` for a profile the renderer skips.
+- `claude.model`, `claude.effort`, `claude.tools`, `claude.disallowedTools`; `codex.model`,
+  `codex.effort`, `codex.sandbox`. These are the defaults.
+- `variant.<name>.<claude|codex>.<model|effort>` overrides one default for a named variant; keys it
+  does not name are inherited. The builder carries `judgement` and `mechanical`, matching a plan
+  task's `builder:` field (`routine` is the default). The reviewer carries `acceptance`, the only
+  place `xhigh` appears.
 
-`architect`, `product-steward`, and `chief-of-staff` have instruction-level write boundaries because
-tools cannot restrict writes to their owned paths. They never absorb another role's implementation.
+The driver reads routing with `routing(meta, variant)` from the script, or
+`sync_personas.py --route <name> [--variant <v>]`, which prints JSON.
 
-## Authority and restrictions
+## Judges are read-only by construction
 
-Each persona's frontmatter is the model and effort authority for both harnesses and the sole
-default authority. A
-supported native per-dispatch override is a separate, explicit recorded decision; it never creates a
-second source default or a silent fallback. Fable may be selected only when the dispatch has
-established model access and any required spending authority. Permissions, frozen criteria,
-independent review, and executable gates carry safety; model choice does not replace them.
+`JUDGING_PERSONA_NAMES` (reviewer, security-reviewer, advisor) is fixed in the renderer, and each
+must declare `writes: no`; a persona cannot leave the set by editing its own file. A judge must
+declare a `claude.tools` allow-list from `Read`, `Grep`, `Glob` and `TodoWrite`. The renderer adds a
+fixed deny-list (write, edit, notebook, agent dispatch, messaging, monitor, worktree, task-stop and
+Bash) and renders Codex with `sandbox_mode = "read-only"`. A judging source that declares a writer,
+Bash, an unclassified tool or another sandbox is rejected with exit 2, never silently corrected.
+See [references/roster.md](references/roster.md) for why each boundary exists.
 
-## Judge tool boundary
-
-The judging roster in `ROSTER` is `acceptance`, `migration-validator`, `planner`, `reviewer`,
-`scout`, `security-validator`, and `test-judge`. The renderer derives their Claude deny-list from
-roster membership and requires an explicit Claude allow-list. Codex renders them with
-`sandbox_mode = "read-only"`. A source may narrow a judge further and may not widen the derived
-restriction.
-
-On Claude, direct write and dispatch tools are withheld from every judge. On Codex, the read-only
-sandbox withholds direct filesystem writes, but no dispatch-denial key exists; Codex dispatch
-remains instruction-bound and unmitigated. `test-judge` alone may hold `Bash` so it can run a gate;
-Claude Bash remains instruction-bound against source writes. Ordinary tests writing only disposable
-temporary fixtures use the ordinary test route under existing permissions. Source-writing gates
-run against a prepared copy inside the approved nested sandbox;
-the controller prepares and manifest-binds that copy, never writable source. Other judges have no shell. Judges
-return findings for the controller to persist because they have no direct report-writing tool.
-Sandbox-invoking self-tests that require the authorized controller host path use captured results
-for independent judge verification. Never weaken this boundary to simplify a handoff.
-
-## Preview and render
+## Render
 
 ```bash
-sync_personas.py --scope global --preview --json
-sync_personas.py --scope global
-sync_personas.py --repo PATH --scope project --preview --json
-sync_personas.py --repo PATH --scope project
-sync_personas.py --repo PATH --scope all --preview --json
+sync_personas.py                                  # user level: ~/.claude/agents, $CODEX_HOME/agents
+sync_personas.py --check                          # 0 current, 1 stale, 2 source error
+sync_personas.py --scope project --repo PATH --preview --json
 ```
 
-Explicit global scope forbids `--repo` and never visits a project. Project scope requires `--repo`
-and touches only that repository's Claude and Codex agent trees. `all` shows combined impact.
-Preview, check, and apply use the same plan; preview writes nothing. Never edit generated global or
-project agent files directly.
+Codex agents are rendered only when the Codex home exists. Writes are atomic and never follow a
+symlink, and files carrying the generated marker that no source produces are removed. Never edit a
+generated agent; edit the persona and re-render.
 
-## Project overlays
-
-Project overlays live at `docs/agents/personas/<name>.md` and are committed with both generated
-harness formats. A same-name overlay appends project direction and may retune model or effort; a
-roster judge may only be narrowed. A new-name overlay is never automatically a judge, regardless of
-`writes: no`; create project specialists through `agent-persona-factory` so their restrictions are
-explicit. Optional `covers:` values bind specialist concerns to product horizontals through
-`spec_check.py`.
-
-Every onboarded repository links a maintained persona index or records a non-empty `base-only`
-reason. Project checks own project drift; global checks own the global pool. A persona runs in the
-current harness only; do not dispatch across harnesses.
-
-## Authoring route
-
-Routine selection stops here. Read the complete
-[persona authoring reference](references/roster.md) before any of these actions:
-
-- adding or editing a base persona;
-- changing roster or judge policy;
-- changing model or effort defaults;
-- diagnosing generation or overlay behavior;
-- using historical measurements or rationale.
-
-Use `agent-persona-factory` when a project needs a new specialist. Do not edit `ROSTER`, persona
-sources, renderer policy, models, permissions, sandboxes, or generated agents as a side effect of
-ordinary selection.
+A project may add whole personas of its own in `docs/agents/personas/<name>.md`; they render into
+the project's `.claude/agents/` and `.codex/agents/`, with their tool policy as declared. A project
+file named like a base persona is skipped with a warning: overlays of base personas are retired, and
+the project should move that direction into its own docs or a persona with its own name.
