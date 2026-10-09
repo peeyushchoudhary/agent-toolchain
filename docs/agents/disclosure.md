@@ -22,20 +22,13 @@
 | `docs/runbooks/` | operational procedures: Codex, GitHub, global instructions | current |
 | `docs/archive/` | superseded material | NOT authoritative |
 
-## Depth is the constraint, and it is checked
+## Depth is the constraint
 
-`validate_disclosure.py` warns `too-deep` past two hops from an entry file. Moving these documents
-into area directories spends one of those hops, so [../README.md](../README.md) links every document
-DIRECTLY rather than only linking the six area indexes. Add a document by adding a row there in the
-same commit; a document reachable only through its area index sits three hops out and the validator
-says so.
+Keep every document within two hops of an entry file. Moving these documents into area directories
+spends one of those hops, so [../README.md](../README.md) links every document DIRECTLY rather than
+only linking the six area indexes. Add a document by adding a row there in the same commit.
 
-## Running it
+## Checking it
 
-```bash
-python3 install/skills/progressive-disclosure/scripts/validate_disclosure.py . --standard
-./install/verify.sh          # runs the line above, in the repository section
-```
-
-The exit code is the verdict. `status` is `partial` on any run not also given `--vs`, and `partial`
-carries exit 1 when the checks that ran found an error.
+`./install/verify.sh` runs the link check: every relative link in `AGENTS.md`, `README.md` and
+`docs/` must name an existing file. The exit code is the verdict.

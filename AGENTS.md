@@ -35,6 +35,5 @@ outside existing grants still need the founder.
 
 The repository gate is `cd install && ./install.sh --dry-run && ./verify.sh`; its last line,
 `verify: PASS`, is the verdict. During a goal, run it through `gate.py receipt`: a failure recorded
-in the goal's baseline is not attributed to the change, and a new one is. It runs
-`validate_disclosure.py --standard` against this repository, so the route check is not a separate
-command.
+in the goal's baseline is not attributed to the change, and a new one is. It includes the link
+check: every relative link in `AGENTS.md`, `README.md` and `docs/` must resolve.

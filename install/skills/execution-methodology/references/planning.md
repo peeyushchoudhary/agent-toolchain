@@ -18,8 +18,7 @@ gets misread as authority.
 
 Draft them by interviewing the founder about the outcome, the journeys and the consequential
 alternatives. Resolve contradictions in the owning document before review, because a reviewer can
-only falsify what is written down. Then run cross-vendor review of the design and of the plan (see
-[review.md](review.md)), correct, generate the approval explainer from [explainer-template.html](explainer-template.html), and present
+only falsify what is written down. Then the other vendor reviews the design and the plan once each, correct, and present
 the package. Approval is recorded by the tag `goal/<id>/approved` on the approved commit.
 
 ## `plan.md` format

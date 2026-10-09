@@ -7,7 +7,7 @@ Disclosure fails in two directions. Too little: the agent explores blindly and r
 codebase every session. Too much: a 4,000-word instruction file that gets skimmed, so its invariants
 may as well not exist.
 
-Implementation: `~/.claude/skills/progressive-disclosure/`.
+This is a convention, not a tool: `install/verify.sh` checks only that links resolve.
 
 ## Four layers
 
@@ -31,7 +31,7 @@ Layers 1–3 route an *agent*. `README.md` answers a *human* who has never seen 
 deciding whether it is real. Different reader, different document; collapsing either into the other
 loses one of them.
 
-Seven sections, enforced by `validate_disclosure.py --readme`. Heading wording is flexible — common
+Seven sections. Heading wording is flexible — common
 synonyms are accepted — but each question must be answered:
 
 | Section | Question |
@@ -49,7 +49,6 @@ synonyms are accepted — but each question must be answered:
 
 Mermaid remains the default. An explicit image choice requires local image bytes bound by SHA-256
 and a readable text description. Visual review checks meaning and private identifiers. See the
-[declaration contract](../../install/skills/progressive-disclosure/references/standard.md) and
 [visual sources](../assets/readme/README.md).
 
 ## Authoring rules
@@ -61,65 +60,6 @@ and a readable text description. Visual review checks meaning and private identi
   > `docs/archive/` (rationale only, never behaviour).
 - **Demote history explicitly, by path.** Otherwise agents cite a superseded plan as current.
 - **Adding a guide means adding its index row.** An unrouted guide is invisible.
-
-## Validation
-
-```bash
-validate_disclosure.py .                    # the route
-validate_disclosure.py . --readme           # + the README contract
-validate_disclosure.py . --standard         # + the repository taxonomy
-validate_disclosure.py . --vs main          # + warn if source changed and README did not
-```
-
-| Signal | Meaning |
-|---|---|
-| `broken-link` (error) | A link or `@import` that does not resolve |
-| `missing-make-target` / `missing-script` / `missing-just-recipe` / `missing-task` (error) | A documented command that does not exist |
-| `readme-*` (error) | Missing section, no diagram, unlinked PRD or plan, unmentioned component |
-| `persona-drift` (error) | Generated agent files no longer match their persona source |
-| `orphan-doc` (warn) | A guide in an agent-docs directory that nothing routes to |
-| `unscoped-dir` (warn) | A source directory with no layer-3 entry file |
-| `over-budget` / `too-deep` (warn) | Disclosure decaying into a dump |
-| `stale-path` (warn) | A guide cites a code path that resolves nowhere |
-| `standard-*` | Taxonomy violations, unfinished scaffolding, version drift |
-| `lessons-entries` (note) | A lessons file accreted past readable-in-one-sitting |
-
-Exit 1 on any error, never on a warning or a note — severity belongs to the finding, not the call
-site; there is no `--strict`. Wire into the repo's gate — in the reference project it is
-`make check-docs`, part of `make check`.
-
-## Declaring a repository deliberately public
-
-A public repository is critical: it is almost always an accident. One meant to be read declares so,
-in a file it already has — `docs/agents/README.md`, or the root `AGENTS.md`/`CLAUDE.md`. No central
-allowlist.
-
-```markdown
-<!-- public-exception: {"reason":"why this is meant to be read","date":"2026-01-31"} -->
-```
-
-Fails closed on bad JSON, a bad reason or date, or more than one marker. Two former holes: markers
-match **code-stripped** text, so the fenced example cannot exempt a repository that copies this
-page; and an exemption is loud: every mode, its own sweep row, a note when uncommitted, a re-raise
-after a year.
-
-## Things the validator learned the hard way
-
-Each of these was a real false positive or miss, fixed in the tool:
-
-- **`@import` is matched against code-stripped text and must look like a path.** A bare Java
-  annotation on its own line — `@Entity`, `@RestController` — was being parsed as an import, so
-  every design doc quoting Spring reported dozens of broken links.
-- **Commands are read only from code spans and fences.** Running the patterns over prose matched
-  ordinary English: "make the", "make you", "make active" were all reported as missing targets.
-- **History is link-checked but not crawled.** `docs/archive/`, `docs/superpowers/`,
-  `docs/eval-reports/`. A plan written months ago *should* cite files that have since moved; that
-  is what makes it history. Crawling it buried the one real breakage in 117 correct warnings.
-- **Budgets and depth apply to the route only** — `docs/agents/` and entry files. A 2,800-word PRD
-  is not a disclosure failure; it is a PRD.
-- **A cited filename that exists anywhere is imprecise, not stale.** A guide citing a bare filename
-  when the file lives two directories deeper is the case the base-path guesser cannot get right;
-  warning on it would be a false positive, so the check stays quiet when the basename exists.
 
 ## The learning channel
 

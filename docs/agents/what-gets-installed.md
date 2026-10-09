@@ -12,7 +12,7 @@ made to an installed file is overwritten by the next install.
 
 ### Skills
 
-The four skills named in `install/skills/.gitignore`. The installer derives the set from that
+The skills named in `install/skills/.gitignore`. The installer derives the set from that
 allowlist rather than carrying its own count, and a declared skill missing from the package is a
 failure.
 
@@ -20,8 +20,6 @@ failure.
 |---|---|
 | `skills/execution-methodology/` | The chief's rules, one reference per kind of work, the goal and gate tools, read-only review, the driver |
 | `skills/agent-personas/` | Five persona sources and the renderer |
-| `skills/progressive-disclosure/` | The route standard, validator, hooks installer, GitHub checker, push guard |
-| `skills/graph-navigation/` | The symbol-first ladder for querying a graphify graph |
 
 `graphify` may also be present. It is a vendor skill that this repository neither publishes nor
 manages.
@@ -30,36 +28,20 @@ manages.
 
 | Script | Does |
 |---|---|
-| `execution-methodology/scripts/goal.py` | Parses a plan; reports status, next task, guard, done, evidence; runs the Stop hook |
+| `execution-methodology/scripts/goal.py` | Parses a plan; lint, status, next, resume, packet, the eight-row done; runs the Stop hook |
 | `execution-methodology/scripts/gate.py` | Runs a gate, parses counts, writes receipts bound to tree and command |
-| `execution-methodology/scripts/review.py` | Builds a review packet and makes a one-shot read-only call to a judge |
-| `execution-methodology/scripts/run_goal.py` | Drives a multi-session run, one fresh session per milestone or envelope |
+| `execution-methodology/scripts/run.sh` | Runs fresh unattended sessions until `goal.py done` holds, or stalls or parks |
+| `execution-methodology/scripts/guard.py` + `git-hooks.sh` | The one git guard (staged content, commit message, pushed range) and its per-repository hook installer |
 | `agent-personas/scripts/sync_personas.py` | Scoped persona preview, check and apply; roster listing; routing |
-| `progressive-disclosure/scripts/validate_disclosure.py` | Route, README, taxonomy and persona-drift checks |
-| `progressive-disclosure/scripts/migrate_to_standard.py` | Plans and applies the taxonomy migration |
-| `progressive-disclosure/scripts/install_hooks.py` | Plans, checks and applies git hooks with explicit scopes |
-| `progressive-disclosure/scripts/check_github.py` | Repo stored, private, pushed, quiet; `--sweep` for the fleet |
-| `progressive-disclosure/scripts/push_guard.py` | pre-push: secrets, oversized files, direct main pushes |
-| `progressive-disclosure/scripts/check_toolchain.py` | Machine-global drift: generated agents, mirrored instruction blocks, the Codex skills copy, plugin surface. Reports only |
 
 ### Hooks, registered in `~/.claude/settings.json`
 
-Every script in `install/hooks/` is copied to `~/.claude/hooks/`, overwriting older copies. The
-settings file is merged, never replaced: entries are appended only when their command is absent, a
+The settings file is merged, never replaced: entries are appended only when their command is absent, a
 file that is not valid JSON is refused, and a backup is taken before the first change.
 
 | Event | Script | Behaviour |
 |---|---|---|
-| `SessionStart` | `hooks/disclosure-check.sh` | Reports GitHub state, toolchain drift, a broken route, a stale graph. Reports, never writes |
-| `SessionStart` | `hooks/graphify-session-lessons.sh` | Injects the graph's lessons file, capped |
-| `SessionStart` | `hooks/preflight.sh` | Machine-fact checks for environment failures. Reports, never writes |
-| `SessionStart` | `hooks/goal-session.sh` | Prints the active goal's state, or the migrate-first notice in an unmigrated project |
-| `PreToolUse` (Bash) | `hooks/graphify-query-advisor.py` | Injects the symbol-first ladder when a prose graph query is about to run |
-| `Stop` | `goal.py stop-hook` | Keeps a goal session working until done, blocked, or the stall cap |
-
-The two goal hooks stay silent when `GOAL_HARNESS` is set: the driver registers its own for the
-sessions it starts, and two Stop hooks over one goal would defeat the stall cap. Session hooks
-report and never create files, because they fire in every directory a session starts in.
+| `Stop` | `goal.py stop-hook` | Blocks a stop while `goal.py done` is unmet, at most three times per session |
 
 ### Generated agents
 
@@ -77,8 +59,8 @@ Skipped when the Codex home is absent.
 
 | Path | Purpose |
 |---|---|
-| `skills/` | The same four skills |
-| `hooks/goal-session.sh`, `hooks.json` | The same SessionStart and Stop hooks with absolute paths, merged |
+| `skills/` | The same skills |
+| `hooks.json` | The same Stop hook with an absolute path, merged |
 | `agents/` | The spawnable personas as `.toml`; hand-written workers are preserved |
 | `config.toml` | An `[agents]` block, appended only if none exists |
 | `AGENTS.md` | Private, untouched; see the runbook above |
@@ -88,15 +70,17 @@ so trust the two goal hooks once after the first install and again whenever thei
 
 ## Per-repository
 
-Git hooks are never cloned, so each clone needs an explicit preview and apply:
+Git hooks are never cloned, so each clone installs them once (`--uninstall` removes only its own):
 
 ```bash
-python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py <repo> --scope project --preview --json
-python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py <repo> --scope project
+bash ~/.claude/skills/execution-methodology/scripts/git-hooks.sh <repo>
 ```
 
-`pre-commit` validates the route and fails the commit when it is broken; `pre-push` blocks secrets,
-files over 10 MB and direct pushes to main. Both skip silently when their tool is absent.
+It writes `pre-commit`, `pre-merge-commit`, `commit-msg` and `pre-push` (honouring
+`core.hooksPath`), each running `guard.py`: commits and merges may not add a home path, the local git identity, a name on the private list or
+a secret; pushes may not carry a secret or a file over 10 MB, nor move an existing `main`. It
+refuses when the installed `guard.py` is absent, and the guard exits 2, blocking, when it cannot
+run.
 
 ## Verifying
 

@@ -6,11 +6,11 @@
 | Task | Guide | Command |
 | --- | --- | --- |
 | Understand what the installer places, and where | [what-gets-installed.md](what-gets-installed.md) | `./install/install.sh --dry-run` |
-| Understand the route itself and its validator | [progressive-disclosure.md](progressive-disclosure.md) | `python3 install/skills/progressive-disclosure/scripts/validate_disclosure.py . --standard` |
+| Understand the route convention itself | [progressive-disclosure.md](progressive-disclosure.md) | `./install/verify.sh` |
 | Route work to a persona, or add one | [agent-personas.md](agent-personas.md) | `python3 install/skills/agent-personas/scripts/sync_personas.py --list --format markdown` |
 | Move a project off v5.1 | [migrate.md](../../install/skills/execution-methodology/references/migrate.md) | `python3 install/skills/execution-methodology/scripts/goal.py --help` |
 | Learn how the route works in THIS repository | [disclosure.md](disclosure.md) | `./install/verify.sh` |
-| Find where a document belongs | [../architecture/repository-standard.md](../architecture/repository-standard.md) | `python3 install/skills/progressive-disclosure/scripts/migrate_to_standard.py .` |
+| Find where a document belongs | [../architecture/repository-standard.md](../architecture/repository-standard.md) | — |
 | Read a settled decision before re-opening it | [../decisions/decisions.md](../decisions/decisions.md) | — |
 | Read what an earlier agent already learned here | [lessons.md](lessons.md) | — |
 | Execute approved v6 lean goal execution (F-3) | [spec](../product/specs/F-3-lean-execution.md), [design](../architecture/lean-execution.md), [plan](../product/plans/F-3-lean-execution.md) | `git tag -l 'goal/F-3/*'` |

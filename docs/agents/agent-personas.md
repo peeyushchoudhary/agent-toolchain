@@ -57,9 +57,8 @@ A judge that cannot edit is a stronger guarantee than one told not to. It remove
 a reviewer finds a defect and quietly patches it, so the defect is never recorded. The reasons for
 each boundary are in [roster.md](../../install/skills/agent-personas/references/roster.md).
 
-Review lenses, finding classes and the cap on correction rounds belong to the
-[review reference](../../install/skills/execution-methodology/references/review.md), not to the
-persona files, which define responsibility and restrictions only.
+Review lenses and finding classes belong to the execution methodology, not to the persona files,
+which define responsibility and restrictions only.
 
 ## Authoring and rendering
 
@@ -95,6 +94,5 @@ specialist is worse than a missing one, because dispatch becomes ambiguous.
 ## Cross-vendor review
 
 Persona dispatch stays in-harness. The one cross-harness call is the read-only reviewer at design,
-plan and acceptance, made through `review.py` as a one-shot command that loads none of the user's
-integrations; see the [design](../architecture/lean-execution.md). Its cost and yield are recorded
+plan and acceptance, made as one read-only call to the other vendor's CLI; see the [design](../architecture/lean-execution.md). Its cost and yield are recorded
 in [measurements.md](../product/measurements.md).

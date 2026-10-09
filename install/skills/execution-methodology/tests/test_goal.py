@@ -1,29 +1,63 @@
-"""Tests for goal.py: plan lint, guards, completion, the stop hook and evidence.
+"""Tests for goal.py and run.sh: the plan parser, lint, the eight done rows, the stop hook, run.sh.
 
-Each test builds a throwaway repository (fixtures/goal_fixture.py) and drives goal.py as a
-subprocess, the way the chief and the hooks call it. The cases follow the ways a run could fake
-progress: edits outside the task, tampered tests, edited frozen inputs, stale or mismatched
-receipts and verdicts, and a session that keeps stopping without finishing.
+Each case builds a throwaway repository (fixtures/goal_fixture.py) holding goal F-9, tagged
+goal/F-9/approved, and plants one way a run could fake progress; the matching done row must name it.
 """
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
-import time
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.goal_fixture import E2E, FULL, GOAL, PROOF3, Repo, plan_text, task  # noqa: E402
+from fixtures.goal_fixture import E2E, FULL, GATE, GOAL, Repo, env, plan_text  # noqa: E402
 
 sys.path.insert(0, str(GOAL.parent))
 import goal  # noqa: E402
+from gate import receipt_path  # noqa: E402
 
-REAL_ROOT = Path(__file__).resolve().parents[4]
-REAL_PLAN = REAL_ROOT / "docs/product/plans/F-3-lean-execution.md"
-# Marker spellings are assembled so this file does not itself add the markers the guard rejects.
-SKIP_DECORATOR = "@unittest." + "skip('later')"
+REAL_PLAN = Path(__file__).resolve().parents[4] / "docs" / "goals" / "S-1" / "plan.md"
+RUN_SH = GOAL.parent / "run.sh"
+PLAN = "docs/goals/F-9/plan.md"
+# Assembled so this file does not itself add the marker that row 5 rejects.
+SKIP_DECORATOR = "    @unittest." + "skip('later')\n"
+
+
+class ParseTest(unittest.TestCase):
+    def test_parses_this_repositorys_s1_plan(self):
+        plan = goal.parse_plan(REAL_PLAN.read_text())
+        self.assertEqual(sorted(plan["tasks"], key=lambda t: int(t[1:])), [f"T{n}" for n in range(1, 10)])
+        self.assertEqual(plan["milestones"], {
+            "M1": {"tasks": ["T1", "T2", "T3", "T4", "T5"], "e2e": "install/tests/e2e_install.sh"},
+            "M2": {"tasks": ["T6", "T7", "T8", "T9"],
+                   "e2e": "install/skills/execution-methodology/tests/e2e_run.sh"}})
+        self.assertEqual(plan["meta"]["protected"], ["docs/decisions/decisions.md#D1-D19"])
+        self.assertEqual(plan["meta"]["full_gate"], "cd install && ./install.sh --dry-run && ./verify.sh")
+        self.assertIn("install/README.md", plan["tasks"]["T2"]["writes"])
+        self.assertIn("install/tests/test_install.py", plan["tasks"]["T2"]["tests-may-change"])
+        self.assertEqual(goal.lint(type("C", (), {"plan": plan})()), [])
+
+    def test_flow_values(self):
+        self.assertEqual(goal.flow('{tasks: [T1, T2], e2e: "a, b: c"}'), {"tasks": ["T1", "T2"], "e2e": "a, b: c"})
+        self.assertEqual(goal.flow("[none]"), ["none"])
+
+    def test_quoted_command_round_trip(self):
+        intended = 'true "ignored" && false'
+        text = (plan_text().replace(f"gate: {FULL} -q", r'gate: "true \"ignored\" && false"')
+                .replace(f'M1: {{tasks: [T1, T2], e2e: "{E2E}"}}',
+                         r'M1: {tasks: [T1, T2], e2e: "true \"ignored\" && false"}'))
+        plan = goal.parse_plan(text)
+        self.assertEqual(plan["meta"]["gate"], intended)
+        self.assertEqual(plan["milestones"]["M1"]["e2e"], intended)
+        self.assertEqual(plan["milestones"]["M2"]["e2e"], E2E)
+        self.assertEqual(goal.flow(r'"a \\ b"'), "a \\ b")
+        self.assertEqual(goal.flow("'it''s'"), "it's")
+        self.assertEqual(subprocess.run(intended, shell=True).returncode, 1)
 
 
 class RepoCase(unittest.TestCase):
@@ -33,418 +67,339 @@ class RepoCase(unittest.TestCase):
         self.repo = Repo(self.plan)
         self.addCleanup(self.repo.cleanup)
 
-    def assertPasses(self, res):
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        return res
+    def done(self):
+        res = self.repo.goal("done")
+        return res.returncode, {line.split(":")[0].split(" ok")[0]: line for line in res.stdout.splitlines()
+                                if line.startswith("row ")}, res
 
-    def assertFinding(self, res, text, code=1):
-        self.assertEqual(res.returncode, code, res.stdout + res.stderr)
-        self.assertIn(text, res.stdout + res.stderr)
+    def assertRow(self, n, text=None):
+        code, rows, res = self.done()
+        self.assertEqual(code, 1, res.stdout + res.stderr)
+        self.assertNotIn("ok", rows[f"row {n}"].split(":")[0], res.stdout)
+        if text:
+            self.assertIn(text, rows[f"row {n}"], res.stdout)
 
+    def assertRowOk(self, n):
+        _code, rows, res = self.done()
+        self.assertEqual(rows[f"row {n}"], f"row {n} ok", res.stdout + res.stderr)
 
-class ParseTest(unittest.TestCase):
-    def test_frontmatter_values(self):
-        self.assertEqual(goal.scalar("[a, b]"), ["a", "b"])
-        self.assertEqual(goal.scalar("{network: true, session_hours: 3}"),
-                         {"network": True, "session_hours": 3})
-        self.assertEqual(goal.scalar("make test            # per-task check"), "make test")
-        raw = 'rc=0; for d in a b; do [ -d x/$d ] || continue; echo "$# # kept"; done; exit $rc'
-        self.assertEqual(goal.scalar(raw), raw)
-        self.assertEqual(goal.scalar("[ -f x ] && make"), "[ -f x ] && make")
-
-    def test_tests_may_change_except_clause(self):
-        inc, exc = goal.parse_tmc("tests/test_*.py except test_goal.py and test_gate.py (note, here)")
-        self.assertEqual((inc, exc), (["tests/test_*.py"], ["test_goal.py", "test_gate.py"]))
-        t = {"tests-may-change": inc, "tmc_exclude": exc}
-        self.assertTrue(goal.tmc_allows(t, "tests/test_rules.py"))
-        self.assertFalse(goal.tmc_allows(t, "tests/test_goal.py"))
-
-    def test_globs(self):
-        self.assertTrue(goal.matches("a/b/c/d.py", ["a/**"]))
-        self.assertTrue(goal.matches("a/d.py", ["a/**/d.py"]))
-        self.assertFalse(goal.matches("a/b/d.py", ["a/*.py"]))
-        self.assertTrue(goal.matches(".gitignore", [".gitignore"]))
-        self.assertTrue(goal.overlap(["src/a/**"], ["src/a/util.py"]))
-        self.assertFalse(goal.overlap(["src/a/**"], ["src/b/**"]))
-        self.assertFalse(goal.overlap(["tests/test_a.py"], ["tests/test_b*.py"]))
-
-    def test_common_test_layouts_are_tests(self):
-        for path in ("src/calc_test.go", "pkg/x/calc_test.rs", "test/helper.js", "app/test/util.rb",
-                     "spec/models/user_spec.rb", "lib/user_spec.rb", "src/main/java/a/CalcTest.java",
-                     "App/CalcTests.cs", "app/src/CalcTest.kt", "Sources/CalcTests.swift",
-                     "tests/test_a.py", "src/test/java/A.java", "web/a.test.ts", "x/test_y.py"):
-            self.assertTrue(goal.is_test(path), path)
-        for path in ("src/calc.go", "src/contest.go", "docs/spec.md", "docs/product/specs/F-1.md",
-                     "src/Latest.java", "src/testing.py", "README.md"):
-            self.assertFalse(goal.is_test(path), path)
-
-    def test_real_plan_lints(self):
-        res = subprocess.run([sys.executable, str(GOAL), "lint", "--plan", str(REAL_PLAN)],
-                             cwd=REAL_ROOT, capture_output=True, text=True, timeout=60)
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertIn("lint: PASS", res.stdout)
-        plan = goal.parse_plan(REAL_PLAN.read_text())
-        self.assertEqual([m["id"] for m in plan["milestones"]], ["M3", "M4"])
-        self.assertEqual(plan["milestones"][0]["acceptance"], ["tooling", "retirement"])
-        self.assertTrue(plan["meta"]["gate"].endswith("exit $rc"))
-        self.assertEqual(plan["tasks"]["T2"]["tmc_exclude"], ["test_goal.py", "test_gate.py"])
+    def fix(self, path, text, subject):
+        self.repo.write(path, text)
+        return self.repo.commit(subject)
 
 
 class LintTest(RepoCase):
-    def test_fixture_lints(self):
-        self.assertEqual(self.repo.goal("lint").returncode, 0)
+    plan = (plan_text().replace("  M2: {tasks: [T3], e2e: \"" + E2E + "\"}", "  M2: {tasks: [T9]}")
+            .replace("touches: [none]\n", "").replace("writes: src/c/**", "writes: docs/**"))
 
-    def test_structural_findings(self):
-        bad = plan_text(extra_m1=task("T1", "dup", "src/z/**", "AC-9", needs="T77")
-                        + task("T4", "nocover", "src/q/**", "—"))
-        bad = bad.replace("- AC-2: manual — founder looks at it\n", "").replace("e2e: ", "e2e_x: ")
-        bad = bad.replace("- AC-1: full_gate", "- AC-1: e2e")
-        self.repo.write("docs/plan.md", bad)
+    def test_lint_names_each_planted_defect(self):
+        self.repo.edit(PLAN, "writes: src/a/**, tests/**\n", "")
         res = self.repo.goal("lint")
-        for text in ("duplicate task id T1", "covers AC-9, which is not in the spec",
-                     "needs T77", "T4: covers is empty", "criterion AC-2 has no proof",
-                     "proof token e2e has no frontmatter command"):
-            self.assertFinding(res, text)
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        for text in ("T3: in no milestone", "M2: names missing task T9", "M2: no e2e", "T1: no writes",
+                     "frontmatter: touches is missing", "T3: writes intersect protected"):
+            self.assertIn(text, res.stdout)
 
-
-class GuardTest(RepoCase):
-    def guard(self, tid="T1"):
-        return self.repo.goal("guard", "--task", tid)
-
-    def test_in_scope_change_and_checkbox_tick_pass(self):
-        self.repo.write("src/a/x.py", "A = 1\n")
-        self.repo.tick("T1")
-        self.assertPasses(self.guard())
-
-    def test_out_of_scope_edit_fails(self):
-        self.repo.write("src/b/y.py", "B = 1\n")
-        self.assertFinding(self.guard(), "scope: src/b/y.py is outside T1 writes")
-
-    def test_decisions_and_queue_append_admitted(self):
-        self.repo.edit("docs/plan.md", "- 2026-01-01: fixture decision.\n",
-                       "- 2026-01-01: fixture decision.\n- 2026-01-02 T1: chose X (default).\n")
-        self.repo.edit("docs/plan.md", "## Queue\n", "## Queue\n- [blocks T3] which way?\n")
-        self.assertEqual(self.guard().returncode, 0)
-
-    def test_other_plan_edit_fails(self):
-        self.repo.edit("docs/plan.md", "- writes: src/a/**, tests/**", "- writes: src/**, tests/**")
-        res = self.guard()
-        self.assertFinding(res, "scope: docs/plan.md changed outside checkboxes")
-        self.assertIn("frozen: docs/plan.md", res.stdout)
-
-    def test_hidden_section_header_is_not_metadata(self):
-        self.repo.edit("docs/plan.md", "## M2 — second", "## Decisions\n### [ ] T9 — new\n## M2 — second")
-        self.assertFinding(self.guard(), "frozen: docs/plan.md")
-
-    def test_deleted_test_fails_without_permission_and_passes_with_it(self):
-        self.repo.path("tests/test_a.py").unlink()
-        self.assertFinding(self.guard("T1"), "existing test tests/test_a.py deleted")
-        self.assertEqual(self.guard("T2").returncode, 0)
-
-    def test_weakened_assertion(self):
-        self.repo.edit("tests/test_a.py", "self.assertEqual(1 + 1, 2)", "self.assertTrue(True)")
-        self.assertFinding(self.guard("T1"), "existing test tests/test_a.py modified")
-        self.assertEqual(self.guard("T2").returncode, 0)
-
-    def test_added_skip_fails_unless_allowed(self):
-        self.repo.write("tests/test_new.py", f"import unittest\n\n\n{SKIP_DECORATOR}\nclass N(unittest.TestCase):\n    pass\n")
-        self.assertFinding(self.guard("T1"), "tests/test_new.py adds a skip/only/xfail marker")
-        self.repo.path("tests/test_new.py").unlink()
-        self.repo.edit("tests/test_a.py", "    def test_flag", f"    {SKIP_DECORATOR}\n    def test_flag")
-        self.assertEqual(self.guard("T2").returncode, 0)
-        self.assertFinding(self.guard("T1"), "adds a skip/only/xfail marker")
-
-    def test_new_test_file_without_markers_passes(self):
-        self.repo.write("tests/test_more.py", "import unittest\n")
-        self.assertEqual(self.guard("T1").returncode, 0)
-
-    def test_edited_spec_after_approval_fails(self):
-        self.repo.edit("docs/spec.md", "| AC-1 | first |", "| AC-1 | first, relaxed |")
-        self.repo.commit("F-9: sneak")
-        self.repo.write("src/a/x.py", "A = 1\n")
-        self.assertFinding(self.guard(), "frozen: docs/spec.md changed since goal/F-9/approved")
-
-
-class GoTestGuardTest(RepoCase):
-    plan = plan_text(extra_m1=task("T4", "calc", "src/**", "AC-1"))
-
-    def setUp(self):
-        super().setUp()
-        self.repo.write("src/calc_test.go", "package calc\n\nfunc TestAdd(t *testing.T) {}\n")
-        self.repo.commit("F-9: seed a Go test")
-
-    def test_modified_go_test_inside_writes_is_reported(self):
-        self.repo.write("src/calc_test.go", "package calc\n")
-        self.assertFinding(self.repo.goal("guard", "--task", "T4"),
-                           "tests: existing test src/calc_test.go modified outside tests-may-change")
-
-    def test_deleted_go_test_inside_writes_is_reported(self):
-        self.repo.path("src/calc_test.go").unlink()
-        self.assertFinding(self.repo.goal("guard", "--task", "T4"),
-                           "tests: existing test src/calc_test.go deleted outside tests-may-change")
+    def test_the_fixture_plan_lints_clean(self):
+        self.repo.write(PLAN, plan_text())
+        self.assertEqual(self.repo.goal("lint").returncode, 0)
 
 
 class DoneTest(RepoCase):
-    M1 = [FULL, E2E]
-    M2 = [FULL, E2E, PROOF3]
+    def test_all_green_prints_done(self):
+        self.repo.close()
+        code, rows, res = self.done()
+        self.assertEqual(code, 0, res.stdout + res.stderr)
+        self.assertEqual(list(rows.values()), [f"row {n} ok" for n in range(1, 9)])
+        self.assertIn(f"DONE M1 on tree {self.repo.tree()}", res.stdout)
 
-    def done(self, *args):
-        return self.repo.goal("done", *args)
+    def test_unticked_tasks_and_a_dirty_tree(self):
+        self.repo.write("src/a/x.py", "A = 1\n")
+        self.assertRow(1, "T1 is not [x]")
+        self.assertRow(2, "uncommitted")
 
-    def test_done_after_receipts_and_verdict(self):
-        res = self.done()
-        self.assertFinding(res, "T1 unchecked")
-        self.assertIn("no full_gate receipt", res.stdout)
-        self.repo.finish_m1()
-        self.repo.close("M1", self.M1)
-        self.assertPasses(self.done())
+    def test_parked_task_needs_a_parked_line(self):
+        self.repo.tick("T2", "!")
+        self.repo.commit("F-9: park T2")
+        self.assertRow(1, "T2 is parked without a Parked line")
+        self.repo.edit(PLAN, "## Parked\n", "## Parked\n\n- T2: needs the founder.\n")
+        self.repo.commit("F-9: park T2 with a line")
+        _c, rows, _r = self.done()
+        self.assertNotIn("T2", rows["row 1"])
 
-    def test_stale_receipt_replaced_by_failing_rerun(self):
-        self.repo.finish_m1()
-        self.repo.close("M1", self.M1)
-        self.assertEqual(self.done().returncode, 0)
-        self.assertEqual(self.repo.receipt(FULL, FIXTURE_FAIL="1").returncode, 1)
-        self.assertFinding(self.done(), "full_gate receipt is FAIL")
+    def test_row3_accepts_a_plan_only_tick_and_rejects_a_prose_edit(self):
+        self.repo.tick("T1")
+        self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n", "- 2026-01-01: fixture decision.\n- later.\n")
+        self.repo.commit("F-9: tick T1, a decision")
+        self.assertRowOk(3)
+        self.repo.edit(PLAN, "Do the beta work.", "Do the beta work differently.")
+        self.repo.commit("F-9: reword T2")
+        self.assertRow(3, "not plan-only")
+        self.assertRow(6)
 
-    def test_receipt_for_other_command_does_not_count(self):
-        self.repo.finish_m1()
-        self.repo.close("M1", [E2E, FULL + " -v"])
-        self.assertFinding(self.done(), "no full_gate receipt for the candidate tree")
+    def test_row4_judges_writes_at_the_parent_despite_a_later_widening(self):
+        sha = self.fix("src/b/z.py", "Z = 1\n", "[T1] alpha, reaching into src/b")
+        self.repo.edit(PLAN, "writes: src/a/**, tests/**", "writes: src/a/**, src/b/**, tests/**")
+        self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n", "- 2026-01-01: fixture decision.\n- widen T1.\n")
+        self.repo.commit("F-9: widen T1 writes")
+        self.assertRowOk(3)
+        self.assertRow(4, f"{sha[:10]} [T1] src/b/z.py outside writes")
 
-    def test_receipt_for_older_tree_does_not_count(self):
-        self.repo.finish_m1()
-        self.repo.close("M1", self.M1)
-        self.repo.edit("docs/plan.md", "## Queue\n", "## Queue\n- [blocks T3] later?\n")
-        self.repo.commit("F-9: queue a question")
-        res = self.done()
-        self.assertFinding(res, "no full_gate receipt for the candidate tree")
-        self.assertIn("stale acceptance verdict", res.stdout)
+    def test_plan_only_cannot_expand_test_permissions(self):
+        self.repo.edit(PLAN, "tests-may-change: tests/test_a.py", "tests-may-change: **")
+        sha = self.repo.commit("F-9: let T2 change every test")
+        self.assertRow(3, f"{sha[:10]} changes writes or tests-may-change without adding a Decisions line")
+        self.repo.git("reset", "-q", "--hard", "HEAD~1")
+        self.repo.edit(PLAN, "tests-may-change: tests/test_a.py", "tests-may-change: **")
+        self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n",
+                       "- 2026-01-01: fixture decision.\n- T2 may change every test.\n")
+        sha = self.repo.commit("F-9: let T2 change every test, with a decision")
+        self.assertRowOk(3)
+        self.repo.goal("packet")
+        packet = self.repo.read(".runs/F-9/packet.md")
+        self.assertIn(f"{sha[:10]} T2 tests-may-change: tests/test_a.py -> **", packet)
+        self.assertIn("Widenings", packet)
 
-    def test_commit_rules(self):
-        self.repo.finish_m1()
-        self.repo.write("src/a/z.py", "Z = 1\n")
-        self.repo.commit("tidy without a task")
-        self.repo.write("src/a/w.py", "W = 1\n")
-        self.repo.commit("[T1][T2] two tasks")
-        self.repo.write("src/b/q.py", "Q = 1\n")
-        self.repo.commit("[T1] reach into b")
-        self.repo.close("M1", self.M1)
-        res = self.done()
-        self.assertFinding(res, "names no task and is not a plan-metadata commit")
-        self.assertIn("names several tasks: T1, T2", res.stdout)
-        self.assertIn("[T1]: scope: src/b/q.py is outside T1 writes", res.stdout)
+    def test_row5_names_an_added_skip_marker(self):
+        text = self.repo.read("tests/test_a.py").replace("    def test_flag", SKIP_DECORATOR + "    def test_flag")
+        self.fix("tests/test_a.py", text, "[T2] beta")  # T2 may change tests/test_a.py
+        self.assertRow(5, "adds a skip/only/xfail marker in tests/test_a.py")
 
-    def test_controller_metadata_commit_allowed(self):
-        self.repo.finish_m1()
-        self.repo.edit("docs/plan.md", "## Queue\n", "## Queue\n- [blocks T3] later?\n")
-        self.repo.commit("F-9: queue a question")
-        self.repo.close("M1", self.M1)
-        self.assertPasses(self.done())
+    def test_row5_rejects_imported_skip_and_spaced_only(self):
+        at = "@"  # assembled so this file does not itself add the markers row 5 rejects
+        for line in (f"{at}skip('later')", f"{at}skipIf(True, 'x')", f"{at}skipUnless (False, 'x')",
+                     f"{at}expectedFailure", "test.only" + " ('case', fn)", "it.skip" + " ('case', fn)",
+                     "describe.only" + "\t('suite', fn)"):
+            self.assertTrue(goal.SKIP_RE.search(line), line)
+        for line in ("def skipper(self):", "only = 1", "x.onlyone(1)"):
+            self.assertFalse(goal.SKIP_RE.search(line), line)
+        text = ("from unittest import " + "skip\n" + self.repo.read("tests/test_a.py")
+                .replace("    def test_flag", f"    {at}skip('later')\n    def test_flag"))
+        self.fix("tests/test_a.py", text, "[T2] beta")
+        self.assertRow(5, "adds a skip/only/xfail marker in tests/test_a.py")
 
-    def test_later_milestone_with_earlier_verified_by_tag(self):
-        self.repo.finish_m1()
-        self.repo.close("M1", self.M1)
-        self.repo.git("tag", "goal/F-9/M1")
-        self.repo.write("src/c/z.py", "C = 1\n")
-        self.repo.tick("T3")
-        self.repo.commit("[T3] gamma")
-        self.repo.close("M2", self.M2, partitions=("acceptance-alpha", "acceptance-beta"))
-        self.assertIn("M2: DONE", self.assertPasses(self.done()).stdout)
-        res = self.done("--milestone", "M1")
-        self.assertEqual(res.returncode, 0, res.stdout)
-        self.assertIn(self.repo.tree("goal/F-9/M1"), res.stdout)
+    def test_row5_names_a_test_modified_outside_tests_may_change(self):
+        self.fix("tests/test_a.py", self.repo.read("tests/test_a.py") + "\n", "[T1] alpha")
+        self.assertRow(5, "modifies test tests/test_a.py")
 
-    def test_acceptance_partitions_are_a_conjunction(self):
-        self.repo.finish_m1()
-        self.repo.close("M1", self.M1)
-        self.repo.git("tag", "goal/F-9/M1")
-        self.repo.write("src/c/z.py", "C = 1\n")
-        self.repo.tick("T3")
-        self.repo.commit("[T3] gamma")
-        self.repo.close("M2", self.M2, partitions=("acceptance-alpha",))
-        self.assertFinding(self.done(), "no acceptance verdict (beta)")
-        self.repo.verdict("M2-acceptance-beta", "BLOCK")
-        self.assertFinding(self.done(), "a BLOCK acceptance verdict (beta)")
-        self.repo.verdict("M2-acceptance-beta", "PASS")
-        self.assertEqual(self.done().returncode, 0)
+    def test_row6_names_an_outcome_edit(self):
+        self.repo.edit(PLAN, "The fixture does two things.", "The fixture does one thing.")
+        self.repo.commit("[T1] alpha")
+        self.assertRow(6, "changed outside ticks")
 
-    def test_untagged_earlier_milestone_blocks_later(self):
-        self.assertFinding(self.done("--milestone", "M2"), "M1 is not tagged yet")
+    def test_row7_receipt_must_name_heads_tree(self):
+        self.repo.close()
+        path = receipt_path(self.repo.dir, "F-9", self.repo.tree(), FULL)
+        good = path.read_text()
+        path.write_text(json.dumps({**json.loads(good), "tree": "0" * 40}))
+        self.assertRow(7, "no PASS full_gate receipt")
+        path.write_text(good)
+        self.assertRowOk(7)
 
-    def finish_m2(self):
-        self.repo.write("src/c/z.py", "C = 1\n")
-        self.repo.tick("T3")
-        self.repo.commit("[T3] gamma")
-        self.repo.close("M2", self.M2, partitions=("acceptance-alpha", "acceptance-beta"))
 
-    def test_earlier_tag_without_evidence_is_not_trusted(self):
-        self.repo.finish_m1()
-        self.repo.git("tag", "goal/F-9/M1")  # tagged with no receipts and no acceptance verdict
-        self.finish_m2()
-        res = self.done("--milestone", "M2")
-        self.assertFinding(res, "M1 (tag goal/F-9/M1): no full_gate receipt for the candidate tree")
-        self.assertIn("M1 (tag goal/F-9/M1): no acceptance verdict (all)", res.stdout)
-        self.assertIn("M2: NOT DONE", res.stdout)
+RECORD = ("# Record\n\n## D1 — first\n\nOne.\n\n### detail\n\nInside D1.\n\n## D2 — second\n\nTwo.\n\n"
+          "## D3 — third\n\nThree.\n")
 
-    def test_earlier_milestone_whose_receipt_later_fails_is_not_done(self):
-        self.repo.finish_m1()
-        self.repo.close("M1", self.M1)
-        self.repo.git("tag", "goal/F-9/M1")
-        self.assertEqual(self.repo.receipt(FULL, FIXTURE_FAIL="1").returncode, 1)  # rerun on M1's tree
-        self.finish_m2()
-        self.assertFinding(self.done(), "M1 (tag goal/F-9/M1): full_gate receipt is FAIL")
 
-    def test_every_milestone_tagged_is_reverified(self):
-        self.repo.finish_m1()
-        self.repo.git("tag", "goal/F-9/M1")
-        self.repo.write("src/c/z.py", "C = 1\n")
-        self.repo.tick("T3")
-        self.repo.commit("[T3] gamma")
-        self.repo.git("tag", "goal/F-9/M2")
-        res = self.done()
-        self.assertFinding(res, "M2 (tag goal/F-9/M2): no full_gate receipt for the candidate tree")
-        self.assertIn("M1 (tag goal/F-9/M1): no full_gate receipt", res.stdout)
-        self.assertIn("goal F-9: NOT DONE", res.stdout)
+class ProtectedSectionTest(RepoCase):
+    plan = (plan_text().replace("protected: [docs/design.md]", "protected: [docs/design.md, docs/record.md#D1-D2]")
+            .replace("writes: src/a/**, tests/**", "writes: src/a/**, docs/record.md, tests/**"))
 
-    def test_every_milestone_tagged_with_evidence_is_done(self):
-        self.repo.finish_m1()
-        self.repo.close("M1", self.M1)
-        self.repo.git("tag", "goal/F-9/M1")
-        self.finish_m2()
-        self.repo.git("tag", "goal/F-9/M2")
-        self.assertIn("goal F-9: DONE; every milestone is tagged and verified", self.assertPasses(self.done()).stdout)
+    def setUp(self):
+        self.repo = Repo(self.plan, files={"docs/record.md": RECORD})
+        self.addCleanup(self.repo.cleanup)
 
-    def test_evidence_record(self):
-        self.repo.finish_m1()
-        self.repo.edit("docs/plan.md", "- 2026-01-01: fixture decision.\n",
-                       "- 2026-01-01: fixture decision.\n- 2026-01-02 T2: advisor chose X.\n")
-        self.repo.commit("F-9: log a decision")
-        self.repo.close("M1", self.M1)
-        self.repo.write(".runs/F-9/progress.md", "x T1 done\nx usage: claude 1.2M tok\n")
-        res = self.repo.goal("evidence", "--milestone", "M1")
-        self.assertEqual(res.returncode, 0, res.stderr)
-        text = self.repo.read(".runs/F-9/M1-evidence.md")
-        self.assertTrue(text.startswith("M1 — READY"), text)
-        for part in ("AC-1 → " + FULL + " → PASS", "AC-2 → manual", "Guard: scope 0 escapes",
-                     "Security: not triggered", "Decisions taken: 1 (0 default, 1 advisor", "product +2/−0",
-                     "usage: claude 1.2M tok", "all: PASS · codex fixture high · rounds 1"):
-            self.assertIn(part, text)
+    def test_protected_section_edit_is_rejected(self):
+        self.assertEqual(self.repo.goal("lint").returncode, 0)
+        self.fix("docs/record.md", RECORD.replace("Three.", "Three, revised."), "[T1] outside the range")
+        self.assertRowOk(4)
+        sha = self.fix("docs/record.md", self.repo.read("docs/record.md").replace("Inside D1.", "Changed."),
+                       "[T1] inside D1")
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected docs/record.md#D1-D2")
+        self.assertEqual(goal.protected_text(RECORD, "D2"), "## D2 — second\n\nTwo.\n")
+        self.assertEqual(goal.protected_text(RECORD, "whole"), RECORD.rstrip("\n"))
+
+
+class ReviewRowTest(RepoCase):
+    def setUp(self):
+        super().setUp()
+        self.repo.close()
+
+    def test_a_non_fix_commit_after_reviewed_is_named(self):
+        sha = self.fix("src/b/w.py", "W = 1\n", "[T2] more beta")
+        self.assertRow(8, f"{sha[:10]} after reviewed: is neither a fix commit")
+
+    def test_row8_accepts_plan_only_commit_after_review(self):
+        self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n", "- 2026-01-01: fixture decision.\n- reviewed.\n")
+        self.repo.commit("F-9: record the review verdict")
+        self.assertRowOk(8)
+        self.repo.edit(PLAN, "- reviewed.\n", "- reviewed.\n- again.\n")
+        self.repo.write("docs/design.md", "# design, edited\n")
+        sha = self.repo.commit("F-9: a decision and a design edit")
+        self.assertRow(8, f"{sha[:10]} after reviewed: is neither a fix commit named by a closed finding nor plan-only")
+
+    def test_checked_blocker_requires_closure(self):
+        self.repo.review("- [x] BLOCKING R1 defect still present\n")
+        self.assertRow(8, "R1: checked BLOCKING without a resolved-by or removed-by closure")
+        self.repo.write("tests/test_b_value.py", "import unittest\n\n\nclass V(unittest.TestCase):\n"
+                        "    def test_beta_value(self):\n        self.assertTrue(True)\n")
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] fix the beta value")
+        self.repo.review(f"- [x] BLOCKING R1 defect fixed\n"
+                         f"- [x] R1 resolved-by {sha} closes tests/test_b_value.py::test_beta_value\n", "HEAD~1")
+        self.assertRowOk(8)
+
+    def test_a_fix_without_a_changed_closing_test_is_named(self):
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] fix the beta value")
+        self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/test_a.py::test_value\n", "HEAD~1")
+        self.assertRow(8, "R1: closes tests/test_a.py::test_value")
+
+    def test_a_fix_whose_closing_test_changed_in_it_passes(self):
+        self.repo.write("tests/test_b_value.py", "import unittest\n\n\nclass V(unittest.TestCase):\n"
+                        "    def test_beta_value(self):\n        self.assertTrue(True)\n")
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] fix the beta value")
+        self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/test_b_value.py::test_beta_value\n", "HEAD~1")
+        self.assertRowOk(8)
+
+    def test_closure_rejects_non_test_text(self):
+        self.repo.write("README.md", "# test_security is still TODO\n")
+        self.repo.write("tests/test_notes.py", "# test_security is still TODO\n")
+        self.repo.write("tests/test_c.js", "test('security holds', () => {});\n")
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] claim a fix")
+        for target in ("README.md::test_security", "tests/test_notes.py::test_security"):
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
+            self.assertRow(8, f"R1: closes {target}")
+        self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/test_c.js::security\n", "HEAD~1")
+        self.assertRowOk(8)
+
+    def test_removed_by_passes_when_the_paths_are_deleted(self):
+        self.repo.git("rm", "-q", "src/b/y.py")
+        sha = self.repo.commit("[T2][R1] remove the beta file")
+        self.repo.review(f"- [x] R1 removed-by {sha[:8]}\n  paths: src/b/y.py\n", "HEAD~1")
+        self.assertRowOk(8)
+        self.repo.review(f"- [x] R1 removed-by {sha[:8]}\n  paths: src/a/x.py\n", "HEAD~1")
+        self.assertRow(8, "does not remove or change")
+
+    def test_removed_by_rejects_addition_only_modification(self):
+        sha = self.fix("src/b/y.py", "B = 1\nUNRELATED = 1\n", "[T2][R1] add beside the defect")
+        self.repo.review(f"- [x] R1 removed-by {sha[:8]}\n  paths: src/b/y.py\n", "HEAD~1")
+        self.assertRow(8, f"R1: {sha[:8]} does not remove or change the finding's paths")
+        self.repo.git("reset", "-q", "--hard", "HEAD~1")
+        sha = self.fix("src/b/y.py", "", "[T2][R1] remove the defective line")
+        self.repo.review(f"- [x] R1 removed-by {sha[:8]}\n  paths: src/b/*.py\n", "HEAD~1")
+        self.assertRowOk(8)
+
+    def test_an_open_blocking_finding_is_named(self):
+        self.repo.review("- [ ] BLOCKING R2 the beta value is wrong\n")
+        self.assertRow(8, "open - [ ] BLOCKING")
+
+    def test_a_missing_review_is_named(self):
+        (self.repo.dir / ".runs/F-9/review.md").unlink()
+        self.assertRow(8, "no .runs/F-9/review.md")
 
 
 class StopHookTest(RepoCase):
-    def hook(self, payload=None, **extra):
-        payload = payload if payload is not None else {"cwd": str(self.repo.dir), "session_id": "s1",
-                                                       "stop_hook_active": False}
-        return self.repo.run(GOAL, "stop-hook", stdin=json.dumps(payload) if isinstance(payload, dict)
-                             else payload, **extra)
+    def hook(self, cwd=None, session="s1", args=()):
+        return subprocess.run([sys.executable, str(GOAL), *args, "stop-hook"], cwd=cwd or self.repo.dir, env=env(),
+                              input=json.dumps({"session_id": session}), capture_output=True, text=True)
 
-    def assertAllowed(self, res):
-        self.assertEqual((res.returncode, res.stdout), (0, ""), res.stderr)
+    def test_stop_hook_honors_explicit_goal_with_multiple_plans(self):
+        self.repo.write("docs/goals/G-2/plan.md", plan_text().replace("goal: F-9", "goal: G-2"))
+        self.repo.commit("F-9: a second open goal")
+        for args, gid in ((("--goal", "F-9"), "F-9"), (("--goal", "G-2"), "G-2"), (("--plan", PLAN), "F-9")):
+            block = json.loads(self.hook(args=args).stdout)
+            self.assertEqual(block["decision"], "block")
+            self.assertIn(f"Goal {gid} is not done", block["reason"])
+        first, second = self.hook(session="s9"), self.hook(session="s9")
+        self.assertEqual(json.loads(first.stdout), {
+            "decision": "block", "reason": "several open plans; register the hook with --goal <id>"})
+        self.assertEqual((second.returncode, second.stdout), (0, ""))
+        settings = RUN_SH.read_text()
+        self.assertIn("--goal %s stop-hook", settings)
 
-    def test_inactive_allows(self):
-        self.assertAllowed(self.hook())
+    def test_blocks_three_times_then_allows(self):
+        outs = [self.hook() for _ in range(4)]
+        for res in outs[:3]:
+            block = json.loads(res.stdout)
+            self.assertEqual(block["decision"], "block")
+            self.assertIn("row 1: T1 is not [x]", block["reason"])
+        self.assertEqual((outs[3].returncode, outs[3].stdout), (0, ""))
+        self.assertIn("block", self.hook(session="s2").stdout)
 
-    def test_blocks_with_reanchor_text(self):
-        self.repo.activate()
-        res = self.hook()
-        self.assertEqual(res.returncode, 0)
-        out = json.loads(res.stdout)
-        self.assertEqual(out["decision"], "block")
-        self.assertTrue(out["reason"].startswith("Goal F-9: Fixture outcome. Not done: T1 unchecked"))
-        self.assertTrue(out["reason"].endswith("Next ready: T1 (covers AC-1)."), out["reason"])
+    def test_allows_where_there_is_no_plan(self):
+        bare = Path(tempfile.mkdtemp(prefix="goal-bare-"))
+        self.addCleanup(shutil.rmtree, bare, True)
+        subprocess.run(["git", "init", "-q"], cwd=bare, check=True)
+        res = self.hook(cwd=bare)
+        self.assertEqual((res.returncode, res.stdout, res.stderr), (0, "", ""))
 
-    def test_judge_exempt(self):
-        self.repo.activate()
-        self.assertAllowed(self.hook(GOAL_ROLE="judge"))
-        self.assertIn("block", self.hook(GOAL_ROLE="chief").stdout)
-
-    def test_stall_cap(self):
-        self.repo.activate()
-        for _ in range(3):
-            self.assertIn('"block"', self.hook().stdout)
-        self.assertAllowed(self.hook())
-        self.assertIn("STALLED", self.repo.read(".runs/F-9/progress.md"))
-
-    def test_progress_resets_stall_count(self):
-        self.repo.activate()
-        for _ in range(3):
-            self.hook()
-        self.repo.tick("T1")
-        self.assertIn('"block"', self.hook().stdout)
-
-    def test_envelope_expiry_allows(self):
-        self.repo.activate()
-        self.repo.write(".runs/F-9/session.json", json.dumps({"started_at": time.time() - 7200, "hours": 1}))
-        self.assertAllowed(self.hook())
-        self.repo.write(".runs/F-9/session.json", json.dumps({"started_at": "2020-01-01T00:00:00Z", "hours": 3}))
-        self.assertAllowed(self.hook())
-        self.repo.write(".runs/F-9/session.json", json.dumps({"started_at": time.time(), "hours": 3}))
-        self.assertIn('"block"', self.hook().stdout)
-
-    def test_all_parked_allows(self):
-        self.repo.activate()
-        self.repo.tick("T1", "!")
-        self.repo.tick("T2", "!")
-        self.assertAllowed(self.hook())
-
-    def test_done_milestone_allows(self):
-        self.repo.finish_m1()
-        self.repo.close("M1", DoneTest.M1)
-        self.repo.activate()
-        self.assertAllowed(self.hook())
-
-    def test_every_milestone_tagged_without_evidence_blocks(self):
-        self.repo.finish_m1()
-        self.repo.git("tag", "goal/F-9/M1")
-        self.repo.tick("T3")
-        self.repo.commit("[T3] gamma")
-        self.repo.git("tag", "goal/F-9/M2")
-        self.repo.activate()
-        out = json.loads(self.hook().stdout)
-        self.assertEqual(out["decision"], "block")
-        self.assertIn("Not done: M1 (tag goal/F-9/M1): no full_gate receipt", out["reason"])
-
-    def test_internal_error_allows(self):
-        self.repo.activate()
-        res = self.hook("{not json")
-        self.assertAllowed(res)
-        self.assertIn("allowing stop", res.stderr)
+    def test_allows_when_done(self):
+        self.repo.close()
+        self.assertEqual(self.hook().stdout, "")
 
 
-class RunStateTest(RepoCase):
-    def test_attempts_persist(self):
-        self.assertEqual(self.repo.goal("attempt", "--task", "T1").stdout.strip(), "1")
-        self.assertEqual(self.repo.goal("attempt", "--task", "T1").stdout.strip(), "2")
-        self.assertEqual(json.loads(self.repo.read(".runs/F-9/attempts.json")), {"T1": 2})
-        self.assertEqual(self.repo.goal("attempt", "--task", "T1", "--get").stdout.strip(), "2")
-        self.assertEqual(self.repo.goal("attempt", "--task", "T1", "--reset").stdout.strip(), "0")
-
-    def test_start_status_stop(self):
-        res = self.repo.run(GOAL, "start", "--goal", "F-9", "--plan", "docs/plan.md")
-        self.assertEqual(res.returncode, 0, res.stderr)
-        data = json.loads(self.repo.run(GOAL, "status", "--json").stdout)
-        self.assertEqual((data["active"], data["next"]), ("M1", ["T1"]))
-        self.repo.run(GOAL, "stop")
-        self.assertFalse(self.repo.path(".runs/active").exists())
-
-    def test_unmigrated_project_refused(self):
-        self.repo.write("docs/agents/execution/runtime.json", "{}")
-        self.assertFinding(self.repo.goal("status"), "migrate it to v6 first", code=2)
+FAKE_HARNESS = """import pathlib, re, subprocess, sys
+plan = pathlib.Path("docs/goals/F-9/plan.md")
+text = plan.read_text()
+tid = re.search(r"^### \\[ \\] (T[12]) ", text, re.M).group(1)
+pathlib.Path(f"src/{tid}.py").parent.mkdir(exist_ok=True)
+pathlib.Path(f"src/{tid}.py").write_text("x = 1\\n")
+plan.write_text(text.replace(f"### [ ] {tid} ", f"### [x] {tid} "))
+subprocess.run(["git", "add", "-A"], check=True)
+subprocess.run(["git", "-c", "commit.gpgsign=false", "commit", "-qm", f"[{tid}] work"], check=True)
+if tid == "T2":
+    for cmd, name in ((%r, "full_gate"), (%r, "e2e")):
+        subprocess.run([sys.executable, %r, "receipt", "--goal", "F-9", "--cmd", cmd, "--name", name],
+                       check=True, capture_output=True)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+    pathlib.Path(".runs/F-9/review.md").write_text("reviewed: " + head + "\\nNo findings.\\n")
+"""
 
 
-class NextTest(RepoCase):
-    plan = plan_text(extra_m1=task("T4", "util", "src/a/util.py", "AC-1")
-                     + task("T5", "docs", "docs/notes.md", "AC-2"))
+LATE_REVIEW = """import pathlib
+calls = pathlib.Path(".runs/F-9/calls")
+n = int(calls.read_text()) + 1 if calls.exists() else 1
+calls.write_text(str(n))
+if n == 2:
+    pathlib.Path(".runs/F-9/review.saved").rename(".runs/F-9/review.md")
+"""
 
-    def test_next_respects_needs_parking_and_overlap(self):
-        res = self.repo.goal("next", "--limit", "3")
-        ids = [line.split()[0] for line in res.stdout.splitlines()]
-        self.assertEqual(ids, ["T1", "T5"])
-        self.repo.tick("T1", "!")
-        ids = [line.split()[0] for line in self.repo.goal("next", "--limit", "3").stdout.splitlines()]
-        self.assertEqual(ids, ["T4", "T5"])
-        res = self.repo.goal("next", "--running", "T4", "--running", "T5")
-        self.assertFinding(res, "no ready task")
+
+class RunShTest(RepoCase):
+    plan = plan_text().replace("src/a/**, tests/**", "src/**").replace("src/b/**, tests/**", "src/**")
+
+    def run_sh(self, harness_cmd):
+        return subprocess.run(["bash", str(RUN_SH), "F-9", "--harness", "claude", "--sessions", "4"],
+                              cwd=self.repo.dir, capture_output=True, text=True, timeout=300,
+                              env=env(RUN_HARNESS_CMD=harness_cmd, RUN_NO_NOTIFY="1"))
+
+    def test_done_after_two_sessions_and_stalled_with_a_no_op(self):
+        fake = self.repo.dir.parent / f"{self.repo.dir.name}-fake.py"
+        self.addCleanup(lambda: fake.unlink(missing_ok=True))
+        fake.write_text(FAKE_HARNESS % (FULL, E2E, str(GATE)))
+        res = self.run_sh(f"{sys.executable} {fake}")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip().splitlines()[-1], "DONE")
+        progress = self.repo.read(".runs/F-9/progress.md")
+        self.assertEqual(progress.count(" session "), 2, progress)
+        self.assertIn("DONE M1", self.repo.read(".runs/F-9/packet.md"))
+        self.assertTrue(os.access(RUN_SH, os.X_OK))
+
+        other = Repo(self.plan)
+        self.addCleanup(other.cleanup)
+        res = subprocess.run(["bash", str(RUN_SH), "F-9", "--harness", "codex"], cwd=other.dir, timeout=300,
+                             capture_output=True, text=True, env=env(RUN_HARNESS_CMD="true", RUN_NO_NOTIFY="1"))
+        self.assertEqual((res.returncode, res.stdout.strip()), (3, "STALLED"), res.stderr)
+
+    def test_done_takes_precedence_over_stalled(self):
+        self.repo.close()  # ticks, commits, receipts: done holds except for the review
+        self.repo.path(".runs/F-9/review.md").rename(self.repo.path(".runs/F-9/review.saved"))
+        fake = self.repo.dir.parent / f"{self.repo.dir.name}-late.py"
+        self.addCleanup(lambda: fake.unlink(missing_ok=True))
+        fake.write_text(LATE_REVIEW)  # session 1 does nothing; session 2 only lands the review
+        res = self.run_sh(f"{sys.executable} {fake}")
+        self.assertEqual((res.returncode, res.stdout.strip().splitlines()[-1]), (0, "DONE"), res.stdout + res.stderr)
+        self.assertEqual(self.repo.read(".runs/F-9/progress.md").count(" session "), 2)
+        self.assertIn("DONE M1", self.repo.read(".runs/F-9/packet.md"))
 
 
 if __name__ == "__main__":

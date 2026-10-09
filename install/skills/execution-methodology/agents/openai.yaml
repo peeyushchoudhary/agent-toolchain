@@ -1,5 +1,0 @@
-# Codex half of the user-invoked gate. Claude Code reads `disable-model-invocation: true` from
-# SKILL.md; Codex does not, so this keeps implicit invocation off there too. Explicit invocation
-# still works. install.sh copies the whole skill directory, so this file needs no installer change.
-policy:
-  allow_implicit_invocation: false

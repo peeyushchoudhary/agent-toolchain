@@ -204,3 +204,44 @@ tokens of tool schema per call. Pruning unused MCP servers costs no lines and no
 
 **Known-wrong if:** a milestone stalls on a removed tool, or a verdict cap makes a judge drop a
 finding rather than cut prose.
+
+---
+
+## D29 — Simplified goal execution (methodology v7): one look per artifact, a mechanical gate, two touchpoints
+
+**Chose:** one `plan.md` per goal; `gate.py` receipts bound to the tree; an eight-row mechanical
+`goal.py done` that reads no verdict, round, lock or grant; one adversarial review by the other
+vendor (a read-only reviewer: Codex when Claude is the chief, Claude when Codex is) at design, at plan
+and at merge, each a single round with no grant, where a blocking finding is closed by a named test
+or by removing the work, or resolved in the document before the approval tag; a design page exists
+only when a goal touches data, auth or an external interface; two founder touchpoints per milestone, the approval tag and the merge, with an
+explicit list of what parks for the founder. One instruction source for both harnesses under a
+1,350-word ceiling. The review loop (`review.py`), the driver, the persona generator, the
+SessionStart report hooks, the route and GitHub checkers, graph context and the two 3,785-line
+guards are removed; one guard of about 150 lines replaces the two after matching their fixtures.
+
+**Over:** v6 as shipped (F-3) with its follow-ups F-4 (review-closure confirmation) and F-5 (graph
+context), which are archived under `archive/v6-followups-2026-10-09` and never merged.
+
+**Why:** measured on this repository and six product repositories (2026-10-09, two councils, two
+adversarial passes). Founder decisions ran 10–13 per milestone against v6's contract of 2; all 29
+rounds past the cap were granted; `install/` carried 5.7 lines of process-policing code per line of
+done-check. Real-defect catches by round: this repository's diff reviews 20 at round one, 2 after;
+150 sampled product findings 64, 9, 8. Every loop of five or more rounds was on a document and every
+best-delivery week had task-sized commits, one round-one review and same-day merges. The guards had
+no real catch in seven repositories. Vendor guidance for the current models says the same: short
+instructions, done on evidence, one fresh-context reviewer, no verification scaffolding.
+
+**Supersedes:** D7 (personas are hand-written agent files now), the loop half of D8 (judges stay
+read-only; there is no round machinery to protect), D11 and D12 (graph and session-start reporting
+are removed). D2–D4, D17 and D18 stand.
+
+**Measured by:** a pilot on one product repository, migrated by the founder after S-1 M2, with a
+first review after one week and the stop rule applied over four (a blocking escape in two
+milestones, merges per week below baseline without external cause, founder decisions above four per
+milestone twice, or more than one default in five reversed). Rollback is the tag
+`methodology/v6-base` reinstalled.
+
+**Known-wrong if:** the pilot's sampled follow-up reviews find a blocking escape that a second round
+would demonstrably have caught, or product-repository merges per week fall below the best measured
+periods under the new shape.

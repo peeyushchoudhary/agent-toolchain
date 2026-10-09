@@ -10,8 +10,8 @@ cd install
 A plain install removes nothing: files an installed skill has and this package lacks, such as the
 v5.1 scripts, references and persona sources, are carried forward, and v5.1 skills, personas and
 data stay where they are until `--retire-v5`. A project that still carries the v5.1 runtime pin
-(`docs/agents/execution/runtime.json`) is migrated by hand first: v6 refuses to execute there and the
-session hook says so. Follow the [migration reference](skills/execution-methodology/references/migrate.md).
+(`docs/agents/execution/runtime.json`) is migrated by hand first: `goal.py` refuses to execute there and
+says so. Follow the [migration reference](skills/execution-methodology/references/migrate.md).
 
 ## Requirements
 
@@ -31,13 +31,10 @@ the two graphify hooks are inert.
                          execution-methodology, agent-personas, progressive-disclosure, graph-navigation
 ~/.claude/hooks/         every script in hooks/, overwriting older copies
 ~/.claude/settings.json  hook entries, merged: four existing ones, plus
-                           SessionStart  [ -n "${GOAL_HARNESS:-}" ] || bash ~/.claude/hooks/goal-session.sh 2>/dev/null || true
-                           Stop          [ -n "${GOAL_HARNESS:-}" ] || python3 ~/.claude/skills/execution-methodology/scripts/goal.py stop-hook
+                           Stop          python3 ~/.claude/skills/execution-methodology/scripts/goal.py stop-hook
 ~/.claude/agents/        the persona pool, rendered by sync_personas.py
 $CODEX_HOME/skills/      the same four skills (CODEX_HOME defaults to ~/.codex)
-$CODEX_HOME/hooks/       goal-session.sh
-$CODEX_HOME/hooks.json   the same SessionStart and Stop hooks, with absolute paths, merged; each also
-                         steps aside when the project's .codex/hooks.json registers that hook
+$CODEX_HOME/hooks.json   the same Stop hook, with an absolute path, merged
 $CODEX_HOME/agents/      the same personas, as TOML
 $CODEX_HOME/config.toml  an [agents] block, appended only if none exists
 ```
@@ -47,12 +44,8 @@ valid JSON is refused. Entries are appended only when their command is absent, s
 keep their position. The file is rewritten, after a backup, only when something was added. A second
 install changes nothing.
 
-**One goal hook per event.** The global goal hooks exit silently when `GOAL_HARNESS` is set:
-`run_goal.py` sets it in driver sessions and registers its own hooks there. Two Stop hooks over one
-goal would defeat the stall cap.
-
 **Codex hook trust.** Codex runs a user-level hook only after you review and trust it in Codex. The
-installer never writes trust state, so trust the two new hooks once after the first install, and
+installer never writes trust state, so trust the new hook once after the first install, and
 again whenever their entries change.
 
 **Personas** are rendered into a scratch directory and copied file by file. Run directly, the

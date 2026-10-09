@@ -3,8 +3,7 @@
 Version **1.1**. One layout for every project, so an agent entering any repository finds context in
 the same place.
 
-Canonical copy: `~/.claude/skills/progressive-disclosure/references/standard.md`.
-Enforced by `validate_disclosure.py --standard`; migrated by `migrate_to_standard.py`.
+This page is the canonical copy. It is a convention: no tool enforces it or migrates to it.
 
 The names were not invented. Each is the spelling already used in two or more existing projects; the
 standard ratifies the majority and retires the synonyms.
@@ -51,7 +50,7 @@ Add `<dir>/AGENTS.md` + `CLAUDE.md` (≤40 words, pure routing) to every source 
 
 ## Retired spellings
 
-The migrator moves each automatically:
+Move each by hand:
 
 | Legacy | Standard |
 |---|---|
@@ -70,33 +69,15 @@ bank, a dataset, generated reports — stays exactly where it is.
 
 ## Migrating
 
-```bash
-migrate_to_standard.py <repo>            # plan only; writes nothing
-migrate_to_standard.py <repo> --apply    # backs up, then executes
-validate_disclosure.py <repo> --standard # verify afterwards
-```
-
-`--apply` refuses to run on a dirty git tree. Honour that refusal rather than reaching for
-`--force`: a directory move landing on another agent's in-flight work is the one failure here that
-is genuinely expensive to unpick. It never commits — the staged diff is yours to review.
-
-For a repository with no git, the backup it takes first is the only undo. Confirm the backup path in
-the output before continuing.
-
-### Two traps found in real use
-
-- **Creates are computed against the post-move tree.** Otherwise a file arriving via a move — say
-  `docs/agent/README.md` landing at `docs/agents/README.md` — still looks missing, and the create
-  step overwrites it with a skeleton. This was a data-loss bug, fixed.
-- **Content moves can break the build.** Before moving anything, check whether a path is read by
+Move on a clean git tree and review the staged diff before committing. **Content moves can break
+the build.** Before moving anything, check whether a path is read by
   code. In one real migration six of seven proposed moves turned out to be referenced from a build
-  file and two test classes. The migrator cannot know that; grep for the path outside `docs/` first.
+  file and two test classes. Grep for the path outside `docs/` first.
 
 ## Versioning
 
-Generated per-repo copies carry `<!-- progressive-disclosure standard vN -->`. The validator warns
-when a repo's copy predates the current standard, so a fleet cannot drift invisibly. Bump
-`STANDARD_VERSION` in `validate_disclosure.py` when the rules change.
+Per-repo copies carry `<!-- progressive-disclosure standard vN -->`, so a reader can tell which
+version of these rules a repository last adopted.
 
 **Do not regenerate `disclosure.md` to bump the stamp.** It replaces project-specific content with
 the generic template — edit the stamp in place and add what is new.

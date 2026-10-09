@@ -3,7 +3,7 @@
 `<skill>` below is this skill's installed directory. Every command runs from the project root.
 
 ```
-approve ──► run_goal.py ──► session (chief) ──► per task: dispatch → check → guard → [risk review] → commit+tick
+approve ──► run.sh ──────► session (chief) ──► per task: dispatch → check → guard → [risk review] → commit+tick
                  ▲                │                                                  │
                  │                └── milestone close: receipts (full_gate, e2e, proofs) → acceptance → tag
                  └── fresh session per milestone or envelope, until goal done | all parked | stall | quota
@@ -20,64 +20,28 @@ approve ──► run_goal.py ──► session (chief) ──► per task: disp
    This writes `.runs/active`, which the Stop hook and the other tools read.
 
 Then either work interactively, with native `/goal` in either harness and the condition
-"`goal.py done` exits 0 for the active milestone, or stop after N turns", or start the driver for
-multi-day runs:
+"`goal.py done` exits 0 for the active milestone, or stop after N turns", or start `run.sh` for
+unattended runs:
 
 ```
-python3 <skill>/scripts/run_goal.py --goal <id> --harness claude|codex
+<skill>/scripts/run.sh <id> --harness claude|codex [--sessions N]
 ```
 
-## Launch profiles
+## Unattended runs
 
-The driver launches each session with the chief profile's model and effort and a profile that
-lets the chief edit, commit and run the declared gates with no human present.
-
-| Harness | Command shape | Permissions |
-| --- | --- | --- |
-| Claude Code | `claude -p --model <m> --effort <e> --permission-mode auto --settings .runs/<goal>/claude-settings.json --output-format json "<resume prompt>"` | The settings file allows `git add`, `git commit`, the plan's gate commands and the skill's scripts, and registers the Stop and SessionStart hooks. It is added on top of normal settings precedence: user, project, local and managed settings stay in effect. Auto mode's reviewer decides the rest. A denial is logged, never retried blindly. |
-| Codex | `codex exec --approve-for-me -m <m> -c model_reasoning_effort=<e> --json "<resume prompt>"`, adding `-c sandbox_workspace_write.network_access=true` when `run.network` is true | `--approve-for-me` runs in the workspace-write sandbox, which covers the repository; the CLI rejects an explicit `-s` alongside it. Automatic approval review handles the rest. Hooks come from the project's `.codex/hooks.json`, which migration writes and the founder trusts once in Codex (see [migrate.md](migrate.md), step 4). The driver refuses a Codex run, exit 2, when that file does not register a Stop hook running `goal.py stop-hook` and a SessionStart hook, and warns when `$CODEX_HOME/config.toml` (default `~/.codex`) has no `hooks.state` entry for it. |
-
-What each profile fixes:
-
-| | Claude Code | Codex |
-| --- | --- | --- |
-| Sandbox | None added; an inherited `sandbox` setting still applies. | The workspace-write sandbox, through `--approve-for-me`. |
-| Approval | Auto mode plus the settings file's allow rules (and deny rules when network is off). Inherited rules still apply. | Automatic approval review, through `--approve-for-me`. |
-| Writable paths | The working directory; none added. An inherited `permissions.additionalDirectories` still applies. | The workspace (the repository) under workspace-write; no extra writable roots are added. |
-| Network | When `run.network` is false the settings file denies `WebFetch` and `WebSearch`. Shell network access (`curl`, package managers) is restricted only by an inherited sandbox. | Off in the sandbox unless `run.network` is true, which adds `-c sandbox_workspace_write.network_access=true`. |
-
-The session environment sets `GOAL_ROLE=chief`. Judge and advisor calls set `GOAL_ROLE=judge`, which
-exempts them from the Stop hook.
-
-## Driver
-
-`scripts/run_goal.py` is a foreground loop, not a service. Each iteration:
-
-1. selects the active milestone, the first without a `goal/<id>/M<n>` tag;
-2. launches one fresh headless chief session whose resume prompt holds the goal line, the active
-   milestone, `goal.py status` and the tail of `progress.md`;
-3. ends the session when the envelope, `run.session_hours`, expires.
-
-Progress means newly completed tasks (ticked, committed and guard-clean) or a new milestone tag.
-Commits, verdicts and `Queue` entries alone are not progress. The driver stops when the goal is
-done, when every remaining task is parked or waiting on the `Queue`, after two consecutive sessions
-without progress, or when the harness reports exhausted quota and the retry window has run out. It
-retries quota with backoff, so an overnight reset continues the run. Per-session usage from the
-CLI's JSON output is appended to `progress.md`.
+`scripts/run.sh` runs one fresh session at a time, prompted with `goal.py resume`: Claude Code via
+`claude -p` with a settings file registering the Stop hook, Codex via `codex exec` in the
+workspace-write sandbox. It stops on DONE (writing `.runs/<goal>/packet.md`), PARKED, STALLED (two
+sessions without a new tick or `[Tn]` commit) or when its sessions run out, one line per session in
+`progress.md`.
 
 ## Stop hook
 
-`goal.py stop-hook` is the Stop hook in both harnesses. It acts only when `.runs/active` names a
-goal and `GOAL_ROLE` is unset or `chief`, so reviewer and advisor sessions always stop freely.
-While the active milestone is not done it blocks the stop with a reason that re-anchors the
-session, for example:
-
-> Goal G-3: <outcome>. Not done: T4 unchecked; no full_gate receipt for the candidate tree. Next ready: T4 (covers AC-3).
-
-It allows the stop after three consecutive blocks without progress (logging `STALLED` to
-`progress.md`), when every remaining task is parked, or when the session envelope has expired.
-Claude Code's own cap on consecutive blocks is a further backstop. The session hook,
-`goal-session.sh`, prints the active goal's status at session start, or the migrate-first notice.
+`goal.py stop-hook` is the Stop hook in both harnesses. It acts on the goal its `--goal` names
+(`run.sh` registers it so), else on the one open plan under `docs/goals/`; with several open plans
+and no `--goal` it blocks once per session asking for one. While `goal.py done` is unmet it blocks
+the stop, naming the unmet rows, at most three times per session id, then allows it. Claude Code's own cap on consecutive blocks is
+a further backstop.
 
 ## Per task
 
@@ -93,13 +57,13 @@ Claude Code's own cap on consecutive blocks is a further backstop. The session h
 4. **Guard.** `python3 <skill>/scripts/goal.py guard --task <T>` checks scope, test integrity and
    frozen inputs over the working-tree diff, with the same rules `goal.py done` applies later.
 5. **Risk review.** `risk: safety` brings the security reviewer onto the task diff; `boundary` or
-   `data` brings the reviewer with the matching lens. See [review.md](review.md).
+   `data` brings the reviewer with the matching lens.
 6. **Commit and tick.** One commit carries `[T<n>]` in the subject, the task's changes, the checkbox
    tick and one progress line.
 
 A failed check or guard goes back to the same builder, resumed with the output, and is counted with
 `goal.py attempt --task <T>`. After two failed attempts restart the builder fresh once; if that
-fails, park the task `[!]`, queue it with a diagnosis, escalate it (see [escalation.md](escalation.md)) and
+fails, park the task `[!]`, queue it with a diagnosis, park it for the founder and
 continue with other ready work.
 
 ## Milestone close
@@ -109,8 +73,8 @@ continue with other ready work.
    `--name e2e`, and `--name proof` for every automatic proof command.
 3. `goal.py evidence --milestone M<n>` writes `.runs/<goal>/M<n>-evidence.md`. The builder never
    writes it.
-4. Run cross-vendor acceptance over the milestone diff, the criteria and the evidence record (see
-   [review.md](review.md)). The verdict names the tree it judged.
+4. The other vendor reviews the milestone diff once, into `.runs/<goal>/review.md`; a blocking
+   finding is closed by a named test or by removing the work.
 5. When `goal.py done --milestone M<n>` exits 0, tag `goal/<id>/M<n>`, regenerate the explainer
    and write the founder digest.
 6. Continue the next milestone on the same branch, normally in a fresh session. The founder merges

@@ -2,7 +2,7 @@
 # The repository gate. Run from install/ or anywhere inside the repository.
 #
 #   ./verify.sh               this repository's checks
-#   ./verify.sh --installed   also: parity of the installed skills, hooks and personas against
+#   ./verify.sh --installed   also: parity of the installed skills, hook registrations and personas against
 #                             ~/.claude and ~/.codex (read-only; never part of the default run)
 #
 # Output contract, which gate.py reads: each unittest suite prints unittest's own output unchanged
@@ -24,7 +24,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null)" || ROOT="$(cd "$HERE/.." && pwd)"
 cd "$ROOT" || exit 2
 export PYTHONDONTWRITEBYTECODE=1
-PD="install/skills/progressive-disclosure/scripts"
 TMP="$(mktemp -d)" || { echo "could not create a temporary directory" >&2; exit 2; }
 trap 'rm -rf "$TMP"' EXIT
 
@@ -65,8 +64,7 @@ run_suite() {
 }
 
 # ── 1. Every published skill's unittest suite ────────────────────────────────────────────────────
-# A skill with code (scripts/) must carry a suite; one with neither (graph-navigation) has nothing
-# to run.
+# A skill with code (scripts/) must carry a suite; one without scripts has nothing to run.
 for s in $(published_skills); do
   if [ ! -d "install/skills/$s/tests" ]; then
     if [ -d "install/skills/$s/scripts" ]; then
@@ -79,36 +77,32 @@ for s in $(published_skills); do
   run_suite "suite_$s" "install/skills/$s/tests"
 done
 
-# ── 2. Route and structure standard ──────────────────────────────────────────────────────────────
-section "validate_disclosure --standard"
-if python3 "$PD/validate_disclosure.py" . --standard; then pass disclosure_standard
-else failed disclosure_standard; fi
+# ── 2. Links in the docs resolve ─────────────────────────────────────────────────────────────────
+# Over AGENTS.md, README.md and every tracked docs/**/*.md: each relative Markdown link outside a
+# code fence names an existing file, and a decisions.md anchor is a heading's GitHub slug (or a bare
+# dNN with a `DNN` heading). The check is install/tests/link_check.py.
+section "links"
+if python3 install/tests/link_check.py "$ROOT"; then :; else failed links; fi
 
-# ── 3. Identifier guard over the tree ────────────────────────────────────────────────────────────
-# The guard scans a staged diff, so the tree (tracked files plus untracked files that are not
-# ignored, i.e. what a commit could carry) is staged into a scratch repository with no history and
-# scanned there. The origin URL is carried over so the account rule has something to check. Exit 2
-# (deny-list missing, guard could not run) fails this check rather than passing it.
-section "identifier guard over the tree"
+# ── 3. The guard: its self-test, then the tree ───────────────────────────────────────────────────
+# guard.py scans a staged diff, so the tree (tracked files plus untracked files that are not
+# ignored, i.e. what a commit could carry; symlinks as their link text) is staged into a scratch
+# repository with no history by install/tests/tree_scan.py and scanned there. The origin URL is carried over so the account rule has something to check. Exit 2
+# (private-name list missing, guard could not run) fails this check rather than passing it.
+GUARD="install/skills/execution-methodology/scripts/guard.py"
+section "guard --self-test"
+if python3 "$GUARD" --self-test; then pass guard_self_test; else failed guard_self_test; fi
+section "guard over the tree"
 SCAN="$TMP/tree"
 mkdir -p "$SCAN"
-if git ls-files -z --cached --others --exclude-standard |
-     python3 -c '
-import os, shutil, sys
-dest = sys.argv[1]
-for rel in filter(None, sys.stdin.buffer.read().decode("utf-8", "surrogateescape").split("\0")):
-    if os.path.isfile(rel) and not os.path.islink(rel):
-        os.makedirs(os.path.join(dest, os.path.dirname(rel)), exist_ok=True)
-        shutil.copy2(rel, os.path.join(dest, rel))
-' "$SCAN" && git -C "$SCAN" init -q && git -C "$SCAN" add -A; then
-  origin="$(git remote get-url origin 2>/dev/null)" && git -C "$SCAN" remote add origin "$origin"
-  (cd "$SCAN" && python3 "$ROOT/$PD/identifier_guard.py" --staged)
+if python3 install/tests/tree_scan.py "$ROOT" "$SCAN"; then
+  (cd "$SCAN" && python3 "$ROOT/$GUARD" --staged)
   rc=$?
-  if [ "$rc" -eq 0 ]; then pass identifier_guard
-  else failed identifier_guard; [ "$rc" -eq 2 ] && echo "verify: the identifier guard could not run (exit 2)"; fi
+  if [ "$rc" -eq 0 ]; then pass guard
+  else failed guard; [ "$rc" -eq 2 ] && echo "verify: the guard could not run (exit 2)"; fi
 else
-  failed identifier_guard
-  echo "verify: could not stage the tree for the identifier guard"
+  failed guard
+  echo "verify: could not stage the tree for the guard"
 fi
 
 # ── 4. Size ceilings (AC-9) ──────────────────────────────────────────────────────────────────────
@@ -189,15 +183,10 @@ if [ "$INSTALLED" -eq 1 ]; then
         differs "$root/skills/$s differs from install/skills/$s"
     done
   done
-  for h in install/hooks/*; do
-    cmp -s "$h" "$HOME/.claude/hooks/$(basename "$h")" || differs "$HOME/.claude/hooks/$(basename "$h")"
-  done
-  [ -d "$CX" ] && { cmp -s install/hooks/goal-session.sh "$CX/hooks/goal-session.sh" || differs "$CX/hooks/goal-session.sh"; }
   for pair in "$HOME/.claude/settings.json" "$CX/hooks.json"; do
     [ "$pair" = "$CX/hooks.json" ] && [ ! -d "$CX" ] && continue
-    for want in hooks/goal-session.sh "execution-methodology/scripts/goal.py stop-hook"; do
-      grep -qF "$want" "$pair" 2>/dev/null || differs "$pair does not register $want"
-    done
+    want="execution-methodology/scripts/goal.py stop-hook"
+    grep -qF "$want" "$pair" 2>/dev/null || differs "$pair does not register $want"
   done
   mkdir -p "$TMP/render/.codex"
   HOME="$TMP/render" CODEX_HOME="$TMP/render/.codex" \

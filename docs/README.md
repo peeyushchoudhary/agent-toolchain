@@ -15,14 +15,14 @@ Each directory carries a `README.md` naming its purpose and authority level.
 
 ## Every document, one hop from here
 
-Listed in full and not only through the six indexes above, deliberately: the validator warns
-`too-deep` past two hops from an entry file, and an area directory spends one of them. Add a
+Listed in full and not only through the six indexes above, deliberately: a document should sit
+within two hops of an entry file, and an area directory spends one of them. Add a
 document by adding its row here in the same commit.
 
 | Area | Document | Status |
 | --- | --- | --- |
 | How work is sequenced, and what "done" means | [architecture/operating-model.md](architecture/operating-model.md) | Current |
-| The four disclosure layers and the validator | [agents/progressive-disclosure.md](agents/progressive-disclosure.md) | Current |
+| The four disclosure layers | [agents/progressive-disclosure.md](agents/progressive-disclosure.md) | Current |
 | How the route works in this repository | [agents/disclosure.md](agents/disclosure.md) | Current, standard v1.2 |
 | What earlier agents learned here, still applying | [agents/lessons.md](agents/lessons.md) | Current — curated; what stops applying is removed |
 | Where files belong; migrating an existing repo | [architecture/repository-standard.md](architecture/repository-standard.md) | Current, v1.1 |
@@ -38,21 +38,21 @@ document by adding its row here in the same commit.
 | Lean goal execution (methodology v6) definition | [product/specs/F-3-lean-execution.md](product/specs/F-3-lean-execution.md) | Approved 2026-10-06; in implementation |
 | Lean goal execution design | [architecture/lean-execution.md](architecture/lean-execution.md) | Approved 2026-10-06; in implementation |
 | Lean goal execution plan | [product/plans/F-3-lean-execution.md](product/plans/F-3-lean-execution.md) | Approved 2026-10-06; in implementation |
+| Simplification goal S-1: the plan (methodology v7, D29) | [goals/S-1/plan.md](goals/S-1/plan.md) | Approved 2026-10-09; in implementation |
 
 Installation lives in [../install/README.md](../install/README.md). The current state of the
 repository is summarised once in [the front page](../README.md#current-state).
 
 ## What is published, and what is not
 
-`install/skills/` is the authored source of the published skills; `install/hooks/` holds the session
-hooks. Four skills are published: `execution-methodology`, `agent-personas`, `progressive-disclosure`
-and `graph-navigation`. The list is enforced by `install/skills/.gitignore`, which ignores its own
-directory and then re-includes those four by name, so adding another is a deliberate line in a file
+`install/skills/` is the authored source of the published skills. Two skills are published:
+`execution-methodology` and `agent-personas`. The list is enforced by
+`install/skills/.gitignore`, which ignores its own directory and then re-includes those two by name, so adding another is a deliberate line in a file
 rather than a side effect of a copy.
 
 `execution-methodology` describes a process, not the work it was applied to, and names no project,
 path or person, which is what makes it safe to publish. Its tools (`goal.py`, `gate.py`,
-`review.py`, `run_goal.py`) carry no project fact: commands, paths and grants arrive from a
+`run.sh`) carry no project fact: commands, paths and grants arrive from a
 project's own plan.
 
 `graphify` is deliberately not published. It is a third-party skill that installs itself on its own

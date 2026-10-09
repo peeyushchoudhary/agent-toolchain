@@ -11,12 +11,10 @@ projects lose their global route.
    heading to the sentence that begins "User authority, privacy, local verification and deployment
    boundaries".
 2. Replace that whole section with the text under "Replacement section" below, the same bytes in
-   both files. Keep the heading and the closing sentence exactly as given: `check_toolchain.py`
-   finds the block by them and compares it across the two files.
+   both files. Keep the heading and the closing sentence exactly as given.
 3. Leave `# GitHub` and the operating-model section as they are. The operating model's
    instruction to read `docs/agents/README.md` at project entry still holds.
-4. Run `python3 ~/.claude/skills/progressive-disclosure/scripts/check_toolchain.py`. A critical
-   finding about the shared block means the two files differ.
+4. Compare the section across the two files; it must be byte-identical.
 
 ## What to remove
 
@@ -65,10 +63,6 @@ correction and one scoped rereview.
 Use the personas that `agent-personas` defines, and take model and effort from their frontmatter
 rather than choosing in the moment. Run the chief as the root session, never as a subagent under
 another long-lived session.
-
-At project entry, run:
-
-    python3 "$HOME/.claude/skills/progressive-disclosure/scripts/validate_disclosure.py" . --hook
 
 A project that still carries `docs/agents/execution/runtime.json` follows the previous methodology
 and must be migrated before v6 executes there; the skill's migration reference describes how.

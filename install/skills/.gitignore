@@ -12,10 +12,8 @@
 !/.gitignore
 !/README.md
 
-!/progressive-disclosure
 !/agent-personas
 !/execution-methodology
-!/graph-navigation
 
 # Never, anywhere.
 __pycache__/

@@ -14,7 +14,7 @@ it did not read.
 | `~/.codex/config.toml` | Session and `[agents]` settings | `install.sh` appends `[agents]` once; the rest is manual |
 | `~/.codex/agents/*.toml` | Persona definitions | `install.sh`, or `sync_personas.py --scope global` |
 | `~/.codex/skills/` | The four published skills | `install.sh` |
-| `~/.codex/hooks.json`, `hooks/goal-session.sh` | The goal SessionStart and Stop hooks | `install.sh`; trusted once by you |
+| `~/.codex/hooks.json` | The goal Stop hook | `install.sh`; trusted once by you |
 | `<repo>/AGENTS.md` | The project contract | Shared with Claude, the same file |
 | `<repo>/docs/agents/**` | The route | Shared with Claude, the same files |
 | `<repo>/.codex/hooks.json` | Project hooks for a migrated project | Written at migration; trusted once by you |
@@ -63,12 +63,7 @@ says nothing.
 
 `~/.codex/AGENTS.md` is private and the installer does not touch it. Apply the execution section
 from [global-instructions.md](global-instructions.md) to it and to `~/.claude/CLAUDE.md` in the same
-sitting. The shared route block must be identical in both files, and `check_toolchain.py` reports
-when it is not:
-
-```bash
-python3 ~/.claude/skills/progressive-disclosure/scripts/check_toolchain.py
-```
+sitting. The shared route block must be identical in both files.
 
 ## Format differences that matter
 
@@ -87,8 +82,8 @@ would silently truncate the instructions, so the generator raises rather than em
 
 ## Running Codex for goal work
 
-The driver starts Codex sessions with `codex exec --approve-for-me`, which runs in the
-workspace-write sandbox, and `review.py` calls it for read-only judging:
+`run.sh` starts Codex sessions with `codex --ask-for-approval never exec --sandbox workspace-write`,
+and the other-vendor review calls it read-only:
 
 ```bash
 codex exec -s read-only --ignore-user-config --ignore-rules \
@@ -118,8 +113,8 @@ Then open Codex in a migrated repo and confirm it reads `AGENTS.md` and can spaw
 
 ## What Codex does not get
 
-- **`~/.claude/hooks/`** — session-start reporting, the graphify query advisor, lessons injection.
-  Claude Code only. Codex gets the two goal hooks through `hooks.json`.
+- **`~/.claude/settings.json` hooks** — Claude Code only. Codex gets the goal Stop hook through
+  `hooks.json`.
 - **`~/.claude/settings.json`** — including `skillOverrides`.
 
 Anything that must apply to both harnesses belongs in the repository, not in a hook or a skill.
