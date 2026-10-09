@@ -33,8 +33,8 @@ PYV=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' ||
   { echo "python3 $PYV found; 3.10 or newer is required" >&2; exit 1; }
 echo "methodology installer: $MODE$([ "$DRY" -eq 1 ] && echo ' (dry run: nothing will be written)'), python3 $PYV"
-ROOTS="$CLAUDE"
-if [ -d "$CODEX" ]; then ROOTS="$ROOTS $CODEX"; else say "no $CODEX: Codex is not installed here, so its side is skipped"; fi
+ROOTS=("$CLAUDE")   # an array: a harness home may contain spaces
+if [ -d "$CODEX" ]; then ROOTS+=("$CODEX"); else say "no $CODEX: Codex is not installed here, so its side is skipped"; fi
 global_of() { if [ "$1" = "$CLAUDE" ]; then echo "$1/CLAUDE.md"; else echo "$1/AGENTS.md"; fi; }
 hooks_of()  { if [ "$1" = "$CLAUDE" ]; then echo "$1/settings.json"; else echo "$1/hooks.json"; fi; }
 
@@ -180,7 +180,7 @@ retire_root() {  # retire_root ROOT AGENT_EXT
 }
 
 # ── Run ──────────────────────────────────────────────────────────────────────────────────────────
-for r in $ROOTS; do
+for r in "${ROOTS[@]}"; do
   echo "$r"
   if [ "$MODE" = uninstall ]; then
     uninstall_global "$(global_of "$r")" || fail "uninstall: $(global_of "$r")"
@@ -197,7 +197,7 @@ done
 if [ "$MODE" = retire ]; then
   echo "retire v5.1 and v6 leftovers"
   if [ -n "$FAILURES" ]; then say "SKIPPED: an install step above failed, so nothing was retired"
-  else for r in $ROOTS; do if [ "$r" = "$CLAUDE" ]; then retire_root "$r" md; else retire_root "$r" toml; fi; done; fi
+  else for r in "${ROOTS[@]}"; do if [ "$r" = "$CLAUDE" ]; then retire_root "$r" md; else retire_root "$r" toml; fi; done; fi
 fi
 if [ -n "$FAILURES" ]; then printf '\n%s FAILED; these steps did not complete:\n%s' "$MODE" "$FAILURES" >&2; exit 1; fi
 [ "$MODE" = uninstall ] || say "next: ./verify.sh; unattended runs register their Stop hook per session (scripts/run.sh)"

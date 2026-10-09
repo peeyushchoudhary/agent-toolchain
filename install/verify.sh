@@ -4,6 +4,7 @@
 #   ./verify.sh               this repository's checks
 #   ./verify.sh --installed   also: parity of the installed copies in ~/.claude and $CODEX_HOME
 #                             (read-only; never part of the default run)
+#   ./verify.sh --installed-only   that parity check alone
 #
 # Output contract, which gate.py reads: each unittest suite prints unittest's own output unchanged,
 # every other check prints `verify: <id> ok` or `FAIL: <id> (verify.checks)`, and the last line is
@@ -13,7 +14,8 @@ INSTALLED=0
 for arg in "$@"; do
   case "$arg" in
     --installed) INSTALLED=1 ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    --installed-only) INSTALLED=2 ;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 64 ;;
   esac
 done
@@ -44,6 +46,38 @@ run_suite() {
   elif [ "$rc" -ne 0 ]; then FAILED=$((FAILED + 1)); FAILED_NAMES="$FAILED_NAMES $id"; echo "verify: $id has failing tests (ids above)"
   else pass "$id ($ran tests)"; fi
 }
+
+# 8. Installed parity (--installed: after check 7; --installed-only: alone). Each harness home holds
+# this skill (tests/ excepted) and global.md byte-equal, and no Stop registration of goal.py
+# stop-hook (run.sh registers it per session). Files the installed skill carries forward from an
+# older install are listed, not counted (--retire-v5 judges them).
+installed_parity() {
+  local CX="${CODEX_HOME:-$HOME/.codex}" drift=0 roots r g h n
+  section "installed parity (read-only)"
+  roots=("$HOME/.claude"); [ -d "$CX" ] && roots+=("$CX")   # an array: a home may contain spaces
+  for r in "${roots[@]}"; do
+    if [ "$r" = "$HOME/.claude" ]; then g="$r/CLAUDE.md" h="$r/settings.json"; else g="$r/AGENTS.md" h="$r/hooks.json"; fi
+    cmp -s install/global.md "$g" || { echo "  drift: $g differs from install/global.md"; drift=1; }
+    diff -rq -x __pycache__ -x tests "$SKILL" "$r/skills/execution-methodology" > "$TMP/diff" 2>&1
+    grep -F "Only in $r/" "$TMP/diff" | sed 's/^/  carried forward: /'
+    grep -vF "Only in $r/" "$TMP/diff" | sed 's/^/  drift: /' | grep . && drift=1
+    n="$(python3 -c 'import json,sys
+try: hooks = json.load(open(sys.argv[1])).get("hooks", {})
+except (OSError, ValueError): hooks = {}
+print(sum("goal.py stop-hook" in h.get("command", "") for e in hooks.get("Stop", []) for h in e.get("hooks", [])))' "$h")"
+    [ "$n" = 0 ] || { echo "  drift: $h has $n Stop registrations of goal.py stop-hook, want 0 (./install.sh drops them)"; drift=1; }
+  done
+  if [ "$drift" -eq 0 ]; then pass installed_parity
+  else echo "  run ./install.sh to bring the installed copies level with this repository"; failed installed_parity installed; fi
+}
+verdict() {
+  echo
+  if [ "$FAILED" -eq 0 ]; then echo "verify: PASS"; exit 0; fi
+  echo "failing:$FAILED_NAMES"
+  echo "verify: FAIL ($FAILED checks)"
+  exit 1
+}
+[ "$INSTALLED" -ne 2 ] || { installed_parity; verdict; }
 
 # 1–2. The skill's suite, then the installer's (test_install.py and the size ceiling, test_size.py).
 run_suite suite_execution-methodology "$SKILL/tests"
@@ -78,8 +112,8 @@ EXCLUDE="docs/decisions/decisions.md docs/product/measurements.md install/verify
 EXCLUDE="$EXCLUDE install/skills/execution-methodology/tests/test_rules.py"
 # The skills .gitignore explains why it is an allowlist with the vendor tool that writes beside it.
 EXCLUDE="$EXCLUDE install/skills/.gitignore"
-# T8 rewrites the root README and deletes the v6 records and the diagram the README embeds.
-EXCLUDE="$EXCLUDE README.md docs/assets/readme/skill-surface.svg docs/architecture/lean-execution.md"
+# T8 deleted the v6 records and the diagram the old README embedded.
+EXCLUDE="$EXCLUDE docs/assets/readme/skill-surface.svg docs/architecture/lean-execution.md"
 EXCLUDE="$EXCLUDE docs/product/specs/F-3-lean-execution.md docs/product/plans/F-3-lean-execution.md"
 EXCLUDE="$EXCLUDE docs/product/improvements-weekly.md docs/agents/lessons.md"
 : > "$TMP/hits"
@@ -105,31 +139,5 @@ if HOME="$TMP/hm" CODEX_HOME="$TMP/hm/.codex" bash install/install.sh --dry-run 
   cat "$TMP/dry.log"; pass install_dry_run
 else cat "$TMP/dry.log"; failed install_dry_run; fi
 
-# 8. --installed: each harness home holds this skill (tests/ excepted) and global.md byte-equal, and
-# no Stop registration of goal.py stop-hook (run.sh registers it per session). Files the installed
-# skill carries forward from an older install are listed, not counted (--retire-v5 judges them).
-if [ "$INSTALLED" -eq 1 ]; then
-  section "installed parity (read-only)"
-  CX="${CODEX_HOME:-$HOME/.codex}" drift=0
-  roots="$HOME/.claude"; [ -d "$CX" ] && roots="$roots $CX"
-  for r in $roots; do
-    if [ "$r" = "$HOME/.claude" ]; then g="$r/CLAUDE.md" h="$r/settings.json"; else g="$r/AGENTS.md" h="$r/hooks.json"; fi
-    cmp -s install/global.md "$g" || { echo "  drift: $g differs from install/global.md"; drift=1; }
-    diff -rq -x __pycache__ -x tests "$SKILL" "$r/skills/execution-methodology" > "$TMP/diff" 2>&1
-    grep -F "Only in $r/" "$TMP/diff" | sed 's/^/  carried forward: /'
-    grep -vF "Only in $r/" "$TMP/diff" | sed 's/^/  drift: /' | grep . && drift=1
-    n="$(python3 -c 'import json,sys
-try: hooks = json.load(open(sys.argv[1])).get("hooks", {})
-except (OSError, ValueError): hooks = {}
-print(sum("goal.py stop-hook" in h.get("command", "") for e in hooks.get("Stop", []) for h in e.get("hooks", [])))' "$h")"
-    [ "$n" = 0 ] || { echo "  drift: $h has $n Stop registrations of goal.py stop-hook, want 0 (./install.sh drops them)"; drift=1; }
-  done
-  if [ "$drift" -eq 0 ]; then pass installed_parity
-  else echo "  run ./install.sh to bring the installed copies level with this repository"; failed installed_parity installed; fi
-fi
-
-echo
-if [ "$FAILED" -eq 0 ]; then echo "verify: PASS"; exit 0; fi
-echo "failing:$FAILED_NAMES"
-echo "verify: FAIL ($FAILED checks)"
-exit 1
+[ "$INSTALLED" -eq 0 ] || installed_parity
+verdict

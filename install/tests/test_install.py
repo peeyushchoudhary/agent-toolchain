@@ -391,5 +391,28 @@ class GoalStopHookTest(InstallCase):
             self.assertEqual(json.loads(r.stdout)["decision"], "block", harness)
 
 
+class M2InstallFixes(InstallCase):
+    """The M2 diff review's installer findings, one closing test each."""
+
+    def test_install_and_parity_support_spaces_in_harness_homes(self):
+        self.codex.rmdir()  # the fixture's own Codex home; this test uses the spaced one only
+        spaced = self.home / "my home"
+        claude, codex = spaced / ".claude", spaced / ".codex"
+        codex.mkdir(parents=True)
+        self.env.update(HOME=str(spaced), CODEX_HOME=str(codex))
+        self.install()
+        # A split path would land beside "my home" (an absolute "<home>/my") or under the cwd ("home/...").
+        self.assertEqual(sorted(p.name for p in self.home.iterdir()), ["my home"])
+        for root, name in ((claude, "CLAUDE.md"), (codex, "AGENTS.md")):
+            self.assertEqual((root / name).read_text(encoding="utf-8"), GLOBAL)
+            self.assertTrue((root / "skills" / SKILL / "SKILL.md").is_file(), root)
+        r = subprocess.run(["bash", str(INSTALL / "verify.sh"), "--installed-only"], env=self.env,
+                           capture_output=True, text=True, cwd=self.home)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("verify: installed_parity ok", r.stdout)
+        self.assertEqual(r.stdout.strip().splitlines()[-1], "verify: PASS")
+        self.assertEqual(sorted(p.name for p in self.home.iterdir()), ["my home"])
+
+
 if __name__ == "__main__":
     unittest.main()
