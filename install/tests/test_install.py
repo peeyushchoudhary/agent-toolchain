@@ -367,6 +367,38 @@ class GuardTest(InstallCase):
         self.assertNotIn("leak", self.git(remote, "branch").stdout)
 
 
+    def tree_scan_guard(self, files: dict[str, str], links: dict[str, str]):
+        """Build a fixture repo (files committed with -f, then symlinks added), stage it the way
+        verify.sh does, and return the guard's result over the scratch tree."""
+        repo = self.home / f"fixture{len(list(self.home.glob('fixture*')))}"
+        repo.mkdir()
+        self.git(repo, "init", "-q", "-b", "main")
+        self.write(repo / ".gitignore", "*.log\n")
+        for rel, text in files.items():
+            self.write(repo / rel, text)
+        for rel, target in links.items():
+            os.symlink(target, repo / rel)
+        self.git(repo, "add", "-A", "-f")
+        self.git(repo, "commit", "-q", "-m", "init")
+        names = self.write(self.home / "names.txt", "zarquon-widget\n")
+        env = {**self.env, "PD_PRIVATE_IDENTIFIERS": str(names)}
+        scan = self.home / (repo.name + "-scan")
+        r = subprocess.run(["python3", str(INSTALL / "tests" / "tree_scan.py"), str(repo), str(scan)],
+                           env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        guard = SKILLS / "execution-methodology" / "scripts" / "guard.py"
+        return subprocess.run(["python3", str(guard), "--staged"], cwd=scan, env=env,
+                              capture_output=True, text=True)
+
+    def test_tree_guard_scans_ignored_tracked_files_and_symlinks(self):
+        control = self.tree_scan_guard({"notes.txt": "nothing secret\n"}, {})
+        self.assertEqual(control.returncode, 0, control.stdout + control.stderr)
+        ignored = self.tree_scan_guard({"build.log": "see zarquon-widget\n"}, {})
+        self.assertNotEqual(ignored.returncode, 0, "a tracked file an ignore rule matches went unscanned")
+        link = self.tree_scan_guard({"notes.txt": "nothing secret\n"}, {"pointer": "/srv/zarquon-widget/data"})
+        self.assertNotEqual(link.returncode, 0, "a symlink's link text went unscanned")
+
+
 class GoalStopHookTest(InstallCase):
     """The registered Stop command of each harness blocks a stop while a goal is not done."""
 

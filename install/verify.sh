@@ -107,8 +107,8 @@ then :; else failed links; fi
 
 # ── 3. The guard: its self-test, then the tree ───────────────────────────────────────────────────
 # guard.py scans a staged diff, so the tree (tracked files plus untracked files that are not
-# ignored, i.e. what a commit could carry) is staged into a scratch repository with no history and
-# scanned there. The origin URL is carried over so the account rule has something to check. Exit 2
+# ignored, i.e. what a commit could carry; symlinks as their link text) is staged into a scratch
+# repository with no history by install/tests/tree_scan.py and scanned there. The origin URL is carried over so the account rule has something to check. Exit 2
 # (private-name list missing, guard could not run) fails this check rather than passing it.
 GUARD="install/skills/execution-methodology/scripts/guard.py"
 section "guard --self-test"
@@ -116,16 +116,7 @@ if python3 "$GUARD" --self-test; then pass guard_self_test; else failed guard_se
 section "guard over the tree"
 SCAN="$TMP/tree"
 mkdir -p "$SCAN"
-if git ls-files -z --cached --others --exclude-standard |
-     python3 -c '
-import os, shutil, sys
-dest = sys.argv[1]
-for rel in filter(None, sys.stdin.buffer.read().decode("utf-8", "surrogateescape").split("\0")):
-    if os.path.isfile(rel) and not os.path.islink(rel):
-        os.makedirs(os.path.join(dest, os.path.dirname(rel)), exist_ok=True)
-        shutil.copy2(rel, os.path.join(dest, rel))
-' "$SCAN" && git -C "$SCAN" init -q && git -C "$SCAN" add -A; then
-  origin="$(git remote get-url origin 2>/dev/null)" && git -C "$SCAN" remote add origin "$origin"
+if python3 install/tests/tree_scan.py "$ROOT" "$SCAN"; then
   (cd "$SCAN" && python3 "$ROOT/$GUARD" --staged)
   rc=$?
   if [ "$rc" -eq 0 ]; then pass guard
