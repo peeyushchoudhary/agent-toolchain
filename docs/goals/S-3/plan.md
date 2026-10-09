@@ -45,6 +45,11 @@ files. Do not touch any other rule, test or file.
   is itself relative (does not start with `/`), so `/System/Volumes/Data/Users/<name>` blocks; a
   row and a self-test case prove it. `TOKEN_BEFORE` replaces the `SEGMENT_BEFORE` the task named,
   taking the whole path token (slashes included) rather than its last segment; a flag still blocks.
+- 2026-10-10 merge review R1 (Astra): a space or a non-ASCII character inside an absolute prefix
+  cut the token short. `relative_before()` now judges the clause before the match (back to a
+  character no path holds): relative only when the touching word is relative and no word of the
+  clause starts with `/`; `CLAUSE_BEFORE` replaces `TOKEN_BEFORE`. A relative path after an
+  absolute one on the same clause is therefore reported too, which fails closed.
 - 2026-10-09 T1: the example package path is `app/core/users/…`; the downstream project's own
   package name stays out of this public repository (default).
 

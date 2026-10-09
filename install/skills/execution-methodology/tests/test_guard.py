@@ -162,6 +162,12 @@ class CommitRulesTest(GuardCase):
             ("absolute path through a data volume", {"n.md": f"/System/Volumes/Data{HOME_PATH}\n"}, 1,
              "absolute home path"),
             ("deeper relative path", {"n.md": "x: a/b/core/" + "users/UserDtos.java\n"}, 0, None),
+            ("absolute path with a space", {"n.md": f"/Volumes/External Drive{HOME_PATH}\n"}, 1,
+             "absolute home path"),
+            ("absolute path with a non-ASCII directory", {"n.md": f"/Volumes/Données{HOME_PATH}\n"}, 1,
+             "absolute home path"),
+            ("absolute path quoted with a space", {"n.md": f'cp "/Volumes/External Drive{HOME_PATH}" .\n'}, 1,
+             "absolute home path"),
         ]
         for label, files, want, needle in cases:
             with self.subTest(label):

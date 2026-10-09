@@ -20,10 +20,11 @@ from pathlib import Path
 
 LIST_ENV = "PD_PRIVATE_IDENTIFIERS"
 HOME_PATH = re.compile(r"/(?:Users|home)/([A-Za-z0-9._-]{2,})", re.IGNORECASE)
-# The path token right before a HOME_PATH match. A relative one (core/users/X) makes the match a
-# later segment of that path, not a home; an absolute one (/System/Volumes/Data/Users/x) or a flag
-# (-I/Users/x) does not.
-TOKEN_BEFORE = re.compile(r"[A-Za-z0-9._/-]*$")
+# The clause before a HOME_PATH match, back to a character no path holds. The match is a later
+# segment of a relative path (core/users/X) only when the word touching it is relative and no word
+# of the clause is absolute: /System/Volumes/Data/Users/x, "/Volumes/External Drive/Users/x",
+# /Volumes/Données/Users/x and the flag -I/Users/x all stay home paths.
+CLAUSE_BEFORE = re.compile(r"[^\n\"'`()=<>,;:|\[\]{}]*$")
 PLACEHOLDERS = frozenset({"anything", "example", "home", "me", "name", "root", "runner", "shared",
                           "someone", "user", "username", "you", "youruser", "yourname", "your-name"})
 TOO_GENERIC = frozenset({"admin", "example", "git", "github", "gitlab", "local", "localhost", "main",
@@ -112,12 +113,17 @@ def find(rule, text: str) -> str | None:
     for m in rule[1].finditer(text):
         if not m[0]:
             continue
-        if rule[2] == "home":
-            before = TOKEN_BEFORE.search(text[:m.start()])[0]
-            if m[1].lower() in PLACEHOLDERS or (before and before[0] not in "/-"):
-                continue  # a placeholder, or a later segment of a relative path
+        if rule[2] == "home" and (m[1].lower() in PLACEHOLDERS or relative_before(text[:m.start()])):
+            continue  # a placeholder, or a later segment of a relative path
         return m[0]
     return None
+
+
+def relative_before(text: str) -> bool:
+    """True when text ends in a relative path that a HOME_PATH match right after it continues."""
+    words = CLAUSE_BEFORE.search(text)[0].split()
+    last = words[-1] if words and not text[-1:].isspace() else ""
+    return bool(last) and last[0] not in "/-" and not any(w.startswith("/") for w in words)
 
 
 def shown(rule, found: str) -> str:
@@ -304,7 +310,8 @@ def self_test() -> int:
              ("-----BEGIN RSA PRIV" + "ATE KEY-----", 1), ("/Users/<name>/code", 0),
              ("/home/runner/work, /home/$USER", 0), ("the upstream loader", 0),
              ("app/core/" + "users/UserDtos.java", 0), ("cc -I/Users" + "/hoopfrabjous/include", 1),
-             ("/System/Volumes/Data/Users" + "/hoopfrabjous", 1)]
+             ("/System/Volumes/Data/Users" + "/hoopfrabjous", 1),
+             ("/Volumes/External Drive/Users" + "/hoopfrabjous", 1)]
     failed = [text for text, want in cases if bool(next((1 for r in rules if find(r, text)), 0)) != want]
     hits: list[str] = []
     scan_diff("+++ b/f.c\n@@ -0,0 +1,2 @@\n+++counter;\n+++ /Users" + "/hoopfrabjous/b\n", rules, hits)
