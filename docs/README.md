@@ -22,14 +22,12 @@ document by adding its row here in the same commit.
 | Area | Document | Status |
 | --- | --- | --- |
 | How work is sequenced, and what "done" means | [architecture/operating-model.md](architecture/operating-model.md) | Current |
-| The four disclosure layers | [agents/progressive-disclosure.md](agents/progressive-disclosure.md) | Current |
 | How the route works in this repository | [agents/disclosure.md](agents/disclosure.md) | Current, standard v1.2 |
 | What earlier agents learned here, still applying | [agents/lessons.md](agents/lessons.md) | Current — curated; what stops applying is removed |
 | Where files belong; migrating an existing repo | [architecture/repository-standard.md](architecture/repository-standard.md) | Current, v1.1 |
 | Forge rules, the push guard, zero-cost posture | [runbooks/github.md](runbooks/github.md) | Current |
 | The Codex side, and what it does not get | [runbooks/codex.md](runbooks/codex.md) | Current |
 | Updating the private global instruction files for v6 | [runbooks/global-instructions.md](runbooks/global-instructions.md) | Current |
-| Personas: removed in v7, one reviewer prompt kept | [agents/agent-personas.md](agents/agent-personas.md) | Current |
 | Every file the installer places, and why | [agents/what-gets-installed.md](agents/what-gets-installed.md) | Current |
 | Decisions in force, each against its rejected alternative | [decisions/decisions.md](decisions/decisions.md) | Current — identifiers are stable |
 | The numbers the decisions and the v6 design cite | [product/measurements.md](product/measurements.md) | **Dated** — re-derive when prices move |
@@ -55,9 +53,8 @@ path or person, which is what makes it safe to publish. Its tools (`goal.py`, `g
 `run.sh`) carry no project fact: commands, paths and grants arrive from a
 project's own plan.
 
-`graphify` is deliberately not published. It is a third-party skill that installs itself on its own
-schedule, so a copy here would only go stale, and redistributing it is not this repository's call.
-Its absence from `install/skills/` is the recorded decision, not drift.
+Third-party skills that install themselves beside it are deliberately not published: a copy here
+would only go stale, and redistributing them is not this repository's call.
 
 ## Authority order
 

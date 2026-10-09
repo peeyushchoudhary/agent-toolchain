@@ -126,7 +126,7 @@ Delete `methodology.md`, `run.md`, `planning.md`, `migrate.md`; the `agent-perso
 render-parity block. `test_size.py` becomes one assertion (always-loaded files ≤200 lines each,
 ≤1,350 words in total); `test_rules.py` reads the new files or is deleted.
 
-### [ ] T7 — `install.sh` and `verify.sh` rewritten to the new file set
+### [x] T7 — `install.sh` and `verify.sh` rewritten to the new file set
 writes: install/install.sh, install/verify.sh, install/README.md, install/tests/test_install.py, install/preserve_selftest.sh, install/skills/README.md, docs/**
 tests-may-change: install/tests/test_install.py
 `install.sh` ≈120 lines: copy `global.md` to `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` after
@@ -253,6 +253,14 @@ the other vendor's diff review, `done` for M2, merge.
   `RETIRED_SKILLS` in T7. `docs/agents/agent-personas.md` is cut to a note until T8 removes the
   README link. `references/migrate.md` is deleted; its six links are plain text naming
   `docs/runbooks/migrate-v5.md` until T8 writes it.
+- 2026-10-09 T7 defaults: `install.sh` is 213 lines (≈50 are the JSON hook editor that
+  `--uninstall` and `--retire-v5` share; T9 may remove the Stop registration but not the editor);
+  `verify.sh` 135. `--uninstall` removes a global file only while it still equals `global.md`, then
+  restores the newest backup; `--retire-v5` also removes the installed skill's `tests/`, marked
+  persona renders and the settings entries of the deleted hook scripts. The Codex `[agents]` block
+  left the installer — T9 confirms Codex builder subagents still run, or restores it. The
+  dangling-name exclusions still name root `README.md`, `test_rules.py`, the diagram and the v6
+  records until T8 deletes or rewrites them.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 

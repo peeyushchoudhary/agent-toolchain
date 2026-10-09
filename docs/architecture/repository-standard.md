@@ -11,7 +11,7 @@ standard ratifies the majority and retires the synonyms.
 ## Required
 
 ```
-README.md                          the human front page (see progressive-disclosure.md)
+README.md                          the human front page
 AGENTS.md                          contract, ≤400 words
 CLAUDE.md                          exactly one line: @AGENTS.md
 .github/pull_request_template.md   merge checklist — a markdown file, NOT a workflow
@@ -76,7 +76,7 @@ the build.** Before moving anything, check whether a path is read by
 
 ## Versioning
 
-Per-repo copies carry `<!-- progressive-disclosure standard vN -->`, so a reader can tell which
+Per-repo copies carry `<!-- disclosure standard vN -->`, so a reader can tell which
 version of these rules a repository last adopted.
 
 **Do not regenerate `disclosure.md` to bump the stamp.** It replaces project-specific content with

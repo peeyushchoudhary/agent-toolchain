@@ -1,482 +1,213 @@
 #!/usr/bin/env bash
-# Install the v6 toolchain into ~/.claude and ~/.codex (or $CODEX_HOME).
+# Install the v7 methodology into ~/.claude and $CODEX_HOME (default ~/.codex; skipped when absent).
 #
-# Installs the published skills and the Stop hook registration for both harnesses. Idempotent: a second run changes nothing. A plain install removes nothing: files an
-# installed skill has and this package lacks are carried forward. Only --retire-v5 deletes, and
-# only the named v5.1 set below.
-#
-#   ./install.sh               install or update
-#   ./install.sh --dry-run     print what would happen, change nothing
-#   ./install.sh --no-codex    skip the Codex side
-#   ./install.sh --retire-v5   install, then delete the known v5.1 global files and report the rest
-#   ./install.sh -h|--help     print this and exit
+#   ./install.sh               install or update; a second run changes nothing
+#   ./install.sh --dry-run     print every action, write nothing (combines with the two below)
+#   ./install.sh --uninstall   remove what this script installs; restore the newest global-file backup
+#   ./install.sh --retire-v5   install, then delete the named v5.1 and v6 leftovers; report the rest
 #
 set -uo pipefail
-
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE="$HOME/.claude"
-# An empty CODEX_HOME is unset.
 CODEX="${CODEX_HOME:-$HOME/.codex}"
-DRY=0
-DO_CODEX=1
-RETIRE=0
-
+SKILL=execution-methodology
+MODE=install DRY=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY=1 ;;
-    --no-codex) DO_CODEX=0 ;;
-    --retire-v5) RETIRE=1 ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
-    # 64 (EX_USAGE), so a bad invocation is never mistaken for a failed install step (1).
-    *) echo "unknown option: $arg" >&2; exit 64 ;;
+    --uninstall) MODE=uninstall ;;
+    --retire-v5) MODE=retire ;;
+    -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
+    *) echo "unknown option: $arg" >&2; exit 64 ;;   # EX_USAGE: nothing was changed
   esac
 done
 
-say()  { printf '  %s\n' "$1"; }
-run()  { if [ "$DRY" -eq 1 ]; then printf '  would: %s\n' "$*"; else "$@"; fi; }
-
-# No `set -e`: every step that must succeed records its failure here and the script exits 1 at the
-# end, so `./install.sh && ./verify.sh` can never report success for an install that wired nothing.
 FAILURES=""
-fail() { FAILURES="${FAILURES}${1}
-"; printf '  FAILED: %s\n' "$1"; }
+say()  { printf '  %s\n' "$1"; }
+fail() { FAILURES="${FAILURES}  - $1"$'\n'; printf '  FAILED: %s\n' "$1"; }
+step() { local m="$1"; shift; if [ "$DRY" -eq 1 ]; then say "would: $*"; else "$@" && say "$m"; fi; }  # MSG CMD...
+STAMP="$(date +%Y%m%d-%H%M%S)"
 
-TMP="$(mktemp -d)" || { echo "could not create a temporary directory" >&2; exit 1; }
-trap 'rm -rf "$TMP"' EXIT
-
-chmod_scripts() {
-  local root="$1" list f rc=0
-  list="$(find "$root" -name '*.py' -print)" || return 1
-  [ -n "$list" ] || return 0
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    chmod +x "$f" || rc=1
-  done <<< "$list"
-  return "$rc"
-}
-
-# ── The known v5.1 set ───────────────────────────────────────────────────────────────────────────
-# The one place that names the retired set on purpose; verify.sh's dangling-reference scan skips the
-# lines between the markers. --retire-v5 deletes exactly these paths under ~/.claude and the Codex
-# home and reports everything else it finds:
-#   RETIRED_SKILLS        whole skill directories
-#   RETIRED_PERSONAS      persona renders in agents/, only when they carry the GENERATED marker
-#   RETIRED_SKILL_FILES   files inside a published skill (relative to skills/) that v5.1 shipped and
-#                         v6 does not: every file F-3 deleted from execution-methodology, plus the
-#                         round-grant ledger. A plain install carries them
-#                         forward (see install_tree); only --retire-v5 removes them.
-# BEGIN retire-v5 list
-RETIRED_SKILLS="methodology-management project-onboarding project-migration project-conformance agent-persona-factory gate-sandbox"
-RETIRED_PERSONAS="acceptance architect chief-of-staff contract-architect developer docs-steward migration-validator planner product-steward scout security-validator senior-developer test-judge"
-RETIRED_SKILL_FILES="
-execution-methodology/ROUND-GRANTS.tsv
-execution-methodology/references/changelog-v1-v2.md
-execution-methodology/references/codex-gate-sandbox.md
-execution-methodology/references/execution-loop.md
-execution-methodology/references/history-v3-v5.md
-execution-methodology/references/junit-evidence.md
-execution-methodology/references/readme.md
-execution-methodology/references/specs.md
-execution-methodology/references/task-card.md
-execution-methodology/scripts/check_review_budget.py
-execution-methodology/scripts/check_review_budget_selftest.py
-execution-methodology/scripts/milestone_seal.py
-execution-methodology/scripts/milestone_seal_selftest.py
-execution-methodology/scripts/plan_waves.py
-execution-methodology/scripts/plan_waves_selftest.py
-execution-methodology/scripts/ratio_meter.py
-execution-methodology/scripts/ratio_meter_selftest.py
-execution-methodology/scripts/runtime-status.schema.json
-execution-methodology/scripts/spec_check.py
-execution-methodology/scripts/spec_check_selftest.py
-execution-methodology/scripts/start_junit_run.py
-execution-methodology/scripts/start_junit_run_selftest.py
-execution-methodology/scripts/sync_methodology.py
-execution-methodology/scripts/sync_methodology_selftest.py
-execution-methodology/scripts/trace_check.py
-execution-methodology/scripts/trace_check_selftest.py
-execution-methodology/scripts/validate_card.py
-execution-methodology/scripts/validate_card_selftest.py
-execution-methodology/scripts/verify_junit.py
-execution-methodology/scripts/verify_junit_selftest.py
-execution-methodology/scripts/weekly_review.py
-execution-methodology/scripts/weekly_review_selftest.py
-execution-methodology/tests/test_break_tests.py
-execution-methodology/tests/test_check_review_budget.py
-execution-methodology/tests/test_execution_loop.py
-execution-methodology/tests/test_methodology_policy.py
-execution-methodology/tests/test_milestone_seal.py
-execution-methodology/tests/test_onboarding_adoption.py
-execution-methodology/tests/test_plan_waves.py
-execution-methodology/tests/test_plan_waves_milestone.py
-execution-methodology/tests/test_ratio_meter.py
-execution-methodology/tests/test_repo_sync.py
-execution-methodology/tests/test_runtime_status.py
-execution-methodology/tests/test_shape_diagram.py
-execution-methodology/tests/test_spec_check.py
-execution-methodology/tests/test_sync_preview.py
-execution-methodology/tests/test_trace_check.py
-execution-methodology/tests/test_validate_card.py
-execution-methodology/tests/test_verify_junit.py
-execution-methodology/tests/test_weekly_review.py
-"
-# END retire-v5 list
-
-# Files under DEST (paths relative to it) that SRC lacks, ignoring __pycache__: what a plain
-# install carries forward and what --retire-v5 judges against RETIRED_SKILL_FILES.
-extras_between() {  # extras_between SRC DEST
-  [ -d "$2" ] || return 0
-  (cd "$2" && find . \( -type f -o -type l \) -not -path '*/__pycache__/*' -print) | sed 's|^\./||' |
-    while IFS= read -r rel; do
-      [ -e "$1/$rel" ] || [ -L "$1/$rel" ] || printf '%s\n' "$rel"
-    done
-}
-
-# Copy a skill tree into place with no window in which neither copy exists: stage beside the
-# target, move the old copy aside by rename, swap, and only then delete the old copy. A failed copy
-# leaves the working install untouched, which matters most for execution-methodology, whose guard.py
-# every repository's git hooks call.
-#
-# Every file the installed copy has and the vendored tree lacks is carried into the staged tree, so
-# a plain install removes nothing (AC-12): v5.1 scripts, references and persona sources, and any
-# machine-only data, survive until --retire-v5. A vendored file always wins over an installed one.
-install_tree() {
-  local src="$1" dest="$2" staged="$2.staging.$$" aside="$2.replacing.$$" rel
-  rm -rf "$staged" "$aside" || return 1
-  if cp -R "$src" "$staged" && chmod_scripts "$staged"; then
-    find "$staged" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null
-    while IFS= read -r rel; do
-      [ -n "$rel" ] || continue
-      mkdir -p "$(dirname "$staged/$rel")" && cp -P -p "$dest/$rel" "$staged/$rel" ||
-        { rm -rf "$staged"; return 1; }
-    done < <(extras_between "$staged" "$dest")
-    if [ ! -e "$dest" ] || mv "$dest" "$aside"; then
-      if mv "$staged" "$dest"; then
-        [ ! -e "$aside" ] || rm -rf "$aside" ||
-          say "note: the previous copy could not be removed — delete $aside by hand"
-        return 0
-      fi
-      [ ! -e "$aside" ] || mv "$aside" "$dest"   # put the old copy back; the swap never happened
-    fi
-  fi
-  rm -rf "$staged"
-  return 1
-}
-
-# Write one file only when its content differs, through a rename so a symlink at the target is
-# replaced rather than written through. Prints "wrote" or nothing.
-place_file() {
-  local src="$1" dest="$2"
-  cmp -s "$src" "$dest" 2>/dev/null && return 0
-  if [ "$DRY" -eq 1 ]; then say "would write $dest"; return 0; fi
-  mkdir -p "$(dirname "$dest")" && cp "$src" "$dest.tmp.$$" && mv -f "$dest.tmp.$$" "$dest" ||
-    { rm -f "$dest.tmp.$$"; return 1; }
-  say "wrote $dest"
-}
-
-# ── Preconditions ────────────────────────────────────────────────────────────────────────────────
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 PYV=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')
-python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' || {
-  echo "python3 $PYV found; 3.10 or newer is required" >&2; exit 1; }
-command -v git >/dev/null || echo "  note: git not found — the per-repo hooks will be unusable"
-[ -d "$CODEX" ] || { [ "$DO_CODEX" -eq 1 ] && say "no $CODEX — Codex is not installed here; the Codex side is skipped (--no-codex silences this)"; DO_CODEX=0; }
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' ||
+  { echo "python3 $PYV found; 3.10 or newer is required" >&2; exit 1; }
+echo "methodology installer: $MODE$([ "$DRY" -eq 1 ] && echo ' (dry run: nothing will be written)'), python3 $PYV"
+ROOTS="$CLAUDE"
+if [ -d "$CODEX" ]; then ROOTS="$ROOTS $CODEX"; else say "no $CODEX: Codex is not installed here, so its side is skipped"; fi
+global_of() { if [ "$1" = "$CLAUDE" ]; then echo "$1/CLAUDE.md"; else echo "$1/AGENTS.md"; fi; }
+hooks_of()  { if [ "$1" = "$CLAUDE" ]; then echo "$1/settings.json"; else echo "$1/hooks.json"; fi; }
 
-echo "agent toolchain installer"
-say "python3 $PYV"
-say "target: $CLAUDE$([ "$DO_CODEX" -eq 1 ] && echo " and $CODEX")"
-[ "$DRY" -eq 1 ] && say "DRY RUN — nothing will be written"
-
-# ── Skills ───────────────────────────────────────────────────────────────────────────────────────
-# The published set is install/skills/.gitignore's `!/name` allow lines, so no script carries a
-# second list. The reader is strict: any other negation form is a failure, never a silent omission.
-skill_roster_scan() {
-  awk -v mode="$2" '
-    /^!/ {
-      if ($0 ~ /^!\/[A-Za-z0-9._-]+$/ && $0 !~ /^!\/\.\.?$/) {
-        if (mode == "names") print substr($0, 3)
-      } else if (mode == "rejects") print
-    }
-  ' "$1" 2>/dev/null
-}
-
-GITIGNORE="$HERE/skills/.gitignore"
-SKILLS=""
-if [ -f "$GITIGNORE" ]; then
-  while IFS= read -r badline; do
-    [ -n "$badline" ] || continue
-    fail "skills: install/skills/.gitignore line \`$badline\` is not the \`!/name\` form — refusing to guess what it publishes"
-  done < <(skill_roster_scan "$GITIGNORE" rejects)
-  while IFS= read -r entry; do
-    [ -n "$entry" ] || continue
-    [ -f "$HERE/skills/$entry" ] && continue   # .gitignore and README.md sit beside the skills
-    SKILLS="${SKILLS}${SKILLS:+ }$entry"
-  done < <(skill_roster_scan "$GITIGNORE" names)
-  [ -n "$SKILLS" ] || fail "skills: install/skills/.gitignore declares no skills"
-else
-  fail "skills: install/skills/.gitignore is missing — nothing is known to install"
-fi
-
-# All skills land in this one step, so an installed tree never pairs a new skill with an older one.
-install_skills() {  # install_skills DEST_ROOT VERB
-  local root="$1" verb="$2" s n=0 total=0 kept rel
-  run mkdir -p "$root/skills" || { fail "skills: could not create $root/skills"; return; }
-  for s in $SKILLS; do
-    total=$((total + 1))
-    [ -d "$HERE/skills/$s" ] && kept="$(extras_between "$HERE/skills/$s" "$root/skills/$s")" || kept=""
-    if [ -n "$kept" ]; then
-      if [ "$DRY" -eq 1 ]; then
-        while IFS= read -r rel; do say "would keep $root/skills/$s/$rel (not in this package)"; done <<< "$kept"
-      else
-        say "kept $(printf '%s\n' "$kept" | grep -c .) file(s) in $root/skills/$s that this package does not ship (--retire-v5 judges them)"
-      fi
-    fi
-    if [ ! -d "$HERE/skills/$s" ]; then
-      fail "skill $s: declared in install/skills/.gitignore but not in this package"
-    elif [ "$DRY" -eq 1 ]; then
-      say "would $verb $s"; n=$((n + 1))
-    elif install_tree "$HERE/skills/$s" "$root/skills/$s"; then
-      say "${verb}ed $s"; n=$((n + 1))
-    else
-      fail "skill $s: could not $verb into $root/skills"
-    fi
-  done
-  say "$n of $total declared skill(s) ${verb}ed into $root/skills"
-}
-
-echo "skills"
-install_skills "$CLAUDE" install
-[ "$DO_CODEX" -eq 1 ] && install_skills "$CODEX" mirror
-for d in "$HERE"/skills/*/; do
-  [ -f "${d}SKILL.md" ] || continue
-  case " $SKILLS " in *" $(basename "$d") "*) ;; *)
-    say "note: $(basename "$d") is under install/skills but not declared in its .gitignore — NOT installed" ;;
-  esac
+# ── Retire list ─────────────────────────────────────────────────────────────────────────────────
+# The one place that names the retired set on purpose; verify.sh's dangling-name scan skips the
+# lines between the markers. --retire-v5 deletes exactly these under each harness home:
+#   RETIRED_SKILLS   skills/<name>/          RETIRED_HOOKS  hooks/<name>, and their registrations
+#   RETIRED_PERSONAS agents/<name>.md|.toml, only when the file carries GENERATED_MARK
+#   RETIRED_FILES    paths under skills/; one ending in / is a directory (v7 installs no tests/)
+# BEGIN retire-v5 list
+RETIRED_SKILLS="methodology-management project-onboarding project-migration project-conformance agent-persona-factory gate-sandbox agent-personas progressive-disclosure graph-navigation"
+RETIRED_PERSONAS="acceptance architect chief-of-staff contract-architect developer docs-steward migration-validator planner product-steward scout security-validator senior-developer test-judge advisor builder chief reviewer security-reviewer"
+RETIRED_HOOKS="goal-session.sh disclosure-check.sh preflight.sh graphify-query-advisor.py graphify-session-lessons.sh"
+GENERATED_MARK="# GENERATED by agent-personas/scripts/sync_personas.py"
+RETIRED_FILES="ROUND-GRANTS.tsv methodology.md agents/openai.yaml tests/ scripts/review.py scripts/run_goal.py
+scripts/runtime-status.schema.json references/changelog-v1-v2.md references/codex-gate-sandbox.md
+references/execution-loop.md references/history-v3-v5.md references/junit-evidence.md references/readme.md
+references/specs.md references/task-card.md references/review.md references/escalation.md references/planning.md
+references/run.md references/migrate.md references/explainer-template.html"
+for n in check_review_budget milestone_seal plan_waves ratio_meter spec_check start_junit_run sync_methodology trace_check validate_card verify_junit weekly_review; do
+  RETIRED_FILES="$RETIRED_FILES scripts/$n.py scripts/${n}_selftest.py"
 done
+# END retire-v5 list
+retired_entry() {  # retired_entry REL: print the RETIRED_FILES entry that covers REL, if any
+  local e; for e in $RETIRED_FILES; do
+    if [ "$1" = "$e" ] || { [ "${e%/}" != "$e" ] && [ "${1#"$e"}" != "$1" ]; }; then echo "$e"; return 0; fi
+  done; return 1
+}
 
-# ── Hook registration ────────────────────────────────────────────────────────────────────────────
-# Merged, never replaced: an existing file is parsed first (malformed JSON is refused), entries are
-# appended only when their command is absent, and the file is rewritten, with a backup, only when
-# something was added. Appending keeps every existing entry at its index, which is what Codex keys
-# hook trust on. WANT is the one roster; `list` prints the scripts it references so the shell can
-# refuse to register a script that is not installed.
-MERGE="$TMP/merge_hooks.py"
-cat > "$MERGE" <<'PY'
+# ── The skill ────────────────────────────────────────────────────────────────────────────────────
+# extras SRC DEST: files DEST has and SRC lacks, ignoring __pycache__ (carried forward, reported).
+extras() { [ -d "$2" ] && (cd "$2" && find . \( -type f -o -type l \) -not -path '*/__pycache__/*') |
+  sed 's|^\./||' | while IFS= read -r rel; do [ -e "$1/$rel" ] || [ -L "$1/$rel" ] || echo "$rel"; done; }
+# Staged beside the old copy and swapped in by rename, so a failed copy leaves the working install
+# (whose guard.py every repository's git hooks call) intact. tests/ is not shipped.
+install_skill() {  # install_skill ROOT
+  local src="$HERE/skills/$SKILL" dest="$1/skills/$SKILL" st="$1/skills/.$SKILL.new" old="$1/skills/.$SKILL.old" rel kept
+  kept="$(extras "$src" "$dest")"
+  [ -z "$kept" ] || while IFS= read -r rel; do say "kept $dest/$rel (not in this package)"; done <<< "$kept"
+  if [ -z "$(diff -rq -x __pycache__ -x tests "$src" "$dest" 2>&1 | grep -vF "Only in $dest")" ]; then
+    say "unchanged $dest"; return 0; fi
+  [ "$DRY" -eq 1 ] && { say "would: copy $src (without tests/) to $dest"; return 0; }
+  rm -rf "$st" "$old" && mkdir -p "$1/skills" && cp -R "$src" "$st" && rm -rf "$st/tests" &&
+    find "$st" -name __pycache__ -prune -exec rm -rf {} + && chmod +x "$st"/scripts/* || { rm -rf "$st"; return 1; }
+  while IFS= read -r rel; do [ -n "$rel" ] || continue
+    mkdir -p "$(dirname "$st/$rel")" && cp -P -p "$dest/$rel" "$st/$rel" || { rm -rf "$st"; return 1; }
+  done <<< "$kept"
+  if { [ ! -e "$dest" ] || mv "$dest" "$old"; } && mv "$st" "$dest"; then rm -rf "$old"; say "installed $dest"; return 0; fi
+  [ -e "$dest" ] || [ ! -e "$old" ] || mv "$old" "$dest"; rm -rf "$st"; return 1
+}
+
+# ── Global instructions ──────────────────────────────────────────────────────────────────────────
+install_global() {  # install_global DEST: back up a file that differs, then write global.md
+  local dest="$1" bak="$1.bak-$STAMP"
+  cmp -s "$HERE/global.md" "$dest" && { say "unchanged $dest"; return 0; }
+  [ ! -e "$bak" ] || bak="$bak.$$"
+  if [ -e "$dest" ]; then step "backup: $bak" cp -p "$dest" "$bak" || return 1; fi
+  { [ "$DRY" -eq 1 ] || mkdir -p "$(dirname "$dest")"; } && step "wrote $dest" cp "$HERE/global.md" "$dest"
+}
+uninstall_global() {  # remove only an unmodified copy of global.md, then move the newest backup back
+  local dest="$1" bak
+  if [ -e "$dest" ] && ! cmp -s "$HERE/global.md" "$dest"; then say "left in place (differs from global.md): $dest"; return 0; fi
+  if [ -e "$dest" ]; then step "removed $dest" rm -f "$dest" || return 1; fi
+  bak="$(ls -1d "$dest".bak-* 2>/dev/null | sort | tail -1)"
+  [ -z "$bak" ] || step "restored $dest from $bak" mv "$bak" "$dest"
+}
+
+# ── Hook files ───────────────────────────────────────────────────────────────────────────────────
+# Merged, never replaced: a file that is not valid JSON or not in the hooks shape is refused;
+# `add` appends the Stop entry only when absent (existing entries keep their index, which Codex keys
+# trust on); `remove` drops only hook items whose command contains a NEEDLE. A changed file is
+# backed up first.
+HOOKS_PY="$(cat <<'PY'
 import json, shlex, shutil, sys, time
 from pathlib import Path
-
-harness, root, path, mode = sys.argv[1], sys.argv[2], Path(sys.argv[3]), sys.argv[4]
-GOAL = "skills/execution-methodology/scripts/goal.py"
-# One goal hook per harness: the Stop hook, which blocks a stop while `goal.py done` is unmet.
-if harness == "claude":
-    ref = lambda rel: "~/.claude/" + rel  # noqa: E731
-    WANT = [
-        ("Stop", None, "python3 {} stop-hook", GOAL),
-    ]
-else:  # codex: absolute paths, because CODEX_HOME need not be ~/.codex
-    ref = lambda rel: shlex.quote(f"{root}/{rel}")  # noqa: E731
-    WANT = [
-        ("Stop", None, "python3 {} stop-hook", GOAL),
-    ]
-
-if mode == "list":
-    print("\n".join(rel for *_, rel in WANT))
-    raise SystemExit(0)
-
-data = {}
-if path.is_file():
-    try:
-        data = json.loads(path.read_text(encoding="utf-8") or "{}")
-    except json.JSONDecodeError as e:
-        print(f"  REFUSED: {path} is not valid JSON ({e}). Fix it by hand, then re-run.")
-        raise SystemExit(1)
-def shape_ok(d):
-    """{"hooks": {Event: [{"hooks": [{...}, ...], ...}, ...]}}, with every level the right type."""
-    if not isinstance(d, dict) or not isinstance(d.get("hooks", {}), dict):
-        return False
-    for entries in d.get("hooks", {}).values():
-        if not isinstance(entries, list):
-            return False
-        for e in entries:
-            if not isinstance(e, dict) or not isinstance(e.get("hooks", []), list) \
-                    or not all(isinstance(h, dict) for h in e.get("hooks", [])):
-                return False
-    return True
-
-
-if not shape_ok(data):
-    print(f"  REFUSED: {path} is not in the expected hooks shape (an event must hold a list of "
-          "entries, each a dict whose `hooks` is a list of dicts). Fix it by hand; nothing merged.")
-    raise SystemExit(1)
-
-hooks = data.setdefault("hooks", {})
-added = []
-for event, matcher, template, rel in WANT:
-    command = template.format(ref(rel))
-    entries = hooks.setdefault(event, [])
-    if any(command in h.get("command", "") for e in entries for h in e.get("hooks", [])):
-        continue
-    entry = {"hooks": [{"type": "command", "command": command}]}
-    if matcher:
-        entry["matcher"] = matcher
-    entries.append(entry)
-    added.append(f"{event}: {command}")
-
-if mode == "plan":
-    for a in added:
-        print(f"  would register {a}")
-    print(f"  {len(added)} to add, {len(WANT) - len(added)} already present in {path}")
-    raise SystemExit(0)
-if not added:
-    print(f"  0 added, {len(WANT)} already present — {path.name} unchanged")
-    raise SystemExit(0)
-if path.is_file():
-    backup = path.with_name(f"{path.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
-    shutil.copy2(path, backup)
-    print(f"  backup: {backup.name}")
-path.parent.mkdir(parents=True, exist_ok=True)
-tmp = path.with_name(path.name + ".tmp")
-tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-tmp.replace(path)
-for a in added:
-    print(f"  registered {a}")
-print(f"  {len(added)} added, {len(WANT) - len(added)} already present in {path.name}")
+mode, harness, root, path, dry, needles = *sys.argv[1:4], Path(sys.argv[4]), sys.argv[5] == "1", sys.argv[6:]
+goal = "skills/execution-methodology/scripts/goal.py"
+cmd = ("python3 ~/.claude/" + goal if harness == "claude" else "python3 " + shlex.quote(f"{root}/{goal}")) + " stop-hook"
+try:
+    data = json.loads(path.read_text(encoding="utf-8") or "{}") if path.is_file() else {}
+except json.JSONDecodeError as e:
+    sys.exit(f"  REFUSED: {path} is not valid JSON ({e}). Fix it by hand, then re-run.")
+ev = data.setdefault("hooks", {}) if isinstance(data, dict) else None
+if not isinstance(ev, dict) or not all(isinstance(es, list) and all(
+        isinstance(e, dict) and isinstance(e.get("hooks", []), list) and all(isinstance(h, dict) for h in e.get("hooks", []))
+        for e in es) for es in ev.values()):
+    sys.exit(f"  REFUSED: {path} is not in the expected hooks shape. Fix it by hand; nothing changed.")
+done = []
+if mode == "add" and not any(cmd in h.get("command", "") for e in ev.get("Stop", []) for h in e.get("hooks", [])):
+    ev.setdefault("Stop", []).append({"hooks": [{"type": "command", "command": cmd}]})
+    done.append(f"registered Stop: {cmd}")
+for name, entries in list(ev.items()) if mode == "remove" else []:
+    for e in entries:
+        gone = [h for h in e.get("hooks", []) if any(n in str(h.get("command", "")) for n in needles)]
+        done += [f"unregistered {name}: {h.get('command')}" for h in gone]
+        e["hooks"] = [h for h in e.get("hooks", []) if h not in gone] if gone else e.get("hooks")
+    ev[name] = [e for e in entries if e.get("hooks") or "hooks" not in e]
+    if entries and not ev[name]:
+        del ev[name]
+for d in done:
+    print(f"  {'would: ' if dry else ''}{d} in {path}")
+if done and not dry and data == {"hooks": {}}:   # nothing but our entries: the file was ours
+    path.unlink()
+    print(f"  removed {path}")
+elif done and not dry:
+    if path.is_file():
+        stem = f"{path.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
+        bak = next(path.with_name(stem + (f".{i}" if i else "")) for i in range(1000)
+                   if not path.with_name(stem + (f".{i}" if i else "")).exists())
+        shutil.copy2(path, bak)
+        print(f"  backup: {bak}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+elif not done:
+    print(f"  unchanged {path}")
 PY
-
-register_hooks() {  # register_hooks HARNESS ROOT FILE
-  local harness="$1" root="$2" file="$3" refs rel missing=""
-  refs="$(python3 "$MERGE" "$harness" "$root" "$file" list)" && [ -n "$refs" ] ||
-    { fail "$harness hooks: the registration roster could not be read — nothing registered"; return; }
-  if [ "$DRY" -eq 1 ]; then
-    python3 "$MERGE" "$harness" "$root" "$file" plan || fail "$harness hooks: $file could not be planned"
-    return
-  fi
-  for rel in $refs; do [ -f "$root/$rel" ] || missing="$missing $rel"; done
-  if [ -n "$missing" ]; then
-    fail "$harness hooks: NOT registered — these scripts are not installed under $root:$missing"
-  else
-    python3 "$MERGE" "$harness" "$root" "$file" merge || fail "$harness hooks: $file was NOT merged"
-  fi
+)"
+edit_hooks() {  # edit_hooks add|remove ROOT [NEEDLE...]
+  local m="$1" r="$2"; shift 2
+  python3 -c "$HOOKS_PY" "$m" "$([ "$r" = "$CLAUDE" ] && echo claude || echo codex)" "$r" "$(hooks_of "$r")" "$DRY" "$@"
+}
+# The Stop hook registration. T9 moves it into run.sh (Decisions, run security); delete this then.
+register_stop_hook() {
+  [ "$DRY" -eq 1 ] || [ -f "$1/skills/$SKILL/scripts/goal.py" ] ||
+    { fail "stop hook: goal.py is not installed under $1, so nothing was registered"; return; }
+  edit_hooks add "$1" || fail "stop hook: $(hooks_of "$1") was not merged"
 }
 
-echo "hook registration"
-register_hooks claude "$CLAUDE" "$CLAUDE/settings.json"
-if [ "$DO_CODEX" -eq 1 ]; then
-  # Codex reads user-level hooks from $CODEX_HOME/hooks.json. It runs a hook only after the
-  # founder trusts it in Codex's hook review; this installer never writes trust state.
-  register_hooks codex "$CODEX" "$CODEX/hooks.json"
-  say "Codex runs new or changed hooks only after you review and trust them once in Codex"
-fi
-
-# ── Codex subagents ──────────────────────────────────────────────────────────────────────────────
-if [ "$DO_CODEX" -eq 1 ]; then
-  echo "codex config"
-  if grep -q '^\[agents\]' "$CODEX/config.toml" 2>/dev/null; then
-    say "config.toml already has [agents]"
-  elif [ "$DRY" -eq 1 ]; then
-    say "would append [agents] to $CODEX/config.toml$([ -f "$CODEX/config.toml" ] && echo " (backup taken first)")"
-  else
-    toml_ok=1
-    if [ -f "$CODEX/config.toml" ]; then
-      cp "$CODEX/config.toml" "$CODEX/config.toml.bak-$(date +%Y%m%d-%H%M%S)" ||
-        { fail "codex: could not back up config.toml — [agents] was NOT appended"; toml_ok=0; }
-    fi
-    if [ "$toml_ok" -eq 1 ]; then
-      cat >> "$CODEX/config.toml" <<'EOF' && say "added [agents] to config.toml" || fail "codex: could not append [agents] to config.toml"
-
-# Subagent defaults. Personas in agents/ set their own model and effort; these apply only when a
-# spawned agent specifies neither.
-[agents]
-enabled = true
-default_subagent_reasoning_effort = "medium"
-max_concurrent_threads_per_session = 6
-EOF
-    fi
-  fi
-fi
-
-# ── Retire v5.1 ──────────────────────────────────────────────────────────────────────────────────
-# Deletes exactly the paths the list at the top names. A hand-written agent that shares a retired
-# name is kept. Any other entry in the skill and agent directories, and any approved-runtimes
-# bundle, is reported and left in place.
-GENERATED_MARK="# GENERATED by agent-personas/scripts/sync_personas.py"
-
-retire_path() {
-  if [ "$DRY" -eq 1 ]; then say "would delete $1"; return; fi
-  rm -rf "$1" && say "deleted $1" || fail "retire-v5: could not delete $1"
-}
-
+# ── Retire ───────────────────────────────────────────────────────────────────────────────────────
+retire() { if [ "$DRY" -eq 1 ]; then say "would delete $1"; else rm -rf "$1" && say "deleted $1" || fail "retire-v5: could not delete $1"; fi; }
 retire_root() {  # retire_root ROOT AGENT_EXT
-  local root="$1" ext="$2" n p e name keep s rel
-  for n in $RETIRED_SKILLS; do
-    { [ -e "$root/skills/$n" ] || [ -L "$root/skills/$n" ]; } && retire_path "$root/skills/$n"
-  done
-  # Inside each published skill: the files this package does not ship are deleted when the list
-  # names them, and reported otherwise.
-  for s in $SKILLS; do
-    [ -d "$HERE/skills/$s" ] || continue
-    while IFS= read -r rel; do
-      [ -n "$rel" ] || continue
-      case "$RETIRED_SKILL_FILES" in
-        *"
-$s/$rel
-"*) retire_path "$root/skills/$s/$rel" ;;
-        *) say "left in place (not in the v5.1 set): $root/skills/$s/$rel" ;;
-      esac
-    done < <(extras_between "$HERE/skills/$s" "$root/skills/$s")
-  done
+  local r="$1" ext="$2" n e rel seen=" "
+  for n in $RETIRED_SKILLS; do { [ -e "$r/skills/$n" ] || [ -L "$r/skills/$n" ]; } && retire "$r/skills/$n"; done
+  while IFS= read -r rel; do [ -n "$rel" ] || continue
+    if e="$(retired_entry "$rel")"; then
+      case "$seen" in *" $e "*) ;; *) seen="$seen$e "; retire "$r/skills/$SKILL/${e%/}" ;; esac
+    else say "left in place (not in the retire list): $r/skills/$SKILL/$rel"; fi
+  done < <(extras "$HERE/skills/$SKILL" "$r/skills/$SKILL")
+  for n in $RETIRED_HOOKS; do [ -e "$r/hooks/$n" ] && retire "$r/hooks/$n"; done
+  [ -f "$(hooks_of "$r")" ] && { edit_hooks remove "$r" $(for n in $RETIRED_HOOKS; do echo "hooks/$n"; done) ||
+    fail "retire-v5: $(hooks_of "$r") was not edited"; }
   for n in $RETIRED_PERSONAS; do
-    p="$root/agents/$n.$ext"
-    [ -f "$p" ] || continue
-    if grep -qF "$GENERATED_MARK" "$p"; then retire_path "$p"
-    else say "kept $p (named in the v5.1 set but not generated by the persona renderer)"; fi
+    e="$r/agents/$n.$ext"; [ -f "$e" ] || continue
+    if grep -qF "$GENERATED_MARK" "$e"; then retire "$e"; else say "kept $e (named in the retire list but not generated)"; fi
   done
-  # Report everything else in the two directories the v5.1 set lived in.
-  for e in "$root"/skills/* "$root"/skills/.[!.]*; do
-    [ -d "$e" ] || continue
-    name="$(basename "$e")"; keep=0
-    case " $SKILLS $RETIRED_SKILLS " in *" $name "*) keep=1 ;; esac
-    [ "$keep" -eq 1 ] || say "left in place (not in the v5.1 set): $e"
+  for e in "$r"/skills/* "$r"/hooks/* "$r"/agents/*.md "$r"/agents/*.toml "$r/approved-runtimes"; do
+    { [ -e "$e" ] || [ -L "$e" ]; } && [ "$e" != "$r/skills/$SKILL" ] || continue
+    n="$(basename "$e")"
+    case " $RETIRED_SKILLS $RETIRED_PERSONAS $RETIRED_HOOKS " in *" $n "*|*" ${n%.*} "*) continue ;; esac
+    say "left in place (not in the retire list): $e"
   done
-  for e in "$root"/agents/*.md "$root"/agents/*.toml; do
-    [ -f "$e" ] || continue
-    name="$(basename "${e%.*}")"
-    case " $RETIRED_PERSONAS " in *" $name "*) continue ;; esac
-    say "left in place (not in the v5.1 set): $e"
-  done
-  [ -d "$root/approved-runtimes" ] &&
-    say "left in place (approved v5.1 runtime bundles are the founder's to remove by hand): $root/approved-runtimes"
-  return 0
 }
 
-if [ "$RETIRE" -eq 1 ]; then
-  echo "retire v5.1"
-  if [ -n "$FAILURES" ]; then
-    # Retiring v5.1 while its v6 replacement is incomplete would leave neither working.
-    say "SKIPPED: an install step above failed, so nothing was retired; fix it and re-run --retire-v5"
+# ── Run ──────────────────────────────────────────────────────────────────────────────────────────
+for r in $ROOTS; do
+  echo "$r"
+  if [ "$MODE" = uninstall ]; then
+    uninstall_global "$(global_of "$r")" || fail "uninstall: $(global_of "$r")"
+    [ ! -e "$r/skills/$SKILL" ] || step "removed $r/skills/$SKILL" rm -rf "$r/skills/$SKILL" || fail "uninstall: $r/skills/$SKILL"
+    [ ! -f "$(hooks_of "$r")" ] || edit_hooks remove "$r" "goal.py stop-hook" || fail "uninstall: $(hooks_of "$r")"
   else
-    retire_root "$CLAUDE" md
-    [ "$DO_CODEX" -eq 1 ] && retire_root "$CODEX" toml
+    install_global "$(global_of "$r")" || fail "global instructions: $(global_of "$r") was not written"
+    install_skill "$r" || fail "skill: $r/skills/$SKILL was not installed"
+    register_stop_hook "$r"
   fi
+done
+if [ "$MODE" = retire ]; then
+  echo "retire v5.1 and v6 leftovers"
+  if [ -n "$FAILURES" ]; then say "SKIPPED: an install step above failed, so nothing was retired"
+  else for r in $ROOTS; do if [ "$r" = "$CLAUDE" ]; then retire_root "$r" md; else retire_root "$r" toml; fi; done; fi
 fi
-
-# ── Result ───────────────────────────────────────────────────────────────────────────────────────
-if [ -n "$FAILURES" ]; then
-  {
-    echo
-    echo "install FAILED — these steps did not complete:"
-    printf '%s' "$FAILURES" | sed 's/^/  - /'
-    echo
-    say "Nothing was rolled back. A skill that failed to copy was staged, so the copy you already"
-    say "had is untouched. Fix the causes and re-run; re-running is the repair."
-  } >&2
-  exit 1
-fi
-
-echo
-echo "next:"
-say "1. ./verify.sh"
-say "2. migrate each v5.1 project by hand: docs/runbooks/migrate-v5.md in the source repository"
-[ "$RETIRE" -eq 0 ] && say "3. once every project is migrated: ./install.sh --retire-v5"
-[ "$DRY" -eq 0 ] && say "Claude Code may need /hooks opened once, or a restart, to load new hooks"
+if [ -n "$FAILURES" ]; then printf '\n%s FAILED; these steps did not complete:\n%s' "$MODE" "$FAILURES" >&2; exit 1; fi
+[ "$MODE" = uninstall ] || say "next: ./verify.sh; Claude Code may need /hooks opened once, and Codex asks you to trust a new hook"
 exit 0

@@ -6,7 +6,6 @@
 | Task | Guide | Command |
 | --- | --- | --- |
 | Understand what the installer places, and where | [what-gets-installed.md](what-gets-installed.md) | `./install/install.sh --dry-run` |
-| Understand the route convention itself | [progressive-disclosure.md](progressive-disclosure.md) | `./install/verify.sh` |
 | Move a project off v5.1 | migrate.md (`docs/runbooks/migrate-v5.md`, written in T8) | `python3 install/skills/execution-methodology/scripts/goal.py --help` |
 | Learn how the route works in THIS repository | [disclosure.md](disclosure.md) | `./install/verify.sh` |
 | Find where a document belongs | [../architecture/repository-standard.md](../architecture/repository-standard.md) | — |

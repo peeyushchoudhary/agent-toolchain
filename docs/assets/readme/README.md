@@ -20,7 +20,7 @@ order.
 `skill-surface.svg` is an authored text graphic. It shows one segment for each of the published skills in
 the [published inventory](../../README.md#what-is-published-and-what-is-not):
 `execution-methodology`, drawn twice as wide as the others because it carries the lifecycle, then
-`agent-personas` and `progressive-disclosure`.
+the two support skills that S-1 removed. The chart is out of date until T8 replaces it.
 
 ## Regeneration and review
 

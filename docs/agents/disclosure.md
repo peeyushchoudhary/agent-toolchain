@@ -1,4 +1,4 @@
-<!-- progressive-disclosure standard v1.2 -->
+<!-- disclosure standard v1.2 -->
 # How the route works here
 
 **Authority: current.** Generated against standard v1.2 and edited in place — never regenerated, per

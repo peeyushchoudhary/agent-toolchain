@@ -3,8 +3,8 @@
 Solo founder, several ideas in parallel, one laptop, no team, no hosted CI. Every other decision in
 this documentation set follows from those four facts.
 
-Both harnesses carry short global instructions that route to the adopted repository guide; the
-replacement text for v6 is in the [global-instructions runbook](../runbooks/global-instructions.md).
+Both harnesses carry the same short global instructions, which the installer writes from
+`install/global.md`.
 The procedure itself is owned by the
 [execution methodology](../../install/skills/execution-methodology/SKILL.md), and the
 structure behind it by the [lean execution design](lean-execution.md). This page explains the
@@ -40,7 +40,8 @@ baseline is not attributed to the change; a new one is.
 
 **There is no second reviewer.** Independent verification has to be manufactured rather than
 assumed. Judging roles cannot edit, by construction, and the reviewer comes from the other vendor
-at design, plan and acceptance; see [agent-personas.md](../agents/agent-personas.md). Review runs
+at design, plan and acceptance, with the prompt in
+`install/skills/execution-methodology/agents/reviewer.md`. Review runs
 where it has measured yield, each subject gets at most one correction and one scoped rereview, and
 spend never changes a verdict.
 
@@ -64,7 +65,6 @@ These look like gaps and are not. Do not "fix" them.
 |---|---|
 | Hosted CI / GitHub Actions | The founder laptop is the only release runner. A push is not evidence |
 | Committed `.claude/settings.json` | Sole-founder mode; machine-local config stays machine-local |
-| Committed graph (`graphify-out/`) | 22 MB rewritten wholesale each rebuild; regenerate instead |
 | Bulk migration of other projects | Deliberate adoption at a project boundary |
 | Automatic methodology or model upgrade | Installation, project adoption and model activation are separate decisions |
 | A chief subagent under a long-lived session | The chief is always the root session; layering it cost most of the spend and added no judgement |

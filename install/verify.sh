@@ -2,202 +2,134 @@
 # The repository gate. Run from install/ or anywhere inside the repository.
 #
 #   ./verify.sh               this repository's checks
-#   ./verify.sh --installed   also: parity of the installed skills and hook registrations against
-#                             ~/.claude and ~/.codex (read-only; never part of the default run)
+#   ./verify.sh --installed   also: parity of the installed copies in ~/.claude and $CODEX_HOME
+#                             (read-only; never part of the default run)
 #
-# Output contract, which gate.py reads: each unittest suite prints unittest's own output unchanged
-# (`Ran N tests`, `OK` / `FAILED (...)`, `FAIL: test_x (module.Class.test_x)`), and every other
-# check that fails prints one line `FAIL: <check> (verify.checks)`, so each failure is attributable
-# by id. The last line is `verify: PASS` or `verify: FAIL (<n> checks)`; exit 0 or 1.
+# Output contract, which gate.py reads: each unittest suite prints unittest's own output unchanged,
+# every other check prints `verify: <id> ok` or `FAIL: <id> (verify.checks)`, and the last line is
+# `verify: PASS` or `verify: FAIL (<n> checks)`; exit 0 or 1.
 set -uo pipefail
-
 INSTALLED=0
 for arg in "$@"; do
   case "$arg" in
     --installed) INSTALLED=1 ;;
-    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 64 ;;
   esac
 done
-
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null)" || ROOT="$(cd "$HERE/.." && pwd)"
 cd "$ROOT" || exit 2
 export PYTHONDONTWRITEBYTECODE=1
 TMP="$(mktemp -d)" || { echo "could not create a temporary directory" >&2; exit 2; }
 trap 'rm -rf "$TMP"' EXIT
+SKILL=install/skills/execution-methodology
+GUARD="$SKILL/scripts/guard.py"
 
-FAILED=0
-FAILED_NAMES=""
+FAILED=0 FAILED_NAMES=""
 section() { printf '\n== %s\n' "$1"; }
 pass()    { printf 'verify: %s ok\n' "$1"; }
-failed()  {  # failed CHECK_ID [SCOPE] — SCOPE defaults to checks
-  FAILED=$((FAILED + 1)); FAILED_NAMES="$FAILED_NAMES $1"
-  printf 'FAIL: %s (verify.%s)\n' "$1" "${2:-checks}"
-}
+failed()  { FAILED=$((FAILED + 1)); FAILED_NAMES="$FAILED_NAMES $1"; printf 'FAIL: %s (verify.%s)\n' "$1" "${2:-checks}"; }
+check()   { local id="$1"; shift; if "$@"; then pass "$id"; else failed "$id"; fi; }   # check ID CMD...
 
-# Published skills: install/skills/.gitignore's `!/name` lines that name a directory, exactly as
-# install.sh reads them.
-published_skills() {
-  awk '/^!\/[A-Za-z0-9._-]+$/ { print substr($0, 3) }' install/skills/.gitignore |
-    while IFS= read -r s; do [ -d "install/skills/$s" ] && echo "$s"; done
-}
-
-# run_suite ID DIR [PATTERN] — unittest discover, output unchanged. A suite that runs no test, or
-# exits non-zero without a unittest verdict (a crash), is a failure of its own; test failures are
-# already attributed by unittest's FAIL:/ERROR: lines and get no second id here.
+# run_suite ID DIR — unittest discover, output unchanged. A suite that runs no test or crashes
+# without a unittest verdict fails under its own id; failing tests are already named by unittest.
 run_suite() {
-  local id="$1" dir="$2" pattern="${3:-test*.py}" log="$TMP/$1.log" rc ran
-  python3 -m unittest discover -s "$dir" -t "$dir" -p "$pattern" 2>&1 | tee "$log"
-  rc=${PIPESTATUS[0]}
+  local id="$1" log="$TMP/$1.log" rc ran
+  section "suite: $id"
+  python3 -m unittest discover -s "$2" -t "$2" -p 'test*.py' 2>&1 | tee "$log"; rc=${PIPESTATUS[0]}
   ran=$(sed -n 's/^Ran \([0-9][0-9]*\) tests\{0,1\} in .*/\1/p' "$log" | tail -1)
-  if [ -z "$ran" ] || [ "$ran" -eq 0 ]; then
-    failed "${id}_ran_no_tests"
-  elif [ "$rc" -ne 0 ] && ! grep -qE '^FAILED \(' "$log"; then
-    failed "${id}_crashed"
-  elif [ "$rc" -ne 0 ]; then
-    FAILED=$((FAILED + 1)); FAILED_NAMES="$FAILED_NAMES $id"
-    printf 'verify: %s has failing tests (ids above)\n' "$id"
-  else
-    pass "$id ($ran tests)"
-  fi
+  if [ -z "$ran" ] || [ "$ran" -eq 0 ]; then failed "${id}_ran_no_tests"
+  elif [ "$rc" -ne 0 ] && ! grep -qE '^FAILED \(' "$log"; then failed "${id}_crashed"
+  elif [ "$rc" -ne 0 ]; then FAILED=$((FAILED + 1)); FAILED_NAMES="$FAILED_NAMES $id"; echo "verify: $id has failing tests (ids above)"
+  else pass "$id ($ran tests)"; fi
 }
 
-# ── 1. Every published skill's unittest suite ────────────────────────────────────────────────────
-# A skill with code (scripts/) must carry a suite; one without scripts has nothing to run.
-for s in $(published_skills); do
-  if [ ! -d "install/skills/$s/tests" ]; then
-    if [ -d "install/skills/$s/scripts" ]; then
-      section "suite: $s"; failed "suite_${s}_missing"
-      echo "verify: install/skills/$s has scripts/ but no tests/"
-    fi
-    continue
-  fi
-  section "suite: $s"
-  run_suite "suite_$s" "install/skills/$s/tests"
-done
+# 1–2. The skill's suite, then the installer's (test_install.py and the size ceiling, test_size.py).
+run_suite suite_execution-methodology "$SKILL/tests"
+run_suite install install/tests
 
-# ── 2. Links in the docs resolve ─────────────────────────────────────────────────────────────────
-# Over AGENTS.md, README.md and every tracked docs/**/*.md: each relative Markdown link outside a
-# code fence names an existing file, and a decisions.md anchor is a heading's GitHub slug (or a bare
-# dNN with a `DNN` heading). The check is install/tests/link_check.py.
+# 3–4. The guard: its self-test, then the tree (tracked plus untracked non-ignored files, symlinks as
+# their link text) staged into a scratch repository by tree_scan.py and scanned there. Exit 2 (the
+# guard could not run) fails the check.
+section "guard"
+check guard_self_test python3 "$GUARD" --self-test
+mkdir -p "$TMP/tree"
+check guard bash -c 'python3 "$1/install/tests/tree_scan.py" "$1" "$2" && cd "$2" && python3 "$1/$3" --staged' _ "$ROOT" "$TMP/tree" "$GUARD"
+
+# 5. Relative links in AGENTS.md, README.md and docs/**/*.md resolve (install/tests/link_check.py).
 section "links"
-if python3 install/tests/link_check.py "$ROOT"; then :; else failed links; fi
+python3 install/tests/link_check.py "$ROOT" || failed links   # prints `verify: links ok` itself
 
-# ── 3. The guard: its self-test, then the tree ───────────────────────────────────────────────────
-# guard.py scans a staged diff, so the tree (tracked files plus untracked files that are not
-# ignored, i.e. what a commit could carry; symlinks as their link text) is staged into a scratch
-# repository with no history by install/tests/tree_scan.py and scanned there. The origin URL is carried over so the account rule has something to check. Exit 2
-# (private-name list missing, guard could not run) fails this check rather than passing it.
-GUARD="install/skills/execution-methodology/scripts/guard.py"
-section "guard --self-test"
-if python3 "$GUARD" --self-test; then pass guard_self_test; else failed guard_self_test; fi
-section "guard over the tree"
-SCAN="$TMP/tree"
-mkdir -p "$SCAN"
-if python3 install/tests/tree_scan.py "$ROOT" "$SCAN"; then
-  (cd "$SCAN" && python3 "$ROOT/$GUARD" --staged)
-  rc=$?
-  if [ "$rc" -eq 0 ]; then pass guard
-  else failed guard; [ "$rc" -eq 2 ] && echo "verify: the guard could not run (exit 2)"; fi
-else
-  failed guard
-  echo "verify: could not stage the tree for the guard"
-fi
-
-# ── 4. Always-loaded size ceiling (D29) ───────────────────────────────────────────────────────────
-section "size ceilings"
-run_suite size install/tests test_size.py
-
-# ── 5. Dangling references to retired names ──────────────────────────────────────────────────────
-# Over the tracked and non-ignored files in install/, README.md, AGENTS.md and docs/. Instructions,
-# routes and code must not name retired machinery; records may, as rationale. Excluded: the exact
-# paths in EXCLUDE below (each group says why); install.sh's retire-v5 list, the lines between its
-# markers; and this file, whose pattern is the scanner's own list. There is no directory exclusion.
-# Persona names that are ordinary words (planner, developer, scout, architect, acceptance) are not
-# scanned. A file list that cannot be read fails the check rather than passing it empty.
-section "dangling references to retired names"
-RETIRED_RE='methodology-management|project-onboarding|project-migration|project-conformance|agent-persona-factory|gate-sandbox'
-RETIRED_RE="$RETIRED_RE"'|validate_card|check_review_budget|trace_check|spec_check|ratio_meter|weekly_review|verify_junit|start_junit_run|milestone_seal|plan_waves|sync_methodology'
-RETIRED_RE="$RETIRED_RE"'|ROUND-GRANTS|task-card\.md'
-RETIRED_RE="$RETIRED_RE"'|docs-steward|contract-architect|senior-developer|test-judge|migration-validator|product-steward|chief-of-staff|security-validator'
-# Instructions, routes and code must not name retired machinery; these name it on purpose:
-EXCLUDE="docs/product/specs/F-3-lean-execution.md docs/architecture/lean-execution.md docs/product/plans/F-3-lean-execution.md install/verify.sh"
-# test_rules.py holds the retired list it asserts absent from routed files.
+# 6. No current file names a deleted component. Over the tracked and non-ignored files in install/,
+# README.md, AGENTS.md and docs/. Records may name them as rationale and are excluded: decisions.md,
+# measurements.md, docs/goals/**, install.sh's retire list (between its markers), and this file.
+# The rest of EXCLUDE is owed to later tasks or to files this one may not edit; each says why.
+# Persona names that are ordinary words (planner, developer, scout, architect) are not scanned.
+section "dangling names"
+RE='methodology-management|project-onboarding|project-migration|project-conformance|agent-persona-factory|gate-sandbox'
+RE="$RE"'|validate_card|check_review_budget|trace_check|spec_check|ratio_meter|weekly_review|verify_junit|start_junit_run|milestone_seal|plan_waves|sync_methodology|ROUND-GRANTS|task-card\.md'
+RE="$RE"'|docs-steward|contract-architect|senior-developer|test-judge|migration-validator|product-steward|chief-of-staff|security-validator'
+RE="$RE"'|review\.py|run_goal|goal-session|smoke_goal|sync_personas|agent-personas|graphify|graph-navigation|preflight|disclosure-check'
+RE="$RE"'|validate_disclosure|check_github|check_toolchain|migrate_to_standard|install_hooks|identifier_guard|push_guard'
+RE="$RE"'|progressive-disclosure|explainer-template|escalation\.md'
+EXCLUDE="docs/decisions/decisions.md docs/product/measurements.md install/verify.sh"
+# test_rules.py asserts these names absent from the routed files, so it must hold them.
 EXCLUDE="$EXCLUDE install/skills/execution-methodology/tests/test_rules.py"
-# Records may name retired machinery as the rationale for a current decision.
-EXCLUDE="$EXCLUDE docs/decisions/decisions.md docs/product/measurements.md docs/product/improvements-weekly.md docs/agents/lessons.md"
+# The skills .gitignore explains why it is an allowlist with the vendor tool that writes beside it.
+EXCLUDE="$EXCLUDE install/skills/.gitignore"
+# T8 rewrites the root README and deletes the v6 records and the diagram the README embeds.
+EXCLUDE="$EXCLUDE README.md docs/assets/readme/skill-surface.svg docs/architecture/lean-execution.md"
+EXCLUDE="$EXCLUDE docs/product/specs/F-3-lean-execution.md docs/product/plans/F-3-lean-execution.md"
+EXCLUDE="$EXCLUDE docs/product/improvements-weekly.md docs/agents/lessons.md"
 : > "$TMP/hits"
-if ! git ls-files -z --cached --others --exclude-standard -- install README.md AGENTS.md docs > "$TMP/scan-z" ||
-   ! tr '\0' '\n' < "$TMP/scan-z" > "$TMP/scan-files" || [ ! -s "$TMP/scan-files" ]; then
-  echo "verify: could not list the files to scan" > "$TMP/hits"
-fi
+git ls-files -z --cached --others --exclude-standard -- install README.md AGENTS.md docs | tr '\0' '\n' > "$TMP/files"
+[ -s "$TMP/files" ] || echo "verify: could not list the files to scan" > "$TMP/hits"
 while IFS= read -r f; do
-  [ -f "$f" ] || continue
+  [ -f "$f" ] && grep -Iq . "$f" 2>/dev/null || continue    # missing, binary or empty
   case " $EXCLUDE " in *" $f "*) continue ;; esac
-  grep -Iq . "$f" 2>/dev/null || continue    # binary or empty
-  awk -v re="$RETIRED_RE" -v f="$f" '
+  case "$f" in docs/goals/*) continue ;; esac
+  awk -v re="$RE" -v f="$f" '
     f == "install/install.sh" && /^# BEGIN retire-v5 list$/ { skip = 1 }
     f == "install/install.sh" && /^# END retire-v5 list$/   { skip = 0; next }
     !skip { line = $0
       while (match(line, re)) { print f ":" FNR ": " substr(line, RSTART, RLENGTH); line = substr(line, RSTART + RLENGTH) } }
   ' "$f" >> "$TMP/hits"
-done < "$TMP/scan-files"
-if [ -s "$TMP/hits" ]; then
-  cat "$TMP/hits"
-  echo "verify: $(wc -l < "$TMP/hits" | tr -d ' ') reference(s) in $(cut -d: -f1 "$TMP/hits" | sort -u | wc -l | tr -d ' ') file(s):"
-  cut -d: -f1 "$TMP/hits" | sort | uniq -c
-  failed dangling_references
-else
-  pass dangling_references
-fi
+done < "$TMP/files"
+if [ -s "$TMP/hits" ]; then cat "$TMP/hits"; failed dangling_references; else pass dangling_references; fi
 
-# ── 6. Installer behaviour (AC-11, AC-12) ────────────────────────────────────────────────────────
-section "installer tests"
-run_suite install install/tests test_install.py
-section "install_tree preserve self-test"
-if bash install/preserve_selftest.sh; then pass preserve_selftest; else failed preserve_selftest; fi
-
-# ── 7. Installer dry run ─────────────────────────────────────────────────────────────────────────
-# Against a scratch HOME, so the result describes this repository and not this machine.
+# 7. The installer's dry run, against a scratch HOME so the result describes this repository.
 section "install.sh --dry-run (scratch HOME)"
-mkdir -p "$TMP/scratch-home/.codex"
-if HOME="$TMP/scratch-home" CODEX_HOME="$TMP/scratch-home/.codex" bash install/install.sh --dry-run > "$TMP/dry.log" 2>&1; then
-  tail -n 4 "$TMP/dry.log"
-  pass install_dry_run
-else
-  cat "$TMP/dry.log"
-  failed install_dry_run
-fi
+mkdir -p "$TMP/hm/.codex"
+if HOME="$TMP/hm" CODEX_HOME="$TMP/hm/.codex" bash install/install.sh --dry-run > "$TMP/dry.log" 2>&1; then
+  cat "$TMP/dry.log"; pass install_dry_run
+else cat "$TMP/dry.log"; failed install_dry_run; fi
 
-# ── 8. Installed parity (--installed only) ───────────────────────────────────────────────────────
+# 8. --installed: each harness home holds this skill (tests/ excepted) and global.md byte-equal, and
+# exactly one Stop registration of goal.py stop-hook. Files the installed skill carries forward
+# from an older install are listed, not counted (--retire-v5 judges them).
 if [ "$INSTALLED" -eq 1 ]; then
-  section "installed parity against ~/.claude and ~/.codex (read-only)"
-  CX="${CODEX_HOME:-$HOME/.codex}"
-  drift=0
-  differs() { echo "  drift: $1"; drift=$((drift + 1)); }
+  section "installed parity (read-only)"
+  CX="${CODEX_HOME:-$HOME/.codex}" drift=0
   roots="$HOME/.claude"; [ -d "$CX" ] && roots="$roots $CX"
-  for root in $roots; do
-    for s in $(published_skills); do
-      diff -rq -x __pycache__ -x ROUND-GRANTS.tsv "install/skills/$s" "$root/skills/$s" >/dev/null 2>&1 ||
-        differs "$root/skills/$s differs from install/skills/$s"
-    done
-  done
-  for pair in "$HOME/.claude/settings.json" "$CX/hooks.json"; do
-    [ "$pair" = "$CX/hooks.json" ] && [ ! -d "$CX" ] && continue
-    want="execution-methodology/scripts/goal.py stop-hook"
-    grep -qF "$want" "$pair" 2>/dev/null || differs "$pair does not register $want"
+  for r in $roots; do
+    if [ "$r" = "$HOME/.claude" ]; then g="$r/CLAUDE.md" h="$r/settings.json"; else g="$r/AGENTS.md" h="$r/hooks.json"; fi
+    cmp -s install/global.md "$g" || { echo "  drift: $g differs from install/global.md"; drift=1; }
+    diff -rq -x __pycache__ -x tests "$SKILL" "$r/skills/execution-methodology" > "$TMP/diff" 2>&1
+    grep -F "Only in $r/" "$TMP/diff" | sed 's/^/  carried forward: /'
+    grep -vF "Only in $r/" "$TMP/diff" | sed 's/^/  drift: /' | grep . && drift=1
+    n="$(python3 -c 'import json,sys
+try: hooks = json.load(open(sys.argv[1])).get("hooks", {})
+except (OSError, ValueError): hooks = {}
+print(sum("goal.py stop-hook" in h.get("command", "") for e in hooks.get("Stop", []) for h in e.get("hooks", [])))' "$h")"
+    [ "$n" = 1 ] || { echo "  drift: $h has $n Stop registrations of goal.py stop-hook, want 1"; drift=1; }
   done
   if [ "$drift" -eq 0 ]; then pass installed_parity
-  else echo "  run ./install.sh to bring the installed copy level with this repository"; failed installed_parity installed; fi
+  else echo "  run ./install.sh to bring the installed copies level with this repository"; failed installed_parity installed; fi
 fi
 
-# ── Verdict ──────────────────────────────────────────────────────────────────────────────────────
 echo
-if [ "$FAILED" -eq 0 ]; then
-  echo "verify: PASS"
-  exit 0
-fi
+if [ "$FAILED" -eq 0 ]; then echo "verify: PASS"; exit 0; fi
 echo "failing:$FAILED_NAMES"
 echo "verify: FAIL ($FAILED checks)"
 exit 1

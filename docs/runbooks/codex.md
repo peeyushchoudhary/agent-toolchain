@@ -10,9 +10,9 @@ it did not read.
 
 | Path | Contents | Kept fresh by |
 |---|---|---|
-| `~/.codex/AGENTS.md` | Global instructions: operating model, GitHub rules, the goal-execution section | Manual; text in [global-instructions.md](global-instructions.md) |
-| `~/.codex/config.toml` | Session and `[agents]` settings | `install.sh` appends `[agents]` once; the rest is manual |
-| `~/.codex/skills/` | The four published skills | `install.sh` |
+| `~/.codex/AGENTS.md` | Global instructions, the same bytes as `~/.claude/CLAUDE.md` | `install.sh`, from `install/global.md` (a differing file is backed up first) |
+| `~/.codex/config.toml` | Session settings | Manual; the installer does not touch it |
+| `~/.codex/skills/` | The published skill, `execution-methodology` | `install.sh` |
 | `~/.codex/hooks.json` | The goal Stop hook | `install.sh`; trusted once by you |
 | `<repo>/AGENTS.md` | The project contract | Shared with Claude, the same file |
 | `<repo>/docs/agents/**` | The route | Shared with Claude, the same files |
@@ -25,34 +25,33 @@ both. That is why knowledge belongs in the repo and only accelerators belong in 
 
 ## Setup
 
-Run `install/install.sh`; it does steps 1 and 2 when the Codex home exists. The sections below say
+Run `install/install.sh`; it does step 2 when the Codex home exists. The sections below say
 what it did and how to check it.
 
 ### 1. Subagents enabled
 
-Codex will not spawn personas without an `[agents]` block. Check:
+Codex will not spawn subagents without an `[agents]` block. Check:
 
 ```bash
 python3 -c "import tomllib;print(tomllib.load(open('$HOME/.codex/config.toml','rb')).get('agents'))"
 ```
 
-The installer appends the block only when none exists, after taking a backup. Its defaults apply
-only when a spawned agent specifies neither model nor effort; every persona sets both, so they are a
-backstop, and parent session settings are unaffected.
+The v7 installer no longer writes this block; one an earlier install appended stays, and
+`--uninstall` leaves it. Add it by hand if it is missing.
 
 ### 2. Skills and hooks installed
 
-`install.sh` copies the four skills named in `install/skills/.gitignore` to `~/.codex/skills/` and
-registers the goal hooks in `~/.codex/hooks.json`. It never writes trust state. Codex runs a
+`install.sh` copies `execution-methodology` to `~/.codex/skills/` and registers the goal Stop hook
+in `~/.codex/hooks.json`. It never writes trust state. Codex runs a
 user-level hook only after you review and trust it, so open Codex once after the first install and
-trust the two goal hooks, and again whenever their entries change. An untrusted hook does not run and
+trust the goal hook, and again whenever their entries change. An untrusted hook does not run and
 says nothing.
 
 ### 4. Global instructions
 
-`~/.codex/AGENTS.md` is private and the installer does not touch it. Apply the execution section
-from [global-instructions.md](global-instructions.md) to it and to `~/.claude/CLAUDE.md` in the same
-sitting. The shared route block must be identical in both files.
+`install.sh` writes `install/global.md` to `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`, so the
+two are identical; a file that differed is kept beside it as `<name>.bak-<YYYYmmdd-HHMMSS>`, and
+`./install.sh --uninstall` restores the newest one.
 
 ## Format differences that matter
 
