@@ -156,7 +156,7 @@ one-line row and full text for D2, D3, D4, D17, D18, D29; `docs/product/measurem
 `runbooks/global-instructions.md`, `NOTES-break-tests.md`. History and the tags keep them.
 
 ### [ ] T9 — local end-to-end run; install, uninstall and rollback rehearsal; measurements
-writes: install/skills/execution-methodology/tests/e2e_run.sh, docs/product/measurements.md
+writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/tests/e2e_install.sh, docs/product/measurements.md
 `e2e_run.sh`: for each harness separately, creates a fresh scratch repository with a two-task
 `plan.md`, runs `run.sh --harness <h> --sessions 3` for real, and asserts that harness's `goal.py
 done` prints DONE and its `packet.md` exists; then, in disposable homes, runs `install.sh`,
@@ -207,6 +207,19 @@ the other vendor's diff review, `done` for M2, merge.
   write; the old hooks are kept outside the repository); the route validator the old pre-commit ran is
   not carried into the new hook — T5's link check in `verify.sh` is its replacement, so T5 has nothing
   to replace in the hook.
+- 2026-10-09 founder: unattended runs are permissioned by scoped allow + deny + sandbox, never a
+  blanket allow. Claude sessions run with `--permission-mode dontAsk`, an allowlist of `git
+  add/commit/status/diff/log`, `goal.py`, `gate.py`, the plan's `gate`/`full_gate`/`e2e` commands,
+  `Edit`, `Write` and `Agent`, a deny list (`git push`, `gh`, `curl`/`wget`, `rm -rf`, `git reset
+  --hard`, `git checkout --`) and the Bash sandbox with network off and writes limited to the
+  repository and `.runs/`; Codex sessions run `--sandbox workspace-write --ask-for-approval never`
+  with network access stated off. The Stop hook is registered only by `run.sh`, per session, never by
+  `install.sh`. The chief of staff is the session itself: it dispatches one builder per task from
+  `agents/builder.md` (edit, write, bash; cannot spawn agents), verifies the gate, commits and ticks;
+  `run.sh` is only the restart, stall and notify loop. T9 implements this (its `writes` widened to
+  `run.sh`, `agents/builder.md`, `install.sh` and `e2e_install.sh`) and its e2e proves that a
+  session's `git push` attempt is denied and settles whether `--settings` merges with the global
+  settings file.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 
