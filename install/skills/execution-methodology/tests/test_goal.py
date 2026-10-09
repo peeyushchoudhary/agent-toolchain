@@ -326,6 +326,23 @@ class ReviewRowTest(RepoCase):
         self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/test_c.js::security\n", "HEAD~1")
         self.assertRowOk(8)
 
+    def test_closure_requires_a_post_review_ancestor_fix(self):
+        old = self.repo.git("rev-parse", "goal/F-9/approved")  # it added tests/test_a.py::test_value
+        self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {old} closes tests/test_a.py::test_value\n")
+        self.assertRow(8, f"R1: {old} is not a fix made after reviewed:")
+        self.repo.git("checkout", "-q", "-b", "side")
+        side = self.fix("tests/test_a.py", self.repo.read("tests/test_a.py") + "\n", "[T2][R1] fix on a side branch")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {side} closes tests/test_a.py::test_value\n")
+        self.assertRow(8, f"R1: {side} is not a fix made after reviewed:")
+        head = self.repo.git("rev-parse", "HEAD")
+        self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {head} closes tests/test_a.py::test_value\n")
+        self.assertRow(8, f"R1: {head} is not a fix made after reviewed:")
+        fix = self.fix("tests/test_a.py", self.repo.read("tests/test_a.py") + "\n", "[T2][R1] fix after the review")
+        self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {fix} closes tests/test_a.py::test_value\n",
+                         "HEAD~1")
+        self.assertRowOk(8)
+
     def test_removed_by_passes_when_the_paths_are_deleted(self):
         self.repo.git("rm", "-q", "src/b/y.py")
         sha = self.repo.commit("[T2][R1] remove the beta file")

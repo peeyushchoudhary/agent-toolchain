@@ -336,6 +336,7 @@ def review_findings(ctx):
     if not m or not rev_ok(ctx.root, m.group(1)) or subprocess.run(
             ["git", "merge-base", "--is-ancestor", m.group(1), "HEAD"], cwd=ctx.root).returncode:
         return ["review.md has no reviewed: <sha> that is HEAD or its ancestor"]
+    reviewed = git(ctx.root, "rev-parse", f"{m.group(1)}^{{commit}}")
     out += ["an open - [ ] BLOCKING finding"] if re.search(r"^\s*- \[ \] BLOCKING\b", text, re.M) else []
     closed = {}  # commit sha -> finding id, for every closure that holds
     lines = text.splitlines()
@@ -347,6 +348,10 @@ def review_findings(ctx):
         full = git(ctx.root, "rev-parse", "-q", "--verify", f"{sha}^{{commit}}", check=False)
         if not full:
             out.append(f"{rid}: {sha} is not a commit")
+            continue
+        if full == reviewed or any(subprocess.run(["git", "merge-base", "--is-ancestor", a, b], cwd=ctx.root)
+                                   .returncode for a, b in ((reviewed, full), (full, "HEAD"))):
+            out.append(f"{rid}: {sha} is not a fix made after reviewed: {m.group(1)}")
             continue
         ch = changes(ctx.root, git(ctx.root, "rev-parse", "-q", "--verify", f"{full}^1", check=False), full)
         if kind == "resolved":
