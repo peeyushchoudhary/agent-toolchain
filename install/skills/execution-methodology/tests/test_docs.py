@@ -146,6 +146,11 @@ class ReadsTest(DocsCase):
                                             "error: docs/missing.md: no such file",
                                             "error: docs/missing.md#d17: no such file", "docs/design.md"])
 
+    def test_fenced_heading_does_not_end_range(self):
+        self.repo.write("docs/tilde.md", "# T\n\n## Interfaces\n\nOne.\n\n~~~\n## Example\n~~~\n\n"
+                        "Contract text.\n\n## Data touched\n\nTwo.\n")
+        self.assertEqual(docs.resolve(self.repo.dir, "docs/tilde.md#interfaces"), (True, "docs/tilde.md:3-12"))
+
     def test_no_such_task_or_goal_exits_2(self):
         self.assertDocs(2, "reads", "T9", "--goal", "F-9", texts=("no task T9",))
         self.assertDocs(2, "reads", "T1", "--goal", "F-0", texts=("plan not found",))

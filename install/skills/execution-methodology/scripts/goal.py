@@ -216,15 +216,16 @@ def protected_text(text, anchor):
     """The sections of text that anchor names: D1-D19 spans ## D1 … ## D19; a heading slug spans that
     heading to the next heading of the same or a higher level; an anchor naming no heading, the file."""
     m = re.match(r"^([A-Za-z]+)(\d+)(?:-(?:\1)?(\d+))?$", anchor)
-    out, keep, fence = [], 0, False
+    out, keep, fence = [], 0, None
     lines = (text or "").splitlines()
     for line in lines:
+        s = line.lstrip()  # a ``` or ~~~ fence hides headings until its own marker closes it
+        fence = (None if s.startswith(fence) else fence) if fence else (s[:3] if s.startswith(("```", "~~~")) else None)
         if m:
-            h = re.match(r"^#{1,2}\s+(.*)$", line)
+            h = None if fence else re.match(r"^#{1,2}\s+(.*)$", line)
             n = h and re.match(rf"{re.escape(m.group(1))}(\d+)\b", h.group(1))
             keep = (bool(n) and int(m.group(2)) <= int(n.group(1)) <= int(m.group(3) or m.group(2))) if h else keep
-        else:  # keep is the open section's heading level, 0 outside it; fenced lines are not headings
-            fence ^= line.lstrip().startswith("```")
+        else:  # keep is the open section's heading level, 0 outside it
             h = None if fence else re.match(r"^(#{1,6})\s+(.*?)\s*#*$", line)
             if h and (not keep or len(h.group(1)) <= keep):
                 keep = len(h.group(1)) if slug(h.group(2)) == anchor else 0

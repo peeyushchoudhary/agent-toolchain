@@ -388,6 +388,16 @@ class SpecLintTest(RepoCase):
                                                                           DESIGN.index("## Data")].rstrip("\n") + "\n")
 
 
+    def test_row4_protects_interfaces_after_fenced_heading(self):
+        design = DESIGN.replace("1. **alpha.** One function.\n",
+                                "1. **alpha.** One function.\n\n~~~\n## Example\n~~~\n\nContract text.\n")
+        self.assertIn("Contract text.", goal.protected_text(design, "interfaces"))
+        self.fix(DESIGN_PATH, design, "[T1] a fenced example inside Interfaces")
+        sha = self.fix(DESIGN_PATH, design.replace("Contract text.", "Changed contract."),
+                       "[T1] edits the text after the fenced heading")
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected {DESIGN_PATH}#interfaces")
+
+
 class ReviewRowTest(RepoCase):
     def setUp(self):
         super().setUp()

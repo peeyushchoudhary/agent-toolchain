@@ -26,11 +26,12 @@ def slug(heading: str) -> str:
     return re.sub(r"[^\w\- ]", "", text).replace(" ", "-")
 
 def fenced(lines):
-    """(n, line, inside) per line, n from 1; inside is true within a ``` fence and on its opening line."""
-    inside = False
+    """(n, line, inside) per line, n from 1; inside is true within a ``` or ~~~ fence and on its opening line."""
+    fence = None
     for n, line in enumerate(lines, 1):
-        inside ^= line.lstrip().startswith("```")
-        yield n, line, inside
+        s = line.lstrip()
+        fence = (None if s.startswith(fence) else fence) if fence else (s[:3] if s.startswith(("```", "~~~")) else None)
+        yield n, line, bool(fence)
 
 def headings(lines):
     """[(n, level, text)] for every Markdown heading outside a code fence."""
