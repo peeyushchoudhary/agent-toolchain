@@ -388,6 +388,11 @@ class SpecLintTest(RepoCase):
                                                                           DESIGN.index("## Data")].rstrip("\n") + "\n")
 
 
+    def test_slug_is_docs_pys_rule(self):
+        import docs
+        self.assertEqual(goal.slug("D18: Other, thing!"), docs.slug("D18: Other, thing!"))
+        self.assertNotIn('re.sub(r"[`*_~]"', Path(goal.__file__).read_text(encoding="utf-8"))
+
     def test_row4_protects_interfaces_after_fenced_heading(self):
         design = DESIGN.replace("1. **alpha.** One function.\n",
                                 "1. **alpha.** One function.\n\n~~~\n## Example\n~~~\n\nContract text.\n")

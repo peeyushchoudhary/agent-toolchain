@@ -208,9 +208,9 @@ def path_protected(plan, ctx=None):
     return [p for p in protected_entries(plan, ctx) if "#" not in p]
 
 def slug(heading: str) -> str:
-    """A GitHub heading anchor, the rule in install/tests/link_check.py."""
-    text = re.sub(r"[`*_~]", "", heading.strip().lower())
-    return re.sub(r"[^\w\- ]", "", text).replace(" ", "-")
+    """The GitHub heading anchor; its one home is docs.py, which imports this module, so the import is late."""
+    from docs import slug as rule
+    return rule(heading)
 
 def protected_text(text, anchor):
     """The sections of text that anchor names: D1-D19 spans ## D1 … ## D19; a heading slug spans that
