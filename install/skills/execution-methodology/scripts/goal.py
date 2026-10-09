@@ -35,6 +35,9 @@ MIGRATE_NOTICE = (f"this project still carries the v5.1 runtime pin ({RUNTIME_PI
 class PlanError(Exception):
     pass
 
+class SeveralPlans(PlanError):
+    pass
+
 def flow(text: str):
     """Parse a YAML-ish flow value: {k: v, ...}, [a, b], "quoted" or a bare scalar."""
     def value(i):
@@ -233,7 +236,7 @@ def find_ctx(plan=None, goal=None, cwd=None) -> Ctx:
     open_ = [c for c in (Ctx(root, p) for p in sorted(root.glob("docs/goals/*/plan.md")))
              if c.active() is not None]
     if len(open_) != 1:
-        raise PlanError(f"{len(open_)} open plans under docs/goals/; pass --goal or --plan")
+        raise (SeveralPlans if open_ else PlanError)(f"{len(open_)} open plans under docs/goals/; pass --goal or --plan")
     return open_[0]
 
 def lint(ctx):
@@ -470,12 +473,24 @@ def cmd_packet(ctx, a):
     print("\n".join(out))
     return 0
 
-def stop_hook():
-    """Block a stop while done is unmet, at most three times per session; never raise."""
+def stop_hook(plan=None, goal=None):
+    """Block a stop while done is unmet, at most three times per session; never raise. With several
+    open plans and no --goal or --plan, block once per session asking for the hook to name one."""
     try:
         raw = sys.stdin.read()
         event = json.loads(raw) if raw.strip() else {}
-        ctx = find_ctx(cwd=event.get("cwd") or None)
+        try:
+            ctx = find_ctx(plan, goal, cwd=event.get("cwd") or None)
+        except SeveralPlans:
+            root = Path(git(event.get("cwd") or os.getcwd(), "rev-parse", "--show-toplevel"))
+            state_path, sid = root / ".runs" / "stop_state.json", "several:" + str(event.get("session_id", ""))
+            state = json.loads(state_path.read_text()) if state_path.is_file() else {}
+            if not state.get(sid):
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                state_path.write_text(json.dumps({**state, sid: 1}) + "\n")
+                print(json.dumps({"decision": "block",
+                                  "reason": "several open plans; register the hook with --goal <id>"}))
+            return 0
         rows, _ = done_rows(ctx, milestone_arg(ctx, None))
         unmet = [f"row {n}: {w[0]}" for n, w in rows.items() if w]
         state_path = ctx.runs / "stop_state.json"
@@ -504,7 +519,7 @@ def main(argv=None):
             p.add_argument("--milestone")
     a = ap.parse_args(argv)
     if a.action == "stop-hook":
-        return stop_hook()
+        return stop_hook(getattr(a, "plan", None), getattr(a, "goal", None))
     try:
         ctx = find_ctx(getattr(a, "plan", None), getattr(a, "goal", None))
         return globals()["cmd_" + a.action](ctx, a)

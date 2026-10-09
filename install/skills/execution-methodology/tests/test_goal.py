@@ -298,9 +298,23 @@ class ReviewRowTest(RepoCase):
 
 
 class StopHookTest(RepoCase):
-    def hook(self, cwd=None, session="s1"):
-        return subprocess.run([sys.executable, str(GOAL), "stop-hook"], cwd=cwd or self.repo.dir, env=env(),
+    def hook(self, cwd=None, session="s1", args=()):
+        return subprocess.run([sys.executable, str(GOAL), *args, "stop-hook"], cwd=cwd or self.repo.dir, env=env(),
                               input=json.dumps({"session_id": session}), capture_output=True, text=True)
+
+    def test_stop_hook_honors_explicit_goal_with_multiple_plans(self):
+        self.repo.write("docs/goals/G-2/plan.md", plan_text().replace("goal: F-9", "goal: G-2"))
+        self.repo.commit("F-9: a second open goal")
+        for args, gid in ((("--goal", "F-9"), "F-9"), (("--goal", "G-2"), "G-2"), (("--plan", PLAN), "F-9")):
+            block = json.loads(self.hook(args=args).stdout)
+            self.assertEqual(block["decision"], "block")
+            self.assertIn(f"Goal {gid} is not done", block["reason"])
+        first, second = self.hook(session="s9"), self.hook(session="s9")
+        self.assertEqual(json.loads(first.stdout), {
+            "decision": "block", "reason": "several open plans; register the hook with --goal <id>"})
+        self.assertEqual((second.returncode, second.stdout), (0, ""))
+        settings = RUN_SH.read_text()
+        self.assertIn("--goal %s stop-hook", settings)
 
     def test_blocks_three_times_then_allows(self):
         outs = [self.hook() for _ in range(4)]

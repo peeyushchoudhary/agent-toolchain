@@ -45,8 +45,8 @@ session() {
     $RUN_HARNESS_CMD "$1"
   elif [ "$HARNESS" = claude ]; then
     settings="$(mktemp)"
-    printf '{"permissions": {"allow": ["Bash", "Edit", "Write"]}, "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "python3 %s stop-hook"}]}]}}\n' \
-      "'$GOALPY'" > "$settings"
+    printf '{"permissions": {"allow": ["Bash", "Edit", "Write"]}, "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "python3 %s --goal %s stop-hook"}]}]}}\n' \
+      "'$GOALPY'" "'$GOAL'" > "$settings"
     claude -p "$1" --settings "$settings"; rc=$?; rm -f "$settings"; return $rc
   else
     codex --ask-for-approval never exec --sandbox workspace-write "$1"

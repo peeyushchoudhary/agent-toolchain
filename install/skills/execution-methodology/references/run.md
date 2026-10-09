@@ -37,9 +37,10 @@ sessions without a new tick or `[Tn]` commit) or when its sessions run out, one 
 
 ## Stop hook
 
-`goal.py stop-hook` is the Stop hook in both harnesses. It acts when the repository has one open
-plan under `docs/goals/`. While `goal.py done` is unmet it blocks the stop, naming the unmet rows,
-at most three times per session id, then allows it. Claude Code's own cap on consecutive blocks is
+`goal.py stop-hook` is the Stop hook in both harnesses. It acts on the goal its `--goal` names
+(`run.sh` registers it so), else on the one open plan under `docs/goals/`; with several open plans
+and no `--goal` it blocks once per session asking for one. While `goal.py done` is unmet it blocks
+the stop, naming the unmet rows, at most three times per session id, then allows it. Claude Code's own cap on consecutive blocks is
 a further backstop.
 
 ## Per task
