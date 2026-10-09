@@ -113,7 +113,7 @@ are present, runs `goal.py --help` from each installed copy, and exits 0. **M1 e
 other vendor's diff review of `goal/S-1/approved..HEAD`, `done` for M1, merge.
 
 ### [ ] T6 — the instructions; cut personas
-writes: install/global.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/methodology.md, install/skills/execution-methodology/references/**, install/skills/execution-methodology/agents/reviewer.md, install/skills/execution-methodology/tests/test_rules.py, install/skills/agent-personas/**, install/skills/.gitignore, install/install.sh, install/verify.sh, install/tests/test_size.py, install/tests/test_install.py, AGENTS.md, docs/**
+writes: install/global.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/methodology.md, install/skills/execution-methodology/references/**, install/skills/execution-methodology/agents/reviewer.md, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_rules.py, install/skills/agent-personas/**, install/skills/.gitignore, install/install.sh, install/verify.sh, install/tests/test_size.py, install/tests/test_install.py, AGENTS.md, docs/**
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, install/tests/test_install.py, install/skills/agent-personas/tests/**
 `SKILL.md` ≤900 words / ≤200 lines: the per-task loop, the `plan.md` format, the done contract in
 words, authority boundaries (defaults and logs; parks for the founder), the review procedure (the
@@ -227,6 +227,8 @@ the other vendor's diff review, `done` for M2, merge.
   task tag; `done` row 4 caught it and the unpushed branch was rewritten so each `[Tn]` commit holds
   its own paths. From T5 on, builders work in their own worktree and the controller applies their
   staged diff.
+- 2026-10-09 widening: T6 `writes` gains `scripts/goal.py` for one string — the v5.1 migrate notice
+  names `references/migrate.md`, which T6 deletes; it points at `docs/runbooks/migrate-v5.md` instead.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 
