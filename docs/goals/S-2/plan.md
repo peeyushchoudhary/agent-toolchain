@@ -356,6 +356,11 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   blocking, R9–R11 parked below. One fix commit closes one finding, so T2's write set gains
   `docs.py` and `test_docs.py` (R4 fixes both parsers' fence handling in one commit) and T6's
   gains `test_rules.py` (R8's closing test lives there). Nothing else in the plan changes.
+- 2026-10-09 founder: fix the non-blocking merge findings R9–R11 too, so M1 lands with none parked.
+  R9 `[T4]`: the design reviewer also reads `spec.md`; R10 `[T5]`: the builder persona allows
+  changes to tests that `tests-may-change` lists (its body now differs from the council draft by
+  one clause, 348 words); R11 `[T2]`: `goal.py`'s `slug()` delegates to `docs.py` with a late
+  import, since `docs.py` imports `goal.py`.
 
 ## Parked
 
@@ -365,9 +370,3 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   named files are confirmed gone).
 - Live check that a Codex session selects the installed custom agents and that a Claude subagent
   worktree branches from the chief's HEAD: the pilot's first goal.
-- Merge review R9: `references/design.md` has the design reviewer read `design.md` and `plan.md`,
-  not `spec.md`, while the reviewer persona judges against the spec (T11 may align it).
-- Merge review R10: the builder persona's "add the tests the task names; leave every other test"
-  reads as forbidding authorised `tests-may-change` edits; reword at the next persona change.
-- Merge review R11: `goal.py` keeps its own `slug()` while `docs.py` is the single home; `docs.py`
-  imports `goal.py`, so the reverse import needs a shared module (M2 or later).
