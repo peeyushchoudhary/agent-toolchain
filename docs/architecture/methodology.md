@@ -47,7 +47,8 @@ policing per line of done-check. See [measurements.md](../product/measurements.m
 - **Stop rule.** Over four weeks on the pilot repository, any one reverts: a blocking escape in two
   milestones; merges per week below the recomputed baseline without a logged external cause;
   founder decisions above four per milestone twice; more than one default in five reversed at
-  merge. No new mechanism enters `install/` during the pilot.
+  merge. No new mechanism enters `install/` during the pilot except goal S-2
+  ([D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2)).
 
 Six v6 lessons hold:
 

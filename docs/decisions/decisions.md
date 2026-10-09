@@ -34,7 +34,8 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | D26 | 2026-08-25 | The vendored check reads the installer's preserve list | removed |
 | D27 | 2026-10-06 | Approved completion and technical recovery | removed |
 | D28 | 2026-10-08 | Review closure ends in fixes, not in grants | archived, never merged |
-| [D29](#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints) | 2026-10-09 | Simplified goal execution (methodology v7) | standing |
+| [D29](#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints) | 2026-10-09 | Simplified goal execution (methodology v7) | standing; pilot clause amended by D30 |
+| [D30](#d30--methodology-v71-context-roles-and-planning-documents-s-2) | 2026-10-09 | Methodology v7.1: context, roles and planning documents (S-2) | standing |
 
 ---
 
@@ -274,3 +275,42 @@ milestone twice, or more than one default in five reversed). Rollback is the tag
 **Known-wrong if:** the pilot's sampled follow-up reviews find a blocking escape that a second round
 would demonstrably have caught, or product-repository merges per week fall below the best measured
 periods under the new shape.
+
+## D30 — Methodology v7.1: context, roles and planning documents (S-2)
+
+**Chose:** a bounded document set per goal — `spec.md` (≤400 words, acceptance criteria as
+observable behaviour, frozen whole at approval), `design.md` when `touches:` names data, auth,
+external, interface or ui (its Interfaces and Data touched sections frozen), `plan.md` with a
+`reads:` line per task — citing exhaustive repository documents (`docs/product/prd.md`,
+`docs/product/features/*.md`, `docs/architecture/*.md`) by section. Exhaustive documents are
+unbounded but addressable: frontmatter `summary` (≤120 words), `read-when`, `covers` and
+`last-verified`; a generated index; anchors resolved to line ranges; pointer files for both
+harnesses generated from `covers` and never hand-written; stale pages listed mechanically. Roles
+declare their model and effort in agent files shipped to both harnesses: builders on the frontier
+tier at high effort, scouts on the cheap tier, the reviewer the other vendor's strongest reasoning
+model. Cost is recorded per session and never enforced; the caps stay structural. Acceptance
+criteria are traced to task sections by lint; `goal.py packet --approval` renders the approval page.
+
+**Over:** restating product context in every Outcome; agent memory scopes, a graph or wiki; a
+model-judged done; a second reviewer; a per-milestone dollar budget; hand-written pointer files;
+mid-tier builders with the reviewer as backstop.
+
+**Why:** after S-1 the three measured gaps were thin context delivery (packets with no reading
+list), undeclared roles and models, and no planning layer above the Outcome. Vendor guidance
+(context engineering: identifiers over pasted text, cheap tiers for reading, specs before
+implementation; harness engineering: `AGENTS.md` as a table of contents with the knowledge in
+`docs/`, garbage-collected) and the spec-driven tools (constitution, spec, plan, tasks; EARS
+criteria) converge on this shape. The v6 lessons wiki and graph had no measured catch, so nothing
+heavier is adopted. Founder decisions of 2026-10-09: no dollar budget; pointers generated from the
+start; frontier builders; S-2's second milestone runs during the pilot.
+
+**Amends:** D29's stop rule clause "no new mechanism enters `install/` during the pilot" admits
+goal S-2; the four reverting conditions stand unchanged. D29 otherwise stands.
+
+**Measured by:** the pilot's first milestones under v7.1: `cause:` tags on closed blocking
+findings (whether context is the cause before any heavier mechanism is argued for), founder
+decisions per milestone, review catches by stage, and the recorded cost per session.
+
+**Known-wrong if:** `cause: context` stays above half of blocking findings after `reads:` lines
+and generated pointers are in use, or the document set raises founder decisions per milestone above
+the D29 contract.
