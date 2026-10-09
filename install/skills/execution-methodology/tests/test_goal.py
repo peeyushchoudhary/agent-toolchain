@@ -584,15 +584,16 @@ class CostTest(RepoCase):
             msg(self.after, "m2", usage(1, 2, 3, 4))])  # the top-level file's m2 again: counted once
         jsonl(self.home / ".claude" / "projects" / "-elsewhere" / "s2.jsonl", [msg(self.after, "m9", usage(7, 7, 7, 7))])
         meta = lambda cwd: {"type": "session_meta", "timestamp": self.before, "payload": {"cwd": cwd}}  # noqa: E731
-        count = lambda t, i, o, total: {"type": "event_msg", "timestamp": t, "payload": {  # noqa: E731
+        self.count = lambda t, i, o, tin, tout: {"type": "event_msg", "timestamp": t, "payload": {  # noqa: E731
             "type": "token_count", "info": {"last_token_usage": {"input_tokens": i, "cached_input_tokens": 1,
                                                                  "output_tokens": o},
-                                            "total_token_usage": {"input_tokens": total, "output_tokens": total}}}}
+                                            "total_token_usage": {"input_tokens": tin, "output_tokens": tout}}}}
+        self.meta, count = meta, self.count
         jsonl(self.codex / "sessions" / "2026" / "01" / "02" / "rollout-a.jsonl", [
-            meta(str(self.repo.dir)), count(self.before, 500, 500, 500), count(self.after, 100, 7, 600),
-            count(self.after, 200, 8, 800)])
+            meta(str(self.repo.dir)), count(self.before, 500, 500, 500, 500), count(self.after, 100, 7, 600, 507),
+            count(self.after, 200, 8, 800, 515)])
         jsonl(self.codex / "sessions" / "2026" / "01" / "02" / "rollout-b.jsonl", [
-            meta(str(self.home)), count(self.after, 9, 9, 9)])
+            meta(str(self.home)), count(self.after, 9, 9, 9, 9)])
 
     def test_sums_planted_transcripts_since_the_approval(self):
         self.plant()
@@ -605,6 +606,15 @@ class CostTest(RepoCase):
         res = self.cost("cost", "--since", early.stdout.strip())
         self.assertEqual(res.stdout.splitlines(), ["claude: input 3666 output 1049 (2 transcripts)",
                                                    "codex: input 800 output 515 (1 transcripts)"])
+
+    def test_repeated_codex_usage_notifications_count_once(self):
+        self.plant()
+        path = self.codex / "sessions" / "2026" / "01" / "02" / "rollout-a.jsonl"
+        rows = [json.loads(l) for l in path.read_text().splitlines()]
+        rows += [rows[-1], rows[-1]]  # Codex re-emits a token_count whose totals have not moved
+        jsonl(path, rows)
+        res = self.cost("cost")
+        self.assertEqual(res.stdout.splitlines()[1], "codex: input 300 output 15 (1 transcripts)", res.stderr)
 
     def test_nothing_planted_prints_unknown_for_each_harness(self):
         res = self.cost("cost")

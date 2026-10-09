@@ -693,9 +693,11 @@ def claude_usage(root, start):
 def codex_usage(root, start):
     """Codex: $CODEX_HOME/sessions/**/*.jsonl (default ~/.codex), kept when the first {"type":
     "session_meta", "payload": {"cwd"}} names the root. Record: {"type": "event_msg", "timestamp":
-    "...Z", "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens",
-    "output_tokens", ...}}}}; the per-turn last_token_usage is summed, never the running
-    total_token_usage. Codex's input_tokens already includes its cached_input_tokens."""
+    "...Z", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens",
+    "output_tokens", ...}, "last_token_usage": {...}}}}. Codex repeats a token_count record with
+    unchanged numbers, so a session counts the growth of its running total_token_usage between
+    records in the window (a repeat adds nothing), never the sum of last_token_usage. Codex's
+    input_tokens already includes its cached_input_tokens."""
     home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
     tin = tout = files = 0
     for path in sorted((home / "sessions").rglob("*.jsonl")):
@@ -704,13 +706,19 @@ def codex_usage(root, start):
         cwd = ((meta or {}).get("payload") or {}).get("cwd")
         if not isinstance(cwd, str) or os.path.realpath(cwd) != str(root):
             continue
-        used = [p["info"]["last_token_usage"] for r in rs if r.get("type") == "event_msg"
-                and isinstance(p := r.get("payload"), dict) and p.get("type") == "token_count"
-                and isinstance(p.get("info"), dict) and isinstance(p["info"].get("last_token_usage"), dict)
-                and (t := when(r.get("timestamp"))) and t >= start]
-        files += bool(used)
-        tin += sum(u.get("input_tokens") or 0 for u in used)
-        tout += sum(u.get("output_tokens") or 0 for u in used)
+        totals = [(t >= start, p["info"]["total_token_usage"]) for r in rs if r.get("type") == "event_msg"
+                  and isinstance(p := r.get("payload"), dict) and p.get("type") == "token_count"
+                  and isinstance(p.get("info"), dict) and isinstance(p["info"].get("total_token_usage"), dict)
+                  and (t := when(r.get("timestamp")))]
+        if not any(inside for inside, _u in totals):
+            continue
+        files += 1
+        last = {"input_tokens": 0, "output_tokens": 0}  # the running total before the window
+        for inside, u in totals:
+            if inside:
+                tin += max(0, (u.get("input_tokens") or 0) - last["input_tokens"])
+                tout += max(0, (u.get("output_tokens") or 0) - last["output_tokens"])
+            last = {k: u.get(k) or 0 for k in last}
     return (tin, tout, files) if files else None
 
 def cost_lines(ctx, since=None):
