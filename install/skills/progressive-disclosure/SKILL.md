@@ -175,12 +175,13 @@ Break-test: `python3 scripts/migrate_to_standard_selftest.py` (exit 0 = every ca
 ## Setting this up in a project
 
 This skill owns the *standard* — the layers, the taxonomy, the budgets, and the validator. Applying
-it is: `migrate_to_standard.py`, write the route, wire the gate, then `install_hooks.py .`. A
+it is: `migrate_to_standard.py`, write the route, wire the gate, then
+`execution-methodology/scripts/git-hooks.sh .`. A
 project still on methodology v5.1 migrates with `execution-methodology/references/migrate.md`.
 
 Two rules that live here because they are properties of the route:
 
-- **Git hooks are never shared through git.** `install_hooks.py` runs once per *clone*, not once per
+- **Git hooks are never shared through git.** `git-hooks.sh` runs once per *clone*, not once per
   project. Session start flags a clone that is missing them.
 - **Never run `graphify claude install`.** It appends a section to `CLAUDE.md`, which breaks the
   standard's one-line rule and makes that guidance invisible to every non-Claude agent.

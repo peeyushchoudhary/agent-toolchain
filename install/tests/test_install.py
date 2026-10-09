@@ -304,9 +304,9 @@ class RetireTest(InstallCase):
         repo = self.home / "repo"
         repo.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=repo, env=self.env, check=True)
-        hooks = self.claude / "skills" / "progressive-disclosure" / "scripts" / "install_hooks.py"
-        r = subprocess.run(["python3", str(hooks), str(repo), "--no-graph"], env=self.env,
-                           capture_output=True, text=True)
+        hooks = self.claude / "skills" / "execution-methodology" / "scripts" / "git-hooks.sh"
+        r = subprocess.run(["bash", str(hooks), str(repo)], env=self.env, capture_output=True,
+                           text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         for path in renders:
             self.assertTrue(path.is_file(), path)
@@ -345,12 +345,14 @@ class GuardTest(InstallCase):
         self.git(repo, "add", "-A")
         self.git(repo, "commit", "-q", "-m", "init")
         self.git(repo, "remote", "add", "origin", str(remote))
-        guard = self.claude / "skills" / "progressive-disclosure" / "scripts" / "install_hooks.py"
-        r = subprocess.run(["python3", str(guard), str(repo), "--no-graph"], env=self.env,
+        scripts = self.claude / "skills" / "execution-methodology" / "scripts"
+        r = subprocess.run(["bash", str(scripts / "git-hooks.sh"), str(repo)], env=self.env,
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn(str(guard.parent / "push_guard.py").replace(str(self.home), "$HOME"),
-                      (repo / ".git" / "hooks" / "pre-push").read_text())
+        self.assertIn(str(scripts / "guard.py"), (repo / ".git" / "hooks" / "pre-push").read_text())
+        # The installed pre-commit hook needs a private-name list; a synthetic one, never the real.
+        names = self.write(self.home / "names.txt", "zarquon-widget\n")
+        self.env["PD_PRIVATE_IDENTIFIERS"] = str(names)
 
         self.git(repo, "checkout", "-q", "-b", "clean")
         self.write(repo / "notes.txt", "nothing secret\n")
@@ -362,10 +364,10 @@ class GuardTest(InstallCase):
         key = "AKIA" + "Q7RZM2XK4PLD9WTE"
         self.write(repo / "config.py", f'AWS_KEY = "{key}"\n')
         self.git(repo, "add", "-A")
-        self.git(repo, "commit", "-q", "-m", "leak")
+        self.git(repo, "commit", "-q", "-m", "leak", "--no-verify")  # reach pre-push past pre-commit
         r = self.git(repo, "push", "origin", "leak", ok=False)
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("pre-push BLOCKED", r.stdout + r.stderr)
+        self.assertIn("guard BLOCKED", r.stdout + r.stderr)
         self.assertIn("AWS access key id", r.stdout + r.stderr)
         self.assertNotIn("leak", self.git(remote, "branch").stdout)
 

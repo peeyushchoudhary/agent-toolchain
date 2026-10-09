@@ -84,12 +84,15 @@ section "validate_disclosure --standard"
 if python3 "$PD/validate_disclosure.py" . --standard; then pass disclosure_standard
 else failed disclosure_standard; fi
 
-# ── 3. Identifier guard over the tree ────────────────────────────────────────────────────────────
-# The guard scans a staged diff, so the tree (tracked files plus untracked files that are not
+# ── 3. The guard: its self-test, then the tree ───────────────────────────────────────────────────
+# guard.py scans a staged diff, so the tree (tracked files plus untracked files that are not
 # ignored, i.e. what a commit could carry) is staged into a scratch repository with no history and
 # scanned there. The origin URL is carried over so the account rule has something to check. Exit 2
-# (deny-list missing, guard could not run) fails this check rather than passing it.
-section "identifier guard over the tree"
+# (private-name list missing, guard could not run) fails this check rather than passing it.
+GUARD="install/skills/execution-methodology/scripts/guard.py"
+section "guard --self-test"
+if python3 "$GUARD" --self-test; then pass guard_self_test; else failed guard_self_test; fi
+section "guard over the tree"
 SCAN="$TMP/tree"
 mkdir -p "$SCAN"
 if git ls-files -z --cached --others --exclude-standard |
@@ -102,13 +105,13 @@ for rel in filter(None, sys.stdin.buffer.read().decode("utf-8", "surrogateescape
         shutil.copy2(rel, os.path.join(dest, rel))
 ' "$SCAN" && git -C "$SCAN" init -q && git -C "$SCAN" add -A; then
   origin="$(git remote get-url origin 2>/dev/null)" && git -C "$SCAN" remote add origin "$origin"
-  (cd "$SCAN" && python3 "$ROOT/$PD/identifier_guard.py" --staged)
+  (cd "$SCAN" && python3 "$ROOT/$GUARD" --staged)
   rc=$?
-  if [ "$rc" -eq 0 ]; then pass identifier_guard
-  else failed identifier_guard; [ "$rc" -eq 2 ] && echo "verify: the identifier guard could not run (exit 2)"; fi
+  if [ "$rc" -eq 0 ]; then pass guard
+  else failed guard; [ "$rc" -eq 2 ] && echo "verify: the guard could not run (exit 2)"; fi
 else
-  failed identifier_guard
-  echo "verify: could not stage the tree for the identifier guard"
+  failed guard
+  echo "verify: could not stage the tree for the guard"
 fi
 
 # ── 4. Size ceilings (AC-9) ──────────────────────────────────────────────────────────────────────

@@ -149,8 +149,8 @@ extras_between() {  # extras_between SRC DEST
 
 # Copy a skill tree into place with no window in which neither copy exists: stage beside the
 # target, move the old copy aside by rename, swap, and only then delete the old copy. A failed copy
-# leaves the working install untouched, which matters most for progressive-disclosure, whose push
-# guard every repository's pre-push hook calls.
+# leaves the working install untouched, which matters most for execution-methodology, whose guard.py
+# every repository's git hooks call.
 #
 # Every file the installed copy has and the vendored tree lacks is carried into the staged tree, so
 # a plain install removes nothing (AC-12): v5.1 scripts, references and persona sources, and any
@@ -232,8 +232,7 @@ else
   fail "skills: install/skills/.gitignore is missing — nothing is known to install"
 fi
 
-# All skills, progressive-disclosure included, land in this one step, so an installed tree never
-# pairs a new skill with an older push guard that calls checkers the new tree no longer has.
+# All skills land in this one step, so an installed tree never pairs a new skill with an older one.
 install_skills() {  # install_skills DEST_ROOT VERB
   local root="$1" verb="$2" s n=0 total=0 kept rel
   run mkdir -p "$root/skills" || { fail "skills: could not create $root/skills"; return; }

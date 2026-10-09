@@ -81,7 +81,7 @@ line; the graph blocks, guard blocks and `--graph-only` in `install_hooks.py` an
 (`_graph_only`, `_guard`; `_scope` and `_deps` keep their non-graph cases). `install/hooks/` is empty
 afterwards and removed.
 
-### [ ] T4 — one guard, shipped inside the skill; `git-hooks.sh`
+### [x] T4 — one guard, shipped inside the skill; `git-hooks.sh`
 writes: install/skills/execution-methodology/scripts/guard.py, install/skills/execution-methodology/scripts/git-hooks.sh, install/skills/execution-methodology/tests/test_guard.py, install/skills/execution-methodology/tests/test_git_hooks.py, install/skills/progressive-disclosure/**, install/tests/**, install/verify.sh, install/install.sh, .gitignore, docs/**
 tests-may-change: install/skills/progressive-disclosure/tests/**, install/tests/**
 New `guard.py` (size follows coverage; ≈150 lines expected): staged content and commit messages for
@@ -198,6 +198,15 @@ the other vendor's diff review, `done` for M2, merge.
   race on `stop_state.json`; installed copies of the deleted files remain until T7's retire list.
   Task order inside M1: T4 before T3, so the graph code in `install_hooks.py` is deleted with the
   file instead of being cut twice.
+- 2026-10-09 T4 defaults: `guard.py` is 300 lines (coverage, not the ≈150 estimate: every
+  behavioural case of both old selftests is ported into `test_guard.py`, 28 tests; the dropped
+  cases tested the old files' internals). Secrets are now blocked at commit as well as push; a direct
+  push to the default branch is blocked only when the remote branch already exists; pre-push does
+  not read the private-name list; `.env` and stale-README warnings are dropped. This repository's
+  own hooks were switched to the new guard with `git-hooks.sh --guard <repo copy>` (local `.git/hooks`
+  write; the old hooks are kept outside the repository); the route validator the old pre-commit ran is
+  not carried into the new hook — T5's link check in `verify.sh` is its replacement, so T5 has nothing
+  to replace in the hook.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 

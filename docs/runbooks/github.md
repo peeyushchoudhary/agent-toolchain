@@ -38,10 +38,9 @@ It blocks:
   pays
 - **a direct push to the default branch**
 
-It warns on a newly added `.env`-style file and on source changing while `README.md` did not.
-
 The v5.1 product-definition, milestone-seal and review-budget blocks were retired with that
-methodology in v6 (F-3); the push guard no longer calls any methodology checker.
+methodology in v6 (F-3). The push guard is now `execution-methodology/scripts/guard.py
+--pre-push`, installed per clone by `git-hooks.sh`.
 
 For a deliberate direct push to the default branch, `PD_ALLOW_MAIN_PUSH=1 git push` is the
 supported escape — scoped to the one command, it leaves no hole behind. A secret or

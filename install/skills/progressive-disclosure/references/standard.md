@@ -153,7 +153,7 @@ GitHub stores code and config. Nothing deploys from it, nothing runs on it, and 
 | Merge commits, not squash | With no CI, the commit history is the audit trail; the per-commit graph refresh already indexed each one |
 
 **Two rules GitHub would charge for are enforced locally instead**, by the `pre-push` hook that
-`install_hooks.py` installs — secret scanning on a private repo needs paid Secret Protection, and
+`execution-methodology/scripts/git-hooks.sh` installs — secret scanning on a private repo needs paid Secret Protection, and
 protected branches need a paid plan. The hook blocks credentials in the pushed range, files over
 10 MB, and direct pushes to the default branch. It costs nothing and it runs where the work happens.
 

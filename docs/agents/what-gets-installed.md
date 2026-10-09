@@ -33,12 +33,11 @@ manages.
 | `execution-methodology/scripts/goal.py` | Parses a plan; lint, status, next, resume, packet, the eight-row done; runs the Stop hook |
 | `execution-methodology/scripts/gate.py` | Runs a gate, parses counts, writes receipts bound to tree and command |
 | `execution-methodology/scripts/run.sh` | Runs fresh unattended sessions until `goal.py done` holds, or stalls or parks |
+| `execution-methodology/scripts/guard.py` + `git-hooks.sh` | The one git guard (staged content, commit message, pushed range) and its per-repository hook installer |
 | `agent-personas/scripts/sync_personas.py` | Scoped persona preview, check and apply; roster listing; routing |
 | `progressive-disclosure/scripts/validate_disclosure.py` | Route, README, taxonomy and persona-drift checks |
 | `progressive-disclosure/scripts/migrate_to_standard.py` | Plans and applies the taxonomy migration |
-| `progressive-disclosure/scripts/install_hooks.py` | Plans, checks and applies git hooks with explicit scopes |
 | `progressive-disclosure/scripts/check_github.py` | Repo stored, private, pushed, quiet; `--sweep` for the fleet |
-| `progressive-disclosure/scripts/push_guard.py` | pre-push: secrets, oversized files, direct main pushes |
 | `progressive-disclosure/scripts/check_toolchain.py` | Machine-global drift: generated agents, mirrored instruction blocks, the Codex skills copy, plugin surface. Reports only |
 
 ### Hooks, registered in `~/.claude/settings.json`
@@ -84,15 +83,17 @@ so trust the two goal hooks once after the first install and again whenever thei
 
 ## Per-repository
 
-Git hooks are never cloned, so each clone needs an explicit preview and apply:
+Git hooks are never cloned, so each clone installs them once (`--uninstall` removes only its own):
 
 ```bash
-python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py <repo> --scope project --preview --json
-python3 ~/.claude/skills/progressive-disclosure/scripts/install_hooks.py <repo> --scope project
+bash ~/.claude/skills/execution-methodology/scripts/git-hooks.sh <repo>
 ```
 
-`pre-commit` validates the route and fails the commit when it is broken; `pre-push` blocks secrets,
-files over 10 MB and direct pushes to main. Both skip silently when their tool is absent.
+It writes `pre-commit`, `commit-msg` and `pre-push` (honouring `core.hooksPath`), each running
+`guard.py`: commits may not add a home path, the local git identity, a name on the private list or
+a secret; pushes may not carry a secret or a file over 10 MB, nor move an existing `main`. It
+refuses when the installed `guard.py` is absent, and the guard exits 2, blocking, when it cannot
+run.
 
 ## Verifying
 
