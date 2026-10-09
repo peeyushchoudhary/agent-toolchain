@@ -17,7 +17,7 @@ character, so a package path through `users/` commits and an absolute home path 
 
 ## Tasks
 
-### [ ] T1 — a relative path segment before /Users or /home is not a home path; table rows and a self-test fixture
+### [x] T1 — a relative path segment before /Users or /home is not a home path; table rows and a self-test fixture
 writes: install/skills/execution-methodology/scripts/guard.py, install/skills/execution-methodology/tests/test_guard.py
 reads: install/skills/execution-methodology/scripts/guard.py, install/skills/execution-methodology/tests/test_guard.py
 tests-may-change: install/skills/execution-methodology/tests/test_guard.py

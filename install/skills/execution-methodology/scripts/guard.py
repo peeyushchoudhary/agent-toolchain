@@ -20,6 +20,9 @@ from pathlib import Path
 
 LIST_ENV = "PD_PRIVATE_IDENTIFIERS"
 HOME_PATH = re.compile(r"/(?:Users|home)/([A-Za-z0-9._-]{2,})", re.IGNORECASE)
+# The run of path characters right before a HOME_PATH match. One not starting with `-` is a
+# segment of a relative path (core/users/X), not a home; a flag (-I/Users/x) is no segment.
+SEGMENT_BEFORE = re.compile(r"(?<![A-Za-z0-9._-])[A-Za-z0-9._][A-Za-z0-9._-]*$")
 PLACEHOLDERS = frozenset({"anything", "example", "home", "me", "name", "root", "runner", "shared",
                           "someone", "user", "username", "you", "youruser", "yourname", "your-name"})
 TOO_GENERIC = frozenset({"admin", "example", "git", "github", "gitlab", "local", "localhost", "main",
@@ -106,8 +109,11 @@ def literal(term: str) -> re.Pattern[str]:
 
 def find(rule, text: str) -> str | None:
     for m in rule[1].finditer(text):
-        if m[0] and not (rule[2] == "home" and m[1].lower() in PLACEHOLDERS):
-            return m[0]
+        if not m[0]:
+            continue
+        if rule[2] == "home" and (m[1].lower() in PLACEHOLDERS or SEGMENT_BEFORE.search(text[:m.start()])):
+            continue  # a placeholder, or a later segment of a relative path
+        return m[0]
     return None
 
 
@@ -293,7 +299,8 @@ def self_test() -> int:
     cases = [("/Users" + "/hoopfrabjous/x", 1), ("/HOME" + "/hoopfrabjous", 1), ("Zarquon Widget", 1),
              ("ZARQUON_WIDGET", 1), ("zarquonwidget", 1), ("key " + "AKIA" + "IOSFODNN7EXAMPLE", 1),
              ("-----BEGIN RSA PRIV" + "ATE KEY-----", 1), ("/Users/<name>/code", 0),
-             ("/home/runner/work, /home/$USER", 0), ("the upstream loader", 0)]
+             ("/home/runner/work, /home/$USER", 0), ("the upstream loader", 0),
+             ("app/core/" + "users/UserDtos.java", 0), ("cc -I/Users" + "/hoopfrabjous/include", 1)]
     failed = [text for text, want in cases if bool(next((1 for r in rules if find(r, text)), 0)) != want]
     hits: list[str] = []
     scan_diff("+++ b/f.c\n@@ -0,0 +1,2 @@\n+++counter;\n+++ /Users" + "/hoopfrabjous/b\n", rules, hits)

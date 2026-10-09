@@ -152,6 +152,13 @@ class CommitRulesTest(GuardCase):
             ("private key", {"k.pem": "-----BEGIN RSA PRIV" + "ATE KEY-----\n"}, 1,
              "private key block"),
             ("clean ++ lines", {"incr.c": "++counter;\n++total;\n"}, 0, None),
+            ("package path through users/", {"n.md": "app/core/" + "users/UserDtos.java\n"}, 0, None),
+            ("the same in backticks", {"n.md": "see `app/core/" + "users/UserDtos.java`\n"}, 0, None),
+            ("home path after =", {"n.md": f"a={HOME_PATH}\n"}, 1, "absolute home path"),
+            ("home path in backticks", {"n.md": f"see `{HOME_PATH}/x`\n"}, 1, "absolute home path"),
+            ("home path after a flag", {"n.md": f"cc -I{HOME_PATH}/include\n"}, 1, "absolute home path"),
+            ("/home path in parentheses", {"n.md": "(/home" + "/hoopfrabjous)\n"}, 1, "absolute home path"),
+            ("/home path after a flag", {"n.md": "cc -L/home" + "/hoopfrabjous/lib\n"}, 1, "absolute home path"),
         ]
         for label, files, want, needle in cases:
             with self.subTest(label):
