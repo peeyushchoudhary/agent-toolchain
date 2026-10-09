@@ -39,10 +39,13 @@ appends a cost line per session; its permission model is untouched.
    is the longest literal directory prefix of each glob. The body names the page, its `read-when`
    and its H2 anchors. A file without the markers is created whole; one with them has only the
    block replaced. Committed, never hand-edited. Durable.
-6. **Agent files.** Claude: `agents/{builder,reviewer,scout}.md` with the harness's keys for model,
-   effort and turn limit, installed to `~/.claude/agents/`. Codex: `agents/{builder,reviewer,scout}.toml`
-   with `model`, `model_reasoning_effort` and `sandbox_mode`, installed to `$CODEX_HOME/agents/`.
-   Each installed copy carries a marker line; uninstall removes only marked files. Durable.
+6. **Agent files.** Claude: `agents/{builder,reviewer,scout}.md`, frontmatter from the keys
+   `name`, `description`, `tools`, `model`, `effort`, `maxTurns`, `permissionMode`, `isolation`,
+   body in MUST/SHOULD/AVOID/REPORT sections, installed to `~/.claude/agents/`. Codex:
+   `agents/{builder,reviewer,scout}.toml` with `name`, `description`, `developer_instructions`
+   (byte-equal to the `.md` body), `model`, `model_reasoning_effort`, `sandbox_mode`, installed to
+   `$CODEX_HOME/agents/`. Each installed copy carries a marker line; uninstall removes only marked
+   files. The installer sets `worktree.baseRef: "head"` for Claude subagent worktrees. Durable.
 7. **Records.** `.runs/<id>/approval.html` from `goal.py packet --approval`; one `cost:` line per
    session in `.runs/<id>/progress.md`, written by `run.sh` when the harness reports cost or tokens;
    `cause: context|logic|spec` on each closed blocking finding in `review.md`. Not durable.

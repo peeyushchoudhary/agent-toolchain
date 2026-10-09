@@ -73,9 +73,9 @@ does not exist; a heading with punctuation resolved by slug; a `reads:` line wit
 kinds. `verify.sh` is not wired here: T5 does it with the frontmatter.
 
 ### [ ] T4 — the instructions: `SKILL.md`, planning, roles, security checklist, design, agents
-writes: install/global.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/**, install/skills/execution-methodology/agents/**, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, AGENTS.md
+writes: install/global.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/**, install/skills/execution-methodology/agents/**, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, AGENTS.md, docs/architecture/personas.md, docs/README.md
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py
-reads: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/design.md, install/skills/execution-methodology/agents/builder.md, install/skills/execution-methodology/agents/reviewer.md, install/skills/execution-methodology/tests/test_rules.py, docs/goals/S-2/design.md#Interfaces
+reads: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/design.md, install/skills/execution-methodology/agents/builder.md, install/skills/execution-methodology/agents/reviewer.md, install/skills/execution-methodology/tests/test_rules.py, docs/goals/S-2/design.md#Interfaces, analysis/councils-2026-10-09/personas/synthesis.md, analysis/councils-2026-10-09/personas/drafts/builder.md, analysis/councils-2026-10-09/personas/drafts/reviewer.md, analysis/councils-2026-10-09/personas/drafts/scout.md, analysis/councils-2026-10-09/personas/drafts/chief-planning.md
 `SKILL.md`: loop step 2 names `reads:` and `docs.py reads`; the format block gains `reads:` and
 the six `touches:` values; a "Before a goal" paragraph points at `references/planning.md`; the
 design-review trigger is widened; a closed blocking finding carries `cause: context|logic|spec`;
@@ -90,12 +90,22 @@ words: builder frontier tier at high effort (Claude `opus`, Codex `gpt-6.1-sol`)
 chief the session; cost recorded, never enforced; the structural caps. New
 `references/security-checklist.md` ≤150 words, handed to the merge reviewer when `touches:` names
 data, auth or external. `references/design.md`: the widened trigger; builders read Interfaces.
-`agents/builder.md` declares model, effort and a turn limit in the harness's own keys (check the
-current Claude Code subagent reference before choosing them); `agents/reviewer.md` declares model
-and effort and names the checklist; new `agents/scout.md`: read-only tools, cheap tier, returns at
-most 300 words of paths, entry points, patterns and the test to copy. `test_rules.py`: the new
-files join `SKILL_FILES`, `references/planning.md` leaves `RETIRED`, the scout is read-only.
-Root `AGENTS.md` stays a table of contents under 300 words.
+The three Claude agent files are written from the council drafts named in `reads:` (the
+2026-10-09 persona council: four experts and an adversarial synthesis, recorded under
+`analysis/`, this machine only): `agents/builder.md` (body ≤350 words), `agents/reviewer.md`
+(≤350), new `agents/scout.md` (≤200), each with MUST, SHOULD, AVOID and REPORT sections of one
+behaviour per line and frontmatter in the keys the Claude Code subagent reference lists (`tools`,
+`model`, `effort`, `maxTurns`, `permissionMode`, `isolation`); the builder keeps
+`isolation: worktree`, which needs the base setting T7 installs. The chief's planning lines (≤200
+words) are the MUST/SHOULD/AVOID block of `references/planning.md`. `references/roles.md` records
+the aliases (`opus`, `gpt-6.1-sol`; `haiku`, `gpt-6-luna`), that `high` is the portable effort, and
+that `CLAUDE_CODE_EFFORT_LEVEL` overrides frontmatter so `run.sh` never exports it. New
+`docs/architecture/personas.md` (frontmatter per T5's standard, `covers:` the agents directory):
+what each persona file guards against, the evidence behind each adopted line with its source, and
+what was left out and where it lives instead (the public record of the council). `test_rules.py`:
+the new files join `SKILL_FILES`, `references/planning.md` leaves `RETIRED`, the scout and the
+reviewer are read-only, each agent body is at or under its budget. Root `AGENTS.md` stays a table
+of contents under 300 words; `docs/README.md` gains the personas row.
 
 ### [ ] T5 — this repository's `docs/` under the standard; `docs.py lint` in the gate; M1's e2e
 writes: docs/README.md, docs/architecture/**, docs/product/**, docs/runbooks/**, docs/archive/**, README.md, install/verify.sh, install/tests/e2e_install.sh, install/tests/test_install.py, install/README.md
@@ -134,17 +144,23 @@ a page whose `covers` changed after `last-verified`; a hand-edited pointer caugh
 ### [ ] T7 — roles shipped to both harnesses: Codex agent TOML, the installer
 writes: install/skills/execution-methodology/agents/**, install/install.sh, install/verify.sh, install/tests/test_install.py, install/tests/e2e_install.sh, install/README.md, docs/runbooks/codex.md
 tests-may-change: install/tests/test_install.py, install/tests/e2e_install.sh
-reads: docs/goals/S-2/design.md#Interfaces, install/skills/execution-methodology/references/roles.md, install/install.sh, install/tests/test_install.py, docs/runbooks/codex.md
-New `agents/builder.toml`, `reviewer.toml`, `scout.toml` for Codex custom agents (`model`,
-`model_reasoning_effort`, `sandbox_mode`, the instructions; confirm the file schema against the
-installed `codex` and its documentation before writing them, and record the version checked).
-`install.sh` copies the `.md` agents to `~/.claude/agents/` and the `.toml` agents to
-`$CODEX_HOME/agents/`, each with a marker line; `--dry-run` lists them; `--uninstall` removes only
-marked files; an unmarked file of the same name is left alone and reported (AC9). `verify.sh
---installed` parity covers the agent files. `e2e_install.sh` asserts both harnesses' agent files
-after install and their absence after uninstall. `codex.md` documents the agents and that
-`run.sh`'s `--ignore-user-config` session still loads `$CODEX_HOME/agents/` (verify; if it does
-not, say how the builder is dispatched instead and park the gap).
+reads: docs/goals/S-2/design.md#Interfaces, install/skills/execution-methodology/references/roles.md, install/skills/execution-methodology/agents/builder.md, install/install.sh, install/tests/test_install.py, docs/runbooks/codex.md, analysis/councils-2026-10-09/personas/drafts/builder.toml, analysis/councils-2026-10-09/personas/synthesis.md#Harness caveats T4 and T7 must handle
+New `agents/builder.toml`, `reviewer.toml`, `scout.toml` for Codex custom agents: `name`,
+`description`, `developer_instructions` (byte-equal to the matching `.md` body, asserted by a
+test in `test_install.py` so the two never drift), `model`, `model_reasoning_effort`,
+`sandbox_mode`; the schema was verified against `codex-cli 0.160.0` on 2026-10-09 and the file
+header records the version checked. `install.sh` copies the `.md` agents to `~/.claude/agents/`
+and the `.toml` agents to `$CODEX_HOME/agents/`, each with a marker line; sets
+`worktree.baseRef: "head"` in `~/.claude/settings.json` with its JSON editor, because a subagent
+worktree otherwise branches from the default branch rather than the chief's HEAD; `--dry-run`
+lists all of it; `--uninstall` removes only marked files and that one key; an unmarked file of
+the same name is left alone and reported (AC9). `verify.sh --installed` parity covers the agent
+files. `e2e_install.sh` asserts both harnesses' agent files and the setting after install and
+their absence after uninstall; a test asserts `run.sh` never exports `CLAUDE_CODE_EFFORT_LEVEL`.
+`codex.md` documents the agents, whether `run.sh`'s `--ignore-user-config` session still loads
+`$CODEX_HOME/agents/` (verify; if not, `-c agents.<name>.config_file=<path>` per session), and
+how a Codex builder gets its own worktree (a Codex-side option if one exists, else the Codex chief
+runs `git worktree add` and names the path in the packet).
 
 ### [ ] T8 — `goal.py packet --approval`, `cause:` counts, the cost line
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/scripts/run.sh, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/test_run.py
@@ -184,6 +200,22 @@ README and `AGENTS.md` say what is true after S-2. **M2 ends here**: the other v
   because S-2 is the first goal under the widened trigger it introduces; its review runs with the
   plan review. `docs.py` is a separate script rather than more `goal.py`, so the document checks
   run in a repository with no open goal. `reads:` entries are repository-relative paths.
+- 2026-10-09 founder: each persona carries rich instructions researched from the vendors'
+  documentation and the field, without over-engineering or drift. A council of four experts
+  (Anthropic docs, OpenAI/Codex docs, open-source agent files, engineering craft) and an
+  adversarial synthesis ran the same day (`analysis/councils-2026-10-09/personas/`, this machine
+  only; the public record is `docs/architecture/personas.md`, T4). Adopted: one behaviour per
+  line in MUST/SHOULD/AVOID/REPORT; the scope declaration ("say so in one sentence, then do the
+  task as written"; out-of-scope actions 17.1% → 0.0% in the overeager-agents study); copy the
+  nearest existing pattern; no speculative abstraction; a wrong test is reported red, never edited
+  or skipped; the behaviour, not the test's inputs; the gate line pasted as printed; the reviewer
+  reads the diff and distrusts the report, reports every finding classed rather than pre-filtered,
+  one scenario-backed finding per defect, no style or pre-existing issues. Rejected as folklore or
+  machinery: role preambles, capability lists, confidence scores, status vocabularies, "think step
+  by step", "verify your work" lines, 80-character titles. Budgets: builder and reviewer ≤350
+  words, scout ≤200, chief planning ≤200. Aliases: `opus`/`gpt-6.1-sol` at `high` (the founder's
+  frontier choice), `haiku`/`gpt-6-luna`. `isolation: worktree` is kept with the installer setting
+  the worktree base to the chief's HEAD.
 - 2026-10-09 chief: the approval commit creates `spec.md` and `design.md`; the plan's `protected:`
   lists the two design sections and D1–D19 explicitly until T2 protects the spec by default, so
   `goal.py lint` as shipped by S-1 passes on this plan (it cannot list `spec.md` whole without a
