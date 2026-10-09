@@ -160,6 +160,17 @@ class DoneTest(RepoCase):
         self.assertRowOk(3)
         self.assertRow(4, f"{sha[:10]} [T1] src/b/z.py outside writes")
 
+    def test_temporary_widening_cannot_authorize_protected_edits(self):
+        self.repo.edit(PLAN, "writes: src/a/**, tests/**", "writes: src/a/**, docs/design.md, tests/**")
+        self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n", "- 2026-01-01: fixture decision.\n- widen T1.\n")
+        self.repo.commit("F-9: widen T1 to the design")
+        sha = self.fix("docs/design.md", "# design, rewritten\n", "[T1] alpha rewrites the design")
+        self.repo.edit(PLAN, "writes: src/a/**, docs/design.md, tests/**", "writes: src/a/**, tests/**")
+        self.repo.edit(PLAN, "- widen T1.\n", "- widen T1.\n- narrow T1 again.\n")
+        self.repo.commit("F-9: narrow T1 again")
+        self.assertRowOk(3)
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected docs/design.md")
+
     def test_plan_only_cannot_expand_test_permissions(self):
         self.repo.edit(PLAN, "tests-may-change: tests/test_a.py", "tests-may-change: **")
         sha = self.repo.commit("F-9: let T2 change every test")
