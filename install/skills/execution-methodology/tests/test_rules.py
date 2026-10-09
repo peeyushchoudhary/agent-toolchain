@@ -1,7 +1,7 @@
 """Behaviour-level facts about the skill's prose: the files exist, what they name exists, nothing
-retired is named, and the reviewer cannot edit.
+retired is named, the reviewer cannot edit, and each reference stays within its word ceiling.
 
-No prose is pinned here; the word ceiling is install/tests/test_size.py.
+No prose is pinned here; the always-loaded ceiling is install/tests/test_size.py.
 """
 from __future__ import annotations
 
@@ -14,14 +14,21 @@ REPO = SKILL.parents[2]
 ENTRY = SKILL / "SKILL.md"
 REVIEWER = SKILL / "agents" / "reviewer.md"
 DESIGN = SKILL / "references" / "design.md"
+PLANNING = SKILL / "references" / "planning.md"
+ROLES = SKILL / "references" / "roles.md"
+SECURITY = SKILL / "references" / "security-checklist.md"
 ALWAYS_LOADED = (REPO / "install" / "global.md", REPO / "AGENTS.md", ENTRY)
-SKILL_FILES = (ENTRY, REVIEWER, DESIGN)
+SKILL_FILES = (ENTRY, REVIEWER, DESIGN, PLANNING, ROLES, SECURITY)
+
+# Word ceilings of the on-demand references (D30); words are whitespace-separated tokens.
+REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150}
+PLANNING_RULES_WORDS = 200
 
 # Named by the rules, delivered by a later task of the same goal. Anything else must exist.
 NOT_YET_BUILT = frozenset({"agents/builder.md"})
 
 # Machinery the v7 shape removed (D29). The rules must not send a session to any of it.
-RETIRED = ("execution-methodology/methodology.md", "references/run.md", "references/planning.md",
+RETIRED = ("execution-methodology/methodology.md", "references/run.md",
            "references/migrate.md", "agent-personas", "sync_personas", "review.py", "run_goal",
            "goal-session", "graphify", "graph-navigation", "progressive-disclosure",
            "validate_disclosure", "check_github", "install_hooks", "identifier_guard", "push_guard",
@@ -92,6 +99,19 @@ class Frontmatter(unittest.TestCase):
         tools = {t.strip() for t in frontmatter(REVIEWER).get("tools", "").split(",") if t.strip()}
         self.assertTrue(tools)
         self.assertLessEqual(tools, {"Read", "Grep", "Glob"}, tools)
+
+
+class Budgets(unittest.TestCase):
+    def test_each_reference_is_within_its_word_ceiling(self):
+        for path, ceiling in REFERENCE_WORDS.items():
+            with self.subTest(file=path.name):
+                self.assertLessEqual(len(path.read_text(encoding="utf-8").split()), ceiling)
+
+    def test_the_chiefs_planning_rules_are_within_their_word_ceiling(self):
+        text = PLANNING.read_text(encoding="utf-8")
+        rules = re.search(r"^## Chief's planning rules\n(.*?)(?=^## )", text, re.M | re.S)
+        self.assertIsNotNone(rules, "planning.md has no ## Chief's planning rules section")
+        self.assertLessEqual(len(rules.group(1).split()), PLANNING_RULES_WORDS)
 
 
 if __name__ == "__main__":

@@ -82,7 +82,7 @@ summary; an index missing a row; an anchor that does not exist; a heading with p
 resolved by slug and by `dNN`; a `reads:` line with all three entry kinds; a `covers` glob that
 escapes the repository.
 
-### [ ] T4 — the instructions: `SKILL.md`, planning, roles, security checklist, design
+### [x] T4 — the instructions: `SKILL.md`, planning, roles, security checklist, design
 writes: install/global.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/**, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, install/install.sh, install/tests/test_install.py, AGENTS.md
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, install/tests/test_install.py
 reads: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/design.md, install/skills/execution-methodology/tests/test_rules.py, docs/goals/S-2/design.md#interfaces, analysis/councils-2026-10-09/personas/drafts/chief-planning.md
@@ -320,6 +320,19 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   `parse_plan` errors starting `line ` count as frontmatter errors. `link_check.py` imports
   `slug`, `fenced` and `headings` from `docs.py`. Follow-ups: `goal.py` keeps its own
   `slug()` copy (outside T3's writes); `docs.py lint .` reports 33 findings here until T6.
+- 2026-10-09 T4 defaults: `SKILL.md` names neither `run.sh` nor the Stop hook ("no launcher
+  starts it and no loop restarts it"), so T9 deletes code only; the Park list reads "any
+  push but the milestone close's" to match the standing push authorization; "fresh session"
+  leaves the milestone-close line; a plan-only commit may change `reads:`; `cause: <c>` ends
+  both `resolved-by` and `removed-by` lines; the scout's effort is the harness default; the
+  structural caps are one builder per task, one review round per stage, each agent file's
+  `maxTurns`, five planning questions; `roles.md` names no agent file, so `NOT_YET_BUILT` is
+  unchanged. `test_install.RetireTest` derives its plantings from `install.sh`, so it needed no
+  edit; `global.md`, root `AGENTS.md` and `test_size.py` are unchanged. Words: `SKILL.md` 930
+  (always-loaded 1,295), planning 396 (chief block 188), roles 136, security 101, design 211.
+  Follow-ups: `references/design.md` still has the design reviewer read `design.md` and
+  `plan.md` only, not `spec.md`; `install.sh`'s "next:" line and `roles.md`'s `goal.py cost`
+  wait for T9.
 
 ## Parked
 

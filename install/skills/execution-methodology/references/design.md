@@ -1,7 +1,7 @@
 # Design page
 
-Write one only when the plan's `touches:` names data, auth or external. One page,
-`docs/goals/<id>/design.md`, current decisions only:
+Write one whenever the plan's `touches:` names anything but `none` (data, auth, external,
+interface, ui). One page, `docs/goals/<id>/design.md`, current decisions only:
 
 1. **Structure**: the components the goal adds or changes, and how they connect.
 2. **Interfaces**: each interface the Outcome names, with its shape; which ones are durable.
@@ -11,8 +11,8 @@ Write one only when the plan's `touches:` names data, auth or external. One page
 
 ## Design review
 
-The other vendor's reviewer ([../agents/reviewer.md](../agents/reviewer.md)) reads `design.md` and
-`plan.md` only, once, before the plan review, and answers:
+Whenever `design.md` exists, the other vendor's reviewer ([../agents/reviewer.md](../agents/reviewer.md))
+reads it and `plan.md` only, once, before the plan review, and answers:
 
 - Does the structure deliver the Outcome without a second way of doing something that exists?
 - Is every durable interface named, and is any break stated in the Outcome?
@@ -22,3 +22,6 @@ The other vendor's reviewer ([../agents/reviewer.md](../agents/reviewer.md)) rea
 - Was any option rejected for a wrong reason?
 
 Resolve its blocking findings in the design before the approval tag.
+
+Builders read Interfaces: a task that builds on one names `docs/goals/<id>/design.md#interfaces`
+in its `reads:`.
