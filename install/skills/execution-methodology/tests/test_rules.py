@@ -96,6 +96,10 @@ class FilesAndNames(unittest.TestCase):
                 with self.subTest(file=path.name, named=name):
                     self.assertNotIn(name, text)
 
+    def test_the_design_review_judges_against_the_spec(self):
+        review = DESIGN.read_text(encoding="utf-8").split("## Design review", 1)[1]
+        self.assertIn("`spec.md`", review)
+
     def test_no_always_loaded_or_skill_file_names_retired_machinery(self):
         for path in ALWAYS_LOADED + SKILL_FILES:
             text = path.read_text(encoding="utf-8")

@@ -12,7 +12,7 @@ interface, ui). One page, `docs/goals/<id>/design.md`, current decisions only:
 ## Design review
 
 Whenever `design.md` exists, the other vendor's reviewer ([../agents/reviewer.md](../agents/reviewer.md))
-reads it and `plan.md` only, once, before the plan review, and answers:
+reads it, `spec.md` and `plan.md` only, once, before the plan review, and answers:
 
 - Does the structure deliver the Outcome without a second way of doing something that exists?
 - Is every durable interface named, and is any break stated in the Outcome?
