@@ -5,6 +5,7 @@ When a page and the tooling in `install/` disagree, the tooling is right.
 | Page | What it holds |
 |---|---|
 | [architecture/methodology.md](architecture/methodology.md) | How a goal runs (v7), what it replaced, the accepted risks, rollback |
+| [architecture/personas.md](architecture/personas.md) | Changing a line of an agent file, or asking why a persona says what it says |
 | [architecture/repository-standard.md](architecture/repository-standard.md) | Where files belong, and what enforces it |
 | [decisions/decisions.md](decisions/decisions.md) | Every decision id with its status; full text where kept |
 | [product/measurements.md](product/measurements.md) | Dated numbers, `install/` size, the pilot and its stop rule |

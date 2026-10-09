@@ -114,7 +114,7 @@ widened trigger; builders read Interfaces. `test_rules.py`: the new references j
 bound is proved by `test_size.py`'s existing ceiling test, unchanged. Root `AGENTS.md` stays a
 table of contents under 300 words.
 
-### [ ] T5 — the personas: builder, reviewer, scout; the public evidence page
+### [x] T5 — the personas: builder, reviewer, scout; the public evidence page
 writes: install/skills/execution-methodology/agents/**, install/skills/execution-methodology/tests/test_rules.py, docs/architecture/personas.md, docs/README.md
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py
 reads: install/skills/execution-methodology/agents/builder.md, install/skills/execution-methodology/agents/reviewer.md, install/skills/execution-methodology/SKILL.md, docs/goals/S-2/design.md#interfaces, analysis/councils-2026-10-09/personas/synthesis.md, analysis/councils-2026-10-09/personas/drafts/builder.md, analysis/councils-2026-10-09/personas/drafts/reviewer.md, analysis/councils-2026-10-09/personas/drafts/scout.md
@@ -333,6 +333,15 @@ README and `AGENTS.md` say what is true after S-2. M2 ends here.
   Follow-ups: `references/design.md` still has the design reviewer read `design.md` and
   `plan.md` only, not `spec.md`; `install.sh`'s "next:" line and `roles.md`'s `goal.py cost`
   wait for T9.
+- 2026-10-09 T5 defaults: the three agent bodies are byte-equal to the council drafts (builder
+  347, reviewer 331, scout 137 words); the drafts and `roles.md` agree, the scout sets no
+  `effort`; `NOT_YET_BUILT` stays as an empty set; `test_rules.py` gains
+  `test_each_agent_body_is_within_its_word_ceiling` and the read-only test covers the scout;
+  `personas.md` also lists the chief's planning lines, says where the deleted launcher's
+  deny list now lives, and carries a Harness caveats section; a community repository is
+  described, not named. Follow-ups: `SKILL.md` step 3's "until it exists" clause is stale
+  (T6 or T9 may drop it); T8 checks `install.sh`'s `RETIRED_PERSONAS` against the new
+  agent files; `docs.py lint .` is at 33 findings for T6.
 
 ## Parked
 
