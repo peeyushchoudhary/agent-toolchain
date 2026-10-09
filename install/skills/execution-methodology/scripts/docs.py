@@ -86,9 +86,9 @@ def lint(root):
 def resolve(root, entry):
     """(ok, line) for one reads: entry: a term, a whole file, or a file's section by anchor."""
     path, hashed, anchor = entry.partition("#")
-    if not hashed and "/" not in entry and "." not in entry:
-        return True, f"term: {entry}"
     target = Path(root) / path
+    if not hashed and "/" not in entry and "." not in entry and not target.exists():
+        return True, f"term: {entry}"
     if not (target.is_file() if hashed else target.exists()):
         return False, f"{entry}: no such file"
     if not hashed:

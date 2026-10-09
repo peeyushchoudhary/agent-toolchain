@@ -152,6 +152,11 @@ class ReadsTest(DocsCase):
                                             "error: docs/missing.md: no such file",
                                             "error: docs/missing.md#d17: no such file", "docs/design.md"])
 
+    def test_extensionless_file_resolves_as_path(self):
+        self.repo.write("Makefile", "all:\n")
+        self.assertEqual(docs.resolve(self.repo.dir, "Makefile"), (True, "Makefile"))
+        self.assertEqual(docs.resolve(self.repo.dir, "fixture"), (True, "term: fixture"))
+
     def test_fenced_heading_does_not_end_range(self):
         self.repo.write("docs/tilde.md", "# T\n\n## Interfaces\n\nOne.\n\n~~~\n## Example\n~~~\n\n"
                         "Contract text.\n\n## Data touched\n\nTwo.\n")
