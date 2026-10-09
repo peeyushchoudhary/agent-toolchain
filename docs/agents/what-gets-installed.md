@@ -12,7 +12,7 @@ made to an installed file is overwritten by the next install.
 
 ### Skills
 
-The three skills named in `install/skills/.gitignore`. The installer derives the set from that
+The skills named in `install/skills/.gitignore`. The installer derives the set from that
 allowlist rather than carrying its own count, and a declared skill missing from the package is a
 failure.
 
@@ -20,7 +20,6 @@ failure.
 |---|---|
 | `skills/execution-methodology/` | The chief's rules, one reference per kind of work, the goal and gate tools, read-only review, the driver |
 | `skills/agent-personas/` | Five persona sources and the renderer |
-| `skills/progressive-disclosure/` | The route standard, validator, hooks installer, GitHub checker, push guard |
 
 `graphify` may also be present. It is a vendor skill that this repository neither publishes nor
 manages.
@@ -34,10 +33,6 @@ manages.
 | `execution-methodology/scripts/run.sh` | Runs fresh unattended sessions until `goal.py done` holds, or stalls or parks |
 | `execution-methodology/scripts/guard.py` + `git-hooks.sh` | The one git guard (staged content, commit message, pushed range) and its per-repository hook installer |
 | `agent-personas/scripts/sync_personas.py` | Scoped persona preview, check and apply; roster listing; routing |
-| `progressive-disclosure/scripts/validate_disclosure.py` | Route, README, taxonomy and persona-drift checks |
-| `progressive-disclosure/scripts/migrate_to_standard.py` | Plans and applies the taxonomy migration |
-| `progressive-disclosure/scripts/check_github.py` | Repo stored, private, pushed, quiet; `--sweep` for the fleet |
-| `progressive-disclosure/scripts/check_toolchain.py` | Machine-global drift: generated agents, mirrored instruction blocks, the Codex skills copy, plugin surface. Reports only |
 
 ### Hooks, registered in `~/.claude/settings.json`
 
@@ -64,7 +59,7 @@ Skipped when the Codex home is absent.
 
 | Path | Purpose |
 |---|---|
-| `skills/` | The same four skills |
+| `skills/` | The same skills |
 | `hooks.json` | The same Stop hook with an absolute path, merged |
 | `agents/` | The spawnable personas as `.toml`; hand-written workers are preserved |
 | `config.toml` | An `[agents]` block, appended only if none exists |

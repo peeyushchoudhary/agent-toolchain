@@ -98,7 +98,7 @@ pre-commit, commit-msg and pre-push through `git rev-parse --git-path hooks`, ho
 repository so its own pre-commit and pre-push use the new guard (a local `.git/hooks` write; the
 Decisions line records it).
 
-### [ ] T5 — cut the checkers; a link check; M1's e2e script
+### [x] T5 — cut the checkers; a link check; M1's e2e script
 writes: install/skills/progressive-disclosure/**, install/skills/.gitignore, install/verify.sh, install/install.sh, install/tests/**, AGENTS.md, docs/**
 tests-may-change: install/skills/progressive-disclosure/tests/**, install/tests/**
 Delete `check_github.py`, `check_toolchain.py`, `migrate_to_standard.py` and its selftest,
@@ -229,6 +229,13 @@ the other vendor's diff review, `done` for M2, merge.
   staged diff.
 - 2026-10-09 widening: T6 `writes` gains `scripts/goal.py` for one string — the v5.1 migrate notice
   names `references/migrate.md`, which T6 deletes; it points at `docs/runbooks/migrate-v5.md` instead.
+- 2026-10-09 T5 defaults: `hermetic.py` deleted rather than moved (no consumer survived T4); the
+  link check is 20 lines inline in `verify.sh` and checks decision anchors for the links that use
+  them; `docs/agents/progressive-disclosure.md` is trimmed, not deleted, because root `README.md`
+  (T8's file) links to it; `install/skills/README.md`, `.github/pull_request_template.md`,
+  `NOTES-break-tests.md` and the README skill diagram still name the deleted skill — T7 and T8 own
+  them. The old pre-commit hook's route validator has no successor in the hook: the link check in
+  `verify.sh` is the replacement.
 - 2026-10-09 until T2 lands, the per-task check is `verify.sh` green plus a `[Tn]` commit; `done`
   rows 3–8 apply from T2 on.
 

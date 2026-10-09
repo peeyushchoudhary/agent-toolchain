@@ -15,14 +15,14 @@ Each directory carries a `README.md` naming its purpose and authority level.
 
 ## Every document, one hop from here
 
-Listed in full and not only through the six indexes above, deliberately: the validator warns
-`too-deep` past two hops from an entry file, and an area directory spends one of them. Add a
+Listed in full and not only through the six indexes above, deliberately: a document should sit
+within two hops of an entry file, and an area directory spends one of them. Add a
 document by adding its row here in the same commit.
 
 | Area | Document | Status |
 | --- | --- | --- |
 | How work is sequenced, and what "done" means | [architecture/operating-model.md](architecture/operating-model.md) | Current |
-| The four disclosure layers and the validator | [agents/progressive-disclosure.md](agents/progressive-disclosure.md) | Current |
+| The four disclosure layers | [agents/progressive-disclosure.md](agents/progressive-disclosure.md) | Current |
 | How the route works in this repository | [agents/disclosure.md](agents/disclosure.md) | Current, standard v1.2 |
 | What earlier agents learned here, still applying | [agents/lessons.md](agents/lessons.md) | Current — curated; what stops applying is removed |
 | Where files belong; migrating an existing repo | [architecture/repository-standard.md](architecture/repository-standard.md) | Current, v1.1 |
@@ -45,9 +45,9 @@ repository is summarised once in [the front page](../README.md#current-state).
 
 ## What is published, and what is not
 
-`install/skills/` is the authored source of the published skills. Three skills are published:
-`execution-methodology`, `agent-personas` and `progressive-disclosure`. The list is enforced by
-`install/skills/.gitignore`, which ignores its own directory and then re-includes those three by name, so adding another is a deliberate line in a file
+`install/skills/` is the authored source of the published skills. Two skills are published:
+`execution-methodology` and `agent-personas`. The list is enforced by
+`install/skills/.gitignore`, which ignores its own directory and then re-includes those two by name, so adding another is a deliberate line in a file
 rather than a side effect of a copy.
 
 `execution-methodology` describes a process, not the work it was applied to, and names no project,

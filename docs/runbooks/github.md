@@ -54,16 +54,6 @@ fixtures, and a guard that cries wolf gets bypassed.
 
 ## Checking state
 
-```bash
-check_github.py .                    # is this project stored, private, pushed, and quiet?
-check_github.py --sweep <projects-dir>   # the fleet view
-check_github.py . --apply-settings   # disable Wiki/Projects/Issues (never touches visibility)
-```
-
-Local checks are git-only and always run. Remote checks are one `gh` call cached for 24h, so session
-start stays fast (measured 0.22s warm). Session start reports: no repo, no remote, **public**,
-unpushed work older than 3 days, and anything enabled that runs or bills.
-
 Nothing in the toolkit creates a repository, changes visibility, or pushes.
 
 ## This repository is a deliberate exception
@@ -76,16 +66,6 @@ the same fragmentation reason as everywhere else.
 
 The rule survives the exception only if the exception is written down. An undocumented "except when
 I felt like it" is just an absent rule.
-
-## Fleet status
-
-`check_github.py --sweep <projects-dir>` gives the current picture across every project directory in
-one table: which are repositories, which have remotes, which are private, and which carry unpushed
-work. Run it rather than maintaining the answer by hand — it goes stale within a week.
-
-The first sweep is usually sobering. Expect to find directories that were never `git init`-ed,
-repositories that never got a remote, and remotes carrying commits from weeks ago that exist on
-exactly one machine.
 
 ## Scripting notes
 

@@ -28,6 +28,5 @@ the [published inventory](../../README.md#what-is-published-and-what-is-not):
 GitHub Markdown with no external assets. [prompts.json](prompts.json) holds prompts for optional
 raster versions of the architecture and execution flow; none is generated, because a raster diagram
 cannot be diffed and a private name inside one is invisible to the identifier guard. If one is
-generated later, declare it with the SHA-256 contract in the
-[standard](../../../install/skills/progressive-disclosure/references/standard.md), inspect the pixels
+generated later, bind it to its SHA-256 beside a readable text description, inspect the pixels
 for accuracy and private identifiers, and keep the text description current.

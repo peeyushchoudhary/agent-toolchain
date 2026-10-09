@@ -16,9 +16,6 @@ How goals run is a design matter and lives in
 
 The standard requires a directory here. The record stays one file named `decisions.md`.
 
-`validate_disclosure.py` exempts an accreting record from the word budget by file name, tested
-against the basename alone, and `decisions.md` matches where `README.md` does not. Renaming the file
-to `README.md` would strip the exemption. Splitting it into a file per decision would escape the
-budget by sharding, which the validator's source treats as gaming the metric, and it would break the
-`decisions.md#dNN` anchors that other documents cite. If the record outgrows one sitting, move
+Splitting it into a file per decision would break the `decisions.md#dNN` anchors that other
+documents cite, which the gate's link check verifies. If the record outgrows one sitting, move
 decisions that no longer apply out; do not shard it.

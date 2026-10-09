@@ -63,12 +63,7 @@ says nothing.
 
 `~/.codex/AGENTS.md` is private and the installer does not touch it. Apply the execution section
 from [global-instructions.md](global-instructions.md) to it and to `~/.claude/CLAUDE.md` in the same
-sitting. The shared route block must be identical in both files, and `check_toolchain.py` reports
-when it is not:
-
-```bash
-python3 ~/.claude/skills/progressive-disclosure/scripts/check_toolchain.py
-```
+sitting. The shared route block must be identical in both files.
 
 ## Format differences that matter
 

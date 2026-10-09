@@ -24,7 +24,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null)" || ROOT="$(cd "$HERE/.." && pwd)"
 cd "$ROOT" || exit 2
 export PYTHONDONTWRITEBYTECODE=1
-PD="install/skills/progressive-disclosure/scripts"
 TMP="$(mktemp -d)" || { echo "could not create a temporary directory" >&2; exit 2; }
 trap 'rm -rf "$TMP"' EXIT
 
@@ -78,10 +77,33 @@ for s in $(published_skills); do
   run_suite "suite_$s" "install/skills/$s/tests"
 done
 
-# ── 2. Route and structure standard ──────────────────────────────────────────────────────────────
-section "validate_disclosure --standard"
-if python3 "$PD/validate_disclosure.py" . --standard; then pass disclosure_standard
-else failed disclosure_standard; fi
+# ── 2. Links in the docs resolve ─────────────────────────────────────────────────────────────────
+# Over AGENTS.md, README.md and every tracked docs/**/*.md: each relative Markdown link outside a
+# code fence names an existing file, and a link to decisions.md#dNN has a `## DNN` heading.
+section "links"
+if python3 - <<'PY'
+import os, re, subprocess, sys
+files = ["AGENTS.md", "README.md"] + subprocess.run(["git", "ls-files", "docs/*.md", "docs/**/*.md"],
+    capture_output=True, text=True, check=True).stdout.split()
+bad, headings = [], {}
+for f in dict.fromkeys(files):
+    fence = False
+    for n, line in enumerate(open(f, encoding="utf-8"), 1):
+        if line.lstrip().startswith("```"): fence = not fence
+        for target in ([] if fence else re.findall(r"\]\(<?([^)\s>]+)", line)):
+            if re.match(r"(https?:|mailto:|#)", target): continue
+            path, _, anchor = target.partition("#")
+            dest = os.path.normpath(os.path.join(os.path.dirname(f), path))
+            if not os.path.exists(dest): bad.append(f"{f}:{n}: {target}"); continue
+            m = re.fullmatch(r"d(\d+)", anchor, re.I)
+            if m and dest.endswith(os.path.join("docs", "decisions", "decisions.md")):
+                if dest not in headings: headings[dest] = open(dest, encoding="utf-8").read()
+                if not re.search(rf"^## D{m[1]}\b", headings[dest], re.I | re.M):
+                    bad.append(f"{f}:{n}: {target}")
+print("\n".join(bad) or "verify: links ok")
+sys.exit(1 if bad else 0)
+PY
+then :; else failed links; fi
 
 # ── 3. The guard: its self-test, then the tree ───────────────────────────────────────────────────
 # guard.py scans a staged diff, so the tree (tracked files plus untracked files that are not
