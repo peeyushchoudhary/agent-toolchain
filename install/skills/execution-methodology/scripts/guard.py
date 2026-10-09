@@ -40,6 +40,7 @@ SECRET_PATTERNS = (
     ("private key block", r"-----BEGIN (?:[A-Z ]+ )?PRIVATE" + r" KEY-----"),  # split: no self-match
 )
 SCISSORS = re.compile(r"^\s*#\s*-+\s*>8\s*-+")
+EDITOR_MARKER = re.compile(r"^(\S) Please enter the commit message")
 MAX_BLOB = 10 * 1024 * 1024
 DEFAULT_BRANCHES = ("refs/heads/main", "refs/heads/master")
 AFFIRMATIVE = frozenset({"1", "true", "yes", "on"})
@@ -207,10 +208,19 @@ def message(path: str, rules) -> list[str]:
     except OSError as exc:
         raise GuardError(f"the commit message file {display(path)} could not be read "
                          f"({type(exc).__name__}); the message was not scanned") from None
-    hits: list[str] = []
-    lines = itertools.takewhile(lambda ln: not SCISSORS.match(ln), text.split("\n"))
-    for n, line in enumerate(lines, 1):  # git drops `#` lines and everything below the scissors
-        if not line.lstrip().startswith("#"):
+    # Git drops comment lines (and, when editing, the scissors tail) only from an editor template
+    # or under commit.cleanup=strip; `git commit -m` keeps both, so then everything is scanned.
+    lines, hits, comment = text.split("\n"), [], None
+    marker = next((m for m in map(EDITOR_MARKER.match, lines) if m), None)
+    if marker:
+        comment = marker[1]
+        lines = list(itertools.takewhile(lambda ln: not SCISSORS.match(ln.replace(comment, "#", 1)),
+                                         lines))
+    elif run_git(["config", "--get", "commit.cleanup"], codes=(0, 1))[1].strip() == "strip":
+        char = run_git(["config", "--get", "core.commentChar"], codes=(0, 1))[1].strip()
+        comment = char if len(char) == 1 else "#"
+    for n, line in enumerate(lines, 1):
+        if not (comment and line.lstrip().startswith(comment)):
             scan(line, f"commit message:{n}", rules, hits)
     return hits
 

@@ -181,11 +181,33 @@ class CommitRulesTest(GuardCase):
         self.assertIn("commit message:3", out)
         self.assertEqual(self.message(f"feat: reuse the {PROJECT} approach\n")[0], 1)
         code, out = self.message("feat: a clean subject\n"
+                                 "# Please enter the commit message for your changes. Lines starting\n"
                                  f"# on branch feature, the {PROJECT} template\n"
                                  "# ------------------------ >8 ------------------------\n"
                                  f"diff --git a/x b/x\n+see {PROJECT} at {HOME_PATH}\n")
         self.assertEqual(code, 0, out)
         self.assertEqual(self.staged({"app.py": "print('hello')\n"})[0], 0)  # 3c: the message is not staged
+
+    def test_message_scan_respects_retained_comments_and_scissors(self):  # review R8
+        retained = (f"feat: a clean subject\n# the {PROJECT} note\n",
+                    "feat: a clean subject\n# ------------------------ >8 ------------------------\n"
+                    f"kept by -m: {HOME_PATH}/src\n")
+        for text in retained:  # `git commit -m` cleans whitespace only: these lines are kept
+            with self.subTest(text[:40]):
+                self.assertEqual(self.message(text)[0], 1)
+        self.sh("git", "config", "commit.cleanup", "strip")  # `#` lines go; the scissors tail stays
+        self.assertEqual(self.message(retained[0])[0], 0)
+        self.assertEqual(self.message(retained[1])[0], 1)
+        self.sh("git", "config", "--unset", "commit.cleanup")
+        self.sh("git", "config", "core.commentChar", ";")
+        editor = ("feat: a clean subject\n; Please enter the commit message for your changes.\n"
+                  f"; the {PROJECT} template\n# kept: {PROJECT}\n")
+        code, out = self.message(editor)  # an editor template under another comment character
+        self.assertEqual(code, 1, out)
+        self.assertIn("commit message:4", out)
+        self.sh("git", "commit", "-q", "--allow-empty", "-m", "subject",
+                    "-m", f"# body {PROJECT}")
+        self.assertIn(PROJECT, self.sh("git", "log", "-1", "--format=%B").stdout)  # git kept it
 
     def test_a_listed_name_in_a_staged_path_is_blocked(self):  # id 6
         code, out = self.staged({f"docs/{PROJECT}-migration.md": "nothing sensitive\n"})
