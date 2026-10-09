@@ -578,10 +578,12 @@ def approval_page(ctx):
         if tid and not m and not FIELD_RE.match(line):
             bodies.setdefault(tid, []).append(line)
     rows = []
-    for t in plan["tasks"].values():
-        named = re.search(r"\btest_\w+", " ".join(bodies.get(t["id"], []) + t["tests-may-change"]))
+    for t in plan["tasks"].values():  # the test the prose names (a file's stem is not a name), else its files
+        prose = " ".join(bodies.get(t["id"], []))
+        named = re.search(r"(?<=::)test_\w+", prose) or re.search(r"\btest_\w+\b(?!\.py)", prose)
+        shown = named.group(0) if named else ", ".join(t["tests-may-change"]) or "—"
         rows.append(f"<tr><td>{e(t['id'] + ' ' + t['title'])}</td><td>{e(', '.join(t['writes']))}</td>"
-                    f"<td>{e(', '.join(t['reads']))}</td><td>{e(named.group(0) if named else '—')}</td></tr>")
+                    f"<td>{e(', '.join(t['reads']))}</td><td>{e(shown)}</td></tr>")
     meta = lambda k: ", ".join(map(str, v)) if isinstance(v := plan["meta"].get(k), list) else str(v or "none")  # noqa: E731
     questions = [l.strip()[2:] for l in plan["parked"] if l.strip().startswith("- Q:")]
     out = ["<!doctype html>", '<html><head><meta charset="utf-8">',

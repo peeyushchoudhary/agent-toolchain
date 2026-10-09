@@ -418,11 +418,23 @@ class SpecLintTest(RepoCase):
         self.assertNotIn("Nothing in a store.", page)
         for tid in ("T1", "T2", "T3"):
             self.assertRegex(page, rf"<tr><td>{tid} [^\n]*{re.escape(DESIGN_PATH)}#interfaces")
-        self.assertRegex(page, r"<tr><td>T2 [^\n]*<td>test_a</td></tr>")
+        self.assertRegex(page, r"<tr><td>T2 [^\n]*<td>tests/test_a.py</td></tr>")  # no test named: its files
         self.assertIn("touches: interface", page)
         self.assertIn("protected: docs/design.md", page)
         self.assertIn("<li>Q: Should gamma &lt;wait&gt; for beta?</li>", page)
         self.assertNotIn("<wait>", page)
+
+
+    def test_approval_page_preserves_explicit_named_tests(self):
+        plan = self.plan.replace("Do the alpha AC1 work.", "`tests/test_a.py` gains `test_alpha_adds_the_module`.")
+        plan = plan.replace("Do the gamma work.", "Named test: tests/test_a.py::ATest.test_gamma_wires_it; see tests/test_b.py.")
+        self.repo.write(PLAN, plan)
+        res = self.repo.goal("packet", "--approval")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        page = self.repo.read(".runs/F-9/approval.html")
+        self.assertRegex(page, r"<tr><td>T1 [^\n]*<td>test_alpha_adds_the_module</td></tr>")
+        self.assertRegex(page, r"<tr><td>T3 [^\n]*<td>test_gamma_wires_it</td></tr>")
+        self.assertNotRegex(page, r"<td>test_a</td>|<td>test_b</td>")
 
 
 class ReviewRowTest(RepoCase):
