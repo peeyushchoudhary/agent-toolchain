@@ -84,6 +84,18 @@ class FilesAndNames(unittest.TestCase):
         missing = [label for label, resolved in named_paths(DESIGN, text) if not resolved.exists()]
         self.assertEqual(sorted(missing), ["references/does-not-exist.md", "scripts/nope.py"])
 
+    def test_current_instructions_use_existing_session_resume(self):
+        # AC12: the founder's open session resumes a goal; nothing a session loads first, nor the Codex
+        # runbook's summary, names a launcher or a Stop hook as current.
+        self.assertIn("goal.py resume", ENTRY.read_text(encoding="utf-8"))
+        runbook = REPO / "docs" / "runbooks" / "codex.md"
+        texts = [(p, p.read_text(encoding="utf-8")) for p in ALWAYS_LOADED + SKILL_FILES]
+        texts.append((runbook, runbook.read_text(encoding="utf-8").split("---", 2)[1]))
+        for path, text in texts:
+            for name in ("run.sh", "Stop hook", "stop-hook"):
+                with self.subTest(file=path.name, named=name):
+                    self.assertNotIn(name, text)
+
     def test_no_always_loaded_or_skill_file_names_retired_machinery(self):
         for path in ALWAYS_LOADED + SKILL_FILES:
             text = path.read_text(encoding="utf-8")
