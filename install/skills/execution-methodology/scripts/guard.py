@@ -20,9 +20,10 @@ from pathlib import Path
 
 LIST_ENV = "PD_PRIVATE_IDENTIFIERS"
 HOME_PATH = re.compile(r"/(?:Users|home)/([A-Za-z0-9._-]{2,})", re.IGNORECASE)
-# The run of path characters right before a HOME_PATH match. One not starting with `-` is a
-# segment of a relative path (core/users/X), not a home; a flag (-I/Users/x) is no segment.
-SEGMENT_BEFORE = re.compile(r"(?<![A-Za-z0-9._-])[A-Za-z0-9._][A-Za-z0-9._-]*$")
+# The path token right before a HOME_PATH match. A relative one (core/users/X) makes the match a
+# later segment of that path, not a home; an absolute one (/System/Volumes/Data/Users/x) or a flag
+# (-I/Users/x) does not.
+TOKEN_BEFORE = re.compile(r"[A-Za-z0-9._/-]*$")
 PLACEHOLDERS = frozenset({"anything", "example", "home", "me", "name", "root", "runner", "shared",
                           "someone", "user", "username", "you", "youruser", "yourname", "your-name"})
 TOO_GENERIC = frozenset({"admin", "example", "git", "github", "gitlab", "local", "localhost", "main",
@@ -111,8 +112,10 @@ def find(rule, text: str) -> str | None:
     for m in rule[1].finditer(text):
         if not m[0]:
             continue
-        if rule[2] == "home" and (m[1].lower() in PLACEHOLDERS or SEGMENT_BEFORE.search(text[:m.start()])):
-            continue  # a placeholder, or a later segment of a relative path
+        if rule[2] == "home":
+            before = TOKEN_BEFORE.search(text[:m.start()])[0]
+            if m[1].lower() in PLACEHOLDERS or (before and before[0] not in "/-"):
+                continue  # a placeholder, or a later segment of a relative path
         return m[0]
     return None
 
@@ -300,7 +303,8 @@ def self_test() -> int:
              ("ZARQUON_WIDGET", 1), ("zarquonwidget", 1), ("key " + "AKIA" + "IOSFODNN7EXAMPLE", 1),
              ("-----BEGIN RSA PRIV" + "ATE KEY-----", 1), ("/Users/<name>/code", 0),
              ("/home/runner/work, /home/$USER", 0), ("the upstream loader", 0),
-             ("app/core/" + "users/UserDtos.java", 0), ("cc -I/Users" + "/hoopfrabjous/include", 1)]
+             ("app/core/" + "users/UserDtos.java", 0), ("cc -I/Users" + "/hoopfrabjous/include", 1),
+             ("/System/Volumes/Data/Users" + "/hoopfrabjous", 1)]
     failed = [text for text, want in cases if bool(next((1 for r in rules if find(r, text)), 0)) != want]
     hits: list[str] = []
     scan_diff("+++ b/f.c\n@@ -0,0 +1,2 @@\n+++counter;\n+++ /Users" + "/hoopfrabjous/b\n", rules, hits)

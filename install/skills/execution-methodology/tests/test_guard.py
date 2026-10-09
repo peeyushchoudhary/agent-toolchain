@@ -159,6 +159,9 @@ class CommitRulesTest(GuardCase):
             ("home path after a flag", {"n.md": f"cc -I{HOME_PATH}/include\n"}, 1, "absolute home path"),
             ("/home path in parentheses", {"n.md": "(/home" + "/hoopfrabjous)\n"}, 1, "absolute home path"),
             ("/home path after a flag", {"n.md": "cc -L/home" + "/hoopfrabjous/lib\n"}, 1, "absolute home path"),
+            ("absolute path through a data volume", {"n.md": f"/System/Volumes/Data{HOME_PATH}\n"}, 1,
+             "absolute home path"),
+            ("deeper relative path", {"n.md": "x: a/b/core/" + "users/UserDtos.java\n"}, 0, None),
         ]
         for label, files, want, needle in cases:
             with self.subTest(label):
