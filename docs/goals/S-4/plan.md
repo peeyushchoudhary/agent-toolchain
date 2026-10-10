@@ -87,6 +87,7 @@ against `m`; and `Outer.m` and `Outer::m`. Do not touch any other rule, test or 
 
 ## Parked
 
-- Step 3 refuses a Kotlin method with an explicit return type (`fun m(): Unit = …`). Kotlin nested
-  block comments and a class header split after `:` are refused too. All fail closed; a follow-up
-  goal can widen them.
+- A Kotlin `@Test` with an untyped expression body (`= 1`) is accepted though it returns a value;
+  its type cannot be read without type inference. A `@TestFactory` expression body with no declared
+  type is refused. (The explicit return type, nested comments and split class headers that the T1
+  Parked line named were fixed by merge review R1–R3.)
