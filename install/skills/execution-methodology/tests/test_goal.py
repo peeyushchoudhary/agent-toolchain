@@ -615,6 +615,23 @@ class ReviewRowTest(RepoCase):
              "Private.kt": ("private class Outer", "@Test fun m() {}"),
              "PrivateInner.kt": "@Nested private inner class Inner {\n        @Test fun m() {}\n    }"})
 
+    def test_closure_rejects_nonvoid_junit_test(self):
+        self.assertJunitClosures(
+            {"Void.java": "@Test void m() {}",
+             "Template.java": "@TestTemplate public void m() {}",
+             "Factory.java": "@TestFactory Stream<DynamicTest> m() { return Stream.empty(); }",
+             "Unit.kt": "@Test fun m(): Unit {}",
+             "Expression.kt": "@Test fun m() = runTest {}",
+             "Factory.kt": "@TestFactory fun m(): List<DynamicTest> { return listOf() }"},
+            {"Int.java": "@Test int m() { return 1; }",
+             "Repeated.java": "@RepeatedTest(2) String m() { return null; }",
+             "Params.java": "@ParameterizedTest @ValueSource(ints = {1})\n    Object m(int x) { return x; }",
+             "VoidFactory.java": "@TestFactory void m() {}",
+             "Both.java": "@Test @TestFactory Stream<DynamicTest> m() { return null; }",
+             "Int.kt": "@Test fun m(): Int = 1",
+             "UnitFactory.kt": "@TestFactory fun m() {}",
+             "UntypedFactory.kt": "@TestFactory fun m() = listOf<DynamicTest>()"})
+
     def test_closure_requires_a_post_review_ancestor_fix(self):
         old = self.repo.git("rev-parse", "goal/F-9/approved")  # it added tests/test_a.py::test_value
         self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {old} closes tests/test_a.py::test_value\n")

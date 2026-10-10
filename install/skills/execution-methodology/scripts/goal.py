@@ -430,20 +430,27 @@ def class_annotations(head):
 def junit_method(code, start, i, kotlin) -> bool:
     """code[start:i] is the declaration text before a name that a '(' follows: an annotation run with a
     JUnit test annotation, no disabling one and no private or static, then (Kotlin) fun or (Java) a
-    return type; and a body follows the parameters, any Kotlin return type and any throws clause."""
+    return type; and a body follows the parameters, any Kotlin return type and any throws clause. A
+    @TestFactory alone returns a type other than void; any other test returns void, which in Kotlin
+    is no return type or Unit (an expression body without one counts as Unit)."""
     run = annotation_run(code[start:i])
     shape = (r"\s*(?:[a-z]+\s+)*fun\s*(?:<[^;{}()]*>\s*)?" if kotlin else
-             r"\s*(?:[a-z]+\s+)*(?:<[^;{}()]*>\s*)?[\w$]+(?:\.[\w$]+)*(?:\s*<[^;{}()]*>)?(?:\s*\[\s*\])*\s*")
-    if not run or not re.fullmatch(shape, run[1]) or re.search(r"\b(private|static)\b", run[1]) or disabling(run[0]):
+             r"\s*(?:[a-z]+\s+)*(?:<[^;{}()]*>\s*)?(?P<type>[\w$]+(?:\.[\w$]+)*(?:\s*<[^;{}()]*>)?(?:\s*\[\s*\])*)\s*")
+    decl = run and re.fullmatch(shape, run[1])
+    if not decl or re.search(r"\b(private|static)\b", run[1]) or disabling(run[0]):
         return False
-    if not any((s := n.rpartition(".")[2]) in JUNIT_TEST_ANNOTATIONS and (
-            (q := n[:len(n) - len(s)]) == "" or q in JUNIT_PACKAGES and (q != "org.junit." or s == "Test"))
-            for n in run[0]):
+    kinds = {s for n in run[0] if (s := n.rpartition(".")[2]) in JUNIT_TEST_ANNOTATIONS and (
+             (q := n[:len(n) - len(s)]) == "" or q in JUNIT_PACKAGES and (q != "org.junit." or s == "Test"))}
+    if not kinds:
         return False
     end = balanced(code, code.index("(", i))
-    returns = r"(?::\s*[\w$]+(?:\.[\w$]+)*(?:\s*<[^;{}()=]*>)?\??\s*)?" if kotlin else ""
-    after = end and re.match(rf"\s*{returns}(?:throws\s+[\w$.]+(?:\s*,\s*[\w$.]+)*\s*)?(\{{|=(?!=))", code[end:])
-    return bool(after) and (after.group(1) == "{" or kotlin)
+    returns = r"(?::\s*(?P<type>[\w$]+(?:\.[\w$]+)*(?:\s*<[^;{}()=]*>)?\??)\s*)?" if kotlin else ""
+    after = end and re.match(rf"\s*{returns}(?:throws\s+[\w$.]+(?:\s*,\s*[\w$.]+)*\s*)?(?P<body>\{{|=(?!=))",
+                             code[end:])
+    if not after or after.group("body") == "=" and not kotlin:
+        return False
+    void = after.group("type") in (None, "Unit", "kotlin.Unit") if kotlin else decl.group("type") == "void"
+    return kinds == {"TestFactory"} and not void if "TestFactory" in kinds else void
 
 def defines_junit(body, name, kotlin) -> bool:
     """A bare name that a top-level class, or classes marked @Nested within it, declares as a runnable
