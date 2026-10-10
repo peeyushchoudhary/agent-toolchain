@@ -66,13 +66,18 @@ PYTEST_PAIR = re.compile(r"(\d+) (passed|failed|errors?|skipped|xfailed|xpassed)
 PYTEST_ID = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.M)
 GRADLE_LINE = re.compile(r"(\d+) tests completed, (\d+) failed(?:, (\d+) skipped)?")
 GRADLE_ID = re.compile(r"^(\S+) > (\S+).* FAILED\s*$", re.M)
+# Playwright's end-of-run summary: one two-space-indented line per outcome; `passed` carries the
+# duration. Failed and interrupted tests are listed beneath their line, indented four spaces.
+PLAYWRIGHT_LINE = re.compile(r"^  (\d+) (passed|flaky|failed|interrupted|skipped|did not run)"
+                             r"(?: \([\d.]+(?:ms|s|m|h)\))?[ \t]*$", re.M)
+PLAYWRIGHT_ID = re.compile(r"^    (\[[^\]\n]+\] › .+?)[ \t─]*$")
 VERDICT_FAIL = re.compile(r"FAILED \(|\b[1-9]\d* failed\b|GATE DID NOT PASS|BUILD FAILED"
                           # a line-anchored FAIL verdict: `FAIL: test_x`, `verify: FAIL (1 checks)`
                           r"|^[ \t]*(?:[\w./-]+: )?FAIL(?:ED)?\b(?!:?[ \t]*0\b)", re.M)
 
 
 def parse_counts(out: str) -> dict:
-    """Sum executed/failed/skipped across every unittest, pytest and Gradle summary in out."""
+    """Sum executed/failed/skipped across every unittest, pytest, Playwright and Gradle summary in out."""
     executed = failed = skipped = 0
     ids = []
     rans = list(UNITTEST_RAN.finditer(out))
@@ -97,6 +102,24 @@ def parse_counts(out: str) -> dict:
                 executed += n
                 failed += n
     ids += PYTEST_ID.findall(out)
+    lines = out.splitlines()
+    for k, line in enumerate(lines):
+        m = PLAYWRIGHT_LINE.match(line)
+        if not m:
+            continue
+        n, word = int(m.group(1)), m.group(2)
+        if word in ("passed", "flaky"):
+            executed += n
+        elif word in ("skipped", "did not run"):
+            skipped += n
+        else:
+            executed += n
+            failed += n
+            for listed in lines[k + 1:]:
+                hit = PLAYWRIGHT_ID.match(listed)
+                if not hit:
+                    break
+                ids.append(hit.group(1))
     gradle = {"executed": 0, "failed": 0, "skipped": 0}
     for done_, bad, skip in GRADLE_LINE.findall(out):
         skip = int(skip or 0)

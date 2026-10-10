@@ -46,6 +46,25 @@ class ParseTest(unittest.TestCase):
         self.assertEqual((c["executed"], c["failed"], c["skipped"]), (8, 1, 2))
         self.assertEqual(c["failures"], ["tests/test_x.py::test_y"])
 
+    def test_playwright(self):
+        out = ("Running 6 tests using 1 worker\n\n"
+               "  1 failed\n"
+               "    [chromium] › e2e/a.spec.ts:3:1 › signs in ─────────────────────\n"
+               "  1 flaky\n"
+               "    [chromium] › e2e/b.spec.ts:9:1 › retries once ──────────────────\n"
+               "  1 skipped\n"
+               "  1 did not run\n"
+               "  2 passed (4.9m)\n")
+        c = gate.parse_counts(out)
+        self.assertEqual((c["executed"], c["failed"], c["skipped"]), (4, 1, 2))
+        self.assertEqual(c["failures"], ["[chromium] › e2e/a.spec.ts:3:1 › signs in"])
+
+    def test_playwright_pass_line_needs_the_summary_shape(self):
+        self.assertEqual(gate.parse_counts("  1 passed (4.9m)\n")["executed"], 1)
+        for out in ("1 passed (4.9m)\n", "  3 passed, 1 failed\n",
+                    "    2 passed (3s)\n", "  1 passed (a while)\n"):
+            self.assertEqual(gate.parse_counts(out)["executed"], 0, out)
+
     def test_gradle(self):
         c = gate.parse_counts("FooTest > bar() FAILED\n12 tests completed, 2 failed, 1 skipped\n")
         self.assertEqual(c["gradle"], {"executed": 11, "failed": 2, "skipped": 1})
