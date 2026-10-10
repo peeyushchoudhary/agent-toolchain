@@ -428,7 +428,7 @@ def class_annotations(head):
 def junit_method(code, start, i, kotlin) -> bool:
     """code[start:i] is the declaration text before a name that a '(' follows: an annotation run with a
     JUnit test annotation, no disabling one and no private or static, then (Kotlin) fun or (Java) a
-    return type; and a body follows the parameters and any throws clause."""
+    return type; and a body follows the parameters, any Kotlin return type and any throws clause."""
     run = annotation_run(code[start:i])
     shape = (r"\s*(?:[a-z]+\s+)*fun\s*(?:<[^;{}()]*>\s*)?" if kotlin else
              r"\s*(?:[a-z]+\s+)*(?:<[^;{}()]*>\s*)?[\w$]+(?:\.[\w$]+)*(?:\s*<[^;{}()]*>)?(?:\s*\[\s*\])*\s*")
@@ -439,7 +439,8 @@ def junit_method(code, start, i, kotlin) -> bool:
             for n in run[0]):
         return False
     end = balanced(code, code.index("(", i))
-    after = end and re.match(r"\s*(?:throws\s+[\w$.]+(?:\s*,\s*[\w$.]+)*\s*)?(\{|=(?!=))", code[end:])
+    returns = r"(?::\s*[\w$]+(?:\.[\w$]+)*(?:\s*<[^;{}()=]*>)?\??\s*)?" if kotlin else ""
+    after = end and re.match(rf"\s*{returns}(?:throws\s+[\w$.]+(?:\s*,\s*[\w$.]+)*\s*)?(\{{|=(?!=))", code[end:])
     return bool(after) and (after.group(1) == "{" or kotlin)
 
 def defines_junit(body, name, kotlin) -> bool:

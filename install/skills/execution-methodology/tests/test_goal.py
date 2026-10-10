@@ -573,6 +573,17 @@ class ReviewRowTest(RepoCase):
              "Flat.java": "/* outer /* not nested in Java */ @Test void m() {}"},
             {"Inside.kt": "/* outer /* inner */ @Test fun m() {} */"})
 
+    def test_closure_accepts_explicit_kotlin_return_type(self):
+        self.assertJunitClosures(
+            {"Unit.kt": "@Test fun m(): Unit {}",
+             "UnitExpression.kt": "@Test fun m(): Unit = runTest {}",
+             "Repeated.kt": "@RepeatedTest(2) fun m(): Unit {}",
+             "Params.kt": "@ParameterizedTest @ValueSource(ints = [1, 2])\n    fun m(x: Int): Unit {}",
+             "Template.kt": "@TestTemplate fun m(): Unit {}",
+             "Factory.kt": "@TestFactory fun m(): Collection<DynamicTest> = listOf()"},
+            {"Bodiless.kt": ("abstract class Outer", "@Test abstract fun m(): Unit"),
+             "Unannotated.kt": "fun m(): Unit {}"})
+
     def test_closure_requires_a_post_review_ancestor_fix(self):
         old = self.repo.git("rev-parse", "goal/F-9/approved")  # it added tests/test_a.py::test_value
         self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {old} closes tests/test_a.py::test_value\n")
