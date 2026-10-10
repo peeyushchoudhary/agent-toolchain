@@ -2,7 +2,7 @@
 summary: The three Claude agent files the skill ships (builder, reviewer, scout), what each guards against, the evidence and source behind every adopted line, and what was left out and where it lives instead. The lines come from a persona council held on 2026-10-09: four experts (each harness's vendor guidance, open-source practice, prompt craft) and an adversarial synthesis. The council record stays on the founder's machine; this page is its public part.
 read-when: Changing a line of an agent file, or asking why a persona says what it says
 covers: [install/skills/execution-methodology/agents/**]
-last-verified: 2026-10-09
+last-verified: 2026-10-10
 ---
 
 # Personas
@@ -89,5 +89,8 @@ function, [arXiv 2605.10039](https://arxiv.org/abs/2605.10039)); no "be thorough
 - `permissionMode: dontAsk` is ignored under bypass, accept-edits or auto mode; it matters only
   for a default-mode chief.
 - `CLAUDE_CODE_EFFORT_LEVEL` overrides `effort`, so no session exports it.
+- No persona is the chief. The skill runs in the root session only (D31): a subagent has no
+  Agent tool, so it could not dispatch builders or reviewers; an orchestrating agent above the
+  builders is not a shape this methodology has.
 - A builder stopped by `maxTurns` returns a partial report with no gate line; the chief treats it
   as red. The caps 80 and 20 are starting values, to tune from `goal.py cost`.

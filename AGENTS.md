@@ -27,7 +27,8 @@ see [D17](docs/decisions/decisions.md#d17--this-repository-complies-with-the-sta
 - Pages: frontmatter on each; `docs.py` generates the index and pointer files, never hand-edited.
 - Design and accepted risks: `docs/architecture/methodology.md`.
 - Decisions: [D29](docs/decisions/decisions.md#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints),
-  [D30](docs/decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2).
+  [D30](docs/decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2),
+  [D31](docs/decisions/decisions.md#d31--the-skill-is-model-invocable-the-chief-is-the-root-session-never-a-subagent).
 
 ## Verification
 

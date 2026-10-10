@@ -1,7 +1,6 @@
 ---
 name: execution-methodology
 description: Drive an approved goal (docs/goals/<id>/plan.md) to merged milestones; goal.py done decides done.
-disable-model-invocation: true
 ---
 
 # Execution methodology
@@ -12,7 +11,7 @@ this skill's directory; its `scripts/` print usage with `--help`.
 ## What this is
 
 An approved `docs/goals/<id>/plan.md`, with its `spec.md` and any `design.md`, is the whole goal;
-approval is the tag `goal/<id>/approved`. `goal.py done` decides done. The founder is touched at
+approval is the tag `goal/<id>/approved`, the founder's alone. `goal.py done` decides done. The founder is touched at
 approval and at merge, never in between.
 
 **Before a goal**, plan it with the founder by [references/planning.md](references/planning.md).
@@ -131,9 +130,11 @@ rerun until green.
 
 ## Resuming
 
-The founder's own open session is the chief; no launcher starts it and no loop restarts it. On the
-founder's word, run `goal.py resume`, read `plan.md`, and run the loop. Pushes pass the pre-push
-guard and the harness's own permission prompts.
+The founder's own open session is the chief; no launcher starts it and no loop restarts it. This
+skill loads in that root session on its own when a plan has an open milestone (D31), never inside
+a subagent, which cannot dispatch or hold permissions. On the founder's word, run
+`goal.py resume`, read `plan.md`, and run the loop. Pushes pass the pre-push guard and the
+harness's own permission prompts.
 
 ## Before anything
 
