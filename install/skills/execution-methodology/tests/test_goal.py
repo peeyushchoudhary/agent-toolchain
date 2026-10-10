@@ -504,6 +504,134 @@ class ReviewRowTest(RepoCase):
             self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
             self.assertRowOk(8)
 
+    def test_closure_accepts_an_annotated_junit_method(self):
+        off, ign = "@" + "Disabled", "@" + "Ignore"  # assembled so this file adds no marker row 5 rejects
+        java = lambda body, head="class Outer": f"import org.junit.jupiter.api.*;\n\n{head} {{\n    {body}\n}}\n"  # noqa: E731
+        kotlin = lambda body: f"import org.junit.jupiter.api.Test\n\nclass Outer {{\n    {body}\n}}\n"  # noqa: E731
+        accepted = {
+            "Plain.java": java("@Test void m() {}"),
+            "Qualified.java": java("@org.junit.jupiter.api.Test void m() {}"),
+            "JUnit4.java": java("@org.junit.Test public void m() {}"),
+            "Params.java": java("@ParameterizedTest @ValueSource(ints = {1, 2})\n    void m(int x) {}"),
+            "Between.java": java('@Test @Timeout(5) @DisplayName("a (b)")\n    void m() {}'),
+            "Throws.java": java("@Test void m() throws Exception {}"),
+            "Factory.java": java("@TestFactory Stream<DynamicTest> m() { return Stream.empty(); }"),
+            "Nested.java": java("@Nested\n    class Inner {\n        @Test void m() {}\n    }"),
+            "Plain.kt": kotlin("@Test fun m() {}"),
+            "Expression.kt": kotlin("@Test fun m() = runTest {}"),
+        }
+        refused = {
+            "Bare.java": java("void m() {}"),
+            "Off.java": java(f"@Test {off} void m() {{}}"),
+            "OffOnOs.java": java(f"@Test {off}OnOs(OS.WINDOWS) void m() {{}}"),
+            "OffClass.java": java("@Test void m() {}", f"{off}\nclass Outer"),
+            "Ignored.java": java(f"{ign} @org.junit.Test public void m() {{}}"),
+            "OtherNamespace.java": java("@org.testng.annotations.Test public void m() {}"),
+            "Abstract.java": java("@Test abstract void m();", "abstract class Outer"),
+            "Interface.java": java("@Test void m();", "interface Outer"),
+            "Unmarked.java": java("class Inner {\n        @Test void m() {}\n    }"),
+            "Private.java": java("@Test private void m() {}"),
+            "Static.java": java("@Test static void m() {}"),
+            "LineComment.java": java("// @Test void m() {}"),
+            "BlockComment.java": java("/* @Test void m() {} */"),
+            "String.java": java('String s = "@Test void m() {}";'),
+            "TextBlock.java": java('String s = """\n        @Test void m() {}\n        """;'),
+            "Raw.kt": kotlin('val s = """@Test fun m() {}"""'),
+            "Previous.java": java("@Test void other() {}\n    void m() {}"),
+            "Suffix.java": java("@Test void m2() {}"),
+            "Prefix.java": java("@Test void xm() {}"),
+        }
+        for name, text in {**accepted, **refused}.items():
+            self.repo.write(f"tests/junit/{name}", text)
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] fix with JUnit tests")
+        for name in accepted:
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/junit/{name}::m\n", "HEAD~1")
+            self.assertRowOk(8)
+        for target in [f"tests/junit/{n}::m" for n in refused] + ["tests/junit/Plain.java::Outer.m",
+                                                                   "tests/junit/Plain.java::Outer::m"]:
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
+            self.assertRow(8, f"R1: closes {target}")
+
+    def assertJunitClosures(self, accepted, refused):
+        """Writes each tests/junit/<file> as a JUnit import, then <head> { <body> }: a str value is the body
+        of class Outer, a pair is (head, body). A closure naming <file>::m holds for each accepted file only."""
+        for name, value in {**accepted, **refused}.items():
+            head, body = value if isinstance(value, tuple) else ("class Outer", value)
+            imports = "import org.junit.jupiter.api.*" + ("" if name.endswith(".kt") else ";")
+            self.repo.write(f"tests/junit/{name}", f"{imports}\n\n{head} {{\n    {body}\n}}\n")
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] fix with JUnit tests")
+        for name in accepted:
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/junit/{name}::m\n", "HEAD~1")
+            self.assertRowOk(8)
+        for name in refused:
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/junit/{name}::m\n", "HEAD~1")
+            self.assertRow(8, f"R1: closes tests/junit/{name}::m")
+
+    def test_closure_rejects_nested_kotlin_comment(self):
+        self.assertJunitClosures(
+            {"After.kt": "/* outer /* inner */ still outer */ @Test fun m() {}",
+             "Flat.java": "/* outer /* not nested in Java */ @Test void m() {}"},
+            {"Inside.kt": "/* outer /* inner */ @Test fun m() {} */"})
+
+    def test_closure_accepts_explicit_kotlin_return_type(self):
+        self.assertJunitClosures(
+            {"Unit.kt": "@Test fun m(): Unit {}",
+             "UnitExpression.kt": "@Test fun m(): Unit = runTest {}",
+             "Repeated.kt": "@RepeatedTest(2) fun m(): Unit {}",
+             "Params.kt": "@ParameterizedTest @ValueSource(ints = [1, 2])\n    fun m(x: Int): Unit {}",
+             "Template.kt": "@TestTemplate fun m(): Unit {}",
+             "Factory.kt": "@TestFactory fun m(): Collection<DynamicTest> = listOf()"},
+            {"Bodiless.kt": ("abstract class Outer", "@Test abstract fun m(): Unit"),
+             "Unannotated.kt": "fun m(): Unit {}"})
+
+    def test_closure_accepts_multiline_kotlin_class_header(self):
+        self.assertJunitClosures(
+            {"Newline.kt": ("class Outer\n", "@Test fun m() {}"),
+             "Colon.kt": ("class Outer\n    : Base()\n", "@Test fun m() {}"),
+             "Supertypes.kt": ("class Outer(val x: Int = 1) :\n    Base(),\n    Marker\n", "@Test fun m() {}"),
+             "Inner.kt": "@Nested\n    inner class Inner\n    {\n        @Test fun m() {}\n    }",
+             "Sibling.kt": "class Data(val x: Int)\n    @Test fun m() {}",
+             "Newline.java": ("class Outer\n    extends Base\n    implements Marker\n", "@Test void m() {}")},
+            {"Object.kt": ("object Outer\n", "@Test fun m() {}"),
+             "Interface.kt": ("interface Outer\n    : Base\n", "@Test fun m() {}")})
+
+    def test_closure_rejects_static_nested_junit_class(self):
+        self.assertJunitClosures(
+            {"Inner.java": "@Nested final class Inner {\n        @Test void m() {}\n    }",
+             "Inner.kt": "@Nested\n    inner class Inner {\n        @Test fun m() {}\n    }"},
+            {"Static.java": "@Nested static class Inner {\n        @Test void m() {}\n    }",
+             "Deep.java": "@Nested static class A {\n        @Nested class B { @Test void m() {} }\n    }",
+             "Static.kt": "@Nested\n    class Inner {\n        @Test fun m() {}\n    }"})
+
+    def test_closure_rejects_unrunnable_junit_class_modifiers(self):
+        self.assertJunitClosures(
+            {"Public.java": ("public final class Outer", "@Test void m() {}"),
+             "Protected.java": "@Nested protected class Inner {\n        @Test void m() {}\n    }",
+             "Open.kt": ("open class Outer", "@Nested internal inner class Inner {\n        @Test fun m() {}\n    }")},
+            {"Abstract.java": ("abstract class Outer", "@Test void m() {}"),
+             "Private.java": "@Nested private class Inner {\n        @Test void m() {}\n    }",
+             "Abstract.kt": ("abstract class Outer", "@Test fun m() {}"),
+             "Sealed.kt": ("sealed class Outer", "@Test fun m() {}"),
+             "Private.kt": ("private class Outer", "@Test fun m() {}"),
+             "PrivateInner.kt": "@Nested private inner class Inner {\n        @Test fun m() {}\n    }"})
+
+    def test_closure_rejects_nonvoid_junit_test(self):
+        self.assertJunitClosures(
+            {"Void.java": "@Test void m() {}",
+             "Template.java": "@TestTemplate public void m() {}",
+             "Factory.java": "@TestFactory Stream<DynamicTest> m() { return Stream.empty(); }",
+             "Unit.kt": "@Test fun m(): Unit {}",
+             "Expression.kt": "@Test fun m() = runTest {}",
+             "Factory.kt": "@TestFactory fun m(): List<DynamicTest> { return listOf() }"},
+            {"Int.java": "@Test int m() { return 1; }",
+             "Repeated.java": "@RepeatedTest(2) String m() { return null; }",
+             "Params.java": "@ParameterizedTest @ValueSource(ints = {1})\n    Object m(int x) { return x; }",
+             "VoidFactory.java": "@TestFactory void m() {}",
+             "Both.java": "@Test @TestFactory Stream<DynamicTest> m() { return null; }",
+             "Int.kt": "@Test fun m(): Int = 1",
+             "UnitFactory.kt": "@TestFactory fun m() {}",
+             "UntypedFactory.kt": "@TestFactory fun m() = listOf<DynamicTest>()"})
+
     def test_closure_requires_a_post_review_ancestor_fix(self):
         old = self.repo.git("rev-parse", "goal/F-9/approved")  # it added tests/test_a.py::test_value
         self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {old} closes tests/test_a.py::test_value\n")

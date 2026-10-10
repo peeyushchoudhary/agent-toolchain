@@ -36,6 +36,10 @@ SKIP_RE = re.compile(r"\bunittest\.(skip\w*|expectedFailure)\b|@(skip|skipIf|ski
 # match everywhere would also flag earlier commits' strings, and an import is what makes it a skip.
 SKIP_IMPORT_RE = re.compile(r"^\s*from\s+(pytest|unittest)\s+import\s+(\([^)]*|[^\n]*)\bskip\b", re.M)
 BARE_SKIP_RE = re.compile(r"(?<![\w.])skip\s*\(")
+# A JUnit method closes a finding under one of these annotations, bare or qualified by a JUnit package
+# (org.junit. is JUnit 4, whose only one is Test); no other qualifier counts.
+JUNIT_TEST_ANNOTATIONS = ("Test", "ParameterizedTest", "RepeatedTest", "TestFactory", "TestTemplate")
+JUNIT_PACKAGES = ("org.junit.jupiter.api.", "org.junit.jupiter.params.", "org.junit.")
 RUNTIME_PIN = "docs/agents/execution/runtime.json"
 MIGRATE_NOTICE = (f"this project still carries the v5.1 runtime pin ({RUNTIME_PIN}); "
                   "migrate it first, following docs/runbooks/migrate-v5.md")
@@ -391,11 +395,120 @@ def commit_findings(ctx, base):
         rows[4].append("a writes glob at HEAD intersects protected")
     return rows
 
-def defines_test(body, name) -> bool:
-    """A runnable test: JS it/test('<name>') with exactly that name, or a Python def/async def whose
-    name starts with test (what unittest and pytest discover), inside class C for 'C.test_x'."""
+def balanced(code, i):
+    """The index after the ')' that closes the '(' at code[i], or None when it stays open."""
+    depth = 0
+    for j in range(i, len(code)):
+        depth += {"(": 1, ")": -1}.get(code[j], 0)
+        if depth == 0:
+            return j + 1
+    return None
+
+def annotation_run(text):
+    """(text's annotation names, text without them and their argument lists); None when a list stays open."""
+    names, rest, i = [], [], 0
+    while a := re.compile(r"@([\w$]+(?:\.[\w$]+)*)(\s*\()?").search(text, i):
+        names.append(a.group(1))
+        rest.append(text[i:a.start()] + " ")
+        i = balanced(text, a.end() - 1) if a.group(2) else a.end()
+        if i is None:
+            return None
+    return names, "".join(rest) + text[i:]
+
+def disabling(names):
+    return any((s := n.rpartition(".")[2]).startswith("Disabled") or s == "Ignore" for n in names)
+
+def class_annotations(head):
+    """(the annotations on head, the words before its class keyword) when the '{' after it opens a class
+    body, else None: an interface, enum, record, object, method or lambda body is not a class."""
+    run = annotation_run(head)
+    words = re.findall(r"[\w$]+", re.split(r"[(:=]", run[1])[0]) if run else []
+    if "class" not in words or set(words) & {"interface", "enum", "record", "object"}:
+        return None
+    return run[0], set(words[:words.index("class")])
+
+def junit_method(code, start, i, kotlin) -> bool:
+    """code[start:i] is the declaration text before a name that a '(' follows: an annotation run with a
+    JUnit test annotation, no disabling one and no private or static, then (Kotlin) fun or (Java) a
+    return type; and a body follows the parameters, any Kotlin return type and any throws clause. A
+    @TestFactory alone returns a type other than void; any other test returns void, which in Kotlin
+    is no return type or Unit (an expression body without one counts as Unit)."""
+    run = annotation_run(code[start:i])
+    shape = (r"\s*(?:[a-z]+\s+)*fun\s*(?:<[^;{}()]*>\s*)?" if kotlin else
+             r"\s*(?:[a-z]+\s+)*(?:<[^;{}()]*>\s*)?(?P<type>[\w$]+(?:\.[\w$]+)*(?:\s*<[^;{}()]*>)?(?:\s*\[\s*\])*)\s*")
+    decl = run and re.fullmatch(shape, run[1])
+    if not decl or re.search(r"\b(private|static)\b", run[1]) or disabling(run[0]):
+        return False
+    kinds = {s for n in run[0] if (s := n.rpartition(".")[2]) in JUNIT_TEST_ANNOTATIONS and (
+             (q := n[:len(n) - len(s)]) == "" or q in JUNIT_PACKAGES and (q != "org.junit." or s == "Test"))}
+    if not kinds:
+        return False
+    end = balanced(code, code.index("(", i))
+    returns = r"(?::\s*(?P<type>[\w$]+(?:\.[\w$]+)*(?:\s*<[^;{}()=]*>)?\??)\s*)?" if kotlin else ""
+    after = end and re.match(rf"\s*{returns}(?:throws\s+[\w$.]+(?:\s*,\s*[\w$.]+)*\s*)?(?P<body>\{{|=(?!=))",
+                             code[end:])
+    if not after or after.group("body") == "=" and not kotlin:
+        return False
+    void = after.group("type") in (None, "Unit", "kotlin.Unit") if kotlin else decl.group("type") == "void"
+    return kinds == {"TestFactory"} and not void if "TestFactory" in kinds else void
+
+def defines_junit(body, name, kotlin) -> bool:
+    """A bare name that a top-level class, or classes marked @Nested within it, declares as a runnable
+    JUnit method (junit_method), with no disabling annotation on any of those classes."""
+    if re.search(r"\.|::", name):
+        return False
+    # Comments, text blocks (Kotlin: raw strings), strings and characters become spaces, newlines kept.
+    # Kotlin block comments nest, so one ends at the */ that brings its depth back to zero.
+    raw = r'""".*?(?:"{3,}|\Z)' if kotlin else r'"""(?:\\.|.)*?(?:"""|\Z)'
+    blank = re.compile(rf"//[^\n]*|/\*.*?(?:\*/|\Z)|{raw}|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'", re.S)
+    code, i = [], 0
+    while m := blank.search(body, i):
+        end, depth = m.end(), 0
+        if kotlin and m.group(0).startswith("/*"):
+            for t in re.finditer(r"/\*|\*/|\Z", body[m.start():]):
+                depth += {"/*": 1, "*/": -1}.get(t.group(0), -depth)  # an unclosed comment runs to the end
+                if depth <= 0:
+                    end = m.start() + t.end()
+                    break
+        code += [body[i:m.start()], re.sub(r"[^\n]", " ", body[m.start():end])]
+        i = end
+    code = "".join(code) + body[i:]
+    hits = {m.start() for m in re.finditer(rf"(?<![\w$]){re.escape(name)}(?![\w$])\s*\(", code)}
+    stack, depth, start = [], 0, 0  # one entry per open '{': its class's (annotations, modifiers), or None
+    goes_on = re.compile(r"\s*[:{]")
+    unrunnable = {"abstract", "private", "sealed"} if kotlin else {"abstract", "private"}
+    for i, ch in enumerate(code):
+        # No class is disabled, abstract or private; each inner one is @Nested and non-static: Kotlin
+        # marks it inner, Java does not mark it static.
+        if i in hits and depth == 0 and stack and None not in stack and not any(
+                disabling(s[0]) or s[1] & unrunnable for s in stack) and all(
+                {"Nested", "org.junit.jupiter.api.Nested"} & set(s[0])
+                and ("inner" in s[1] if kotlin else "static" not in s[1]) for s in stack[1:]) and junit_method(
+                code, start, i, kotlin):
+            return True
+        depth += {"(": 1, ")": -1}.get(ch, 0)
+        if depth:  # inside parentheses, or past an unbalanced ')': nothing declares here
+            continue
+        if ch == "{":
+            stack.append(class_annotations(code[start:i]))
+        elif ch == "}" and stack:
+            stack.pop()
+        # A declaration starts after ; { } and, in Kotlin, after a line that is more than annotations and
+        # modifiers, unless the declaration goes on: the line ends in : or , or the next one starts with : or {.
+        if ch in "{};" or ch == "\n" and kotlin and not re.fullmatch(r"[a-z\s]*", (annotation_run(code[start:i])
+                                                                                   or ("", "x"))[1]) and not (
+                re.search(r"[:,]\s*\Z", code[start:i]) or goes_on.match(code, i)):
+            start = i + 1
+    return False
+
+def defines_test(body, name, path) -> bool:
+    """A runnable test. In a .java or .kt file, only a JUnit method (defines_junit). Elsewhere JS
+    it/test('<name>') with exactly that name, or a Python def/async def whose name starts with test
+    (what unittest and pytest discover), inside class C for 'C.test_x'."""
     if body is None:
         return False
+    if path.endswith((".java", ".kt")):
+        return defines_junit(body, name, path.endswith(".kt"))
     if re.search(rf"\b(it|test)\(\s*(?P<q>['\"`]){re.escape(name)}(?P=q)", body):
         return True
     *cls, fn = re.split(r"\.|::", name)
@@ -436,7 +549,7 @@ def review_findings(ctx):
         if kind == "resolved":
             test, name = f.group(4), f.group(5)
             body = file_at(ctx.root, "HEAD", test) if test else None
-            if not (test and TEST_RE.search(test) and defines_test(body, name) and test in [p for _s, p in ch]):
+            if not (test and TEST_RE.search(test) and defines_test(body, name, test) and test in [p for _s, p in ch]):
                 out.append(f"{rid}: closes {test}::{name}, which is absent at HEAD or not changed by {sha}")
                 continue
         else:
