@@ -584,6 +584,17 @@ class ReviewRowTest(RepoCase):
             {"Bodiless.kt": ("abstract class Outer", "@Test abstract fun m(): Unit"),
              "Unannotated.kt": "fun m(): Unit {}"})
 
+    def test_closure_accepts_multiline_kotlin_class_header(self):
+        self.assertJunitClosures(
+            {"Newline.kt": ("class Outer\n", "@Test fun m() {}"),
+             "Colon.kt": ("class Outer\n    : Base()\n", "@Test fun m() {}"),
+             "Supertypes.kt": ("class Outer(val x: Int = 1) :\n    Base(),\n    Marker\n", "@Test fun m() {}"),
+             "Inner.kt": "@Nested\n    inner class Inner\n    {\n        @Test fun m() {}\n    }",
+             "Sibling.kt": "class Data(val x: Int)\n    @Test fun m() {}",
+             "Newline.java": ("class Outer\n    extends Base\n    implements Marker\n", "@Test void m() {}")},
+            {"Object.kt": ("object Outer\n", "@Test fun m() {}"),
+             "Interface.kt": ("interface Outer\n    : Base\n", "@Test fun m() {}")})
+
     def test_closure_requires_a_post_review_ancestor_fix(self):
         old = self.repo.git("rev-parse", "goal/F-9/approved")  # it added tests/test_a.py::test_value
         self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {old} closes tests/test_a.py::test_value\n")

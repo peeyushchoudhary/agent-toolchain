@@ -466,6 +466,7 @@ def defines_junit(body, name, kotlin) -> bool:
     code = "".join(code) + body[i:]
     hits = {m.start() for m in re.finditer(rf"(?<![\w$]){re.escape(name)}(?![\w$])\s*\(", code)}
     stack, depth, start = [], 0, 0  # one entry per open '{': its class's annotations, or None
+    goes_on = re.compile(r"\s*[:{]")
     for i, ch in enumerate(code):
         if i in hits and depth == 0 and stack and None not in stack and not any(map(disabling, stack)) and all(
                 {"Nested", "org.junit.jupiter.api.Nested"} & set(s) for s in stack[1:]) and junit_method(
@@ -478,9 +479,11 @@ def defines_junit(body, name, kotlin) -> bool:
             stack.append(class_annotations(code[start:i]))
         elif ch == "}" and stack:
             stack.pop()
-        # A declaration starts after ; { } and, in Kotlin, after a line that is more than annotations and modifiers.
+        # A declaration starts after ; { } and, in Kotlin, after a line that is more than annotations and
+        # modifiers, unless the declaration goes on: the line ends in : or , or the next one starts with : or {.
         if ch in "{};" or ch == "\n" and kotlin and not re.fullmatch(r"[a-z\s]*", (annotation_run(code[start:i])
-                                                                                   or ("", "x"))[1]):
+                                                                                   or ("", "x"))[1]) and not (
+                re.search(r"[:,]\s*\Z", code[start:i]) or goes_on.match(code, i)):
             start = i + 1
     return False
 
