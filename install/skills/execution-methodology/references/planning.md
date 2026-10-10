@@ -9,7 +9,7 @@
 6. Ask at most five questions, as `- Q:` lines under Parked; at approval each answer becomes a
    Decisions line.
 7. The other vendor reviews the design, then the plan; resolve findings in them.
-8. The founder approves: tag `goal/<id>/approved`.
+8. The founder approves: tag `goal/<id>/approved`, or tells the chief to; never the chief alone.
 
 ## Chief's planning rules
 
@@ -18,7 +18,7 @@ MUST
 - Write each acceptance criterion as behaviour a human can verify; the task's named test is its instance.
 - State in each task what the builder must not do: widen scope, touch other tests, add configuration or dependencies.
 - Put every magic value, signature, path and test name in the task text; the packet carries identifiers, never pasted text.
-- Resolve contradictions between spec, design and plan before dispatch; a choice the plan does not settle is a Decisions line or a `- Q:` line.
+- Resolve contradictions between spec, design and plan before dispatch; an unsettled choice is a Decisions line or a `- Q:` line.
 - Hand the reviewer the diff and the criteria, never the builder's report; run the gate yourself.
 
 SHOULD
@@ -27,7 +27,7 @@ SHOULD
 
 AVOID
 - "Consider several approaches", "be thorough", "double-check", or any verification step beyond the named gate.
-- A task whose test is "it works": name the file and the assertion.
+- A task whose test is "it works": name the file and assertion.
 
 ## Templates
 

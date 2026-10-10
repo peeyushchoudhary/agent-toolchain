@@ -11,7 +11,7 @@ this skill's directory; its `scripts/` print usage with `--help`.
 ## What this is
 
 An approved `docs/goals/<id>/plan.md`, with its `spec.md` and any `design.md`, is the whole goal;
-approval is the tag `goal/<id>/approved`, the founder's alone. `goal.py done` decides done. The founder is touched at
+approval is the tag `goal/<id>/approved`, the founder's: the chief places it only when told to. `goal.py done` decides done. The founder is touched at
 approval and at merge, never in between.
 
 **Before a goal**, plan it with the founder by [references/planning.md](references/planning.md).
@@ -74,7 +74,6 @@ deletes a file repairs the links naming it.
 8. `.runs/<id>/review.md` reviewed an ancestor of HEAD, every later commit is a recorded fix or
    plan-only, and no `- [ ] BLOCKING` line remains.
 
-Nothing else counts as done.
 
 ## Authority
 
