@@ -552,6 +552,27 @@ class ReviewRowTest(RepoCase):
             self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
             self.assertRow(8, f"R1: closes {target}")
 
+    def assertJunitClosures(self, accepted, refused):
+        """Writes each tests/junit/<file> as a JUnit import, then <head> { <body> }: a str value is the body
+        of class Outer, a pair is (head, body). A closure naming <file>::m holds for each accepted file only."""
+        for name, value in {**accepted, **refused}.items():
+            head, body = value if isinstance(value, tuple) else ("class Outer", value)
+            imports = "import org.junit.jupiter.api.*" + ("" if name.endswith(".kt") else ";")
+            self.repo.write(f"tests/junit/{name}", f"{imports}\n\n{head} {{\n    {body}\n}}\n")
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] fix with JUnit tests")
+        for name in accepted:
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/junit/{name}::m\n", "HEAD~1")
+            self.assertRowOk(8)
+        for name in refused:
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/junit/{name}::m\n", "HEAD~1")
+            self.assertRow(8, f"R1: closes tests/junit/{name}::m")
+
+    def test_closure_rejects_nested_kotlin_comment(self):
+        self.assertJunitClosures(
+            {"After.kt": "/* outer /* inner */ still outer */ @Test fun m() {}",
+             "Flat.java": "/* outer /* not nested in Java */ @Test void m() {}"},
+            {"Inside.kt": "/* outer /* inner */ @Test fun m() {} */"})
+
     def test_closure_requires_a_post_review_ancestor_fix(self):
         old = self.repo.git("rev-parse", "goal/F-9/approved")  # it added tests/test_a.py::test_value
         self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {old} closes tests/test_a.py::test_value\n")

@@ -448,9 +448,21 @@ def defines_junit(body, name, kotlin) -> bool:
     if re.search(r"\.|::", name):
         return False
     # Comments, text blocks (Kotlin: raw strings), strings and characters become spaces, newlines kept.
+    # Kotlin block comments nest, so one ends at the */ that brings its depth back to zero.
     raw = r'""".*?(?:"{3,}|\Z)' if kotlin else r'"""(?:\\.|.)*?(?:"""|\Z)'
-    code = re.sub(rf"//[^\n]*|/\*.*?(?:\*/|\Z)|{raw}|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'",
-                  lambda m: re.sub(r"[^\n]", " ", m.group(0)), body, flags=re.S)
+    blank = re.compile(rf"//[^\n]*|/\*.*?(?:\*/|\Z)|{raw}|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'", re.S)
+    code, i = [], 0
+    while m := blank.search(body, i):
+        end, depth = m.end(), 0
+        if kotlin and m.group(0).startswith("/*"):
+            for t in re.finditer(r"/\*|\*/|\Z", body[m.start():]):
+                depth += {"/*": 1, "*/": -1}.get(t.group(0), -depth)  # an unclosed comment runs to the end
+                if depth <= 0:
+                    end = m.start() + t.end()
+                    break
+        code += [body[i:m.start()], re.sub(r"[^\n]", " ", body[m.start():end])]
+        i = end
+    code = "".join(code) + body[i:]
     hits = {m.start() for m in re.finditer(rf"(?<![\w$]){re.escape(name)}(?![\w$])\s*\(", code)}
     stack, depth, start = [], 0, 0  # one entry per open '{': its class's annotations, or None
     for i, ch in enumerate(code):
