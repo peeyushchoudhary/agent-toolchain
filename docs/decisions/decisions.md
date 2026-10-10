@@ -329,9 +329,10 @@ the D29 contract.
 **Chose:** drop `disable-model-invocation: true` from the skill's frontmatter and ship no Codex
 `allow_implicit_invocation: false` sidecar, so a session that finds `docs/goals/*/plan.md` with an
 open milestone loads the skill on its own, as the always-loaded instructions have said since v7.
-The human gates are the approval tag `goal/<id>/approved`, which only the founder places (the
-chief never creates it, whatever the word), and the merge. The chief is the root session only: the
-skill never runs inside a subagent, and no subagent acts as chief or spawns further agents.
+The human gates are the approval tag `goal/<id>/approved`, which the founder places or explicitly
+tells the chief to place (the chief never creates it on its own initiative), and the merge. The
+chief is the root session only: the skill never runs inside a subagent, and no subagent acts as
+chief or spawns further agents.
 
 **Over:** keeping the 2026-08-22 user-invoked gate and making the instructions ask the founder to
 type `/execution-methodology <goal id>` every session (drafted as "Fix A" and dropped); a

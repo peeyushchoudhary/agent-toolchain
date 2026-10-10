@@ -41,7 +41,8 @@ and [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-plann
   questions.
 - **The session is the chief.** The founder's own open session runs the goal on the founder's word,
   from `goal.py resume`; it loads the skill itself when a plan has an open milestone (D31 dropped the
-  2026-08-22 user-invoked gate; the approval tag is the human gate). The chief is never a subagent:
+  2026-08-22 user-invoked gate; the approval tag, placed by the founder or by the chief on the
+  founder's explicit word, is the human gate). The chief is never a subagent:
   a Claude Code subagent has no Agent tool, so it could not dispatch builders or reviewers; in both
   harnesses the pre-push guard and the permission prompts answer to the root session; a subagent in
   the root checkout shares its index (the leak behind the builder's `isolation: worktree`) and one in
