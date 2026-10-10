@@ -2,7 +2,7 @@
 summary: The layout this repository keeps: where each kind of file belongs, from the contract and `install/` to the product, architecture, decision, runbook, goal and archive pages and the generated pointer files. Which pages are dated records and which state only what is true now. What enforces the standard in `install/verify.sh`: the link check, the dangling-name check, `docs.py lint` and the always-loaded size ceiling. And the smaller minimum a product repository needs.
 read-when: Adding, moving or removing a file, or deciding where something belongs
 covers: [docs/**]
-last-verified: 2026-10-09
+last-verified: 2026-10-10
 ---
 
 # Repository standard

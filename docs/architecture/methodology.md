@@ -2,7 +2,7 @@
 summary: How a goal runs under methodology v7.1 and why: three bounded documents per goal (`spec.md`, `design.md` when `touches` names anything but `none`, `plan.md` with `reads:` per task) frozen at the approval tag; pages disclosed in layers (frontmatter, the generated index, anchors, generated pointer files, the stale warning); builder, reviewer and scout roles with declared models; the founder's own session as the chief, with cost recorded, never enforced; gate receipts, the eight-row done check, one read-only review by the other vendor per stage, one guard, two founder touchpoints. Also what v6 was and the measurements that retired it, the accepted risks with the amended stop rule, the v6 lessons that still hold, and the rollback.
 read-when: Changing anything under `install/`, or asking how a goal runs, what v7 replaced, its risks or its rollback
 covers: [install/**]
-last-verified: 2026-10-09
+last-verified: 2026-10-10
 ---
 
 # Methodology v7.1
@@ -40,7 +40,13 @@ and [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-plann
   one builder per task, one review round per stage, each agent's `maxTurns`, at most five planning
   questions.
 - **The session is the chief.** The founder's own open session runs the goal on the founder's word,
-  from `goal.py resume`; no launcher starts it, and no loop or Stop hook restarts it (the installer
+  from `goal.py resume`; it loads the skill itself when a plan has an open milestone (D31 dropped the
+  2026-08-22 user-invoked gate; the approval tag is the human gate). The chief is never a subagent:
+  a Claude Code subagent has no Agent tool, so it could not dispatch builders or reviewers; in both
+  harnesses the pre-push guard and the permission prompts answer to the root session; a subagent in
+  the root checkout shares its index (the leak behind the builder's `isolation: worktree`) and one in
+  its own worktree commits off the goal branch; and v6 measured a nested chief as spend without
+  judgement. No launcher starts the session, and no loop or Stop hook restarts it (the installer
   registers none, and drops the one a v7.0 install wrote). Pushes pass the guard's pre-push hook and
   the harness's own permission prompts. `goal.py cost` sums the input and
   output tokens in each harness's local transcripts since the approval tag; the packet records it and

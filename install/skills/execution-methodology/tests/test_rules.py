@@ -116,11 +116,14 @@ class FilesAndNames(unittest.TestCase):
 
 
 class Frontmatter(unittest.TestCase):
-    def test_the_skill_is_never_invoked_by_the_model_on_its_own(self):
+    def test_the_skill_is_model_invocable_in_both_harnesses(self):
+        # D31 reversed the 2026-08-22 user-invoked gate: the approval tag is the human gate, so the
+        # session loads the skill itself. Neither harness's opt-out may come back.
         meta = frontmatter(ENTRY)
         self.assertEqual(meta.get("name", "").strip(), "execution-methodology")
         self.assertTrue(meta.get("description", "").strip())
-        self.assertEqual(meta.get("disable-model-invocation", "").strip(), "true")
+        self.assertNotIn("disable-model-invocation", meta)
+        self.assertFalse((SKILL / "agents" / "openai.yaml").exists(), "Codex's allow_implicit_invocation sidecar")
 
     def test_the_reviewer_and_the_scout_are_read_only(self):
         for path in (REVIEWER, SCOUT):

@@ -1,5 +1,5 @@
 ---
-summary: The one decisions record: a table of every decision id with its date, a one-line statement and its status (standing, superseded, removed or archived), then the full text of the decisions that keep it, D1 to D19 among them. A section whose row is not standing is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles.
+summary: The one decisions record: a table of every decision id with its date, a one-line statement and its status (standing, superseded, removed or archived), then the full text of the decisions that keep it, D1 to D19 among them. A section whose row is not standing is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session.
 read-when: Making or citing a decision, or asking why the methodology is the way it is
 covers: []
 last-verified: 2026-10-09
@@ -43,6 +43,7 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | D28 | 2026-10-08 | Review closure ends in fixes, not in grants | archived, never merged |
 | [D29](#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints) | 2026-10-09 | Simplified goal execution (methodology v7) | standing; pilot clause amended by D30 |
 | [D30](#d30--methodology-v71-context-roles-and-planning-documents-s-2) | 2026-10-09 | Methodology v7.1: context, roles and planning documents (S-2) | standing |
+| [D31](#d31--the-skill-is-model-invocable-the-chief-is-the-root-session-never-a-subagent) | 2026-10-10 | The skill is model-invocable; the chief is the root session, never a subagent | standing |
 
 ---
 
@@ -322,3 +323,30 @@ decisions per milestone, review catches by stage, and the recorded cost per sess
 **Known-wrong if:** `cause: context` stays above half of blocking findings after `reads:` lines
 and generated pointers are in use, or the document set raises founder decisions per milestone above
 the D29 contract.
+
+## D31 — The skill is model-invocable; the chief is the root session, never a subagent
+
+**Chose:** drop `disable-model-invocation: true` from the skill's frontmatter and ship no Codex
+`allow_implicit_invocation: false` sidecar, so a session that finds `docs/goals/*/plan.md` with an
+open milestone loads the skill on its own, as the always-loaded instructions have said since v7.
+The human gates are the approval tag `goal/<id>/approved`, which only the founder places (the
+chief never creates it, whatever the word), and the merge. The chief is the root session only: the
+skill never runs inside a subagent, and no subagent acts as chief or spawns further agents.
+
+**Over:** keeping the 2026-08-22 user-invoked gate and making the instructions ask the founder to
+type `/execution-methodology <goal id>` every session (drafted as "Fix A" and dropped); a
+chief-of-staff persona that orchestrates subagents.
+
+**Why:** the 2026-08-22 rule ("a model may choose how to work; it may not authorise its own
+promotion") was contradicted by the instruction to load the skill, so sessions read the skill's
+source and followed it anyway: the gate changed the form, not the fact. The approval tag already
+decides what may be executed, and the dropped gate had no measured catch, while its keep would cost
+one founder touchpoint per session. A subagent chief fails on its own terms: a Claude Code subagent
+has no Agent tool, so it cannot dispatch builders or reviewers; in both harnesses the pre-push
+guard and the permission prompts answer to the root session; a subagent in the root checkout shares
+its index (the staged-work leak behind the builder's `isolation: worktree`), and one in its own
+worktree commits off the goal branch; and the v6 `chief.md` profile recorded that a chief layered
+under another session "took most of the measured spend without adding judgement".
+
+**Reverses:** the 2026-08-22 user-invoked marking of `execution-methodology` (commit 836f8eb). D29
+and D30 stand.
