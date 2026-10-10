@@ -504,6 +504,54 @@ class ReviewRowTest(RepoCase):
             self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
             self.assertRowOk(8)
 
+    def test_closure_accepts_an_annotated_junit_method(self):
+        off, ign = "@" + "Disabled", "@" + "Ignore"  # assembled so this file adds no marker row 5 rejects
+        java = lambda body, head="class Outer": f"import org.junit.jupiter.api.*;\n\n{head} {{\n    {body}\n}}\n"  # noqa: E731
+        kotlin = lambda body: f"import org.junit.jupiter.api.Test\n\nclass Outer {{\n    {body}\n}}\n"  # noqa: E731
+        accepted = {
+            "Plain.java": java("@Test void m() {}"),
+            "Qualified.java": java("@org.junit.jupiter.api.Test void m() {}"),
+            "JUnit4.java": java("@org.junit.Test public void m() {}"),
+            "Params.java": java("@ParameterizedTest @ValueSource(ints = {1, 2})\n    void m(int x) {}"),
+            "Between.java": java('@Test @Timeout(5) @DisplayName("a (b)")\n    void m() {}'),
+            "Throws.java": java("@Test void m() throws Exception {}"),
+            "Factory.java": java("@TestFactory Stream<DynamicTest> m() { return Stream.empty(); }"),
+            "Nested.java": java("@Nested\n    class Inner {\n        @Test void m() {}\n    }"),
+            "Plain.kt": kotlin("@Test fun m() {}"),
+            "Expression.kt": kotlin("@Test fun m() = runTest {}"),
+        }
+        refused = {
+            "Bare.java": java("void m() {}"),
+            "Off.java": java(f"@Test {off} void m() {{}}"),
+            "OffOnOs.java": java(f"@Test {off}OnOs(OS.WINDOWS) void m() {{}}"),
+            "OffClass.java": java("@Test void m() {}", f"{off}\nclass Outer"),
+            "Ignored.java": java(f"{ign} @org.junit.Test public void m() {{}}"),
+            "OtherNamespace.java": java("@org.testng.annotations.Test public void m() {}"),
+            "Abstract.java": java("@Test abstract void m();", "abstract class Outer"),
+            "Interface.java": java("@Test void m();", "interface Outer"),
+            "Unmarked.java": java("class Inner {\n        @Test void m() {}\n    }"),
+            "Private.java": java("@Test private void m() {}"),
+            "Static.java": java("@Test static void m() {}"),
+            "LineComment.java": java("// @Test void m() {}"),
+            "BlockComment.java": java("/* @Test void m() {} */"),
+            "String.java": java('String s = "@Test void m() {}";'),
+            "TextBlock.java": java('String s = """\n        @Test void m() {}\n        """;'),
+            "Raw.kt": kotlin('val s = """@Test fun m() {}"""'),
+            "Previous.java": java("@Test void other() {}\n    void m() {}"),
+            "Suffix.java": java("@Test void m2() {}"),
+            "Prefix.java": java("@Test void xm() {}"),
+        }
+        for name, text in {**accepted, **refused}.items():
+            self.repo.write(f"tests/junit/{name}", text)
+        sha = self.fix("src/b/y.py", "B = 2\n", "[T2][R1] fix with JUnit tests")
+        for name in accepted:
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes tests/junit/{name}::m\n", "HEAD~1")
+            self.assertRowOk(8)
+        for target in [f"tests/junit/{n}::m" for n in refused] + ["tests/junit/Plain.java::Outer.m",
+                                                                   "tests/junit/Plain.java::Outer::m"]:
+            self.repo.review(f"- [x] R1 resolved-by {sha} closes {target}\n", "HEAD~1")
+            self.assertRow(8, f"R1: closes {target}")
+
     def test_closure_requires_a_post_review_ancestor_fix(self):
         old = self.repo.git("rev-parse", "goal/F-9/approved")  # it added tests/test_a.py::test_value
         self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {old} closes tests/test_a.py::test_value\n")

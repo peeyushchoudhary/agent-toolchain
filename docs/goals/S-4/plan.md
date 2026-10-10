@@ -18,7 +18,7 @@ or near-miss name still does not (AC2), and JavaScript and Python closures are j
 
 ## Tasks
 
-### [ ] T1 — defines_test recognises a runnable JUnit method in a .java or .kt file
+### [x] T1 — defines_test recognises a runnable JUnit method in a .java or .kt file
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
@@ -80,5 +80,13 @@ against `m`; and `Outer.m` and `Outer::m`. Do not touch any other rule, test or 
   and refused rows are named.
 - 2026-10-10 founder: fix the upstream tool so a JUnit closing test counts ("Fix it upstream"),
   committed locally, not pushed; reinstall after the goal closes.
+- 2026-10-10 T1 (builder, default): `@Nested` counts bare or as `org.junit.jupiter.api.Nested`.
+  Braces inside parentheses (annotation arrays, lambda arguments) are not enclosing classes. A
+  top-level Kotlin function is refused. `=` opens a body only in `.kt`. A Kotlin declaration starts
+  after a line holding more than annotations and lowercase words.
 
 ## Parked
+
+- Step 3 refuses a Kotlin method with an explicit return type (`fun m(): Unit = …`). Kotlin nested
+  block comments and a class header split after `:` are refused too. All fail closed; a follow-up
+  goal can widen them.
