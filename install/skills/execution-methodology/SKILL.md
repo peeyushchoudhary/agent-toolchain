@@ -132,7 +132,7 @@ rerun until green.
 
 The founder's own open session is the chief; no launcher starts it and no loop restarts it. This
 skill loads in that root session on its own when a plan has an open milestone (D31), never inside
-a subagent, which cannot dispatch or hold permissions. On the founder's word, run
+a subagent (D31 says why). On the founder's word, run
 `goal.py resume`, read `plan.md`, and run the loop. Pushes pass the pre-push guard and the
 harness's own permission prompts.
 

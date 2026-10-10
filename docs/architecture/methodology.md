@@ -42,8 +42,11 @@ and [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-plann
 - **The session is the chief.** The founder's own open session runs the goal on the founder's word,
   from `goal.py resume`; it loads the skill itself when a plan has an open milestone (D31 dropped the
   2026-08-22 user-invoked gate; the approval tag is the human gate). The chief is never a subagent:
-  one cannot dispatch, holds no permissions, shares its parent's index, and a nested chief measured
-  in v6 as spend without judgement. No launcher starts the session, and no loop or Stop hook restarts it (the installer
+  a Claude Code subagent has no Agent tool, so it could not dispatch builders or reviewers; in both
+  harnesses the pre-push guard and the permission prompts answer to the root session; a subagent in
+  the root checkout shares its index (the leak behind the builder's `isolation: worktree`) and one in
+  its own worktree commits off the goal branch; and v6 measured a nested chief as spend without
+  judgement. No launcher starts the session, and no loop or Stop hook restarts it (the installer
   registers none, and drops the one a v7.0 install wrote). Pushes pass the guard's pre-push hook and
   the harness's own permission prompts. `goal.py cost` sums the input and
   output tokens in each harness's local transcripts since the approval tag; the packet records it and

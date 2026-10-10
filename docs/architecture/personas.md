@@ -89,8 +89,8 @@ function, [arXiv 2605.10039](https://arxiv.org/abs/2605.10039)); no "be thorough
 - `permissionMode: dontAsk` is ignored under bypass, accept-edits or auto mode; it matters only
   for a default-mode chief.
 - `CLAUDE_CODE_EFFORT_LEVEL` overrides `effort`, so no session exports it.
-- No persona is the chief. The skill runs in the root session only (D31): a subagent has no
-  Agent tool, so it could not dispatch builders or reviewers; an orchestrating agent above the
-  builders is not a shape this methodology has.
+- No persona is the chief. The skill runs in the root session only (D31): a Claude Code subagent
+  has no Agent tool, so it could not dispatch builders or reviewers, and in either harness an
+  orchestrating agent above the builders is not a shape this methodology has.
 - A builder stopped by `maxTurns` returns a partial report with no gate line; the chief treats it
   as red. The caps 80 and 20 are starting values, to tune from `goal.py cost`.

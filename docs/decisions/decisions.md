@@ -342,10 +342,11 @@ promotion") was contradicted by the instruction to load the skill, so sessions r
 source and followed it anyway: the gate changed the form, not the fact. The approval tag already
 decides what may be executed, and the dropped gate had no measured catch, while its keep would cost
 one founder touchpoint per session. A subagent chief fails on its own terms: a Claude Code subagent
-has no Agent tool, so it cannot dispatch builders or reviewers; the pre-push guard and the
-permission prompts fire in the root session; it shares the parent's index, the staged-work leak
-behind the worktree rule; and the v6 `chief.md` profile recorded that a chief layered under another
-session "took most of the measured spend without adding judgement".
+has no Agent tool, so it cannot dispatch builders or reviewers; in both harnesses the pre-push
+guard and the permission prompts answer to the root session; a subagent in the root checkout shares
+its index (the staged-work leak behind the builder's `isolation: worktree`), and one in its own
+worktree commits off the goal branch; and the v6 `chief.md` profile recorded that a chief layered
+under another session "took most of the measured spend without adding judgement".
 
 **Reverses:** the 2026-08-22 user-invoked marking of `execution-methodology` (commit 836f8eb). D29
 and D30 stand.
