@@ -603,6 +603,18 @@ class ReviewRowTest(RepoCase):
              "Deep.java": "@Nested static class A {\n        @Nested class B { @Test void m() {} }\n    }",
              "Static.kt": "@Nested\n    class Inner {\n        @Test fun m() {}\n    }"})
 
+    def test_closure_rejects_unrunnable_junit_class_modifiers(self):
+        self.assertJunitClosures(
+            {"Public.java": ("public final class Outer", "@Test void m() {}"),
+             "Protected.java": "@Nested protected class Inner {\n        @Test void m() {}\n    }",
+             "Open.kt": ("open class Outer", "@Nested internal inner class Inner {\n        @Test fun m() {}\n    }")},
+            {"Abstract.java": ("abstract class Outer", "@Test void m() {}"),
+             "Private.java": "@Nested private class Inner {\n        @Test void m() {}\n    }",
+             "Abstract.kt": ("abstract class Outer", "@Test fun m() {}"),
+             "Sealed.kt": ("sealed class Outer", "@Test fun m() {}"),
+             "Private.kt": ("private class Outer", "@Test fun m() {}"),
+             "PrivateInner.kt": "@Nested private inner class Inner {\n        @Test fun m() {}\n    }"})
+
     def test_closure_requires_a_post_review_ancestor_fix(self):
         old = self.repo.git("rev-parse", "goal/F-9/approved")  # it added tests/test_a.py::test_value
         self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {old} closes tests/test_a.py::test_value\n")
