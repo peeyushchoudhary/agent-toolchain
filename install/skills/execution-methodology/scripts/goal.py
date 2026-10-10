@@ -419,11 +419,13 @@ def disabling(names):
     return any((s := n.rpartition(".")[2]).startswith("Disabled") or s == "Ignore" for n in names)
 
 def class_annotations(head):
-    """The annotations on head when the '{' after it opens a class body, else None: an interface, enum,
-    record, object, method or lambda body is not a class."""
+    """(the annotations on head, the words before its class keyword) when the '{' after it opens a class
+    body, else None: an interface, enum, record, object, method or lambda body is not a class."""
     run = annotation_run(head)
-    words = set(re.findall(r"[\w$]+", re.split(r"[(:=]", run[1])[0])) if run else set()
-    return run[0] if "class" in words and not words & {"interface", "enum", "record", "object"} else None
+    words = re.findall(r"[\w$]+", re.split(r"[(:=]", run[1])[0]) if run else []
+    if "class" not in words or set(words) & {"interface", "enum", "record", "object"}:
+        return None
+    return run[0], set(words[:words.index("class")])
 
 def junit_method(code, start, i, kotlin) -> bool:
     """code[start:i] is the declaration text before a name that a '(' follows: an annotation run with a
@@ -465,11 +467,13 @@ def defines_junit(body, name, kotlin) -> bool:
         i = end
     code = "".join(code) + body[i:]
     hits = {m.start() for m in re.finditer(rf"(?<![\w$]){re.escape(name)}(?![\w$])\s*\(", code)}
-    stack, depth, start = [], 0, 0  # one entry per open '{': its class's annotations, or None
+    stack, depth, start = [], 0, 0  # one entry per open '{': its class's (annotations, modifiers), or None
     goes_on = re.compile(r"\s*[:{]")
     for i, ch in enumerate(code):
-        if i in hits and depth == 0 and stack and None not in stack and not any(map(disabling, stack)) and all(
-                {"Nested", "org.junit.jupiter.api.Nested"} & set(s) for s in stack[1:]) and junit_method(
+        # Each inner class is @Nested and non-static: Kotlin marks it inner, Java does not mark it static.
+        if i in hits and depth == 0 and stack and None not in stack and not any(disabling(s[0]) for s in stack) and all(
+                {"Nested", "org.junit.jupiter.api.Nested"} & set(s[0])
+                and ("inner" in s[1] if kotlin else "static" not in s[1]) for s in stack[1:]) and junit_method(
                 code, start, i, kotlin):
             return True
         depth += {"(": 1, ")": -1}.get(ch, 0)

@@ -595,6 +595,14 @@ class ReviewRowTest(RepoCase):
             {"Object.kt": ("object Outer\n", "@Test fun m() {}"),
              "Interface.kt": ("interface Outer\n    : Base\n", "@Test fun m() {}")})
 
+    def test_closure_rejects_static_nested_junit_class(self):
+        self.assertJunitClosures(
+            {"Inner.java": "@Nested final class Inner {\n        @Test void m() {}\n    }",
+             "Inner.kt": "@Nested\n    inner class Inner {\n        @Test fun m() {}\n    }"},
+            {"Static.java": "@Nested static class Inner {\n        @Test void m() {}\n    }",
+             "Deep.java": "@Nested static class A {\n        @Nested class B { @Test void m() {} }\n    }",
+             "Static.kt": "@Nested\n    class Inner {\n        @Test fun m() {}\n    }"})
+
     def test_closure_requires_a_post_review_ancestor_fix(self):
         old = self.repo.git("rev-parse", "goal/F-9/approved")  # it added tests/test_a.py::test_value
         self.repo.review(f"- [x] BLOCKING R1 defect\n- [x] R1 resolved-by {old} closes tests/test_a.py::test_value\n")
