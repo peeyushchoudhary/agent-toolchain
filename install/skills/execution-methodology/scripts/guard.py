@@ -23,8 +23,11 @@ HOME_PATH = re.compile(r"/(?:Users|home)/([A-Za-z0-9._-]{2,})", re.IGNORECASE)
 # The clause before a HOME_PATH match, back to a character no path holds. The match is a later
 # segment of a relative path (core/users/X) only when the word touching it is relative and no word
 # of the clause is absolute: /System/Volumes/Data/Users/x, "/Volumes/External Drive/Users/x",
-# /Volumes/Données/Users/x and the flag -I/Users/x all stay home paths.
-CLAUSE_BEFORE = re.compile(r"[^\n\"'`()=<>,;:|\[\]{}]*$")
+# /Volumes/Données/Users/x and the flag -I/Users/x all stay home paths. A tab ends the clause, so a
+# TSV column cannot borrow an earlier column's absolute word.
+CLAUSE_BEFORE = re.compile(r"[^\n\t\"'`()=<>,;:|\[\]{}]*$")
+# A web API route (/api/users/x, /api/v1/users/x) names an endpoint, never a home directory.
+API_ROUTE = re.compile(r"/api(?:/v[0-9]+)?$", re.IGNORECASE)
 PLACEHOLDERS = frozenset({"anything", "example", "home", "me", "name", "root", "runner", "shared",
                           "someone", "user", "username", "you", "youruser", "yourname", "your-name"})
 TOO_GENERIC = frozenset({"admin", "example", "git", "github", "gitlab", "local", "localhost", "main",
@@ -123,6 +126,8 @@ def relative_before(text: str) -> bool:
     """True when text ends in a relative path that a HOME_PATH match right after it continues."""
     words = CLAUSE_BEFORE.search(text)[0].split()
     last = words[-1] if words and not text[-1:].isspace() else ""
+    if last and API_ROUTE.fullmatch(last):
+        return True
     return bool(last) and last[0] not in "/-" and not any(w.startswith("/") for w in words)
 
 
@@ -311,7 +316,11 @@ def self_test() -> int:
              ("/home/runner/work, /home/$USER", 0), ("the upstream loader", 0),
              ("app/core/" + "users/UserDtos.java", 0), ("cc -I/Users" + "/hoopfrabjous/include", 1),
              ("/System/Volumes/Data/Users" + "/hoopfrabjous", 1),
-             ("/Volumes/External Drive/Users" + "/hoopfrabjous", 1)]
+             ("/Volumes/External Drive/Users" + "/hoopfrabjous", 1),
+             ("GET\t/api/v1/users" + "/x\tapiPost\tweb/src/screens/" + "users/api.ts", 0),
+             ("GET\t/api/v1/users" + "/hoopfrabjous", 0), ("/api/users" + "/hoopfrabjous", 0),
+             ("col\t/Users" + "/hoopfrabjous/x", 1), ("/srv/api/v1/Users" + "/hoopfrabjous", 1),
+             ("/apix/v1/Users" + "/hoopfrabjous", 1)]
     failed = [text for text, want in cases if bool(next((1 for r in rules if find(r, text)), 0)) != want]
     hits: list[str] = []
     scan_diff("+++ b/f.c\n@@ -0,0 +1,2 @@\n+++counter;\n+++ /Users" + "/hoopfrabjous/b\n", rules, hits)
