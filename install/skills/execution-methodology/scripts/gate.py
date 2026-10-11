@@ -5,9 +5,12 @@
   gate.py receipt  --goal G --cmd CMD [--name full_gate|e2e|proof] [--count none] [--junit GLOB]
   gate.py baseline --goal G --cmd CMD [--junit GLOB]
 
-`check` gates a commit and writes nothing but a log; on a clean committed tree it first deletes any
-receipt for (HEAD's tree, command), since it reruns that command. `receipt` needs a clean committed
-tree and binds its result to (tree, exact command). Exit codes: 0 PASS, 1 FAIL or refused, 2 usage/internal.
+`check` gates a commit and writes nothing but a log, except that a failing check on a clean committed
+tree rewrites a PASS receipt for (HEAD's tree, command) as FAIL, keeping the old record under
+`superseded`. `receipt` needs a clean committed tree and binds its result to (tree, exact command);
+it never deletes a receipt: replacing one carries its failures, or its reasons when it named no test,
+in `rerun_of`, and counts the replacements in `reruns`. Exit codes: 0 PASS, 1 FAIL or refused,
+2 usage/internal.
 """
 from __future__ import annotations
 
@@ -260,14 +263,45 @@ def summary(res) -> str:
     return "\n".join([line] + [f"  - {r}" for r in res["reasons"]])
 
 
+def read_receipt(path: Path) -> dict:
+    try:
+        old = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return old if isinstance(old, dict) else {}
+
+
+def write_receipt(path: Path, res: dict):
+    """Replace the receipt atomically: a run killed midway leaves the old one in place."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(res, indent=2) + "\n")
+    os.replace(tmp, path)
+
+
+def rerun_fields(old: dict) -> dict:
+    """The history a new receipt carries forward: what the receipt it replaces had seen fail."""
+    seen = list(old.get("rerun_of", []))
+    if old.get("verdict") == "FAIL":
+        ids = old.get("failures", []) + old.get("new_failures", [])
+        seen += ids or [f"reason: {r}" for r in old.get("reasons", [])]
+    return {"rerun_of": sorted(set(seen)), "reruns": old.get("reruns", 0) + (1 if old else 0)}
+
+
 def cmd_check(args, root):
     goal = args.goal or active_goal(root)
-    if goal and not dirty_paths(root):
-        # On a clean committed tree this is a rerun of that exact command on HEAD's tree, so an
-        # earlier receipt for (tree, command) no longer describes the latest run.
-        receipt_path(root, goal, git(root, "rev-parse", "HEAD^{tree}"), args.cmd).unlink(missing_ok=True)
     res = evaluate(root, args.cmd, goal, args.count == "none", args.junit, "check")
     print(summary(res))
+    if goal and res["verdict"] == "FAIL" and not dirty_paths(root):
+        # The same command just failed on the very tree a PASS receipt certifies: that receipt no
+        # longer describes the latest run. It is kept as evidence, under the record that supersedes it.
+        path = receipt_path(root, goal, git(root, "rev-parse", "HEAD^{tree}"), args.cmd)
+        old = read_receipt(path)
+        if old.get("verdict") == "PASS":
+            res.update({"tree": old.get("tree"), "name": old.get("name"), "superseded": old,
+                        "rerun_of": old.get("rerun_of", []), "reruns": old.get("reruns", 0)})
+            write_receipt(path, res)
+            print(f"receipt superseded: {path}")
     return 0 if res["verdict"] == "PASS" else 1
 
 
@@ -279,16 +313,17 @@ def cmd_receipt(args, root):
         return 1
     tree = git(root, "rev-parse", "HEAD^{tree}")
     path = receipt_path(root, args.goal, tree, args.cmd)
-    if path.exists():
-        path.unlink()
+    old = read_receipt(path)
     res = evaluate(root, args.cmd, args.goal, args.count == "none", args.junit, args.name)
-    res.update({"tree": tree, "name": args.name})
+    res.update({"tree": tree, "name": args.name, **rerun_fields(old)})
     if git(root, "rev-parse", "HEAD^{tree}") != tree:
         res["reasons"].append("HEAD moved during the run")
         res["verdict"] = "FAIL"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(res, indent=2) + "\n")
+    write_receipt(path, res)
     print(summary(res))
+    if res["reruns"]:
+        print(f"rerun: replaces {res['reruns']} earlier receipt(s); seen failing: "
+              + (", ".join(res["rerun_of"]) or "none"))
     print(f"receipt: {path}")
     return 0 if res["verdict"] == "PASS" else 1
 

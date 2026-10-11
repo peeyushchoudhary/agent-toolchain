@@ -169,10 +169,29 @@ class CheckTest(GateCase):
         self.assertGate(self.check(cmd), "FAIL", "the run changed the tree")
         self.assertEqual(self.repo.git("status", "--porcelain"), "")
 
-    def test_check_on_a_clean_tree_replaces_the_stale_receipt(self):
+    def test_failing_check_on_a_clean_tree_supersedes_the_pass_receipt(self):
         self.assertGate(self.receipt(), "PASS")
-        self.assertGate(self.check(mode="crash"), "FAIL", "nonzero exit 1")
-        self.assertEqual(self.receipts(), [])
+        res = self.check(mode="crash")
+        self.assertGate(res, "FAIL", "nonzero exit 1")
+        self.assertIn("receipt superseded:", res.stdout)
+        (r,) = self.receipts()
+        self.assertEqual((r["verdict"], r["tree"], r["name"], r["reruns"]), ("FAIL", self.repo.tree(), "full_gate", 0))
+        self.assertEqual(r["superseded"]["verdict"], "PASS")
+        self.assertEqual(r["reasons"], ["nonzero exit 1", "zero tests executed"])
+        # Row 7 no longer accepts the tree: only a fresh `receipt` can certify it again.
+        self.assertGate(self.receipt(), "PASS")
+        (r,) = self.receipts()
+        self.assertEqual((r["verdict"], r["rerun_of"], r["reruns"]),
+                         ("PASS", ["reason: nonzero exit 1", "reason: zero tests executed"], 1))
+
+    def test_check_never_deletes_a_fail_receipt(self):
+        self.assertGate(self.receipt(mode="base"), "FAIL")
+        self.assertGate(self.check(), "PASS")
+        self.assertGate(self.check(mode="crash"), "FAIL")
+        (r,) = self.receipts()
+        self.assertEqual(r["verdict"], "FAIL")
+        self.assertNotIn("superseded", r)
+        self.assertEqual(r["failures"], [KNOWN])
 
     def test_check_on_a_dirty_tree_leaves_receipts_alone(self):
         self.assertGate(self.receipt(), "PASS")
@@ -205,6 +224,31 @@ class ReceiptTest(GateCase):
         for key in ("exit", "failed", "skipped", "failures", "new_failures", "baseline_failures",
                     "started_at", "finished_at", "reasons"):
             self.assertIn(key, r)
+        self.assertEqual((r["rerun_of"], r["reruns"]), ([], 0))
+
+    def test_rerun_history_accumulates_across_receipts_and_checks(self):
+        self.assertGate(self.receipt(mode="base"), "FAIL", "failures not in baseline: " + KNOWN)
+        res = self.receipt()
+        self.assertGate(res, "PASS")
+        self.assertIn(f"rerun: replaces 1 earlier receipt(s); seen failing: {KNOWN}", res.stdout)
+        (r,) = self.receipts()
+        self.assertEqual((r["rerun_of"], r["reruns"]), ([KNOWN], 1))
+        self.assertGate(self.check(mode="crash"), "FAIL")  # supersedes the PASS, keeps the history
+        (r,) = self.receipts()
+        self.assertEqual((r["verdict"], r["rerun_of"], r["reruns"]), ("FAIL", [KNOWN], 1))
+        self.assertGate(self.receipt(), "PASS")
+        (r,) = self.receipts()
+        crash = [KNOWN, "reason: nonzero exit 1", "reason: zero tests executed"]
+        self.assertEqual((r["rerun_of"], r["reruns"]), (crash, 2))
+        self.assertGate(self.receipt(), "PASS")
+        (r,) = self.receipts()
+        self.assertEqual((r["rerun_of"], r["reruns"]), (crash, 3))
+
+    def test_fail_without_a_test_id_is_remembered_by_its_reason(self):
+        self.assertGate(self.receipt(mode="zero"), "FAIL", "zero tests executed")
+        self.assertGate(self.receipt(), "PASS")
+        (r,) = self.receipts()
+        self.assertEqual(r["rerun_of"], ["reason: zero tests executed"])
 
     def test_refused_on_dirty_tree(self):
         self.repo.write("docs/design.md", "# changed\n")
@@ -220,7 +264,8 @@ class ReceiptTest(GateCase):
         self.assertGate(self.receipt(), "PASS")
         self.assertGate(self.receipt(mode="crash"), "FAIL")
         (r,) = self.receipts()
-        self.assertEqual(r["verdict"], "FAIL")
+        self.assertEqual((r["verdict"], r["rerun_of"], r["reruns"]), ("FAIL", [], 1))
+        self.assertEqual(list(self.repo.path(".runs/F-9/receipts").glob("*.tmp")), [])
 
     def test_gate_that_dirties_the_tree_gets_a_failing_receipt(self):
         res = self.receipt(EMIT + " && echo x >> docs/design.md")
