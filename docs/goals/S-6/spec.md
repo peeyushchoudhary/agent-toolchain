@@ -2,19 +2,19 @@
 
 **Users and problem.** Chief sessions on four v7.1 repositories (`measurements.md`, 2026-10-13).
 Each task runs the whole suite twice: 24 chief-hours in four days, 40% of a task cycle on two
-repositories. Hand-narrowed gates hid failures. Builders run in dependency lanes with no plan
+repositories. Narrowed gates hid failures. Builders run in dependency lanes with no plan
 field ordering them, and worktrees pile up (128).
 
 **What changes for the user.** A task names its gate and the tasks it needs; `next` lists the ready
-ones; runs record their duration; `lint` warns about slow, unordered or overlapping tasks. The full
-gate runs every third task and at close, in the background. Up to three builders work at once, each
+ones; runs record durations; `lint` warns about slow, unordered or overlapping tasks. The full
+gate runs at close, and also every third task where it takes 600 s or less. Up to three builders work at once, each
 in a fresh worktree removed after its commit.
 
 **Acceptance criteria.**
 
 - AC1 WHEN a task has a `gate:` line THE SYSTEM SHALL use and show it; otherwise the plan's.
 - AC2 WHEN `next` or `resume` runs THE SYSTEM SHALL name the open active-milestone tasks whose
-  `needs` are ticked, or the blocking task when none is.
+  `needs` are ticked, or the blocking task.
 - AC3 WHEN `needs` names a non-task or later task, or two unchained tasks share `writes`, THE SYSTEM
   SHALL warn at `lint` without failing it.
 - AC4 WHEN `check`, `receipt` or `baseline` runs under a goal THE SYSTEM SHALL record its command,
@@ -26,7 +26,7 @@ in a fresh worktree removed after its commit.
   and report the reuse, and SHALL fail results restored from a build cache; `receipt` and
   `baseline` SHALL require a full rerun.
 - AC7 WHEN the skill is read THE SYSTEM SHALL state within 1,350 always-loaded words the task's
-  gate, the every-third full gate, at most three builders and dispatch after `needs` commit.
+  gate, the full-gate cadence, at most three builders and dispatch after `needs` commit.
 - AC8 WHEN a builder's worktree is the chief's checkout or lacks its packet's commit THE SYSTEM
   SHALL stop the builder, in both harnesses.
 - AC9 WHEN `e2e_run.sh` runs THE SYSTEM SHALL prove AC2 and AC4 in both harnesses.

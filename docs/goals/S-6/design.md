@@ -18,8 +18,8 @@ the chief to use them.
   default gate; the approval page shows each task's gate.
 - **Words.** The chief dispatches up to three builders on ready tasks, each in its own isolated
   worktree branched from the chief's HEAD, so a task dispatched after its `needs` are committed
-  builds on them. The full gate runs every third task commit in a separate worktree, one at a
-  time, and at close. The builder stops when its worktree lacks the commit its packet names.
+  builds on them. Where the full gate runs in 600 s or less, it also runs every third task commit
+  in a separate worktree, one at a time; where it runs longer, only at close. The builder stops when its worktree lacks the commit its packet names.
 
 ## Interfaces
 
@@ -80,10 +80,14 @@ the chief to use them.
    and the chief stops to find it before applying anything. After committing `[Tn]`, the chief removes that builder's worktree;
    `--force` is allowed there because its staged diff is the commit, and nowhere else without a
    Decisions line.
-9. **Background full gate.** At every third task commit since the last full gate started, the chief
-   adds a detached worktree at that commit and runs `gate.py receipt --name full_gate --runs <chief
-   .runs>` in it in the background. One runs at a time: a sample due while one runs starts on the
-   newest task commit as soon as it finishes, so no sample is dropped, only delayed. Before each dispatch and each commit the chief reads a finished
+9. **Background full gate.** It runs mid-milestone only where the plan's `full_gate` takes 600 s or
+   less: its last `full_gate` line in `checks.jsonl`, or the `baseline` the chief records at approval
+   on that command, says how long it took. There, at every third task commit since the last full gate
+   started, the chief adds a detached worktree at that commit and runs `gate.py receipt --name
+   full_gate --runs <chief .runs>` in it in the background. One runs at a time: a sample due while
+   one runs starts on the newest task commit as soon as it finishes, so no sample is dropped, only
+   delayed. Where the full gate takes longer, it runs only at close, alone, with no builder running;
+   the task gates carry the reached test modules and the task's focused e2e instead. Before each dispatch and each commit the chief reads a finished
    run's verdict; a FAIL stops dispatch until a fix commit has a passing check. The worktree is
    removed when the run ends.
 
@@ -117,6 +121,12 @@ gate and the 600-second planning budget are instructions in `SKILL.md` and
   separate or absorbed.
 - **A full gate per task tree**: one pilot repository's full gate runs 37 to 99 minutes, and
   overlapped gates ran up to 3.7× slower.
+- **Every third task commit in every repository**: where the full gate takes 37 to 99 minutes and a
+  task about 23, the next sample is due before the last one ends, so one would run nearly nonstop
+  beside the builders and slow every other run. That repository's seal history (13 full-gate
+  receipts: 5 setup aborts in 2 to 8 minutes, 6 real failures after 41 to 99 minutes, 2 passes)
+  shows the cost is failures found late, which a scoped gate carrying the reached modules and the
+  task's focused e2e addresses without the overlap (founder, 2026-10-13).
 - **Caching in receipts or baselines**: a receipt is the milestone's evidence and a baseline excuses
   failures; an undeclared Gradle input would let a stale result stand in for a run.
 - **A `gate_budget` key or a budget error**: the council's verdict; a recorded duration and a
@@ -125,9 +135,9 @@ gate and the 600-second planning budget are instructions in `SKILL.md` and
 
 ## Trade-offs for the founder
 
-- A reach failure the scoped gate misses surfaces at the next full gate: sampled every third task
-  commit, but observed only when that run finishes, so in a repository whose full gate is slow more
-  tasks can land first. Dispatch stops at the first FAIL seen.
+- A reach failure the scoped gate misses surfaces at the next full gate: in a fast-gate repository
+  within a few tasks; in a slow-gate repository only at close, where a failure costs one more full
+  run after its fix. Dispatch stops at the first FAIL seen.
 - `check` trusts Gradle's up-to-date checks. A test that reads an undeclared file passes from reuse
   until the next full gate, which always reruns. Parked as a question.
 - Each builder starts with cold build output in a fresh worktree; the chief's checkout stays warm.

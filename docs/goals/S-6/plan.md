@@ -18,7 +18,8 @@ and a slow default gate (AC3, AC5). `gate.py` records every run's duration in
 (AC4), and lets a task check reuse Gradle's up-to-date results, counting only tests that ran, while
 receipts and baselines still rerun everything (AC6). The skill tells the chief to dispatch up to
 three builders on ready tasks, each in a fresh isolated worktree from HEAD removed after its commit,
-and to run the full gate every third task commit in a separate worktree and at close (AC7); a
+and to run the full gate at close, and every third task commit in a separate worktree where it
+takes 600 s or less (AC7); a
 builder whose worktree lacks the packet's base commit stops (AC8). The e2e proves `next` and the
 record in both harnesses (AC9). A goal approved under v7.1 keeps its `.runs/`; a task-body line
 starting `gate:` or `needs:` becomes a field there too (none exists in any shipped or pilot plan). Decision record:
@@ -44,7 +45,9 @@ slower than alone. Across 33 plans, 233 tasks with critical paths summing to 150
 chief confirms its own checkout is clean; it removes a builder's worktree after committing its task
 (Interface 8); step 5 runs the task's gate; every third task commit, one
 background full-gate receipt in a detached worktree with `--runs`, one at a time, a sample due
-during a run starting on the newest commit when it ends (Interface 9), whose FAIL stops dispatch. The milestone-close section moves to
+during a run starting on the newest commit when it ends, only where the full gate's last recorded
+run (or its approval baseline) took 600 s or less; otherwise the full gate runs only at close, alone
+(Interface 9). A full-gate FAIL stops dispatch. The milestone-close section moves to
 `references/close.md` with one pointer line left, keeping the always-loaded total at or under
 1,350 words. `planning.md` step 5: each task gets a `gate:` under 600 s alone (the touched module's
 build, the named test, `tests-may-change`, the test modules the scout says the writes reach) and a
@@ -52,8 +55,8 @@ build, the named test, `tests-may-change`, the test modules the scout says the w
 their isolation and gain the MUST line of Interface 8: before the first edit, confirm the worktree
 is not the chief's checkout and the packet's commit is an ancestor of HEAD, else stop (AC8); "Run the gate" becomes "Run the task's gate".
 `test_rules.py` gains `test_the_loop_runs_the_tasks_gate` (`SKILL.md` names "the task's gate"),
-`test_the_full_gate_runs_every_third_task_and_a_due_sample_waits` ("every third task commit" and
-"newest"), `test_at_most_three_builders_run_at_once` ("three builders"),
+`test_the_full_gate_runs_every_third_task_and_a_due_sample_waits` ("every third task commit",
+"newest", "600 s" and "only at close"), `test_at_most_three_builders_run_at_once` ("three builders"),
 `test_dispatch_waits_for_committed_dependencies` ("needs" and "committed" in the dispatch step),
 `test_the_chief_applies_only_to_a_clean_checkout` ("clean" in the apply step) (AC7), and
 `test_both_builder_files_check_their_worktree` (both name `merge-base --is-ancestor` and the chief's
@@ -137,12 +140,15 @@ not change scripts.
 
 - 2026-10-13 design: the founder chose a 600-second task-gate budget, the full gate every third
   task commit and at close, and a fresh builder per task (founder).
+- 2026-10-13 design: where the full gate takes over 600 s it runs only at close, alone, never
+  mid-milestone; every third task commit applies only where it takes 600 s or less (founder).
 - 2026-10-13 design review R5, R7, R10: builders keep their isolated worktree; a lane is a dispatch
   order, not a reused worktree, because a fresh worktree from HEAD already carries committed
   dependencies (scratch-repository check) and reuse would drop isolation (default; parked as a question).
-- 2026-10-13 plan review R9: the background full gate may overlap a task check; waiting for it would
-  stall the loop for the full gate's length (up to 99 minutes in one repository), and the slowdown
-  is recorded in `checks.jsonl` per run for the next review (default). Two task checks never overlap.
+- 2026-10-13 plan review R9: the background full gate, which now runs mid-milestone only where it
+  takes 600 s or less, may overlap a task check; waiting for it would stall the loop for its length,
+  and the slowdown is recorded in `checks.jsonl` per run for the next review (default). Two task
+  checks never overlap.
 
 ## Parked
 
