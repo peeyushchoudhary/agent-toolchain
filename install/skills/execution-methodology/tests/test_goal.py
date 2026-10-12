@@ -262,6 +262,24 @@ class DoneTest(RepoCase):
         self.assertRowOk(7)
 
 
+class SharedReceiptTest(RepoCase):
+    """A milestone whose e2e is the full_gate command needs one run: receipts are keyed by command."""
+    plan = plan_text().replace(f'M1: {{tasks: [T1, T2], e2e: "{E2E}"}}', f'M1: {{tasks: [T1, T2], e2e: "{FULL}"}}')
+
+    def test_one_full_gate_receipt_satisfies_both_row7_receipts(self):
+        self.repo.write("src/a/x.py", "A = 1\n")
+        self.repo.tick("T1")
+        self.repo.commit("[T1] alpha")
+        self.repo.write("src/b/y.py", "B = 1\n")
+        self.repo.tick("T2")
+        self.repo.commit("[T2] beta")
+        self.repo.review("No findings.\n")
+        self.assertRow(7, "no PASS full_gate receipt")
+        res = self.repo.receipt(FULL, "full_gate")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertRowOk(7)
+
+
 RECORD = ("# Record\n\n## D1 — first\n\nOne.\n\n### detail\n\nInside D1.\n\n## D2 — second\n\nTwo.\n\n"
           "## D3 — third\n\nThree.\n")
 
