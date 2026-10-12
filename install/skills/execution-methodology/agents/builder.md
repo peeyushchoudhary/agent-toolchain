@@ -4,7 +4,7 @@ description: Implements one task of a goal's plan.md inside its write set, in it
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: opus
 effort: high
-maxTurns: 80
+maxTurns: 200
 permissionMode: dontAsk
 isolation: worktree
 ---
