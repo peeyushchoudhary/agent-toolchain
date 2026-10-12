@@ -27,8 +27,8 @@ in a fresh worktree removed after its commit.
   `baseline` SHALL require a full rerun.
 - AC7 WHEN the skill is read THE SYSTEM SHALL state within 1,350 always-loaded words the task's
   gate, the every-third full gate, at most three builders and dispatch after `needs` commit.
-- AC8 WHEN a builder's worktree lacks its packet's commit THE SYSTEM SHALL stop the builder, in
-  both harnesses.
+- AC8 WHEN a builder's worktree is the chief's checkout or lacks its packet's commit THE SYSTEM
+  SHALL stop the builder, in both harnesses.
 - AC9 WHEN `e2e_run.sh` runs THE SYSTEM SHALL prove AC2 and AC4 in both harnesses.
 
 **Non-goals.** Tool-seeded `tests-may-change`; faster repository gates; two task checks at once;

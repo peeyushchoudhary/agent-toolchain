@@ -49,9 +49,10 @@ the chief to use them.
    plan's exact `gate` command; no file or no line, no warning).
 4. **Checks record.** `run()` measures wall time. Under a goal, `check`, `receipt` and `baseline`
    append `{"label", "command", "tree", "duration_s", "verdict", "finished_at"}` to
-   `<runs>/<id>/checks.jsonl` (`verdict` is `RECORDED` for a baseline that ran). The summary's last
-   line is `budget: ok (<n> s of 600 s)` or `budget: <n> s over 600 s` for `check`, 1800 s for
-   `receipt` and `baseline`. A `check` with no goal writes no record and prints the budget line.
+   `<runs>/<id>/checks.jsonl` (`verdict` is `RECORDED` for a baseline that ran). Each command's last
+   stdout line, after any `receipt superseded:`, rerun, `receipt:` or `baseline:` line, is
+   `budget: ok (<n> s of 600 s)` or `budget: <n> s over 600 s` for `check`, 1800 s for `receipt`
+   and `baseline`. A `check` with no goal writes no record and prints the budget line.
 5. **`--runs <dir>`.** `check`, `receipt` and `baseline` take an optional `--runs` directory; every
    `.runs` path they use (logs, receipts, baseline, `active`, the record) is under it. The default
    is `<root>/.runs`, today's location, so nothing moves and no v7.1 evidence is stranded. The tree a
@@ -62,20 +63,27 @@ the chief to use them.
    ran, as today: JUnit XML written during the run (the existing mtime filter) and console counts.
    When Gradle's `<n> actionable tasks:` line reports `up-to-date`, the summary adds `  - reused: <k>
    of <n> Gradle tasks up-to-date`, information only. When that line reports `from cache`, the
-   restored results look fresh but did not run, so `check` adds the FAIL reason `test results
-   restored from the build cache did not run; add --no-build-cache`. A scoped gate whose tests were
+   restored XML looks fresh but did not run, and nothing tells it apart from XML that did, so
+   `check` counts no JUnit XML for that run (console counts only) and adds the FAIL reason `test
+   results restored from the build cache did not run; add --no-build-cache`. A scoped gate whose tests were
    all up to date executed none and FAILs as today. `receipt` keeps the `--rerun-tasks` reason; a
    `baseline` naming Gradle without `--rerun-tasks` is refused: exit 1, nothing recorded.
 7. **Approval page.** The task table gains a Gate column: the task's `gate:` or `plan gate`.
-8. **Builders.** `agents/builder.md` and `.toml` keep their isolation. Each gains one MUST line:
-   before the first edit, confirm the commit the packet names is an ancestor of the worktree's HEAD
-   (`git merge-base --is-ancestor <sha> HEAD`); otherwise stop and say so. The packet names the
-   chief's HEAD at dispatch. After committing `[Tn]`, the chief removes that builder's worktree;
+8. **Builders.** `agents/builder.md` and `.toml` keep their isolation: the harness starts each
+   builder's shell and file tools in its own worktree, so a command without a path cannot reach the
+   chief's checkout. Each gains one MUST line: before the first edit, confirm that `git rev-parse
+   --show-toplevel` is not the chief's checkout the packet names, and that the commit the packet
+   names is an ancestor of HEAD (`git merge-base --is-ancestor <sha> HEAD`); otherwise stop and say
+   so. This catches a harness that did not isolate. The packet names the chief's checkout path and
+   its HEAD at dispatch. Before applying a builder's diff, the chief confirms its own checkout is
+   clean (`git status --porcelain`, `.runs/` aside); a dirty checkout means something wrote there,
+   and the chief stops to find it before applying anything. After committing `[Tn]`, the chief removes that builder's worktree;
    `--force` is allowed there because its staged diff is the commit, and nowhere else without a
    Decisions line.
-9. **Background full gate.** Every third task commit, when no full gate is running, the chief adds
-   a detached worktree at that commit and runs `gate.py receipt --name full_gate --runs <chief
-   .runs>` in it in the background. Before each dispatch and each commit the chief reads a finished
+9. **Background full gate.** At every third task commit since the last full gate started, the chief
+   adds a detached worktree at that commit and runs `gate.py receipt --name full_gate --runs <chief
+   .runs>` in it in the background. One runs at a time: a sample due while one runs starts on the
+   newest task commit as soon as it finishes, so no sample is dropped, only delayed. Before each dispatch and each commit the chief reads a finished
    run's verdict; a FAIL stops dispatch until a fix commit has a passing check. The worktree is
    removed when the run ends.
 
@@ -101,7 +109,7 @@ gate and the 600-second planning budget are instructions in `SKILL.md` and
   `needs` are committed starts on them, and the builder's base check catches a stale base. Reuse
   buys warm build caches only, and costs the confinement isolation gives: without it, Claude's file
   tools and Codex's sandbox stay rooted in the chief's checkout, and a lane under the repository is
-  hidden only where `.git/info/exclude` applies, never in a linked checkout. Parked as Q2.
+  hidden only where `.git/info/exclude` applies, never in a linked checkout. Parked as a question.
 - **Continuing one builder per lane**: its context grows across tasks and `maxTurns` across
   continuations is undocumented.
 - **Moving `.runs/` to the common Git directory's parent**: strands receipts and baselines that
@@ -121,7 +129,7 @@ gate and the 600-second planning budget are instructions in `SKILL.md` and
   commit, but observed only when that run finishes, so in a repository whose full gate is slow more
   tasks can land first. Dispatch stops at the first FAIL seen.
 - `check` trusts Gradle's up-to-date checks. A test that reads an undeclared file passes from reuse
-  until the next full gate, which always reruns. Parked as Q3.
+  until the next full gate, which always reruns. Parked as a question.
 - Each builder starts with cold build output in a fresh worktree; the chief's checkout stays warm.
 - At most three builders and one background full gate on this machine; overlapped gates run slower,
   and the record shows by how much.

@@ -20,7 +20,8 @@ receipts and baselines still rerun everything (AC6). The skill tells the chief t
 three builders on ready tasks, each in a fresh isolated worktree from HEAD removed after its commit,
 and to run the full gate every third task commit in a separate worktree and at close (AC7); a
 builder whose worktree lacks the packet's base commit stops (AC8). The e2e proves `next` and the
-record in both harnesses (AC9). A goal approved under v7.1 keeps its `.runs/` and its meaning. Decision record:
+record in both harnesses (AC9). A goal approved under v7.1 keeps its `.runs/`; a task-body line
+starting `gate:` or `needs:` becomes a field there too (none exists in any shipped or pilot plan). Decision record:
 D32; design [design.md](design.md); spec [spec.md](spec.md).
 
 ## Tasks
@@ -31,23 +32,36 @@ reads: docs/goals/S-6/design.md#structure, docs/goals/S-6/design.md#interfaces, 
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py
 gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_rules.py' && python3 -m unittest discover -s install/tests -t install/tests -p 'test_size.py' && python3 install/skills/execution-methodology/scripts/docs.py lint .
 Built by the chief. D32 records the decision with the measured numbers anonymised (repository A to
-D; no project name). `measurements.md` gains a dated 2026-10-13 section: chief gate runs, medians,
-p90, chief hours, gate share of the task cycle, the overlapped-gate ratio, plan widths and critical
-paths, worktrees left behind. `SKILL.md`: the plan format shows `gate:` and `needs:`; the loop says
+D; no project name). `measurements.md` gains a dated 2026-10-13 section with these numbers, measured
+2026-10-09 to 13 from gate logs (start stamp to last write) and git: chief task checks A 100 runs,
+median 1.4 min, p90 3.3, 2.9 h, full gate median 8.1 min, task cycle median 15 min, gate share 9%; B
+144, 4.2, 7.7, 10.6 h, 5.0, 11, 38%; C 52, 8.9, 30.9 (max 44.5), 10.5 h, 37, 23, 39%; D 5, 0.3,
+full gate 91, cycle 6, 5%. A check overlapping another gate ran 1.31× (A), 1.40× (B) and 3.68× (C)
+slower than alone. Across 33 plans, 233 tasks with critical paths summing to 150 (ideal speedup
+1.55×), median width 2, 11 plans with three or more independent tasks. Worktrees left: 108, 11, 9. `SKILL.md`: the plan format shows `gate:` and `needs:`; the loop says
 `goal.py next` lists ready tasks; at most three builders at once, each dispatched only when its
-`needs` are committed, each packet naming the chief's HEAD; the chief removes a builder's worktree
-after committing its task (Interface 8); step 5 runs the task's gate; every third task commit, one
-background full-gate receipt in a detached worktree with `--runs` (Interface 9), whose FAIL stops
-dispatch. The milestone-close section moves to
+`needs` are committed, each packet naming the chief's checkout and HEAD; before applying a diff the
+chief confirms its own checkout is clean; it removes a builder's worktree after committing its task
+(Interface 8); step 5 runs the task's gate; every third task commit, one
+background full-gate receipt in a detached worktree with `--runs`, one at a time, a sample due
+during a run starting on the newest commit when it ends (Interface 9), whose FAIL stops dispatch. The milestone-close section moves to
 `references/close.md` with one pointer line left, keeping the always-loaded total at or under
 1,350 words. `planning.md` step 5: each task gets a `gate:` under 600 s alone (the touched module's
 build, the named test, `tests-may-change`, the test modules the scout says the writes reach) and a
 `needs:` line; run the plan gate once while planning. `builder.md` and `builder.toml` keep
-their isolation and gain the MUST line of Interface 8: confirm the packet's commit is an ancestor
-of HEAD before the first edit, else stop (AC8); "Run the gate" becomes "Run the task's gate".
-`test_rules.py` asserts the skill names the task's gate, the every-third full gate and the
-three-builder cap (AC7), and that both builder files carry the ancestor check (AC8). Do not touch
-scripts or other tests.
+their isolation and gain the MUST line of Interface 8: before the first edit, confirm the worktree
+is not the chief's checkout and the packet's commit is an ancestor of HEAD, else stop (AC8); "Run the gate" becomes "Run the task's gate".
+`test_rules.py` gains `test_the_loop_runs_the_tasks_gate` (`SKILL.md` names "the task's gate"),
+`test_the_full_gate_runs_every_third_task_and_a_due_sample_waits` ("every third task commit" and
+"newest"), `test_at_most_three_builders_run_at_once` ("three builders"),
+`test_dispatch_waits_for_committed_dependencies` ("needs" and "committed" in the dispatch step),
+`test_the_chief_applies_only_to_a_clean_checkout` ("clean" in the apply step) (AC7), and
+`test_both_builder_files_check_their_worktree` (both name `merge-base --is-ancestor` and the chief's
+checkout; `builder.md` keeps `isolation: worktree`) (AC8). The additions must fit the existing
+ceilings: always-loaded 1,350 words (`test_size.py`), each reference 400
+(`Budgets.test_each_reference_is_within_its_word_ceiling`; `planning.md` is at 400 now), each agent
+body 350 (`Budgets.test_each_agent_body_is_within_its_word_ceiling`; the builder is at 348): tighten
+existing lines to make room, never drop a MUST. Do not touch scripts or other tests.
 
 ### [ ] T2 — `goal.py`: task `gate:` and `needs:`, ready and blocked tasks, lint warnings, the gate column
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
@@ -78,9 +92,13 @@ writes: install/skills/execution-methodology/scripts/gate.py, install/skills/exe
 reads: docs/goals/S-6/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
 gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_gate.py'
-Interfaces 4, 5 and 6. `run()` returns its wall time; `check`, `receipt` and `baseline` under a goal
-append one JSON line to `<runs>/<id>/checks.jsonl`; `summary()` ends with the budget line (600 s
-for `check`, 1800 s otherwise), and `cmd_receipt` prints it after the rerun line. `--runs <dir>` on
+Interfaces 4, 5 and 6. Signatures: `runs_dir(root, runs=None) -> Path` (`Path(runs)` or
+`<root>/.runs`); `receipt_path(root, goal, tree, cmd, runs=None)`, so `goal.py`'s four-argument call
+is unchanged; `run(root, cmd, goal, label, runs=None)` returns `(code, out, log, duration_s)`;
+`budget_line(label, duration_s) -> str`. `check`, `receipt` and `baseline` under a goal append one
+JSON line to `<runs>/<id>/checks.jsonl`. Each command prints `budget_line` as its very last line:
+after `receipt superseded:` in a superseding check, after the rerun and `receipt:` lines in a
+receipt, after the `baseline:` line in a baseline; `summary()` itself does not change. `--runs <dir>` on
 all three sets the root of every `.runs` path (`receipt_path`, `active_goal`, `run`'s log
 directory, `load_baseline`, `cmd_baseline`, the record); the default stays `<root>/.runs`; tree,
 `dirty_paths` and `snapshot` stay in the running worktree. The `--rerun-tasks` reason applies to
@@ -89,11 +107,13 @@ Gradle's `actionable tasks:` line with `up-to-date` adds `  - reused: <k> of <n>
 up-to-date`, and with `from cache` adds the FAIL reason of Interface 6. Tests in `test_gate.py`,
 copying `CheckTest.test_pass_writes_log_and_no_receipt`: `test_every_run_appends_to_the_checks_record`
 (check, receipt, baseline each add one line with label and duration) (AC4);
-`test_the_summary_ends_with_the_budget_line` (AC4); `test_runs_flag_records_a_linked_worktree_run_in_
+`test_every_command_ends_with_the_budget_line` (the last stdout line of a passing check, a
+superseding check, a receipt, a replacing receipt and a baseline) (AC4); `test_runs_flag_records_a_linked_worktree_run_in_
 the_named_directory` (`git worktree add`, receipt there with `--runs` naming the main `.runs/`; the
 receipt binds the linked worktree's tree; without the flag nothing moves) (AC4);
 `test_cached_test_results_have_explicit_execution_semantics` (all up-to-date with old XML: zero
-executed, FAIL, reuse line; mixed: only fresh XML counted, PASS; `from cache`: FAIL) (AC6);
+executed, FAIL, reuse line; mixed: only fresh XML counted, PASS; `from cache` with fresh XML: no XML
+counted, FAIL) (AC6);
 `test_receipt_and_baseline_require_a_full_gradle_rerun` replacing `test_gradle_needs_rerun_tasks`
 (AC6). Do not change `goal.py`.
 
@@ -103,10 +123,15 @@ reads: install/skills/execution-methodology/tests/e2e_run.sh, docs/goals/S-6/des
 tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh
 needs: T2, T3
 gate: install/skills/execution-methodology/tests/e2e_run.sh
-For each harness, before T1 is built, `goal.py next` prints both E-1 tasks (they are independent);
-after the two `gate.py check` runs and the receipts, `.runs/E-1/checks.jsonl` holds two `check`
-lines and two `receipt` lines, each with a `duration_s`, and every `check` output ends with a
-`budget:` line (AC9, proving AC2 and AC4). The final PASS line names both. Do not change scripts.
+The script prints no test counts, so its check runs with `gate.py check --count none`, as every e2e
+receipt since S-1 has. For each harness: E-1's T2 gains `needs: T1`. Before T1 is built, `goal.py
+next` prints T1 and not T2, and `goal.py --plan <copy with T1 parked [!]> resume` says `no ready
+task; T2 needs T1 (parked)`; after `[T1]` commits, `next` prints T2 (AC2). The script runs one
+`gate.py baseline` on the plan gate before T1. At the end `.runs/E-1/checks.jsonl` holds exactly one
+`baseline`, two `check` and two `receipt` lines, each with the exact command, a numeric
+`duration_s` and the verdict (`RECORDED`, `PASS`, `PASS`), and the last stdout line of every
+`check`, `receipt` and `baseline` starts `budget:` (AC4). The final PASS line names both (AC9). Do
+not change scripts.
 
 ## Decisions
 
@@ -114,12 +139,13 @@ lines and two `receipt` lines, each with a `duration_s`, and every `check` outpu
   task commit and at close, and a fresh builder per task (founder).
 - 2026-10-13 design review R5, R7, R10: builders keep their isolated worktree; a lane is a dispatch
   order, not a reused worktree, because a fresh worktree from HEAD already carries committed
-  dependencies (scratch-repository check) and reuse would drop isolation (default; Q2).
+  dependencies (scratch-repository check) and reuse would drop isolation (default; parked as a question).
+- 2026-10-13 plan review R9: the background full gate may overlap a task check; waiting for it would
+  stall the loop for the full gate's length (up to 99 minutes in one repository), and the slowdown
+  is recorded in `checks.jsonl` per run for the next review (default). Two task checks never overlap.
 
 ## Parked
 
-- Q1: At most three builders at once on this machine; confirm or name the number.
-- Q2: Reusing one worktree per chain of tasks (your first choice) would keep build caches warm but
-  drop the harness's isolation; this plan keeps a fresh isolated worktree per task. Accept?
-- Q3: A task check may reuse Gradle's up-to-date test results; a test reading an undeclared file can
-  pass from reuse until the next full gate. Accept?
+- Q: At most three builders at once on this machine: confirm three or name the number.
+- Q: This plan keeps a fresh isolated worktree per task instead of your first choice, one reused worktree per chain: reuse keeps build caches warm but drops the isolation that once stopped a builder's work leaking into a chief commit. Accept the fresh worktree per task?
+- Q: A task check may reuse Gradle's up-to-date test results, so a test that reads an undeclared file can pass from reuse until the next full gate reruns everything. Accept?
