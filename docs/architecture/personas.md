@@ -22,7 +22,7 @@ plan already enforces is not restated in a persona.
 
 ## What each file guards against
 
-- **builder** (`opus`, `effort: high`, `maxTurns: 80`, `permissionMode: dontAsk`,
+- **builder** (`opus`, `effort: high`, `maxTurns: 200`, `permissionMode: dontAsk`,
   `isolation: worktree`): out-of-scope edits, quiet narrowing or widening of the task, code
   written to the test's inputs instead of the behaviour, tests edited to pass, success claimed
   without the gate's own output, speculative abstraction and adjacent clean-ups, and work started
@@ -93,4 +93,7 @@ function, [arXiv 2605.10039](https://arxiv.org/abs/2605.10039)); no "be thorough
   has no Agent tool, so it could not dispatch builders or reviewers, and in either harness an
   orchestrating agent above the builders is not a shape this methodology has.
 - A builder stopped by `maxTurns` returns a partial report with no gate line; the chief treats it
-  as red. The caps 80 and 20 are starting values, to tune from `goal.py cost`.
+  as red. The builder cap started at 80 and was raised to 200 once
+  builders began carrying a chain of dependent tasks in one worktree: at 80, ordinary tasks
+  stopped mid-gate and had to be resumed. The scout cap 20 is a starting value; tune both from
+  `goal.py cost`.
