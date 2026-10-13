@@ -1,0 +1,61 @@
+{
+  "replaces": "cd install && ./install.sh --dry-run && ./verify.sh",
+  "modules": {
+    "modmap": {
+      "paths": ["install/skills/execution-methodology/scripts/modmap.py",
+                "install/skills/execution-methodology/tests/test_modmap.py"],
+      "needs": [],
+      "test": "python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_modmap.py'"
+    },
+    "gate": {
+      "paths": ["install/skills/execution-methodology/scripts/gate.py",
+                "install/skills/execution-methodology/tests/test_gate.py"],
+      "needs": ["modmap"],
+      "test": "python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_gate.py'"
+    },
+    "goal": {
+      "paths": ["install/skills/execution-methodology/scripts/goal.py",
+                "install/skills/execution-methodology/scripts/docs.py",
+                "install/skills/execution-methodology/tests/test_goal.py",
+                "install/skills/execution-methodology/tests/test_docs.py"],
+      "needs": ["gate", "modmap"],
+      "test": "python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_goal.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_docs.py'"
+    },
+    "guard": {
+      "paths": ["install/skills/execution-methodology/scripts/guard.py",
+                "install/skills/execution-methodology/scripts/git-hooks.sh",
+                "install/skills/execution-methodology/tests/test_guard.py",
+                "install/skills/execution-methodology/tests/test_git_hooks.py"],
+      "needs": [],
+      "test": "python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_guard.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_git_hooks.py'"
+    },
+    "rules": {
+      "paths": ["install/skills/execution-methodology/SKILL.md",
+                "install/skills/execution-methodology/references/**",
+                "install/skills/execution-methodology/agents/**",
+                "install/skills/execution-methodology/tests/test_rules.py",
+                "docs/runbooks/codex.md"],
+      "needs": [],
+      "test": "python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_rules.py'"
+    },
+    "install": {
+      "paths": ["install/install.sh", "install/verify.sh", "install/tests/**", "install/*.md"],
+      "needs": ["guard", "rules", "goal"],
+      "test": "python3 -m unittest discover -s install/tests -t install/tests"
+    },
+    "repository": {
+      "paths": ["docs/**", "*.md", ".claude/**", ".github/**", "LICENSE", ".gitignore",
+                "install/skills/.gitignore"],
+      "needs": ["guard", "goal", "install"],
+      "test": "cd install && ./install.sh --dry-run && ./verify.sh --no-suites",
+      "count": "none"
+    }
+  },
+  "shared": [
+    "install/skills/execution-methodology/tests/fixtures/**",
+    "install/skills/execution-methodology/tests/e2e_run.sh",
+    "install/global.md",
+    "AGENTS.md",
+    "docs/goals/modules.json"
+  ]
+}

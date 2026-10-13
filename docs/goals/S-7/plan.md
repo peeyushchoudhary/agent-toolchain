@@ -262,7 +262,7 @@ D33 link and a "Module map" bullet. `AGENTS.md` says v7.3 and links D33.
 
 Do not change scripts.
 
-### [ ] T8 — This repository's own map and `verify.sh --no-suites`
+### [x] T8 — This repository's own map and `verify.sh --no-suites`
 writes: docs/goals/modules.json, install/verify.sh, install/tests/test_map.py
 reads: docs/goals/S-7/design.md#interfaces, install/verify.sh, install/tests/test_size.py, install/tests/test_install.py, install/skills/execution-methodology/scripts/modmap.py
 tests-may-change: install/tests/test_map.py
@@ -428,5 +428,8 @@ modules`.
   its 200 words. The decisions table gains the missing D32 row and a D33 row, and its frontmatter
   summary runs through D33. `close.md`'s "never rerun until green" now excepts the one module retry
   (default).
+- 2026-10-13 T8: `verify.sh --no-suites` guards each `run_suite` call with `$SUITES`, and its help
+  range moves to line 12. `test_map.py` also pins the module order and the `replaces` text, and
+  finds the `run_suite` calls as non-comment lines (default).
 
 ## Parked
