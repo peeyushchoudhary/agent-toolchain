@@ -963,9 +963,10 @@ def contains(path, cwd):
     return cwd == Path(path) or Path(path) in cwd.parents
 
 def worktrees(root):
-    """[{path, head, branch, locked, prunable}] from `git worktree list --porcelain`, the main worktree first."""
+    """[{path, head, branch, locked, prunable}] from `git worktree list --porcelain -z`, the main worktree
+    first; NUL-separated, so a path holding a newline stays whole."""
     out = []
-    for line in git(root, "worktree", "list", "--porcelain").splitlines():
+    for line in git(root, "worktree", "list", "--porcelain", "-z").split("\0"):
         key, _, val = line.partition(" ")
         if key == "worktree":
             out.append({"path": os.path.realpath(val), "head": None, "branch": None, "locked": False,

@@ -1378,5 +1378,18 @@ class CleanupTest(RepoCase):
         self.assertTrue(self.exists("refs/remotes/origin/main"))
         self.assertFalse(self.exists("refs/remotes/secondary/main"))
 
+    def test_own_handles_newline_paths_without_accepting_their_prefixes(self):
+        prefix, odd = self.tmp / "nl", self.tmp / "nl\nwt"
+        prefix.mkdir()
+        self.repo.git("worktree", "add", "-q", "--detach", str(odd))
+        self.assertEqual(self.own(odd).stdout, f"own: {odd} (detached)\n")
+        self.assertEqual(self.rows()[0]["path"], str(odd))
+        res = self.repo.goal("own", "--goal", "F-9", str(prefix))
+        self.assertEqual((res.returncode, res.stderr),
+                         (2, f"goal.py: {prefix} is not a linked worktree of this repository\n"))
+        res = self.repo.goal("cleanup", "--goal", "F-9")  # raw stdout: the path itself holds a newline
+        self.assertEqual((res.returncode, res.stdout), (0, "\n".join([
+            self.head("dry run"), f"remove worktree {odd} (merged)", "cleanup: 1 to remove, 0 kept", ""])))
+
 if __name__ == "__main__":
     unittest.main()
