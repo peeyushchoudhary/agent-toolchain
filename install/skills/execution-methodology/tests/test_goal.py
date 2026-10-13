@@ -1351,5 +1351,26 @@ class CleanupTest(RepoCase):
             "cleanup: 0 removed, 1 kept"])
         self.assertEqual(self.repo.git("-C", str(x), "diff-index", "--cached", "--name-only", "HEAD"), "src/x.py")
 
+    def test_cleanup_preserves_changes_hidden_by_textconv(self):
+        self.repo.write("f.doc", "one\n")
+        self.repo.commit("[T1] land f.doc")
+        self.repo.git("push", "-q", "origin", "main")
+        info = Path(self.repo.git("rev-parse", "--path-format=absolute", "--git-common-dir")) / "info"
+        info.mkdir(exist_ok=True)
+        (info / "attributes").write_text("*.doc diff=strip\n")
+        self.repo.git("config", "diff.strip.textconv", "true")  # every version converts to the same empty text
+        t = self.builder("t", change=False)
+        (t / "f.doc").write_text("two\n")
+        self.repo.git("-C", str(t), "add", "f.doc")
+        w = self.builder("w", change=False)
+        (w / "f.doc").write_text("two\n")
+        self.own(t)
+        self.own(w)
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "keep worktree .claude/worktrees/agent-t: staged changes not in origin/main",
+            "keep worktree .claude/worktrees/agent-w: unstaged changes", "cleanup: 0 removed, 2 kept"])
+        self.assertEqual(self.repo.git("-C", str(t), "show", ":f.doc"), "two")
+        self.assertEqual((w / "f.doc").read_text(), "two\n")
+
 if __name__ == "__main__":
     unittest.main()

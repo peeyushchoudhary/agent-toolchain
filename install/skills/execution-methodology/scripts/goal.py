@@ -1015,21 +1015,25 @@ def worktree_verdict(w, here, base):
         return "submodules", False
     if any(l.startswith("?? ") for l in git(wt, "status", "--porcelain", "--untracked-files=all").splitlines()):
         return "untracked files", False
-    if git_try(wt, "diff", "--quiet").returncode:
+    if git_try(wt, "diff", "--quiet", "--no-ext-diff", "--no-textconv").returncode:
         return "unstaged changes", False
-    proc = git_try(wt, "diff", "--cached", "--binary")
-    staged = proc.stdout  # bytes, fed to apply unchanged
-    if proc.returncode:  # a failed diff proves nothing: keep
-        return "staged changes not in origin/main", False
-    if not staged:
+    return staged_verdict(lambda *args, **kw: git_try(wt, *args, **kw), base)
+
+def staged_verdict(run, base):
+    """(reason, remove) for an index, by plumbing, which no textconv or external diff can hide a change
+    from; any failed git call keeps the worktree."""
+    if run("diff-index", "--cached", "--quiet", "HEAD").returncode == 0:
         return "merged", True
-    tmp = tempfile.mkdtemp()
-    try:
-        env = {**os.environ, "GIT_INDEX_FILE": os.path.join(tmp, "index")}
-        held = (git_try(wt, "read-tree", base, env=env).returncode == 0
-                and git_try(wt, "apply", "--cached", "--check", "-R", input=staged, env=env).returncode == 0)
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    staged = run("diff-index", "--cached", "-p", "--binary", "HEAD")  # bytes, fed to apply unchanged
+    held = False
+    if staged.returncode == 0 and staged.stdout:
+        tmp = tempfile.mkdtemp()
+        try:
+            env = {**os.environ, "GIT_INDEX_FILE": os.path.join(tmp, "index")}
+            held = (run("read-tree", base, env=env).returncode == 0
+                    and run("apply", "--cached", "--check", "-R", input=staged.stdout, env=env).returncode == 0)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
     return ("changes already in origin/main", True) if held else ("staged changes not in origin/main", False)
 
 def cmd_cleanup(ctx, a):
