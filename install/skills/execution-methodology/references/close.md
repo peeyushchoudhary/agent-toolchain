@@ -28,8 +28,9 @@ pushes the branch and opens the PR; the founder merges and tags. Next milestone:
 Record failures present at approval once with `gate.py baseline`; diagnose any new failure, never
 rerun until green.
 
-A `full_gate` or `e2e` receipt that failed only on named tests, whose cause is machine load (a
-timeout or resource error, the test passing alone, an overlapping run in `checks.jsonl`), is
+A `full_gate` or `e2e` receipt that failed only on named tests, because the machine was loaded, is
 completed once, not rerun whole: `gate.py receipt ... --rerun-failed "<command naming each failed
-test and any that did not run>" --cause "<that evidence>"`. A failure that reproduces alone, or has
-any other cause, gets a fix and a full receipt.
+test and any that did not run>" --cause "<evidence>"`. `gate.py` accepts it only when each failure
+is a timeout or resource error, another recorded run overlapped it or the load reached the CPU
+count, and the rerun passes. A failure that reproduces alone gets a fix. An assertion failure that
+passes alone means one test depends on another: fix it and run the full gate.
