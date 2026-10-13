@@ -35,7 +35,8 @@ Each role's model and effort: [references/roles.md](references/roles.md).
 7. Commit `[Tn] <title>` with the tick and one Decisions line per default taken.
 8. Where the full gate takes 600 s or less, every third task commit start `gate.py receipt --name
    full_gate --runs <your .runs>` in a detached worktree at that commit, in the background, one at a
-   time; a sample due during a run starts on the newest commit when it ends. Otherwise the full gate
+   time, and remove that worktree when the run ends; a sample due during a run starts on the newest
+   commit when it ends. Otherwise the full gate
    runs only at close. A full-gate FAIL stops dispatch until a fix passes.
 
 ## `plan.md` format

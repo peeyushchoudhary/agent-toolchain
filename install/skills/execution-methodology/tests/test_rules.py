@@ -177,6 +177,9 @@ class Loop(unittest.TestCase):
         for words in ("every third task commit", "newest", "600 s", "only at close"):
             self.assertIn(words, step)
 
+    def test_background_gate_worktree_is_removed_when_run_finishes(self):
+        self.assertIn("remove that worktree when the run ends", loop_step(8))
+
     def test_at_most_four_builders_run_at_once(self):
         self.assertIn("four builders", loop_step(3))
 
