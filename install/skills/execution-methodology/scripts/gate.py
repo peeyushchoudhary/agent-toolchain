@@ -3,7 +3,6 @@
 
   gate.py check    --cmd CMD [--goal G] [--count none] [--junit GLOB] [--runs DIR]
   gate.py receipt  --goal G --cmd CMD [--name full_gate|e2e|proof] [--count none] [--junit GLOB] [--runs DIR]
-                   [--rerun-failed SUBSET --cause TEXT]
   gate.py baseline --goal G --cmd CMD [--junit GLOB] [--runs DIR]
 
 `check` gates a commit and writes nothing but a log, except that a failing check on a clean committed
@@ -15,9 +14,7 @@ in `rerun_of`, and counts the replacements in `reruns`. Exit codes: 0 PASS, 1 FA
 
 Under a goal each run appends one line to `<runs>/<goal>/checks.jsonl`, and each command's last line is
 its budget line. `--runs` names the `.runs` directory (default `<root>/.runs`), so a run in a linked
-worktree can record into the main checkout's. `receipt --rerun-failed` completes, once, a FAIL receipt
-whose only reason is failures not in the baseline, each a timeout or resource error during recorded
-load, by running SUBSET, which names every one of them.
+worktree can record into the main checkout's.
 """
 from __future__ import annotations
 
@@ -28,7 +25,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import time
@@ -83,30 +79,6 @@ PYTEST_ID = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.M)
 GRADLE_LINE = re.compile(r"(\d+) tests completed, (\d+) failed(?:, (\d+) skipped)?")
 GRADLE_ID = re.compile(r"^(\S+) > (\S+).* FAILED\s*$", re.M)
 GRADLE_CACHED = re.compile(r"^\d+ actionable tasks?:.*\bfrom cache\b", re.M)
-PYTEST_HEADER = re.compile(r"^_{3,} (\S+) _{3,}$", re.M)
-# Evidence is an exception line, the line a runner prints for what was raised: a dotted class name,
-# then `: message`, ` at <place>` or the end of the line, after pytest's `E` prefix or a summary's `- `.
-# Frames, source excerpts (pytest's `>` lines) and test names never count.
-EXCEPTION_LINE = re.compile(r"^(?:E\s+|\s*-\s+|\s*)((?:[A-Za-z_$][\w$]*\.)*[A-Z][\w$]*)(?::\s*(.*?)|\s+at\s+\S+)?\s*$")
-TIMEOUT_CLASSES = {"TimeoutExpired", "TimeoutError", "TimeoutException", "OutOfMemoryError", "MemoryError",
-                   "DeadlineExceeded", "DeadlineExceededError"}
-RESOURCE_MESSAGE = re.compile(r"Too many open files|Cannot allocate memory")
-ASSERTION = re.compile(r"\b(?:AssertionError|AssertionFailedError|ComparisonFailure)\b|^E\s+assert\b", re.M)
-
-
-def timeout_evidence(block: str) -> bool:
-    """Whether a failure block raised a timeout or resource error and shows no assertion failure."""
-    if ASSERTION.search(block):
-        return False
-    for line in block.splitlines():
-        m = EXCEPTION_LINE.match(line)
-        if not m:
-            continue
-        name, message = m.group(1).rsplit(".", 1)[-1], m.group(2) or ""
-        if (name in TIMEOUT_CLASSES or (name == "Failed" and message.startswith("Timeout"))
-                or (name in ("OSError", "IOError", "IOException") and RESOURCE_MESSAGE.search(message))):
-            return True
-    return False
 # Playwright's end-of-run summary: one two-space-indented line per outcome; `passed` carries the
 # duration. Failed and interrupted tests are listed beneath their line, indented four spaces.
 PLAYWRIGHT_LINE = re.compile(r"^  (\d+) (passed|flaky|failed|interrupted|skipped|did not run)"
@@ -168,11 +140,8 @@ def parse_counts(out: str) -> dict:
         gradle["failed"] += int(bad)
         gradle["skipped"] += skip
     ids += [f"{c}.{m}" for c, m in GRADLE_ID.findall(out)]
-    # Each runner invocation prints one summary; a suite a chained command never reached prints none.
-    summaries = (len(rans) + len(PYTEST_LINE.findall(out)) + len(GRADLE_LINE.findall(out))
-                 + (1 if PLAYWRIGHT_LINE.search(out) else 0))
     return {"executed": executed, "failed": failed, "skipped": skipped,
-            "failures": ids, "gradle": gradle, "summaries": summaries}
+            "failures": ids, "gradle": gradle}
 
 
 def parse_junit(root, pattern, since: float) -> dict | None:
@@ -192,8 +161,6 @@ def parse_junit(root, pattern, since: float) -> dict | None:
             if tags & {"failure", "error"}:
                 res["failed"] += 1
                 res["failures"].append(f"{case.get('classname', '')}.{case.get('name', '')}")
-            else:
-                res.setdefault("passed", []).append(f"{case.get('classname', '')}.{case.get('name', '')}")
     return res
 
 
@@ -267,7 +234,7 @@ def load_baseline(root, goal, cmd, runs=None) -> dict:
     return entry if isinstance(entry, dict) else {}
 
 
-def evaluate(root, cmd, goal, count_none, junit, label, runs=None, baseline=True):
+def evaluate(root, cmd, goal, count_none, junit, label, runs=None):
     """Run cmd and apply the failure rules. Return the result record (without tree fields) and the duration."""
     before = snapshot(root)
     started = dt.datetime.now().timestamp()
@@ -282,7 +249,7 @@ def evaluate(root, cmd, goal, count_none, junit, label, runs=None, baseline=True
     failed = counts["failed"] + src["failed"]
     skipped = counts["skipped"] + src["skipped"]
     failures = sorted(set(counts["failures"] + (xml["failures"] if xml else [])))
-    entry = {} if not baseline else load_baseline(root, goal, cmd, runs)
+    entry = load_baseline(root, goal, cmd, runs)
     baseline = set(entry.get("failures", []))
     new = [f for f in failures if f not in baseline]
     known = [f for f in failures if f in baseline]
@@ -320,8 +287,7 @@ def evaluate(root, cmd, goal, count_none, junit, label, runs=None, baseline=True
             "skipped": skipped, "failures": failures, "new_failures": new,
             "baseline_failures": known, "started_at": started_at, "finished_at": now(),
             "verdict": "FAIL" if reasons else "PASS", "reasons": reasons, "log": str(log),
-            "load": [round(x, 2) for x in os.getloadavg()], "cpus": os.cpu_count(),
-            "summaries": counts["summaries"]}, duration
+            "load": [round(x, 2) for x in os.getloadavg()], "cpus": os.cpu_count()}, duration
 
 
 def summary(res) -> str:
@@ -329,11 +295,7 @@ def summary(res) -> str:
             f"{res['failed']} failed / {res['skipped']} skipped")
     if res["baseline_failures"]:
         line += f" (baseline {len(res['baseline_failures'])})"
-    lines = [line] + [f"  - {r}" for r in res["reasons"]]
-    if res.get("partial"):
-        lines.append(f"  - partial: reran {len(res['partial'].get('new_failures', []))} failed test(s) "
-                     f"after a load failure; cause: {res['cause']}")
-    return "\n".join(lines)
+    return "\n".join([line] + [f"  - {r}" for r in res["reasons"]])
 
 
 def read_receipt(path: Path) -> dict:
@@ -382,155 +344,6 @@ def cmd_check(args, root):
     return 0 if res["verdict"] == "PASS" else 1
 
 
-def failure_blocks(out: str) -> dict:
-    """Each failed test's blocks in a log: from just after the id on the line naming it to the next such line."""
-    heads = [(m.start(), m.end(), m.group(2) if m.group(2).endswith("." + m.group(1)) else f"{m.group(2)}.{m.group(1)}")
-             for m in UNITTEST_ID.finditer(out)]
-    heads += [(m.start(), m.end(1), m.group(1)) for m in (*PYTEST_ID.finditer(out), *PYTEST_HEADER.finditer(out))]
-    heads += [(m.start(), m.end(2), f"{m.group(1)}.{m.group(2)}") for m in GRADLE_ID.finditer(out)]
-    heads.sort()
-    blocks = {}
-    for k, (_start, body, key) in enumerate(heads):
-        blocks.setdefault(key, []).append(out[body:heads[k + 1][0] if k + 1 < len(heads) else len(out)])
-    return blocks
-
-
-def overlapping_run(checks: Path, old: dict) -> bool:
-    """Whether another run in the checks record overlaps the failed run old."""
-    try:
-        start, end = (dt.datetime.fromisoformat(old[k]) for k in ("started_at", "finished_at"))
-        lines = checks.read_text().splitlines()
-    except (OSError, KeyError, TypeError, ValueError):
-        return False
-    for line in lines:
-        try:
-            rec = json.loads(line)
-            if (rec["command"], rec["tree"]) == (old.get("command"), old.get("tree")):
-                continue  # the failed run's own record
-            if rec.get("verdict") == "REFUSED" or not rec["duration_s"] > 0:
-                continue  # a refused or instant command loaded nothing
-            rec_end = dt.datetime.fromisoformat(rec["finished_at"])
-            if rec_end - dt.timedelta(seconds=rec["duration_s"]) < end and rec_end > start:
-                return True
-        except (KeyError, TypeError, ValueError):
-            continue
-    return False
-
-
-def shell_words(cmd: str) -> list:
-    """cmd's words as the shell splits them, operators such as `;` and `&&` apart; [] for unbalanced quotes."""
-    try:
-        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
-        lex.whitespace_split, lex.commenters = True, ""
-        return list(lex)
-    except ValueError:
-        return []
-
-
-def plain_command(cmd: str) -> bool:
-    """Whether cmd is one plain command: no unquoted comment, chain, pipe or redirection, and no command
-    substitution. Quoted text, such as a pytest id `'t.py::test_x[a#b]'`, is an argument, not syntax."""
-    if "`" in cmd or "$(" in cmd or "\n" in cmd:
-        return False
-    try:
-        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
-        lex.whitespace_split, lex.commenters = True, ""
-        tokens = list(lex)
-        bare = shlex.shlex(cmd, posix=True, punctuation_chars=True)
-        bare.whitespace_split = True
-        uncommented = list(bare)
-    except ValueError:  # an unclosed quote
-        return False
-    operators = [tok for tok in tokens if tok and set(tok) <= set("();<>|&")]
-    return bool(tokens) and not operators and tokens == uncommented and tokens[0] not in ("echo", "printf", "true", ":")
-
-
-UNITTEST_OK = re.compile(r"^(\w+) \(([^)\s]+)\)(?: .*)? \.\.\. ok$", re.M)
-PYTEST_PASSED = re.compile(r"^(?:(\S+::\S+) PASSED\b|PASSED (\S+::\S+))", re.M)
-GRADLE_PASSED = re.compile(r"^(\S+) > (\S+).* PASSED\s*$", re.M)
-
-
-def canonical(test_id: str) -> str:
-    """One spelling per test: a pytest node `tests/a.py::C::t` reads as JUnit XML names it, `tests.a.C.t`."""
-    if "::" not in test_id:
-        return test_id
-    path, rest = test_id.split("::", 1)
-    path = path[:-3] if path.endswith(".py") else path
-    return path.replace("/", ".") + "." + rest.replace("::", ".")
-
-
-def passed_ids(out: str, xml: dict | None) -> set:
-    """The tests a run reports by name as passed: unittest -v, pytest -v or -rA, Gradle's PASSED events,
-    and JUnit XML."""
-    ids = [where if where.endswith("." + name) else f"{where}.{name}" for name, where in UNITTEST_OK.findall(out)]
-    ids += [a or b for a, b in PYTEST_PASSED.findall(out)]
-    ids += [f"{c}.{m}" for c, m in GRADLE_PASSED.findall(out)]
-    ids += (xml or {}).get("passed", [])
-    return {canonical(i) for i in ids}
-
-
-def last_complete_run(runs: Path, cmd: str) -> dict:
-    """The newest PASS receipt of cmd in any goal under runs, not itself completed by a rerun: how many
-    tests a run of cmd executes when nothing stops it early."""
-    found = []
-    for path in runs.glob("*/receipts/*.json"):
-        r = read_receipt(path)
-        if r.get("command") == cmd and r.get("verdict") == "PASS" and "partial" not in r:
-            found.append((str(r.get("finished_at", "")), r))
-    return max(found, key=lambda x: x[0])[1] if found else {}
-
-
-def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
-    """Why `--rerun-failed subset` cannot complete the receipt old for (tree, cmd); empty when it can."""
-    if "partial" in old or "rerun_started" in old:
-        return "this receipt was already completed once with --rerun-failed; run the full receipt again"
-    if not (old.get("verdict") == "FAIL" and old.get("tree") == tree and old.get("command") == cmd):
-        return "--rerun-failed needs a FAIL receipt for this tree and command"
-    reasons = old.get("reasons", [])
-    if len(reasons) != 1 or not reasons[0].startswith("failures not in baseline: "):
-        return "--rerun-failed needs a FAIL receipt whose only reason is failures not in baseline"
-    try:
-        log = Path(old.get("log", "")).read_text(errors="replace")
-    except OSError:
-        log = ""
-    if PLAYWRIGHT_LINE.search(log):
-        return ("--rerun-failed reads unittest, pytest and Gradle output; a Playwright run names no test it "
-                "can rerun and prove, so run the full gate")
-    if re.search(r"\bgradlew?\b", cmd) and "--continue" not in cmd:
-        return "gradle command without --continue: the modules after the first failure did not run"
-    words = shell_words(cmd) or cmd.split()
-    if {"-x", "--exitfirst", "--failfast"} & set(words) or any(w.startswith("--maxfail") for w in words) \
-            or ("unittest" in words and "-f" in words):
-        return "a fail-fast command stops at its first failure, so the tests after it did not run"
-    complete = last_complete_run(checks.parent.parent, cmd)
-    if not complete or "summaries" not in complete:
-        return ("no earlier PASS receipt of this command records how many tests and suites a complete run "
-                "reports; run the full receipt again")
-    if old.get("summaries", 0) < complete["summaries"]:
-        return (f"the failed run printed {old.get('summaries', 0)} suite summary(ies), fewer than the "
-                f"{complete['summaries']} of the last complete run: a suite did not run, so run the full gate")
-    if old.get("executed", 0) < complete.get("executed", 0):
-        return (f"the failed run executed {old.get('executed', 0)} test(s), fewer than the {complete['executed']} "
-                "of the last complete run: tests that did not run need the full gate")
-    if not plain_command(subset):
-        return ("the --rerun-failed command must be one plain test command: no comment, echo, chaining, "
-                "pipe, redirection or substitution")
-    blocks = failure_blocks(log)
-    shorts = [f.split("::", 1)[1].replace("::", ".") for f in old.get("failures", []) if "::" in f]
-    for f in old.get("new_failures", []):
-        short = f.split("::", 1)[1].replace("::", ".") if "::" in f else None
-        # A pytest traceback header names the test without its file: it counts only when no other failure
-        # shares that name, so same-named tests in two files never lend each other evidence.
-        keys = [f] + ([short] if short and shorts.count(short) == 1 else [])
-        if not any(timeout_evidence(b) for k in keys for b in blocks.get(k, [])):
-            return (f"{f}: not a timeout or resource error; a test that fails in the suite and passes alone "
-                    "may depend on another test, so run the full gate")
-    load, cpus = old.get("load") or [], old.get("cpus")
-    if not (len(load) > 1 and cpus and load[1] >= cpus) and not overlapping_run(checks, old):
-        return "no recorded load during the failed run"
-    return ""
-
-
 def refuse_receipt(root, args, why) -> int:
     """A refused receipt still leaves its line in the checks record and ends with the budget line."""
     print(f"receipt refused: {why}")
@@ -540,47 +353,19 @@ def refuse_receipt(root, args, why) -> int:
 
 
 def cmd_receipt(args, root):
-    if bool(args.rerun_failed) != bool(args.cause):
-        return refuse_receipt(root, args, "--rerun-failed and --cause go together")
     dirty = dirty_paths(root)
     if dirty:
         return refuse_receipt(root, args, "the working tree is not clean; commit first:\n  " + "\n  ".join(dirty[:10]))
     tree = git(root, "rev-parse", "HEAD^{tree}")
     path = receipt_path(root, args.goal, tree, args.cmd, args.runs)
     old = read_receipt(path)
-    cmd = args.cmd
-    if args.rerun_failed:
-        why = rerun_refusal(old, tree, args.cmd, args.rerun_failed,
-                            runs_dir(root, args.runs) / args.goal / "checks.jsonl")
-        if why:
-            return refuse_receipt(root, args, why)
-        cmd = args.rerun_failed
-        # The one try is spent before the subset runs, so an interrupted attempt cannot be repeated.
-        write_receipt(path, {**old, "rerun_started": now()})
-    # A rerun must pass alone: no baseline of the subset command excuses a failure in it.
-    res, duration = evaluate(root, cmd, args.goal, args.count == "none", args.junit, args.name, args.runs,
-                             baseline=not args.rerun_failed)
-    if args.rerun_failed:
-        # The subset proves each failure passed by naming it in its own output; naming it in the command
-        # proves nothing, since a different test can share the name as a prefix.
-        out = Path(res["log"]).read_text(errors="replace")
-        since = dt.datetime.fromisoformat(res["started_at"]).timestamp()
-        passed = passed_ids(out, parse_junit(root, args.junit, since) if args.junit else None)
-        missing = [f for f in old.get("new_failures", []) if canonical(f) not in passed]
-        if missing:
-            res["reasons"].append("the rerun did not report " + ", ".join(missing) + " as passed; run those "
-                                  "tests verbosely (unittest -v, pytest -v, Gradle testLogging events "
-                                  "\"passed\") or name their JUnit XML with --junit")
-            res["verdict"] = "FAIL"
-    # `command` stays the full command, so the receipt path and `goal.py done` are unchanged.
-    res.update({"command": args.cmd, "tree": tree, "name": args.name, **rerun_fields(old)})
-    if args.rerun_failed:
-        res.update({"partial": old, "rerun_command": cmd, "cause": args.cause})
+    res, duration = evaluate(root, args.cmd, args.goal, args.count == "none", args.junit, args.name, args.runs)
+    res.update({"tree": tree, "name": args.name, **rerun_fields(old)})
     if git(root, "rev-parse", "HEAD^{tree}") != tree:
         res["reasons"].append("HEAD moved during the run")
         res["verdict"] = "FAIL"
     write_receipt(path, res)
-    record(root, args.goal, "receipt", cmd, tree, duration, res["verdict"], args.runs)
+    record(root, args.goal, "receipt", args.cmd, tree, duration, res["verdict"], args.runs)
     print(summary(res))
     if res["reruns"]:
         print(f"rerun: replaces {res['reruns']} earlier receipt(s); seen failing: "
@@ -627,8 +412,6 @@ def main(argv=None):
             p.add_argument("--count", choices=["none"])
         if name == "receipt":
             p.add_argument("--name", default="proof", choices=["full_gate", "e2e", "proof", "gate"])
-            p.add_argument("--rerun-failed", help="a command that reruns, by name, every new failure of the FAIL receipt")
-            p.add_argument("--cause", help="the evidence that machine load caused the failure")
     args = ap.parse_args(argv)
     try:
         root = repo_root()
