@@ -388,13 +388,14 @@ def cmd_check(args, root):
     if args.modules is not None:
         return check_modules(args, root)
     goal = args.goal or active_goal(root, args.runs)
+    before = git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}", check=False)
     res, duration = evaluate(root, args.cmd, goal, args.count == "none", args.junit, "check", args.runs)
     print(summary(res))
     tree = git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}", check=False)
     if goal:
         record(root, goal, "check", args.cmd, tree, duration, res["verdict"], args.runs,
                {k: res[k] for k in READINGS})
-    if goal and res["verdict"] == "FAIL" and not dirty_paths(root):
+    if goal and res["verdict"] == "FAIL" and tree == before and not dirty_paths(root):
         contradict(root, goal, tree, args.cmd, res, args.runs)
     print(budget_line("check", duration))
     return 0 if res["verdict"] == "PASS" else 1
@@ -471,23 +472,25 @@ def modules_line(failed, total) -> str:
 
 
 def check_modules(args, root):
-    """Run every named module; a failure on a clean tree supersedes that module's PASS receipt."""
+    """Run every named module; a failure on a clean tree that HEAD kept during the run supersedes that
+    module's PASS receipt on that tree."""
     goal = args.goal or active_goal(root, args.runs)
     mods = named_modules(root, args.modules)
     load = os.getloadavg()[0]
-    tree = git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}", check=False)
     failed, total = [], 0.0
     for name, spec in mods:
+        before = git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}", check=False)
         res, duration = evaluate(root, spec["test"], goal, spec.get("count") == "none", args.junit, "check",
                                  args.runs, load)
         total += duration
         print(f"module {name}: {summary(res)}")
+        tree = git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}", check=False)
         if goal:
             record(root, goal, "check", spec["test"], tree, duration, res["verdict"], args.runs,
                    {**{k: res[k] for k in READINGS}, "module": name})
         if res["verdict"] == "FAIL":
             failed.append(name)
-            if goal and not dirty_paths(root):
+            if goal and tree == before and not dirty_paths(root):
                 contradict(root, goal, tree, spec["test"], res, args.runs)
     print(modules_line(failed, len(mods)))
     print(budget_line("check", total))

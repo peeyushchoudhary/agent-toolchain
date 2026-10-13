@@ -582,6 +582,20 @@ class ModulesTest(GateCase):
         a = self.module_receipt("a")
         self.assertEqual((a["verdict"], a["retry_of"]["verdict"]), ("FAIL", "FAIL"))
 
+    def test_head_move_does_not_preserve_contradicted_destination_tree_pass(self):
+        move = "printf 'x\\n' > moved.txt && git add moved.txt && git commit -q -m moved && "
+        self.write_map({"a": module_cmd("a", move), "b": module_cmd("b"), "c": module_cmd("c")})
+        self.repo.write("moved.txt", "x\n")
+        self.repo.commit("moved")  # tree B, the tree module a's run will move HEAD to
+        self.assertEqual(self.modules("receipt", "b").returncode, 0)
+        self.repo.git("reset", "-q", "--hard", "HEAD~1")
+        self.mode("b", "crash")
+        res = self.modules("check", "a,b")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertTrue(self.repo.path("moved.txt").is_file())  # HEAD is on tree B again
+        b = self.module_receipt("b")
+        self.assertEqual((b["verdict"], b["superseded"]["verdict"]), ("FAIL", "PASS"))
+
     def test_failed_check_invalidates_pass_without_reopening_retry(self):
         self.assertEqual(self.modules("receipt", "a").returncode, 0)
         self.mode("a", "crash")
