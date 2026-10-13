@@ -7,7 +7,8 @@ field ordering them, and worktrees pile up (128).
 
 **What changes for the user.** A task names its gate and the tasks it needs; `next` lists the ready
 ones; runs record durations; `lint` warns about slow, unordered or overlapping tasks. The full
-gate runs at close, and also every third task where it takes 600 s or less. Up to three builders work at once, each
+gate runs at close, and also every third task where it takes 600 s or less. Up to four builders
+work at once, each
 in a fresh worktree removed after its commit.
 
 **Acceptance criteria.**
@@ -22,11 +23,11 @@ in a fresh worktree removed after its commit.
   budget line (600 s for `check`, 1800 s otherwise).
 - AC5 WHEN a task lacks a `gate:` line and the plan gate's last `check` exceeded 600 s THE SYSTEM
   SHALL warn at `lint`.
-- AC6 WHEN `check` runs Gradle reusing up-to-date results THE SYSTEM SHALL count only tests that ran
-  and report the reuse, and SHALL fail results restored from a build cache; `receipt` and
-  `baseline` SHALL require a full rerun.
+- AC6 WHEN `check` runs Gradle THE SYSTEM SHALL accept `--rerun` or `--rerun-tasks`, count only
+  tests that ran and fail results restored from a build cache; `receipt` and `baseline` SHALL
+  require `--rerun-tasks`.
 - AC7 WHEN the skill is read THE SYSTEM SHALL state within 1,350 always-loaded words the task's
-  gate, the full-gate cadence, at most three builders and dispatch after `needs` commit.
+  gate, the full-gate cadence, at most four builders and dispatch after `needs` commit.
 - AC8 WHEN a builder's worktree is the chief's checkout or lacks its packet's commit THE SYSTEM
   SHALL stop the builder, in both harnesses.
 - AC9 WHEN `e2e_run.sh` runs THE SYSTEM SHALL prove AC2 and AC4 in both harnesses.

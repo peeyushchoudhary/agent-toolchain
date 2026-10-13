@@ -8,15 +8,15 @@ the chief to use them.
 - **The plan carries two more task fields.** `gate:` names the command that validates the task;
   `needs:` names the earlier tasks it builds on. Both are parsed like `writes:` and read at the
   parent like it: changing either after approval is a plan-only commit with a Decisions line.
-- **`gate.py` records every run and judges caching by purpose.** Each `check`, `receipt` and
-  `baseline` appends one line to `.runs/<id>/checks.jsonl`, and the summary ends with a budget
+- **`gate.py` records every run and stops recompiling for a task check.** Each `check`, `receipt`
+  and `baseline` appends one line to `.runs/<id>/checks.jsonl`, and the summary ends with a budget
   line. `--runs <dir>` lets a run made in another worktree record into the chief's `.runs/`. A
-  `check` may reuse Gradle's up-to-date results and counts only the tests that ran; a `receipt` or
-  `baseline` must still force a full rerun.
+  `check` may force only its test tasks (`--rerun`), so compilation stays incremental and no test
+  result is reused; a `receipt` or `baseline` still forces every task (`--rerun-tasks`).
 - **`goal.py` schedules and warns.** `next` prints every ready task; `resume` says when open tasks
   are blocked; `lint` warns about `needs` errors, unchained overlapping write sets and a slow
   default gate; the approval page shows each task's gate.
-- **Words.** The chief dispatches up to three builders on ready tasks, each in its own isolated
+- **Words.** The chief dispatches up to four builders on ready tasks, each in its own isolated
   worktree branched from the chief's HEAD, so a task dispatched after its `needs` are committed
   builds on them. Where the full gate runs in 600 s or less, it also runs every third task commit
   in a separate worktree, one at a time; where it runs longer, only at close. The builder stops when its worktree lacks the commit its packet names.
@@ -59,15 +59,18 @@ the chief to use them.
    receipt binds to, the clean-tree refusal and the change-during-run snapshot stay those of the
    worktree the command runs in. `goal.py` is unchanged: it reads its own checkout's `.runs/`, which
    is where `--runs` points.
-6. **Caching.** `check` adds no reason for a Gradle command without `--rerun-tasks`. It counts what
-   ran, as today: JUnit XML written during the run (the existing mtime filter) and console counts.
-   When Gradle's `<n> actionable tasks:` line reports `up-to-date`, the summary adds `  - reused: <k>
-   of <n> Gradle tasks up-to-date`, information only. When that line reports `from cache`, the
-   restored XML looks fresh but did not run, and nothing tells it apart from XML that did, so
-   `check` counts no JUnit XML for that run (console counts only) and adds the FAIL reason `test
-   results restored from the build cache did not run; add --no-build-cache`. A scoped gate whose tests were
-   all up to date executed none and FAILs as today. `receipt` keeps the `--rerun-tasks` reason; a
-   `baseline` naming Gradle without `--rerun-tasks` is refused: exit 1, nothing recorded.
+6. **Gradle.** A task gate runs targeted tests, whose inputs the task changed, so reusing test
+   results gains almost nothing; the cost today is `--rerun-tasks`, which recompiles every module
+   before a few tests. `check` therefore accepts a Gradle command with `--rerun` (Gradle's per-task
+   option, which forces the test task it follows and leaves compilation incremental) or
+   `--rerun-tasks`; with neither, the existing reason, reworded `gradle command without --rerun or
+   --rerun-tasks may report cached results`. `check` counts what ran, as today: JUnit XML written
+   during the run (the existing mtime filter) and console counts. When Gradle's `<n> actionable
+   tasks:` line reports `from cache`, the restored XML looks fresh but did not run, and nothing tells
+   it apart from XML that did, so `check` counts no JUnit XML for that run (console counts only)
+   and adds the FAIL reason `test results restored from the build cache did not run; add
+   --no-build-cache`. `receipt` keeps requiring `--rerun-tasks`; a `baseline` naming Gradle without
+   it is refused: exit 1, nothing recorded.
 7. **Approval page.** The task table gains a Gate column: the task's `gate:` or `plan gate`.
 8. **Builders.** `agents/builder.md` and `.toml` keep their isolation: the harness starts each
    builder's shell and file tools in its own worktree, so a command without a path cannot reach the
@@ -101,7 +104,7 @@ edited.
 
 Fields are parsed by the existing `FIELD_RE` path; `next` reuses `next_task`'s milestone filter;
 warnings reuse `overlap()`; the record is one `open(..., "a")`; `--runs` replaces one path root; the
-cache rule moves one condition and adds two output checks. The dispatch cap, the every-third full
+Gradle rule widens one condition and adds one output check. The dispatch cap, the every-third full
 gate and the 600-second planning budget are instructions in `SKILL.md` and
 `references/planning.md`, judged by the plan reviewer and the founder, not by `done`.
 
@@ -127,8 +130,10 @@ gate and the 600-second planning budget are instructions in `SKILL.md` and
   receipts: 5 setup aborts in 2 to 8 minutes, 6 real failures after 41 to 99 minutes, 2 passes)
   shows the cost is failures found late, which a scoped gate carrying the reached modules and the
   task's focused e2e addresses without the overlap (founder, 2026-10-13).
-- **Caching in receipts or baselines**: a receipt is the milestone's evidence and a baseline excuses
-  failures; an undeclared Gradle input would let a stale result stand in for a run.
+- **Reusing Gradle test results in a task check**: a targeted gate's tests have changed inputs and
+  rerun anyway, so reuse gains almost nothing, and a test reading an undeclared file could pass
+  stale (founder, 2026-10-13). In receipts or baselines it would let a stale result stand in for
+  the milestone's evidence.
 - **A `gate_budget` key or a budget error**: the council's verdict; a recorded duration and a
   warning carry the signal without halting a passing gate.
 - **A lane tool**: dispatch order is the `next` output plus a cap in words.
@@ -138,8 +143,6 @@ gate and the 600-second planning budget are instructions in `SKILL.md` and
 - A reach failure the scoped gate misses surfaces at the next full gate: in a fast-gate repository
   within a few tasks; in a slow-gate repository only at close, where a failure costs one more full
   run after its fix. Dispatch stops at the first FAIL seen.
-- `check` trusts Gradle's up-to-date checks. A test that reads an undeclared file passes from reuse
-  until the next full gate, which always reruns. Parked as a question.
 - Each builder starts with cold build output in a fresh worktree; the chief's checkout stays warm.
-- At most three builders and one background full gate on this machine; overlapped gates run slower,
+- At most four builders and one background full gate on this machine; overlapped gates run slower,
   and the record shows by how much.
