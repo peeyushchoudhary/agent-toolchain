@@ -528,6 +528,20 @@ class RerunFailedTest(GateCase):
         for cmd in (f"python3 -m pytest {node}", "pytest t.py # x", "pytest t.py && true", "pytest $(ls)", "echo t"):
             self.assertFalse(gate.plain_command(cmd), cmd)
 
+    def test_rerun_rejects_timeout_names_in_pytest_source(self):
+        self.assertFalse(gate.timeout_evidence(
+            ">       handler(TimeoutError)\nE       TypeError: handler() takes 0 positional arguments but 1 was given"))
+        self.assertFalse(gate.timeout_evidence('  File "m.py", line 3, in test_timeout\n    wait_timeout()\nValueError: x'))
+        self.assertTrue(gate.timeout_evidence("E       Failed: Timeout >5.0s"))
+        self.assertTrue(gate.timeout_evidence("OSError: [Errno 24] Too many open files"))
+        self.assertTrue(gate.timeout_evidence("    java.util.concurrent.TimeoutException at FooTest.java:12"))
+        lines = ("____ test_x ____", ">       handler(TimeoutError)", "E       TypeError: handler() takes 0 arguments",
+                 "tests/a.py:2: TypeError", "=== short test summary info ===",
+                 "FAILED tests/a.py::test_x - TypeError: handler() takes 0 arguments", "=== 1 failed, 2 passed in 6.0s ===")
+        cmd = "printf '%s\\n' " + " ".join(f"'{line}'" for line in lines) + "; exit 1"
+        self.failed(cmd, **BUSY)
+        self.assertRefused(self.rerun(cmd=cmd), "tests/a.py::test_x: not a timeout or resource error")
+
     def test_rerun_rejects_a_different_test_with_the_failure_id_as_prefix(self):
         self.failed(**BUSY)
         res = self.rerun(passing(SLOW + "_other"))

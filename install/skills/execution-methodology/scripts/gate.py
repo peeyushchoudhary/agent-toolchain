@@ -84,30 +84,29 @@ GRADLE_LINE = re.compile(r"(\d+) tests completed, (\d+) failed(?:, (\d+) skipped
 GRADLE_ID = re.compile(r"^(\S+) > (\S+).* FAILED\s*$", re.M)
 GRADLE_CACHED = re.compile(r"^\d+ actionable tasks?:.*\bfrom cache\b", re.M)
 PYTEST_HEADER = re.compile(r"^_{3,} (\S+) _{3,}$", re.M)
-# A timeout or resource error as an exception names it or a runner reports it; names in frames do not count.
-TIMEOUT_OR_RESOURCE = re.compile(r"\b\w*(?:TimeoutExpired|TimeoutError|TimeoutException|OutOfMemoryError|MemoryError)\b"
-                                 r"|\bFailed: Timeout\b|\btimed out after\b|Cannot allocate memory|Too many open files"
-                                 r"|deadline exceeded")
+# Evidence is an exception line, the line a runner prints for what was raised: a dotted class name,
+# then `: message`, ` at <place>` or the end of the line, after pytest's `E` prefix or a summary's `- `.
+# Frames, source excerpts (pytest's `>` lines) and test names never count.
+EXCEPTION_LINE = re.compile(r"^(?:E\s+|\s*-\s+|\s*)((?:[A-Za-z_$][\w$]*\.)*[A-Z][\w$]*)(?::\s*(.*?)|\s+at\s+\S+)?\s*$")
+TIMEOUT_CLASSES = {"TimeoutExpired", "TimeoutError", "TimeoutException", "OutOfMemoryError", "MemoryError",
+                   "DeadlineExceeded", "DeadlineExceededError"}
+RESOURCE_MESSAGE = re.compile(r"Too many open files|Cannot allocate memory")
 ASSERTION = re.compile(r"\b(?:AssertionError|AssertionFailedError|ComparisonFailure)\b|^E\s+assert\b", re.M)
-FRAME = re.compile(r'^\s*File "|^\s+at [\w$.<>]+\(')
 
 
 def timeout_evidence(block: str) -> bool:
-    """Whether a failure block shows a timeout or resource error and no assertion failure. Traceback
-    frames and the source line under each are dropped, so a test or function named for timeouts proves
-    nothing."""
-    lines, kept, skip = block.splitlines(), [], False
-    for line in lines:
-        if FRAME.match(line):
-            skip = line.lstrip().startswith("File ")
+    """Whether a failure block raised a timeout or resource error and shows no assertion failure."""
+    if ASSERTION.search(block):
+        return False
+    for line in block.splitlines():
+        m = EXCEPTION_LINE.match(line)
+        if not m:
             continue
-        if skip and line.startswith("    "):
-            skip = False
-            continue
-        skip = False
-        kept.append(line)
-    text = "\n".join(kept)
-    return bool(TIMEOUT_OR_RESOURCE.search(text)) and not ASSERTION.search(text)
+        name, message = m.group(1).rsplit(".", 1)[-1], m.group(2) or ""
+        if (name in TIMEOUT_CLASSES or (name == "Failed" and message.startswith("Timeout"))
+                or (name in ("OSError", "IOError", "IOException") and RESOURCE_MESSAGE.search(message))):
+            return True
+    return False
 # Playwright's end-of-run summary: one two-space-indented line per outcome; `passed` carries the
 # duration. Failed and interrupted tests are listed beneath their line, indented four spaces.
 PLAYWRIGHT_LINE = re.compile(r"^  (\d+) (passed|flaky|failed|interrupted|skipped|did not run)"
