@@ -110,7 +110,7 @@ after T1 ticks, T2 and T3) (AC2); `test_resume_reports_blocked_dependencies_with
 `checks.jsonl` line of 700 s (AC5); `test_changing_a_task_gate_needs_a_decisions_line` (row 3). Do
 not change `gate.py`.
 
-### [ ] T3 — `gate.py`: the checks record, the budget line, `--runs`, `--rerun` in `check`
+### [x] T3 — `gate.py`: the checks record, the budget line, `--runs`, `--rerun` in `check`
 writes: install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 reads: docs/goals/S-6/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
@@ -216,5 +216,15 @@ not change scripts.
   writes and `tests-may-change` widen to `goal.py` and `test_goal.py`: the packet's receipts list marks a receipt
   completed this way with its cause (`test_packet_marks_a_partial_receipt`), so the merge reviewer
   and the founder see every one (founder).
+- 2026-10-13 T3: a record's `label` is the subcommand; `duration_s` is monotonic wall time to 0.01 s
+  and the budget line rounds to whole seconds; a `--rerun-failed` run records the subset command, so
+  a short rerun never stands for the full gate's duration; the overlap test skips the failed run's
+  own record and needs a strict overlap; each failure block is searched after its id, so a test
+  named `test_timeout` cannot match itself (default). The chief added `failure_named`: a subset
+  names a failure by its id, or for a dotted id by `Class.method` without `()`, the form a Gradle
+  `--tests` filter uses, which the builder reported would otherwise refuse every Gradle rerun
+  (`test_rerun_failed_accepts_a_gradle_tests_filter`) (default). Follow-ups: a pytest traceback
+  header names only the test, so same-named tests in two files share a block; receipts older than
+  this change carry no `load`.
 
 ## Parked
