@@ -1013,7 +1013,7 @@ def worktree_verdict(w, here, base):
         return f"{n} commit(s) not in origin/main", False
     if any(l.startswith("160000 ") for l in git(wt, "ls-files", "-s").splitlines()):
         return "submodules", False
-    if any(l.startswith("?? ") for l in git(wt, "status", "--porcelain").splitlines()):
+    if any(l.startswith("?? ") for l in git(wt, "status", "--porcelain", "--untracked-files=all").splitlines()):
         return "untracked files", False
     if git_try(wt, "diff", "--quiet").returncode:
         return "unstaged changes", False

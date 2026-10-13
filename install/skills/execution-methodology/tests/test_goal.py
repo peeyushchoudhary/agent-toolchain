@@ -1333,5 +1333,14 @@ class CleanupTest(RepoCase):
         self.assertTrue(res.stderr.startswith("goal.py: cleanup needs origin/main: "), res.stderr)
 
 
+    def test_cleanup_keeps_untracked_files_when_status_hides_them(self):
+        self.repo.git("config", "status.showUntrackedFiles", "no")
+        u = self.builder("u", change=False)
+        (u / "notes.txt").write_text("untracked\n")
+        self.own(u)
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "keep worktree .claude/worktrees/agent-u: untracked files", "cleanup: 0 removed, 1 kept"])
+        self.assertTrue((u / "notes.txt").is_file())
+
 if __name__ == "__main__":
     unittest.main()
