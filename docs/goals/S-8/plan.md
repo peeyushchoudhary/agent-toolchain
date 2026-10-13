@@ -168,7 +168,7 @@ are the contract.
     worktree <path>`, and a second run prints nothing for it.
   - A `Repo()` without a remote exits 2, and stderr starts `goal.py: cleanup needs origin/main:`.
 
-### [ ] T4 — The loop and the close in words: `own`, merge, tag, cleanup; D34
+### [x] T4 — The loop and the close in words: `own`, merge, tag, cleanup; D34
 writes: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md, AGENTS.md
 reads: docs/goals/S-8/design.md#interfaces, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, docs/decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py
@@ -319,5 +319,13 @@ key but `summary` and `last-verified`, and no file under `install/`.
   - **Follow-ups.**
     - With no `origin`, the refusal quotes git's last stderr line, not its `fatal:` line.
     - A finished path that is re-created and owned again is ignored.
+- 2026-10-13 T4:
+  - **D34's shape.** D34 follows D33's actual headings (Chose, Over, Why, Reverses), not the
+    plan's "Chose, Why, Rejected".
+  - **Decisions summary.** The frontmatter `summary` dropped ", D1 to D19 among them" to hold the
+    D34 clause within `docs.py`'s 120-word cap.
+  - **Word budget.** The always-loaded files total 1,341 of 1,350 words, and `close.md` is 310 of
+    400.
+  - **Follow-up.** `close.md` step 1 repeats the arrow chain's "`goal.py done` prints DONE" (default).
 
 ## Parked

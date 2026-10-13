@@ -30,7 +30,8 @@ see [D17](docs/decisions/decisions.md#d17--this-repository-complies-with-the-sta
   [D30](docs/decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2),
   [D31](docs/decisions/decisions.md#d31--the-skill-is-model-invocable-the-chief-is-the-root-session-never-a-subagent),
   [D32](docs/decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6),
-  [D33](docs/decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7).
+  [D33](docs/decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7),
+  [D34](docs/decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8).
 
 ## Verification
 
