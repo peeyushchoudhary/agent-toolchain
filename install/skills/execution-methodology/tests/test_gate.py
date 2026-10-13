@@ -249,7 +249,33 @@ class ReceiptTest(GateCase):
     def test_receipt_omits_removed_load_rerun_metadata(self):
         self.assertGate(self.receipt(), "PASS")
         (r,) = self.receipts()
-        self.assertFalse({"load", "cpus", "partial", "cause", "rerun_command"} & r.keys(), r)
+        self.assertFalse({"load", "partial", "cause", "rerun_command"} & r.keys(), r)
+
+    def test_every_record_and_receipt_carries_load_readings(self):
+        readings = {"started_at", "load_before", "load_peak", "cpus"}
+        self.assertGate(self.check(), "PASS")
+        self.assertGate(self.receipt(), "PASS")
+        (r,) = self.receipts()
+        self.assertLessEqual(readings, r.keys(), r)
+        res = self.repo.gate("baseline", "--goal", "F-9", "--cmd", EMIT, GATE_FIXTURE_MODE="base")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.repo.write("dirty.txt", "x")
+        self.assertIn("receipt refused", self.receipt().stdout)
+        lines = [json.loads(line) for line in self.repo.read(".runs/F-9/checks.jsonl").splitlines()]
+        self.assertEqual([x["label"] for x in lines], ["check", "receipt", "baseline", "receipt"])
+        for x in lines:
+            self.assertLessEqual(readings, x.keys(), x)
+            self.assertIsInstance(x["load_before"], float)
+            self.assertEqual(x["cpus"], os.cpu_count())
+        self.assertEqual(lines[-1]["load_peak"], lines[-1]["load_before"])
+
+    def test_load_peak_is_at_least_load_before(self):
+        self.assertGate(self.receipt(), "PASS")
+        (r,) = self.receipts()
+        self.assertGreaterEqual(r["load_peak"], r["load_before"])
+        self.assertEqual(r["load_before"], round(r["load_before"], 2))
+        *_, readings = gate.run(self.repo.dir, "true", "F-9", "check", load_before=1e6)
+        self.assertEqual((readings["load_before"], readings["load_peak"]), (1e6, 1e6))
 
     def test_rerun_history_accumulates_across_receipts_and_checks(self):
         self.assertGate(self.receipt(mode="base"), "FAIL", "failures not in baseline: " + KNOWN)

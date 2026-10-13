@@ -72,7 +72,7 @@ its `gate` import, and nothing else in `goal.py` changes.
 
 Do not change `gate.py` or any existing test.
 
-### [ ] T2 — `gate.py`: load readings on every run, as diagnostics
+### [x] T2 — `gate.py`: load readings on every run, as diagnostics
 writes: install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
@@ -413,5 +413,9 @@ modules`.
   so that checking for unknown keys cannot crash; missing fields are left for `problems` to name;
   `select` normalises a trailing `/` before the shared-overlap test as well; a cycle is reported once
   per back edge, found in file order (default).
+- 2026-10-13 T2: `cpus` is `os.cpu_count()`; a receipt's single `started_at` now comes from `run()`,
+  taken just before `Popen`; a `READINGS` key tuple lets `check` and `receipt` pass the readings to
+  `record()` while `evaluate()` keeps its return shape; the 5 s sampler is not driven by a test,
+  since that needs a run longer than 5 s (default).
 
 ## Parked

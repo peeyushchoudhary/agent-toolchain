@@ -13,8 +13,9 @@ in `rerun_of`, and counts the replacements in `reruns`. Exit codes: 0 PASS, 1 FA
 2 usage/internal.
 
 Under a goal each run appends one line to `<runs>/<goal>/checks.jsonl`, and each command's last line is
-its budget line. `--runs` names the `.runs` directory (default `<root>/.runs`), so a run in a linked
-worktree can record into the main checkout's.
+its budget line. Every record line and receipt carries load readings (`started_at`, `load_before`,
+`load_peak`, `cpus`) as diagnostics; no rule reads them. `--runs` names the `.runs` directory
+(default `<root>/.runs`), so a run in a linked worktree can record into the main checkout's.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -187,23 +189,45 @@ def snapshot(root) -> dict:
     return snap
 
 
-def run(root, cmd, goal, label, runs=None):
-    """Run cmd under bash in root, echoing output and teeing it to a log. Return (exit, out, log, duration_s)."""
+READINGS = ("started_at", "load_before", "load_peak", "cpus")
+
+
+def run(root, cmd, goal, label, runs=None, load_before=None):
+    """Run cmd under bash in root, echoing output and teeing it to a log.
+
+    Return (exit, out, log, duration_s, readings); readings are diagnostics: the load before the run
+    (load_before when given) and the highest load sampled every 5 s while it ran."""
     logdir = runs_dir(root, runs) / (goal or "_check") / "logs"
     logdir.mkdir(parents=True, exist_ok=True)
     stamp = dt.datetime.now().strftime("%Y%m%dT%H%M%S%f")
     log = logdir / f"{stamp}-{label}-{cmd_hash(cmd)[:12]}.log"
     chunks = []
+    if load_before is None:
+        load_before = os.getloadavg()[0]
+    samples = [load_before]
+    done = threading.Event()
+
+    def sample():
+        while not done.wait(5):
+            samples.append(os.getloadavg()[0])
+
+    readings = {"started_at": now()}
     started = time.monotonic()
     with open(log, "w") as fh:
         proc = subprocess.Popen(["bash", "-c", cmd], cwd=root, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, errors="replace")
+        sampler = threading.Thread(target=sample, daemon=True)
+        sampler.start()
         for line in proc.stdout:
             chunks.append(line)
             fh.write(line)
             sys.stdout.write(line)
         proc.wait()
-    return proc.returncode, "".join(chunks), log, round(time.monotonic() - started, 2)
+        done.set()
+        sampler.join()
+    readings.update({"load_before": round(load_before, 2), "load_peak": round(max(samples), 2),
+                     "cpus": os.cpu_count()})
+    return proc.returncode, "".join(chunks), log, round(time.monotonic() - started, 2), readings
 
 
 def budget_line(label, duration_s) -> str:
@@ -213,13 +237,13 @@ def budget_line(label, duration_s) -> str:
     return f"budget: {duration_s:.0f} s over {budget} s"
 
 
-def record(root, goal, label, cmd, tree, duration_s, verdict, runs=None):
-    """Append one run to the goal's checks record."""
+def record(root, goal, label, cmd, tree, duration_s, verdict, runs=None, readings=None):
+    """Append one run, with its load readings, to the goal's checks record."""
     path = runs_dir(root, runs) / goal / "checks.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a") as fh:
         fh.write(json.dumps({"label": label, "command": cmd, "tree": tree, "duration_s": duration_s,
-                             "verdict": verdict, "finished_at": now()}) + "\n")
+                             "verdict": verdict, "finished_at": now(), **(readings or {})}) + "\n")
 
 
 def load_baseline(root, goal, cmd, runs=None) -> dict:
@@ -238,8 +262,7 @@ def evaluate(root, cmd, goal, count_none, junit, label, runs=None):
     """Run cmd and apply the failure rules. Return the result record (without tree fields) and the duration."""
     before = snapshot(root)
     started = dt.datetime.now().timestamp()
-    started_at = now()
-    code, out, log, duration = run(root, cmd, goal, label, runs)
+    code, out, log, duration, readings = run(root, cmd, goal, label, runs)
     counts = parse_counts(out)
     # In a check, JUnit XML that Gradle restored from the build cache looks fresh but did not run.
     cached = label == "check" and GRADLE_CACHED.search(out)
@@ -285,7 +308,7 @@ def evaluate(root, cmd, goal, count_none, junit, label, runs=None):
         reasons.append("the run changed the working tree")
     return {"command": cmd, "exit": code, "executed": executed, "failed": failed,
             "skipped": skipped, "failures": failures, "new_failures": new,
-            "baseline_failures": known, "started_at": started_at, "finished_at": now(),
+            "baseline_failures": known, **readings, "finished_at": now(),
             "verdict": "FAIL" if reasons else "PASS", "reasons": reasons, "log": str(log)}, duration
 
 
@@ -328,7 +351,8 @@ def cmd_check(args, root):
     print(summary(res))
     tree = git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}", check=False)
     if goal:
-        record(root, goal, "check", args.cmd, tree, duration, res["verdict"], args.runs)
+        record(root, goal, "check", args.cmd, tree, duration, res["verdict"], args.runs,
+               {k: res[k] for k in READINGS})
     if goal and res["verdict"] == "FAIL" and not dirty_paths(root):
         # The same command just failed on the very tree a PASS receipt certifies: that receipt no
         # longer describes the latest run. It is kept as evidence, under the record that supersedes it.
@@ -346,7 +370,10 @@ def cmd_check(args, root):
 def refuse_receipt(root, args, why) -> int:
     """A refused receipt still leaves its line in the checks record and ends with the budget line."""
     print(f"receipt refused: {why}")
-    record(root, args.goal, "receipt", args.cmd, git(root, "rev-parse", "HEAD^{tree}"), 0.0, "REFUSED", args.runs)
+    load = round(os.getloadavg()[0], 2)  # nothing runs, so the peak is the load before
+    readings = {"started_at": now(), "load_before": load, "load_peak": load, "cpus": os.cpu_count()}
+    record(root, args.goal, "receipt", args.cmd, git(root, "rev-parse", "HEAD^{tree}"), 0.0, "REFUSED", args.runs,
+           readings)
     print(budget_line("receipt", 0.0))
     return 1
 
@@ -364,7 +391,8 @@ def cmd_receipt(args, root):
         res["reasons"].append("HEAD moved during the run")
         res["verdict"] = "FAIL"
     write_receipt(path, res)
-    record(root, args.goal, "receipt", args.cmd, tree, duration, res["verdict"], args.runs)
+    record(root, args.goal, "receipt", args.cmd, tree, duration, res["verdict"], args.runs,
+           {k: res[k] for k in READINGS})
     print(summary(res))
     if res["reruns"]:
         print(f"rerun: replaces {res['reruns']} earlier receipt(s); seen failing: "
@@ -378,7 +406,7 @@ def cmd_baseline(args, root):
     if re.search(r"\bgradlew?\b", args.cmd) and "--rerun-tasks" not in args.cmd:
         print("baseline refused: gradle command without --rerun-tasks may report cached results")
         return 1
-    code, out, _log, duration = run(root, args.cmd, args.goal, "baseline", args.runs)
+    code, out, _log, duration, readings = run(root, args.cmd, args.goal, "baseline", args.runs)
     counts = parse_counts(out)
     xml = parse_junit(root, args.junit, 0) if args.junit else None
     failures = sorted(set(counts["failures"] + (xml["failures"] if xml else [])))
@@ -392,7 +420,7 @@ def cmd_baseline(args, root):
                                 "tree": tree, "recorded_at": now()}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n")
-    record(root, args.goal, "baseline", args.cmd, tree, duration, "RECORDED", args.runs)
+    record(root, args.goal, "baseline", args.cmd, tree, duration, "RECORDED", args.runs, readings)
     print(f"baseline: {len(failures)} failure id(s) recorded for this command in {path}")
     print(budget_line("baseline", duration))
     return 0
