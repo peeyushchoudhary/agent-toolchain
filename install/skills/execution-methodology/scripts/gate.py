@@ -489,6 +489,13 @@ def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
     reasons = old.get("reasons", [])
     if len(reasons) != 1 or not reasons[0].startswith("failures not in baseline: "):
         return "--rerun-failed needs a FAIL receipt whose only reason is failures not in baseline"
+    try:
+        log = Path(old.get("log", "")).read_text(errors="replace")
+    except OSError:
+        log = ""
+    if PLAYWRIGHT_LINE.search(log):
+        return ("--rerun-failed reads unittest, pytest and Gradle output; a Playwright run names no test it "
+                "can rerun and prove, so run the full gate")
     if re.search(r"\bgradlew?\b", cmd) and "--continue" not in cmd:
         return "gradle command without --continue: the modules after the first failure did not run"
     words = shell_words(cmd) or cmd.split()
@@ -508,10 +515,7 @@ def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
     if not plain_command(subset):
         return ("the --rerun-failed command must be one plain test command: no comment, echo, chaining, "
                 "pipe, redirection or substitution")
-    try:
-        blocks = failure_blocks(Path(old.get("log", "")).read_text(errors="replace"))
-    except OSError:
-        blocks = {}
+    blocks = failure_blocks(log)
     shorts = [f.split("::", 1)[1].replace("::", ".") for f in old.get("failures", []) if "::" in f]
     for f in old.get("new_failures", []):
         short = f.split("::", 1)[1].replace("::", ".") if "::" in f else None

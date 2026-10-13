@@ -540,6 +540,12 @@ class RerunFailedTest(GateCase):
         for cmd in (f"python3 -m pytest {node}", "pytest t.py # x", "pytest t.py && true", "pytest $(ls)", "echo t"):
             self.assertFalse(gate.plain_command(cmd), cmd)
 
+    def test_rerun_refuses_playwright_output_explicitly(self):
+        lines = ("  1 failed", "    [chromium] › a.spec.ts:3:5 › loads", "  2 passed (6.0s)")
+        cmd = "printf '%s\\n' " + " ".join(f"'{line}'" for line in lines) + "; exit 1"
+        self.failed(cmd, **BUSY)
+        self.assertRefused(self.rerun(cmd=cmd), "a Playwright run names no test it can rerun and prove")
+
     def test_refused_receipt_does_not_establish_overlapping_load(self):
         self.failed(**IDLE, started_at="2026-01-01T00:00:00+00:00", finished_at="2026-01-01T01:00:00+00:00")
         during = "2026-01-01T00:30:00+00:00"  # inside the failed run's hour
