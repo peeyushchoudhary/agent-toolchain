@@ -38,24 +38,21 @@ AC1, AC2. Design Interfaces 1 and 2.
 Add tests only; do not change an existing test, the map, or any other row.
 
 Tests:
-- **`ProtectedSectionTest`.** Add a subclass, `ProtectedLastSectionTest(ProtectedSectionTest)`,
-  whose plan protects `docs/record.md#D1-D3` in place of `#D1-D2`. Its test,
-  `test_appending_after_the_last_protected_section_passes` (AC1):
-  1. A `[T1]` commit appends `"\n## D4 — fourth\n\nFour.\n"` to `RECORD`, and row 4 is ok.
-  2. A later `[T1]` commit changes `Three.` to `Three, revised.`, and row 4 reports `<sha10> [T1]
-     changes protected docs/record.md#D1-D3`.
-
-  Its second test, `test_last_content_line_whitespace_remains_protected` (AC1, design review R1):
-  1. A `[T1]` commit changing `Three.` to `Three.  ` (two trailing spaces, at the end of the file)
-     is reported by row 4.
-  2. Under the parent's plan, which protects `#D1-D2` with the unprotected D3 following, a `[T1]`
-     commit changing `Two.` to `Two.  ` is reported too. Put this case in a test method of its own
-     on a `RepoCase` built with the parent's plan.
+- **`ProtectedSectionTest`** (its plan protects `#D1-D2`, and the unprotected D3 follows). New
+  test `test_whitespace_before_an_unprotected_section_remains_protected` (AC1, design review R1):
+  a `[T1]` commit changing `Two.` to `Two.  ` (two trailing spaces) is reported by row 4 as
+  `<sha10> [T1] changes protected docs/record.md#D1-D2`.
+- **New class `ProtectedLastSectionTest(RepoCase)`.** Its plan and `setUp` copy
+  `ProtectedSectionTest`'s, except that it protects `docs/record.md#D1-D3`. Its tests:
+  - `test_appending_after_the_last_protected_section_passes` (AC1):
+    1. A `[T1]` commit appends `"\n## D4 — fourth\n\nFour.\n"` to `RECORD`, and row 4 is ok.
+    2. A later `[T1]` commit changes `Three.` to `Three, revised.`, and row 4 reports `<sha10> [T1]
+       changes protected docs/record.md#D1-D3`.
+  - `test_last_content_line_whitespace_remains_protected` (AC1, design review R1): a `[T1]` commit
+    changing `Three.` to `Three.  ` at the end of the file is reported by row 4.
 
   Copy `test_protected_section_edit_is_rejected`'s use of `self.fix`, `assertRowOk` and
-  `assertRow`. The subclass must not re-run the parent's test with the new plan: override it with
-  `test_protected_section_edit_is_rejected = None`, or build the plan in a fresh `RepoCase`
-  subclass.
+  `assertRow`.
 - **`CleanupTest.test_cleanup_refusal_quotes_gits_fatal_line`** (AC2). In a `Repo()` without a
   remote, `goal.py cleanup --goal F-9` exits 2. Its stderr is exactly `goal.py: cleanup needs
   origin/main: fatal: 'origin' does not appear to be a git repository\n`.
