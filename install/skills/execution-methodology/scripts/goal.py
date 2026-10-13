@@ -1040,6 +1040,24 @@ def staged_verdict(run, base):
             shutil.rmtree(tmp, ignore_errors=True)
     return ("changes already in origin/main", True) if held else ("staged changes not in origin/main", False)
 
+def gone_verdict(root, w, base):
+    """(reason, remove) for listed worktree w whose directory is gone. Nothing is left to check but its
+    HEAD and its index, which git keeps in the worktree's administrative directory; both must be in B."""
+    if not w["head"] or git_try(root, "merge-base", "--is-ancestor", w["head"], base).returncode:
+        n = git(root, "rev-list", "--count", f"{base}..{w['head']}", check=False) if w["head"] else ""
+        return f"{n or 'unknown'} commit(s) not in origin/main", False
+    common = Path(git(root, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+    want = os.path.join(w["path"], ".git")
+    admin = None
+    for d in (common / "worktrees").iterdir() if (common / "worktrees").is_dir() else ():
+        text = (d / "gitdir").read_text() if (d / "gitdir").is_file() else ""
+        if os.path.realpath(text[:-1] if text.endswith("\n") else text) == want:
+            admin = d
+    if admin is None:
+        return "staged changes not in origin/main", False
+    reason, remove = staged_verdict(lambda *args, **kw: git_try(root, "--git-dir", str(admin), *args, **kw), base)
+    return ("directory gone", True) if remove else (reason, False)
+
 def cmd_cleanup(ctx, a):
     try:
         proc = subprocess.run(["git", "fetch", "--no-tags", "--refmap=", "origin",
@@ -1074,10 +1092,10 @@ def cmd_cleanup(ctx, a):
         if not e.get("removed"):
             if path not in listed:
                 print(f"gone worktree {shown(path)}")
-            else:  # an unlocked listed entry whose directory is gone holds nothing to lose; its record goes
+            else:
                 w, here = listed[path], path == main_wt or contains(path, cwd)
                 inner = any(Path(path) in Path(p).parents for p in listed)
-                reason, remove = (("directory gone", True) if not (here or w["locked"])
+                reason, remove = (gone_verdict(ctx.root, w, base) if not (here or w["locked"] or inner)
                                   and (w["prunable"] or not Path(path).is_dir()) else worktree_verdict(w, here, base, inner))
                 if not remove:
                     print(f"keep worktree {shown(path)}: {reason}")

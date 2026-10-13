@@ -1403,5 +1403,25 @@ class CleanupTest(RepoCase):
         self.assertEqual((nested / "work.txt").read_text(), "unsaved\n")
         self.assertTrue(self.exists("refs/heads/worktree-agent-a") and self.exists("refs/heads/other-session"))
 
+    def test_missing_directory_preserves_unmerged_head_and_index(self):
+        commit, staged = self.tmp / "gone-commit", self.tmp / "gone-staged"
+        for path in (commit, staged):
+            self.repo.git("worktree", "add", "-q", "--detach", str(path), "HEAD")
+        (commit / "c.txt").write_text("C\n")
+        self.repo.git("-C", str(commit), "add", "c.txt")
+        self.repo.git("-C", str(commit), "commit", "-q", "-m", "unpushed")
+        (staged / "s.txt").write_text("S\n")
+        self.repo.git("-C", str(staged), "add", "s.txt")
+        for path in (commit, staged):
+            self.own(path)
+            shutil.rmtree(path)  # the directory goes; git's record of its HEAD and index stays
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), f"keep worktree {commit}: 1 commit(s) not in origin/main",
+            f"keep worktree {staged}: staged changes not in origin/main", "cleanup: 0 removed, 2 kept"])
+        listed = self.repo.git("worktree", "list", "--porcelain")
+        for path in (commit, staged):
+            self.assertIn(f"worktree {path}\n", listed)
+        self.assertFalse(any("removed" in r for r in self.rows()))
+
 if __name__ == "__main__":
     unittest.main()
