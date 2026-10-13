@@ -437,6 +437,16 @@ class RerunFailedTest(GateCase):
         self.assertEqual((last["label"], last["command"], last["verdict"]), ("receipt", subset, "PASS"))
         self.assertEqual(set(last), {"label", "command", "tree", "duration_s", "verdict", "finished_at"})
 
+    def test_rerun_rejects_failure_ids_only_in_comments_or_echo(self):
+        self.failed(**BUSY)
+        plain = "the --rerun-failed command must be one plain test command"
+        for subset in (EMIT + " # " + SLOW, "echo " + SLOW, EMIT + "; echo " + SLOW, EMIT + " && echo " + SLOW,
+                       EMIT + " | grep " + SLOW, EMIT + " $(echo " + SLOW + ")", EMIT + " > " + SLOW):
+            with self.subTest(subset=subset):
+                self.assertRefused(self.rerun(subset), plain)
+        res = self.rerun(EMIT + " " + SLOW, mode="zero")  # names it, runs nothing
+        self.assertGate(res, "FAIL", "executed 0 test(s), fewer than the 1 it must rerun")
+
     def test_rerun_failed_accepts_a_gradle_tests_filter(self):
         subset = "./gradlew test --continue --rerun-tasks --tests '*FooTest.bar'"
         self.assertTrue(gate.failure_named("com.example.FooTest.bar()", subset))
@@ -476,8 +486,7 @@ class RerunFailedTest(GateCase):
         self.assertRefused(self.rerun(cmd=gradle), "gradle command without --continue")
         gradle = "echo ./gradlew test --rerun-tasks --continue >/dev/null; " + TIMED_OUT
         self.failed(gradle, **BUSY)
-        self.assertGate(self.rerun(f"echo ./gradlew test --rerun-tasks --tests {SLOW} >/dev/null; " + EMIT,
-                                   cmd=gradle), "PASS")
+        self.assertGate(self.rerun(f"{EMIT} --tests {SLOW}", cmd=gradle), "PASS")
 
 
 if __name__ == "__main__":

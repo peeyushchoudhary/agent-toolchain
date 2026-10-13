@@ -387,6 +387,10 @@ def overlapping_run(checks: Path, old: dict) -> bool:
     return False
 
 
+# What a plain test command never needs: a comment, a chain, a pipe, a redirection, a substitution.
+SHELL_CONTROL = re.compile(r"[#;|&<>`\n]|\$\(")
+
+
 def failure_named(failure: str, subset: str) -> bool:
     """Whether subset names the failure: its id, or for a dotted id without `()` and the package, the
     `Class.method` a Gradle `--tests` filter uses."""
@@ -406,6 +410,9 @@ def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
         return "--rerun-failed needs a FAIL receipt whose only reason is failures not in baseline"
     if re.search(r"\bgradlew?\b", cmd) and "--continue" not in cmd:
         return "gradle command without --continue: the modules after the first failure did not run"
+    if SHELL_CONTROL.search(subset) or re.match(r"\s*(?:echo|printf|true|:)\b", subset):
+        return ("the --rerun-failed command must be one plain test command: no comment, echo, chaining, "
+                "pipe, redirection or substitution")
     missing = [f for f in old.get("new_failures", []) if not failure_named(f, subset)]
     if missing:
         return "the --rerun-failed command does not name " + ", ".join(missing)
@@ -445,6 +452,10 @@ def cmd_receipt(args, root):
             return 1
         cmd = args.rerun_failed
     res, duration = evaluate(root, cmd, args.goal, args.count == "none", args.junit, args.name, args.runs)
+    if args.rerun_failed and res["executed"] < len(old.get("new_failures", [])):
+        res["reasons"].append(f"the --rerun-failed command executed {res['executed']} test(s), fewer than the "
+                              f"{len(old['new_failures'])} it must rerun")
+        res["verdict"] = "FAIL"
     # `command` stays the full command, so the receipt path and `goal.py done` are unchanged.
     res.update({"command": args.cmd, "tree": tree, "name": args.name, **rerun_fields(old)})
     if args.rerun_failed:
