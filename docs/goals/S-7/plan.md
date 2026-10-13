@@ -29,7 +29,7 @@ Decision record: D33. Design: [design.md](design.md). Spec: [spec.md](spec.md).
 
 ## Tasks
 
-### [ ] T1 — `modmap.py`: load, check and select modules; the glob helpers move from `goal.py`
+### [x] T1 — `modmap.py`: load, check and select modules; the glob helpers move from `goal.py`
 writes: install/skills/execution-methodology/scripts/modmap.py, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_modmap.py
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py
 tests-may-change: install/skills/execution-methodology/tests/test_modmap.py
@@ -409,5 +409,9 @@ modules`.
   - **Gates and fields.** R21 and R24: `test_docs.py` and the installer tests are added to the
     gates their writes reach, and refused receipts record all four reading fields.
   - **Coverage steps.** R25: Interface 11 and T8 name the receipts that coverage compares.
+- 2026-10-13 T1: `load` also rejects a top level, `modules` or a module that is not a JSON object,
+  so that checking for unknown keys cannot crash; missing fields are left for `problems` to name;
+  `select` normalises a trailing `/` before the shared-overlap test as well; a cycle is reported once
+  per back edge, found in file order (default).
 
 ## Parked

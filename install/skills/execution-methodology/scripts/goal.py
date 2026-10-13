@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gate import git, receipt_path  # noqa: E402
+from modmap import glob_re, matches, overlap  # noqa: E402
 
 KEYS = ("goal", "title", "gate", "full_gate", "milestones", "touches", "protected")
 TOUCHES = ("none", "data", "auth", "external", "interface", "ui")
@@ -172,30 +173,6 @@ def widenings(old, new):
 
 def adds_decision(old, new) -> bool:
     return bool(Counter(new["decisions"]) - Counter(old["decisions"]))
-
-def glob_re(pattern: str):
-    """'**' spans directories, '*' and '?' stay within one segment, anything else is literal."""
-    tr = {"**/": "(?:.*/)?", "**": ".*", "*": "[^/]*", "?": "[^/]"}
-    parts = re.split(r"(\*\*/|\*\*|\*|\?)", pattern + ("**" if pattern.endswith("/") else ""))
-    return re.compile("".join(tr.get(p, re.escape(p)) for p in parts) + r"\Z")
-
-def matches(path, patterns):
-    return any(glob_re(p).match(path) for p in patterns)
-
-def overlap(a_globs, b_globs) -> bool:
-    """True when two write sets could name a common path (conservative for two globs)."""
-    def static(p):
-        segs = p.split("/")
-        k = next((i for i, s in enumerate(segs) if "*" in s or "?" in s), len(segs))
-        return segs[:k], k == len(segs)
-    for a in a_globs:
-        for b in b_globs:
-            (sa, ea), (sb, eb) = static(a), static(b)
-            n = min(len(sa), len(sb))
-            if (a == b if ea and eb else bool(glob_re(b if ea else a).match(a if ea else b)) if ea or eb
-                    else sa[:n] == sb[:n]):
-                return True
-    return False
 
 def goal_has(ctx, name):
     """docs/goals/<id>/<name> when it is in the working tree or at the approval tag, else None."""
