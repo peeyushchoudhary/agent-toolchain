@@ -447,6 +447,20 @@ class RerunFailedTest(GateCase):
         res = self.rerun(EMIT + " " + SLOW, mode="zero")  # names it, runs nothing
         self.assertGate(res, "FAIL", "executed 0 test(s), fewer than the 1 it must rerun")
 
+    def test_rerun_rejects_assertion_with_timeout_in_traceback_name(self):
+        not_load = SLOW + ": not a timeout or resource error"
+        for block in (('Traceback (most recent call last):', '  File "mod.py", line 5, in test_timeout_policy',
+                       '    self.assertEqual(timeout_after(1), 2)', 'AssertionError: 1 != 2'),
+                      ('AssertionError: request timed out after 3 s was expected',),
+                      ('  File "mod.py", line 9, in wait_timeout', '    raise ValueError("x")', 'ValueError: x')):
+            with self.subTest(block=block[-1]):
+                cmd = failing(*block)
+                self.failed(cmd, **BUSY)
+                self.assertRefused(self.rerun(cmd=cmd), not_load)
+        self.assertTrue(gate.timeout_evidence("\nsubprocess.TimeoutExpired: Command 'x' timed out after 120 seconds"))
+        self.assertTrue(gate.timeout_evidence(" - Failed: Timeout >5.0s"))
+        self.assertTrue(gate.timeout_evidence("\njava.util.concurrent.TimeoutException\n\tat a.B.c(B.java:3)"))
+
     def test_rerun_failed_accepts_a_gradle_tests_filter(self):
         subset = "./gradlew test --continue --rerun-tasks --tests '*FooTest.bar'"
         self.assertTrue(gate.failure_named("com.example.FooTest.bar()", subset))

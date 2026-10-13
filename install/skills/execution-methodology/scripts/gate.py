@@ -83,8 +83,30 @@ GRADLE_LINE = re.compile(r"(\d+) tests completed, (\d+) failed(?:, (\d+) skipped
 GRADLE_ID = re.compile(r"^(\S+) > (\S+).* FAILED\s*$", re.M)
 GRADLE_CACHED = re.compile(r"^\d+ actionable tasks?:.*\bfrom cache\b", re.M)
 PYTEST_HEADER = re.compile(r"^_{3,} (\S+) _{3,}$", re.M)
-TIMEOUT_OR_RESOURCE = re.compile(r"timed? ?out|TimeoutExpired|TimeoutError|OutOfMemoryError|MemoryError"
-                                 r"|Cannot allocate memory|Too many open files|deadline exceeded", re.I)
+# A timeout or resource error as an exception names it or a runner reports it; names in frames do not count.
+TIMEOUT_OR_RESOURCE = re.compile(r"\b\w*(?:TimeoutExpired|TimeoutError|TimeoutException|OutOfMemoryError|MemoryError)\b"
+                                 r"|\bFailed: Timeout\b|\btimed out after\b|Cannot allocate memory|Too many open files"
+                                 r"|deadline exceeded")
+ASSERTION = re.compile(r"\b(?:AssertionError|AssertionFailedError|ComparisonFailure)\b|^E\s+assert\b", re.M)
+FRAME = re.compile(r'^\s*File "|^\s+at [\w$.<>]+\(')
+
+
+def timeout_evidence(block: str) -> bool:
+    """Whether a failure block shows a timeout or resource error and no assertion failure. Traceback
+    frames and the source line under each are dropped, so a test or function named for timeouts proves
+    nothing."""
+    lines, kept, skip = block.splitlines(), [], False
+    for line in lines:
+        if FRAME.match(line):
+            skip = line.lstrip().startswith("File ")
+            continue
+        if skip and line.startswith("    "):
+            skip = False
+            continue
+        skip = False
+        kept.append(line)
+    text = "\n".join(kept)
+    return bool(TIMEOUT_OR_RESOURCE.search(text)) and not ASSERTION.search(text)
 # Playwright's end-of-run summary: one two-space-indented line per outcome; `passed` carries the
 # duration. Failed and interrupted tests are listed beneath their line, indented four spaces.
 PLAYWRIGHT_LINE = re.compile(r"^  (\d+) (passed|flaky|failed|interrupted|skipped|did not run)"
@@ -422,7 +444,7 @@ def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
         blocks = {}
     for f in old.get("new_failures", []):
         keys = [f] + ([f.split("::", 1)[1].replace("::", ".")] if "::" in f else [])
-        if not any(TIMEOUT_OR_RESOURCE.search(b) for k in keys for b in blocks.get(k, [])):
+        if not any(timeout_evidence(b) for k in keys for b in blocks.get(k, [])):
             return (f"{f}: not a timeout or resource error; a test that fails in the suite and passes alone "
                     "may depend on another test, so run the full gate")
     load, cpus = old.get("load") or [], old.get("cpus")
