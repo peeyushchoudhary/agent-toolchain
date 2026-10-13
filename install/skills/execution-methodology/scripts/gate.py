@@ -407,6 +407,8 @@ def overlapping_run(checks: Path, old: dict) -> bool:
             rec = json.loads(line)
             if (rec["command"], rec["tree"]) == (old.get("command"), old.get("tree")):
                 continue  # the failed run's own record
+            if rec.get("verdict") == "REFUSED" or not rec["duration_s"] > 0:
+                continue  # a refused or instant command loaded nothing
             rec_end = dt.datetime.fromisoformat(rec["finished_at"])
             if rec_end - dt.timedelta(seconds=rec["duration_s"]) < end and rec_end > start:
                 return True

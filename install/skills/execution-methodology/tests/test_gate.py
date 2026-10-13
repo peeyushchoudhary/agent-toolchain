@@ -540,6 +540,15 @@ class RerunFailedTest(GateCase):
         for cmd in (f"python3 -m pytest {node}", "pytest t.py # x", "pytest t.py && true", "pytest $(ls)", "echo t"):
             self.assertFalse(gate.plain_command(cmd), cmd)
 
+    def test_refused_receipt_does_not_establish_overlapping_load(self):
+        self.failed(**IDLE, started_at="2026-01-01T00:00:00+00:00", finished_at="2026-01-01T01:00:00+00:00")
+        during = "2026-01-01T00:30:00+00:00"  # inside the failed run's hour
+        with open(self.repo.path(".runs/F-9/checks.jsonl"), "a") as fh:
+            for verdict, seconds in (("REFUSED", 0.0), ("PASS", 0.0)):
+                fh.write(json.dumps({"label": "receipt", "command": "other", "tree": self.repo.tree(),
+                                     "duration_s": seconds, "verdict": verdict, "finished_at": during}) + "\n")
+        self.assertRefused(self.rerun(), "no recorded load during the failed run")
+
     def test_rerun_cannot_baseline_away_the_original_failure(self):
         self.failed(**BUSY)
         script = ("import sys; print('FAIL: test_slow (mod.Case.test_slow)'); print('----'); "
