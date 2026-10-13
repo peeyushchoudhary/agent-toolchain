@@ -225,7 +225,7 @@ as Interface 10 gives them.
 - `test_unapproved_map_change_fails_row_4` (AC4, design review R12);
 - `test_packet_lists_retried_modules_with_load_readings` (AC6).
 
-### [ ] T7 — v7.3 in words: D33, the skill's step 5, planning's map, close's composed gate and retry
+### [x] T7 — v7.3 in words: D33, the skill's step 5, planning's map, close's composed gate and retry
 writes: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/modules.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md, docs/architecture/methodology.md, AGENTS.md
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py
@@ -422,6 +422,11 @@ modules`.
   on-demand reference, `references/modules.md`, which carries the full text under its own 200-word
   ceiling in `test_rules.py`. This keeps the D30 ceiling and loads the detail only when a map is
   drafted. `writes` is widened to add it, and the Interface 11 text is unchanged in substance
+  (default).
+- 2026-10-13 T7 build: `planning.md` step 5 links `references/modules.md` in one sentence, and
+  other lines were tightened to fit 400 words with every instruction kept. `modules.md` is 162 of
+  its 200 words. The decisions table gains the missing D32 row and a D33 row, and its frontmatter
+  summary runs through D33. `close.md`'s "never rerun until green" now excepts the one module retry
   (default).
 
 ## Parked

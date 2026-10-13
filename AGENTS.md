@@ -21,7 +21,7 @@ see [D17](docs/decisions/decisions.md#d17--this-repository-complies-with-the-sta
 
 ## Methodology
 
-- Rules: [the execution-methodology skill](install/skills/execution-methodology/SKILL.md) (v7.2).
+- Rules: [the execution-methodology skill](install/skills/execution-methodology/SKILL.md) (v7.3).
 - Goals: [docs/goals/](docs/goals/), each a `spec.md`, a `design.md` unless `touches` is `none`,
   and a `plan.md`.
 - Pages: frontmatter on each; `docs.py` generates the index and pointer files, never hand-edited.
@@ -29,7 +29,8 @@ see [D17](docs/decisions/decisions.md#d17--this-repository-complies-with-the-sta
 - Decisions: [D29](docs/decisions/decisions.md#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints),
   [D30](docs/decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2),
   [D31](docs/decisions/decisions.md#d31--the-skill-is-model-invocable-the-chief-is-the-root-session-never-a-subagent),
-  [D32](docs/decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6).
+  [D32](docs/decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6),
+  [D33](docs/decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7).
 
 ## Verification
 
