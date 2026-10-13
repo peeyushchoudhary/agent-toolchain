@@ -33,7 +33,7 @@ Decision record: D33. Design: [design.md](design.md). Spec: [spec.md](spec.md).
 writes: install/skills/execution-methodology/scripts/modmap.py, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_modmap.py
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py
 tests-may-change: install/skills/execution-methodology/tests/test_modmap.py
-gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_modmap.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_goal.py'
+gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_modmap.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_goal.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_docs.py'
 Design Interfaces 1 and 2.
 
 **New file `scripts/modmap.py`.** Standard library only.
@@ -65,6 +65,8 @@ its `gate` import, and nothing else in `goal.py` changes.
 - `test_partially_owned_write_glob_selects_every_module`: with modules owning `src/a/**` and
   `src/b/**` and a third owning `tools/**`, a write of `src/**` selects all three (design review
   R1);
+- `test_trailing_slash_write_requires_complete_containment`: with modules owning `src/*` and
+  `tools/**`, a write of `src/` selects both (plan review R17);
 - `test_select_falls_back_to_every_module_on_shared_or_unowned_paths`;
 - `test_unmapped_lists_tracked_files_no_glob_covers`.
 
@@ -74,7 +76,7 @@ Do not change `gate.py` or any existing test.
 writes: install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
-gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_gate.py'
+gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_gate.py' && python3 -m unittest discover -s install/tests -t install/tests
 Design Interface 6.
 
 **`run()` and its callers.**
@@ -84,11 +86,11 @@ Design Interface 6.
   - `load_before` is the argument when given, otherwise `os.getloadavg()[0]` taken before `Popen`;
   - `load_peak` is the highest of `load_before` and the samples a daemon thread takes every 5 s
     with `os.getloadavg()[0]` until the process exits;
-  - all three loads are rounded to 2 places.
+  - both loads are rounded to 2 places.
 - `evaluate()` merges `readings` into its result.
 - `record(...)` gains `readings=None` and writes them into the `checks.jsonl` line.
 - `cmd_check`, `cmd_receipt`, `cmd_baseline` and `refuse_receipt` pass them through. A refused
-  receipt records `load_before` only.
+  receipt runs nothing, and records all four fields with `load_peak` equal to `load_before`.
 - No rule reads the readings.
 
 **Tests in `test_gate.py`.** Copy `ReceiptTest.test_receipt_bound_to_tree_and_command`:
@@ -103,7 +105,7 @@ writes: install/skills/execution-methodology/scripts/gate.py, install/skills/exe
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/scripts/modmap.py, install/skills/execution-methodology/tests/test_gate.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
 needs: T1, T2
-gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_gate.py'
+gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_gate.py' && python3 -m unittest discover -s install/tests -t install/tests
 Design Interfaces 5 and 7.
 
 **Arguments.**
@@ -117,7 +119,10 @@ Design Interfaces 5 and 7.
 - Each module goes through `evaluate()` with `count_none` taken from its `count`.
 - `receipt` writes the module's receipt at the Interface 5 key, `"module:<name>\n" + test`, with
   the fields Interface 5 names. The receipt's `command` stays the module's test command.
-- `check --modules` writes no receipt and supersedes none.
+- `check --modules` writes no new module receipt. A module failing on a clean tree whose module
+  receipt is PASS supersedes it, as Interface 5 says, keeping `retry_of`.
+- A module receipt accepts Gradle `--rerun` or `--rerun-tasks`; `--cmd` receipts keep requiring
+  `--rerun-tasks`.
 - Output, exit code and the Interface 7 rules follow the design exactly.
 
 **Tests in `test_gate.py`, new class `ModulesTest`.** It writes a three-module map whose commands
@@ -130,7 +135,9 @@ test writes:
   modules run;
 - `test_module_receipts_do_not_alias_commands_or_other_modules` (design review R2): a `--cmd`
   receipt of the same command leaves the module receipt alone;
-- `test_check_modules_writes_no_module_receipt` (design review R3);
+- `test_check_modules_writes_no_new_module_receipt` (design review R3);
+- `test_failed_check_invalidates_pass_without_reopening_retry` (plan review R18);
+- `test_module_receipt_accepts_gradle_rerun`;
 - `test_a_new_tree_reruns_every_module`.
 
 Do not change `goal.py` or `modmap.py`.
@@ -140,7 +147,7 @@ writes: install/skills/execution-methodology/scripts/gate.py, install/skills/exe
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
 needs: T3
-gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_gate.py'
+gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_gate.py' && python3 -m unittest discover -s install/tests -t install/tests
 Design Interface 8.
 
 **The command.** `gate.py coverage --goal <id> [--cmd "<full gate>"] [--runs DIR]`:
@@ -162,7 +169,7 @@ writes: install/skills/execution-methodology/scripts/goal.py, install/skills/exe
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/scripts/modmap.py, install/skills/execution-methodology/tests/test_goal.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
 needs: T1
-gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_goal.py'
+gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_goal.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_docs.py'
 Design Interfaces 3 and 4.
 
 **`lint`.**
@@ -192,14 +199,14 @@ Design Interfaces 3 and 4.
 - `test_next_and_approval_show_the_derived_gate` (AC2);
 - `test_a_gate_line_overrides_the_map`;
 - `test_full_gate_modules_needs_replaces_and_a_non_test_module` (AC4);
-- `test_approval_page_lists_the_replaced_command_beside_every_module` (AC4).
+- `test_approval_page_lists_every_module_under_the_replaced_command` (AC4).
 
 ### [ ] T6 — `goal.py`: `full_gate: modules` at done row 7, the protected map at row 4, retried modules in the packet
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
 needs: T5
-gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_goal.py'
+gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_goal.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_docs.py'
 Design Interfaces 9 and 10.
 
 **`done_rows`.**
@@ -257,52 +264,68 @@ Do not change scripts.
 
 ### [ ] T8 — This repository's own map and `verify.sh --no-suites`
 writes: docs/goals/modules.json, install/verify.sh, install/tests/test_map.py
-reads: docs/goals/S-7/design.md#interfaces, install/verify.sh, install/tests/test_size.py, install/skills/execution-methodology/scripts/modmap.py
+reads: docs/goals/S-7/design.md#interfaces, install/verify.sh, install/tests/test_size.py, install/tests/test_install.py, install/skills/execution-methodology/scripts/modmap.py
 tests-may-change: install/tests/test_map.py
 needs: T1
-gate: python3 -m unittest discover -s install/tests -t install/tests -p 'test_map.py' && cd install && ./verify.sh --no-suites
+gate: python3 -m unittest discover -s install/tests -t install/tests && cd install && ./verify.sh --no-suites
 **`verify.sh --no-suites`.** It skips steps 1 and 2, the two `run_suite` lines, and runs every
 other check. Its help text gains the option.
 
 **The map.** `docs/goals/modules.json`, with `"replaces": "cd install && ./install.sh --dry-run &&
 ./verify.sh"`, and these modules in this order:
 
-| Module | Paths | Needs | Test |
+| Module | Paths | Needs | Test patterns |
 |---|---|---|---|
-| `modmap` | `scripts/modmap.py`, `tests/test_modmap.py` | none | `-p 'test_modmap.py'` |
-| `gate` | `scripts/gate.py`, `tests/test_gate.py` | `modmap` | `-p 'test_gate.py'` |
-| `goal` | `scripts/goal.py`, `tests/test_goal.py` | `gate`, `modmap` | `-p 'test_goal.py'` |
-| `docs` | `scripts/docs.py`, `tests/test_docs.py` | `goal` | `-p 'test_docs.py'` |
-| `guard` | `scripts/guard.py`, `scripts/git-hooks.sh`, `tests/test_guard.py`, `tests/test_git_hooks.py` | none | `-p 'test_g*.py'` |
-| `rules` | `SKILL.md`, `references/**`, `agents/**`, `tests/test_rules.py` | none | `-p 'test_rules.py'` |
-| `install` | `install/install.sh`, `install/tests/**`, `install/*.md` | `guard`, `rules`, `docs` | see below |
-| `repository` | `docs/**`, `*.md`, `install/verify.sh`, `.claude/**`, `.github/**`, `LICENSE`, `.gitignore`, `install/skills/.gitignore` | `guard`, `docs`, `install` | see below |
+| `modmap` | `scripts/modmap.py`, `tests/test_modmap.py` | none | `test_modmap.py` |
+| `gate` | `scripts/gate.py`, `tests/test_gate.py` | `modmap` | `test_gate.py` |
+| `goal` | `scripts/goal.py`, `scripts/docs.py`, `tests/test_goal.py`, `tests/test_docs.py` | `gate`, `modmap` | `test_goal.py`, `test_docs.py` |
+| `guard` | `scripts/guard.py`, `scripts/git-hooks.sh`, `tests/test_guard.py`, `tests/test_git_hooks.py` | none | `test_guard.py`, `test_git_hooks.py` |
+| `rules` | `SKILL.md`, `references/**`, `agents/**`, `tests/test_rules.py`, `docs/runbooks/codex.md` | none | `test_rules.py` |
+| `install` | `install/install.sh`, `install/verify.sh`, `install/tests/**`, `install/*.md` | `guard`, `rules`, `goal` | see below |
+| `repository` | `docs/**`, `*.md`, `.claude/**`, `.github/**`, `LICENSE`, `.gitignore`, `install/skills/.gitignore` | `guard`, `goal`, `install` | see below |
 
-- Paths and tests in the `modmap` to `rules` rows are relative to
-  `install/skills/execution-methodology/`.
-- Each of those tests is `python3 -m unittest discover -s
-  install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests`
-  followed by the row's `-p` argument. The `guard` row's pattern is chosen so that `test_gate.py`
-  and `test_goal.py` stay out; if it does not, use two commands joined with `&&`.
-- `install` runs `python3 -m unittest discover -s install/tests -t install/tests`.
+**Paths and commands.**
+- Paths in the `modmap` to `rules` rows are relative to `install/skills/execution-methodology/`,
+  except `docs/runbooks/codex.md`.
+- Each test pattern there is one `python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p '<pattern>'` command. A row with two patterns joins its
+  commands with `&&`.
+
+**Why the rows look this way (plan review R19).**
+- `goal` holds `docs.py`, because `goal.py` and `docs.py` import each other, and one module cannot
+  need the other without a cycle.
+- `guard` holds `git-hooks.sh`, because the guard and hooks tests run each other's scripts.
+- `rules` holds `docs/runbooks/codex.md`, which `test_rules.py` reads.
+- `install` runs `python3 -m unittest discover -s install/tests -t install/tests`, which covers `test_map.py`.
   - It needs `guard`, because its tests run `git-hooks.sh` and `tree_scan.py` with the guard.
   - It needs `rules`, because `test_size.py` counts `SKILL.md`.
-  - It needs `docs`, because `link_check.py` imports `docs.py`.
+  - It needs `goal`, because `link_check.py` imports `docs.py` and the installer test runs the
+    installed scripts.
+  - It holds `verify.sh`, which its tests execute.
 - `repository` has `"count": "none"` and runs `cd install && ./install.sh --dry-run && ./verify.sh
-  --no-suites`. It needs the modules whose scripts that command executes (design review R11).
-- `shared` is `install/skills/execution-methodology/tests/fixtures/**`,
-  `install/skills/execution-methodology/tests/e2e_run.sh` and `install/global.md`.
+  --no-suites`. It needs the modules whose scripts that command executes.
+
+**`shared`.** These files reach every module, so a change to one selects all:
+- `install/skills/execution-methodology/tests/fixtures/**`;
+- `install/skills/execution-methodology/tests/e2e_run.sh`;
+- `install/global.md`;
+- `AGENTS.md`, which `test_rules.py` and `test_size.py` read;
+- `docs/goals/modules.json`, which `test_map.py` reads.
 
 **Tests: new `install/tests/test_map.py`**, class `RepositoryMapTest`:
 - `test_map_loads_with_no_problems` (AC9);
 - `test_every_tracked_file_is_covered` (AC9);
-- `test_selection_includes_repository_and_docs_consumers`: a write to `install/tests/link_check.py`
-  selects `install` and `repository`, and a write to `scripts/goal.py` selects `goal`, `docs`,
-  `install` and `repository` (design review R11);
+- `test_selection_includes_repository_and_docs_consumers` (plan review R19):
+  - a write to `install/tests/link_check.py` selects `install` and `repository`;
+  - a write to `install/skills/execution-methodology/scripts/docs.py` selects `goal`, `install`
+    and `repository`;
+  - a write to `AGENTS.md` selects every module;
+  - a write to `install/verify.sh` selects `install` and `repository`;
 - `test_no_suites_skips_both_run_suite_lines`, which reads `verify.sh`'s text.
 
-S-7 keeps its single `full_gate` command; the map is built during it. At close the chief runs
-`gate.py coverage` on this repository once and records the result in a Decisions line.
+**At close.** S-7 keeps its single `full_gate` command, because the map is built during it. On the
+clean closing commit the chief runs `gate.py receipt --goal S-7 --modules all` on this repository
+next to the `full_gate` receipt, then `gate.py coverage --goal S-7`, and records the printed line in
+a Decisions line (plan review R25).
 
 ### [ ] T9 — `e2e_run.sh`: derived gates, module runs and the retry in both harnesses
 writes: install/skills/execution-methodology/tests/e2e_run.sh
@@ -310,6 +333,11 @@ reads: install/skills/execution-methodology/tests/e2e_run.sh, docs/goals/S-7/des
 tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh
 needs: T3, T5
 gate: install/skills/execution-methodology/tests/e2e_run.sh
+The chief runs this gate as `gate.py check --count none`, as S-6's e2e task was run, because
+`e2e_run.sh` prints its own status lines rather than test counts. The script keeps every inner
+run's output in files, never on its stdout, so a module meant to fail is not read by the outer
+check (plan review R22).
+
 **Fixture.** The E-1 fixture gains a two-module map, `a` and `b`, where `b` needs `a`, with
 emitter commands. T1 writes `src/a/**` and has no `gate:` line.
 
@@ -317,9 +345,12 @@ emitter commands. T1 writes `src/a/**` and has no `gate:` line.
 - `next` prints `T1 — <title> · gate: modules: a, b` (AC2);
 - `gate.py check --modules a,b` prints two `module` lines and `modules: PASS 2 of 2` (AC3);
 - a `receipt --modules all` whose module `b` fails once is followed by a second `receipt --modules
-  all`, which prints `module a: PASS on this tree (kept)` and the retry of `b` passing (AC5).
+  all`, which prints `module a: PASS on this tree (kept)` and the retry of `b` passing (AC5);
+- on a second tree where `b` fails twice, a third `receipt --modules all` prints `module b failed
+  twice on this tree; diagnose and commit a fix` and exits 1 (AC5, plan review R23).
 
-**Output.** The summary line gains `module map → derived gate → kept and retried modules`.
+**Output.** The summary line gains `module map → derived gate → kept, retried and refused
+modules`.
 
 ## Decisions
 
@@ -342,7 +373,7 @@ emitter commands. T1 writes `src/a/**` and has no `gate:` line.
     equivalence.
   - **This repository's map.** R11: `needs` corrected and guard and hooks merged into one module,
     because their tests use each other.
-  - **Approval of map changes.** R12: the approved map counts as a protected path (default).
+  - **Approval of map changes.** R12: the approved map counts as a protected path (founder).
 - 2026-10-13 planning: with `full_gate: modules`, a non-test check missing from the map would stop
   running unflagged (founder). The map therefore names the command it `replaces`. Lint requires
   `replaces` and a count-none module, and that module runs the replaced command with its tests
@@ -352,21 +383,31 @@ emitter commands. T1 writes `src/a/**` and has no `gate:` line.
   removed the end-of-run reading, which mostly measured the run itself, and the founder flagged
   that removal (default).
 - 2026-10-13 planning: the map is JSON at `docs/goals/modules.json`. `tomllib` needs Python 3.11
-  and the installer accepts 3.10, and YAML needs a dependency (default; Parked question).
+  and the installer accepts 3.10, and YAML needs a dependency (founder).
 - 2026-10-13 planning: `glob_re`, `matches` and `overlap` move to `modmap.py`, because `gate.py`
   needs them and `goal.py` already imports `gate.py` (default).
 - 2026-10-13 planning: the plan gate `cd install && ./verify.sh` took 270 to 362 s in S-6's last
   receipts, under the 600 s budget, so it was not timed again (default).
 - 2026-10-13 planning: this plan's own tasks carry `gate:` lines, because the map they build does
   not exist until T8 (default).
+- 2026-10-13 planning: the founder answered the three questions:
+  - module receipts accept Gradle `--rerun`, while `--cmd` receipts and baselines keep
+    `--rerun-tasks`;
+  - the approved map is protected, so a change waits for the founder;
+  - the map lives at `docs/goals/modules.json` (founder).
+- 2026-10-13 plan review (BLOCK, 6 blocking findings), resolved in the design and the plan:
+  - **Trailing slash.** R17: a write ending in `/` is normalised to `/**` before the containment
+    test.
+  - **Contradicted PASS.** R18: a module failing a `check` on a clean tree supersedes its PASS module
+    receipt and keeps `retry_of`.
+  - **This repository's map.** R19: `docs.py` joins `goal`, `docs/runbooks/codex.md` joins `rules`,
+    `verify.sh` joins `install`, and `AGENTS.md` and the map are shared.
+  - **Approval table.** R20: the table's caption is the replaced command.
+  - **E2e under `gate.py check`.** R22: T9's gate runs with `--count none` and keeps inner output in
+    files.
+  - **Retry limit.** R23: T9 proves the refusal after a spent retry.
+  - **Gates and fields.** R21 and R24: `test_docs.py` and the installer tests are added to the
+    gates their writes reach, and refused receipts record all four reading fields.
+  - **Coverage steps.** R25: Interface 11 and T8 name the receipts that coverage compares.
 
 ## Parked
-
-- Q: A module receipt for Gradle with `--rerun` rather than `--rerun-tasks`. `--rerun` forces that
-  module's test task and keeps compilation incremental; with `--rerun-tasks`, a composed full gate
-  recompiles once per module. This revises the 2026-10-13 approval answer for module receipts only.
-- Q: Once approved, the map is protected: a new test directory mid-goal waits for the founder, and
-  a goal with `full_gate: modules` cannot finish until the map covers it. The alternative is that
-  a task may change the map with a Decisions line, which the merge review then judges.
-- Q: The map at `docs/goals/modules.json`, beside the goals. The alternative is the repository
-  root.

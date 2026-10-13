@@ -59,7 +59,8 @@ commands and four skill pages.
      - `module <a> has no paths`;
      - `modules <a> and <b> share one test command`.
    - `select(m, write_globs)` returns module names in file order:
-     - **Contained.** A write glob `w` is contained by a module glob `g` when either holds:
+     - **Contained.** A write glob `w` is first normalised: a trailing `/` becomes `/**`, as
+       `glob_re` reads it. `w` is then contained by a module glob `g` when either holds:
        - `w` has no wildcard and `glob_re(g)` matches it;
        - `g` ends in `/**` and `w` starts with `g` without its `**`.
      - **All modules** when any write glob overlaps a `shared` glob, or no single module glob
@@ -83,8 +84,9 @@ commands and four skill pages.
      text.
    - **Approval table.** When the plan sets `full_gate: modules`, the approval page adds a "Full
      gate" table:
-     - first row: the map's `replaces` command;
-     - then one row per module: name, command, and "tests" or "non-test checks" for a count-none
+     - its caption is the map's `replaces` command, so the replaced command heads every module row
+       it is compared with;
+     - one row per module: name, command, and "tests" or "non-test checks" for a count-none
        module;
      - above it, the line: "Check that every non-test check the replaced command runs is run by a
        module."
@@ -105,14 +107,19 @@ commands and four skill pages.
      - Written only by `receipt --modules`, at `receipt_path(root, goal, tree, "module:<name>\n" +
        test)`. This key matches no `--cmd` receipt and no other module.
      - The receipt holds `"name": "module"`, `"module": "<name>"` and `"command": test`.
-     - `check --modules` writes and supersedes no module receipt.
-   - **Gradle.** The `--rerun-tasks` receipt rule applies to module commands, unless the founder
-     accepts the Parked Gradle question, in which case a module receipt also accepts `--rerun`.
+     - `check --modules` never writes a new module receipt. When a module fails on a clean tree
+       whose module receipt is PASS, it supersedes that receipt, as `cmd_check` does today: the
+       receipt becomes FAIL, keeps the old PASS under `superseded`, and keeps `retry_of`. A spent
+       retry stays spent, and a contradicted PASS no longer counts (plan review R18).
+   - **Gradle.** A module receipt accepts a Gradle command with `--rerun`, which forces that
+     module's test task and keeps compilation incremental, or with `--rerun-tasks`. Single-command
+     receipts and baselines still need `--rerun-tasks` (founder, 2026-10-13).
 6. **Load readings (diagnostic).** Each `gate.py` invocation samples `os.getloadavg()[0]` once,
    before its first process starts. That is `load_before`, and every module of a `--modules` run
    carries the invocation's value. While each process runs, a thread samples `os.getloadavg()[0]`
    every 5 s for `load_peak`. Every `checks.jsonl` line and every receipt gains `started_at`,
-   `load_before`, `load_peak` and `cpus`. Module lines also gain `module`. No rule reads them: they
+   `load_before`, `load_peak` and `cpus`. A refused receipt, which runs nothing, records
+   `load_peak` equal to `load_before`. Module lines also gain `module`. No rule reads them: they
    are shown beside a retry so the reviewer can judge it.
 7. **Same-tree reuse and one retry.** For `receipt --modules`, each module in turn:
    - **PASS receipt on this tree.** Skipped, printed as `module <name>: PASS on this tree (kept)`.
@@ -156,7 +163,12 @@ commands and four skill pages.
         `verify.sh --no-suites`), so a check added to the full gate later still runs;
       - `replaces` set to today's full-gate command.
 
-      Then compare it once with `gate.py coverage`, and commit it with the plan. To compose the
+      Commit it with the plan. Then, on that clean commit, compare once:
+      - `gate.py receipt --name full_gate --cmd "<replaces>"`;
+      - `gate.py receipt --modules all`;
+      - `gate.py coverage`.
+
+      Record the line it prints in a Decisions line. To compose the
       full gate from it, set `full_gate: modules`, and add a Decisions line naming the module that
       runs each non-test check of the replaced command. Prefer derived gates to `gate:` lines.
     - **`SKILL.md` step 5.** Run the task's `gate:`, or the modules `next` names.
@@ -229,7 +241,7 @@ commands and four skill pages.
 - **Slower composed full gate.** In Gradle, one process per module costs Gradle's startup and
   configuration each time, so a composed full gate may take longer than one `./gradlew test`. What
   it buys is that after a failure only the failed modules rerun.
-- **Map changes wait for the founder.** Once approved, the map is protected. A new test directory
-  needs a Parked line and the founder's approval before its module exists. Until then, its files
-  select every module in task gates, and a goal with `full_gate: modules` cannot finish (Parked
-  question).
+- **Map changes wait for the founder** (founder, 2026-10-13). Once approved, the map is
+  protected. A new test directory needs a Parked line and the founder's approval before its module
+  exists. Until then, its files select every module in task gates, and a goal with
+  `full_gate: modules` cannot finish.
