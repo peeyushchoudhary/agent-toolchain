@@ -31,7 +31,7 @@ D32; design [design.md](design.md); spec [spec.md](spec.md).
 ### [ ] T5 — The `goal.py` test fixtures run with a scratch HOME and CODEX_HOME
 writes: install/skills/execution-methodology/tests/fixtures/goal_fixture.py, install/skills/execution-methodology/tests/test_goal.py
 reads: install/skills/execution-methodology/tests/fixtures/goal_fixture.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/scripts/goal.py
-tests-may-change: install/skills/execution-methodology/tests/fixtures/goal_fixture.py
+tests-may-change: install/skills/execution-methodology/tests/fixtures/goal_fixture.py, install/skills/execution-methodology/tests/test_goal.py
 gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_goal.py'
 Built by the chief, first. `env()` in `goal_fixture.py` passes the caller's environment through, so
 every `goal.py packet` in a test reads the real `~/.claude/projects` and `$CODEX_HOME/sessions` for
@@ -180,6 +180,9 @@ not change scripts.
 - 2026-10-13 approval: T5 added and built first. The repository gate failed at approval on two
   `goal.py packet` tests that scanned this machine's 26 GB of Codex session files and passed the
   fixture's 120 s timeout; with a scratch home the same test took 7 s (founder).
+- 2026-10-13 build: T5's `tests-may-change` widens to `test_goal.py`, where its named test goes; the
+  approved line listed only the fixture, so adding the test would count as changing an existing test
+  file (default).
 - 2026-10-13 approval: the founder approved and told the chief to place `goal/S-6/approved`
   (founder).
 
