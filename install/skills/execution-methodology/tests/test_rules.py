@@ -177,6 +177,12 @@ class Loop(unittest.TestCase):
         for words in ("every third task commit", "newest", "600 s", "only at close"):
             self.assertIn(words, step)
 
+    def test_close_explains_rerun_prerequisites_and_full_receipt_fallback(self):
+        text = " ".join(CLOSE.read_text(encoding="utf-8").split())
+        for words in ("earlier PASS receipt of the same command", "suite summaries", "fail-fast",
+                      "reports each failed test as passed", "run the full receipt again"):
+            self.assertIn(words, text)
+
     def test_background_gate_worktree_is_removed_when_run_finishes(self):
         self.assertIn("remove that worktree when the run ends", loop_step(8))
 

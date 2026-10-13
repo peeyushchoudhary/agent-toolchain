@@ -28,9 +28,17 @@ pushes the branch and opens the PR; the founder merges and tags. Next milestone:
 Record failures present at approval once with `gate.py baseline`; diagnose any new failure, never
 rerun until green.
 
-A `full_gate` or `e2e` receipt that failed only on named tests, because the machine was loaded, is
-completed once, not rerun whole: `gate.py receipt ... --rerun-failed "<command naming each failed
-test and any that did not run>" --cause "<evidence>"`. `gate.py` accepts it only when each failure
-is a timeout or resource error, another recorded run overlapped it or the load reached the CPU
-count, and the rerun passes. A failure that reproduces alone gets a fix. An assertion failure that
-passes alone means one test depends on another: fix it and run the full gate.
+A `full_gate` or `e2e` receipt that failed only on named tests, because the machine was loaded, may
+be completed once instead of rerun whole: `gate.py receipt ... --rerun-failed "<one plain command
+running each failed test>" --cause "<evidence>"`. `gate.py` accepts it only when:
+
+- each failure's log shows a timeout or resource error and no assertion;
+- another recorded run overlapped the failed one, or the load reached the CPU count;
+- an earlier PASS receipt of the same command exists, and the failed run executed as many tests and
+  printed as many suite summaries as it, with no fail-fast flag (Gradle needs `--continue`);
+- the output is unittest, pytest or Gradle, and the rerun's own output reports each failed test as
+  passed: run it verbosely, or with `--junit`.
+
+Otherwise, or when the rerun fails, run the full receipt again. A failure that reproduces alone gets a
+fix. An assertion failure that passes alone means one test depends on another: fix it and run the
+full gate.
