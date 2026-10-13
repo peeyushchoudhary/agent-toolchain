@@ -227,17 +227,17 @@ def run(root, cmd, goal, label, runs=None, load_before=None):
     readings = {"started_at": now()}
     started = time.monotonic()
     with open(log, "w") as fh:
-        proc = subprocess.Popen(["bash", "-c", cmd], cwd=root, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, errors="replace")
-        sampler = threading.Thread(target=sample, daemon=True)
-        sampler.start()
-        for line in proc.stdout:
-            chunks.append(line)
-            fh.write(line)
-            sys.stdout.write(line)
-        proc.wait()
-        done.set()
-        sampler.join()
+        with subprocess.Popen(["bash", "-c", cmd], cwd=root, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, errors="replace") as proc:
+            sampler = threading.Thread(target=sample, daemon=True)
+            sampler.start()
+            for line in proc.stdout:
+                chunks.append(line)
+                fh.write(line)
+                sys.stdout.write(line)
+            proc.wait()
+            done.set()
+            sampler.join()
     readings.update({"load_before": round(load_before, 2), "load_peak": round(max(samples), 2),
                      "cpus": os.cpu_count()})
     return proc.returncode, "".join(chunks), log, round(time.monotonic() - started, 2), readings
@@ -454,10 +454,16 @@ def named_modules(root, wanted) -> list:
         raise RuntimeError(f"{modmap.MAP}: {exc}") from None
     mods = (m or {}).get("modules") or {}
     names = [n.strip() for n in wanted.split(",") if n.strip()]
-    for n in names or [wanted]:
+    if not names:
+        raise RuntimeError("--modules needs module names, as in a,b, or all")
+    for n in names:
         if m is None or (n != "all" and n not in mods):
             raise RuntimeError(f"no module {n} in {modmap.MAP}")
-    return [(n, spec) for n, spec in mods.items() if "all" in names or n in names]
+    chosen = [(n, spec) for n, spec in mods.items() if "all" in names or n in names]
+    for n, spec in chosen:
+        if not spec["test"].strip():
+            raise RuntimeError(f"module {n} has no test command in {modmap.MAP}")
+    return chosen
 
 
 def module_key(name, spec) -> str:

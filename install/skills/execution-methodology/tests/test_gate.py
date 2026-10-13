@@ -6,6 +6,7 @@ environment variable, so one command string can pass, fail, or lie about its res
 """
 from __future__ import annotations
 
+import gc
 import json
 import os
 import re
@@ -15,6 +16,7 @@ import sys
 import tempfile
 import time
 import unittest
+import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -268,6 +270,13 @@ class ReceiptTest(GateCase):
             self.assertIsInstance(x["load_before"], float)
             self.assertEqual(x["cpus"], os.cpu_count())
         self.assertEqual(lines[-1]["load_peak"], lines[-1]["load_before"])
+
+    def test_run_closes_its_output_pipe(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            gate.run(self.repo.dir, "true", "F-9", "check")
+            gc.collect()
+        self.assertEqual([w for w in caught if issubclass(w.category, ResourceWarning)], [])
 
     def test_load_peak_is_at_least_load_before(self):
         self.assertGate(self.receipt(), "PASS")
@@ -544,6 +553,25 @@ class ModulesTest(GateCase):
         res = self.modules("receipt", "b")
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
         self.assertIn("module b failed twice on this tree; diagnose and commit a fix", res.stdout)
+
+    def test_empty_module_selection_is_refused(self):
+        logs = self.logs()
+        for which in ("", ","):
+            for action in ("check", "receipt"):
+                res = self.repo.gate(action, "--goal", "F-9", "--modules", which)
+                self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+                self.assertIn("gate.py: --modules needs module names, as in a,b, or all", res.stderr)
+        self.assertEqual(self.logs(), logs)
+        self.assertFalse(self.repo.path(".runs/F-9/checks.jsonl").exists())
+
+    def test_blank_module_test_is_refused_without_running(self):
+        self.write_map({"a": module_cmd("a"), "b": "  ", "c": module_cmd("c")})
+        for action, which in (("check", "all"), ("receipt", "b")):
+            res = self.repo.gate(action, "--goal", "F-9", "--modules", which)
+            self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+            self.assertIn("gate.py: module b has no test command in docs/goals/modules.json", res.stderr)
+        self.assertEqual(self.logs(), 0)
+        self.assertEqual(self.receipts(), [])
 
     def test_module_receipts_do_not_alias_commands_or_other_modules(self):
         self.assertEqual(self.modules("receipt", "a,b").returncode, 0)

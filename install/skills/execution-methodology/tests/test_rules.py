@@ -228,6 +228,23 @@ class Close(unittest.TestCase):
                       "retries a failed one once", "second failure needs a fix commit"):
             self.assertIn(words, text)
 
+    def test_close_merges_tags_the_head_then_cleans_up(self):
+        # S-8 (D34), AC7: merge, tag the PR's head, push the tag, then remove what origin/main holds.
+        text = flat(CLOSE)
+        at = 0
+        for words in ("goal.py done", "`gh pr merge <n> --merge`", "`git tag goal/<id>/<milestone> <head>`",
+                      "`git push origin goal/<id>/<milestone>`", "`goal.py cleanup --goal <id> --apply`"):
+            found = text.find(words, at)
+            self.assertGreaterEqual(found, 0, f"{words} missing or out of order")
+            at = found + len(words)
+        sentence = next((s for s in re.split(r"(?<=\.) ", text) if "`--delete-branch`" in s), "")
+        self.assertIn("only when the milestone is the goal's last", sentence)
+
+    def test_the_loop_records_builder_and_sample_worktrees(self):
+        # S-8 (D34), AC7: every worktree the chief makes is recorded, so cleanup may remove it.
+        self.assertIn("goal.py own --goal <id> <path>", loop_step(3))
+        self.assertIn("goal.py own", loop_step(8))
+
 
 class Planning(unittest.TestCase):
     """v7.3 (D33), AC8: the planner drafts the module map with the plan, by references/modules.md."""

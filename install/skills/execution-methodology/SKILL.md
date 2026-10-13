@@ -25,7 +25,8 @@ Each role's model and effort: [references/roles.md](references/roles.md).
    packet: goal, `writes`, `tests-may-change`, `reads`, the task's gate, stop conditions, your
    checkout's path and HEAD; paths, never text.
 3. Dispatch one builder per ready task, at most four builders at once, each in its own worktree
-   (`agents/builder.md`) under `.claude/worktrees/`, which the repository must ignore. A task waits
+   (`agents/builder.md`) under `.claude/worktrees/`, which the repository must ignore. Record each
+   builder's worktree, once reported, with `goal.py own --goal <id> <path>`. A task waits
    until every task it `needs` is committed. Build only trivial tasks yourself.
 4. With your checkout clean, apply one builder's staged diff; remove its worktree after the commit.
 5. Run the task's gate yourself: its `gate:`, the modules `goal.py next` names (`--modules a,b`),
@@ -34,7 +35,8 @@ Each role's model and effort: [references/roles.md](references/roles.md).
 6. Scan the diff for private facts: names, home paths, emails, secrets.
 7. Commit `[Tn] <title>` with the tick and one Decisions line per default taken.
 8. Where the full gate takes 600 s or less, every third task commit start `gate.py receipt --name
-   full_gate --runs <your .runs>` in a detached worktree at that commit, in the background, one at a
+   full_gate --runs <your .runs>` in a detached worktree at that commit, recorded with `goal.py own`,
+   in the background, one at a
    time, and remove that worktree when the run ends; a sample due during a run starts on the newest
    commit when it ends. Otherwise the full gate
    runs only at close. A full-gate FAIL stops dispatch until a fix passes.

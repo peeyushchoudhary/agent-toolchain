@@ -1,5 +1,5 @@
 ---
-summary: The one decisions record: a table of every decision id with its date, a one-line statement and its status (standing, superseded, removed or archived), then the full text of the decisions that keep it, D1 to D19 among them. A section whose row is not standing is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning and dispatches builders by dependency; D33 adds the test-module map that picks task gates, can compose the full gate and retries a failed module once.
+summary: The one decisions record: a table of every decision id with its date, a one-line statement and its status (standing, superseded, removed or archived), then the full text of the decisions that keep it. A section whose row is not standing is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning and dispatches builders by dependency; D33 adds the test-module map that picks task gates, can compose the full gate and retries a failed module once; D34 removes the chief's recorded, merged worktrees.
 read-when: Making or citing a decision, or asking why the methodology is the way it is
 covers: []
 last-verified: 2026-10-09
@@ -46,6 +46,7 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | [D31](#d31--the-skill-is-model-invocable-the-chief-is-the-root-session-never-a-subagent) | 2026-10-10 | The skill is model-invocable; the chief is the root session, never a subagent | standing |
 | [D32](#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6) | 2026-10-13 | Methodology v7.2: each task's gate chosen at planning, builders dispatched by dependency (S-6) | standing |
 | [D33](#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7) | 2026-10-13 | Methodology v7.3: a test-module map picks task gates, composes the full gate and retries a failed module once (S-7) | standing |
+| [D34](#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8) | 2026-10-13 | Post-merge cleanup: the chief records its worktrees and removes what origin/main holds (S-8) | standing |
 
 ---
 
@@ -426,3 +427,40 @@ full gate pays one process start per module and may be slower than one command.
 
 **Reverses:** nothing; D29 to D32 stand. The "per-repository test-module map, a later goal" that
 D32 names is this decision.
+## D34 — Post-merge cleanup: the chief records its worktrees and removes what origin/main holds (S-8)
+
+**Chose:** the chief records each worktree it uses for a goal with `goal.py own --goal <id>
+<path>`: a builder's once the builder reports it, and a full-gate sample's once created. `own`
+accepts only a linked worktree of this repository, neither the main worktree nor the one in use
+here, and appends one line to `.runs/<id>/worktrees.jsonl` in the main worktree, so every checkout
+reads and writes one record. After a milestone's merge and tag, `goal.py cleanup --goal <id>
+[--apply]` fetches `origin/main` alone, with no tags and no prune, and considers only the
+unfinished recorded entries. A recorded worktree is removed when its HEAD is in `origin/main` and
+it is not in use here, not locked, holds no submodule, no untracked file and no unstaged change,
+and its staged diff is empty or reverse-applies to `origin/main`'s tree; its recorded branch is
+removed when its tip is in `origin/main` and no worktree has it checked out. Anything else is kept
+with its reason printed; the default is a dry run, and `--apply` removes with `git worktree remove
+--force` and `git branch -D`. The close runs `gh pr merge <n> --merge` once the founder says to
+merge, adding `--delete-branch` only at the goal's last milestone, tags `goal/<id>/<milestone>` at
+the PR's head commit, pushes the tag, then runs `goal.py cleanup --goal <id> --apply`.
+
+**Over:** instructions alone, which left 118 worktrees in the pilot; everything provably merged,
+repository-wide, the founder's first answer, which would remove a live session's clean worktree;
+ownership by commit range, by location or by session locks, none of which proves which session
+made a worktree; one combined `diff HEAD`, where an unstaged change can hide staged content;
+comparing changed files with `origin/main`, which rejects changes beside later edits; `fetch
+--prune`, `git worktree prune` and `origin/HEAD` as the base, which reach outside the goal's scope
+or can name another branch; a separate script, which the protected module map would not cover;
+`git push --delete` for the remote branch, a push apart from the merge.
+
+**Why:** worktrees and branches piled up after every goal, and nothing removed them safely. The
+founder answered on 2026-10-13: a subcommand, not instructions; scope narrowed from everything
+merged to the worktrees the chief recorded, so another session's work is never inspected or
+changed; ignored files in a recorded worktree are disposable, since a builder or a sample holds no
+durable data; `--delete-branch` at the goal's last merge, which also deletes the local branch and
+switches the checkout, so the tag names the head commit; cleanup right after the merge and tag. A
+forgotten `own` leaves a worktree for hand removal, and worktrees from before S-8 are removed by
+hand once.
+
+**Reverses:** nothing; D29 to D33 stand. The close's "the founder merges and tags" is now the
+chief's merge on the founder's word, then its tag and cleanup.

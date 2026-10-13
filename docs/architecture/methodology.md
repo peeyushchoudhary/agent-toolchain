@@ -2,7 +2,7 @@
 summary: How a goal runs under methodology v7.3 and why: three bounded documents per goal (`spec.md`, `design.md` when `touches` names anything but `none`, `plan.md` with `reads:` per task) frozen at the approval tag; pages disclosed in layers (frontmatter, the generated index, anchors, generated pointer files, the stale warning); builder, reviewer and scout roles with declared models; the founder's own session as the chief, with cost recorded, never enforced; gate receipts, the eight-row done check, one read-only review by the other vendor per stage, one guard, two founder touchpoints. Also what v6 was and the measurements that retired it, the accepted risks with the amended stop rule, the v6 lessons that still hold, and the rollback.
 read-when: Changing anything under `install/`, or asking how a goal runs, what v7 replaced, its risks or its rollback
 covers: [install/**]
-last-verified: 2026-10-10
+last-verified: 2026-10-13
 ---
 
 # Methodology v7.3
@@ -11,8 +11,9 @@ How a goal runs, and why. The rules are in the
 [skill](../../install/skills/execution-methodology/SKILL.md); the decisions are
 [D29](../decisions/decisions.md#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints)
 [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2),
-[D32](../decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6)
-and [D33](../decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7).
+[D32](../decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6),
+[D33](../decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7)
+and [D34](../decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8).
 
 ## Shape
 
@@ -39,14 +40,15 @@ and [D33](../decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks
   read-only; the reviewer, the other vendor's strongest reasoning model, read-only. Their agent files
   ship to both harnesses, marked: `agents/*.md` to `~/.claude/agents/`, `agents/*.toml` to
   `$CODEX_HOME/agents/` ([personas.md](personas.md) holds the evidence). The caps are structural:
-  one builder per task, at most four at once, one review round per stage, each agent's `maxTurns`,
-  at most five planning questions.
+  one builder per task, at most four at once, one review round per stage, the builder's and the
+  scout's `maxTurns`, at most five planning questions.
 - **Gates sized at planning (v7.2, D32).** Each task names its `gate:`, at most 600 s alone, and the
   tasks it `needs:`; `goal.py next` lists the ready ones and the chief dispatches a builder per
   ready task, each in a fresh isolated worktree from the goal branch, which carries every committed
   dependency. Task checks run one at a time; the full gate runs every third task commit in the
-  background where it takes 600 s or less, else only at close. `gate.py` records every run in
-  `.runs/<id>/checks.jsonl`.
+  background, in a detached worktree, where it takes 600 s or less, else only at close. The chief
+  records each builder's worktree and each sample's with `goal.py own` (D34). `gate.py` records
+  every run in `.runs/<id>/checks.jsonl`.
 - **Module map (v7.3, D33).** A repository may commit `docs/goals/modules.json`: each test module's
   paths, the modules it `needs` and one test command, the `shared` paths, the full-gate command it
   `replaces` and a `count: "none"` module running that command without its tests. The chief drafts
@@ -74,6 +76,13 @@ and [D33](../decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks
   `tests-may-change`; frozen view unchanged; `full_gate` and `e2e` receipts on HEAD's tree; no open
   blocking review finding, each closed by a named test or by removal. It reads no verdict, round or
   grant.
+- **The close** ([close.md](../../install/skills/execution-methodology/references/close.md)): the
+  `full_gate` and `e2e` receipts, the merge review, `goal.py done` printing DONE, then the chief
+  pushes the branch and opens the PR. Once the founder says to merge, the chief runs `gh pr merge
+  <n> --merge`, with `--delete-branch` only at the goal's last milestone; tags
+  `goal/<id>/<milestone>` at the PR's head commit and pushes the tag; then runs `goal.py cleanup
+  --goal <id> --apply`, which removes only the recorded worktrees, and their branches, whose work
+  `origin/main` holds (D34).
 - **One review by the other vendor** per stage, read-only and adversarial, with `agents/reviewer.md`:
   design whenever `design.md` exists, plan before the approval tag, merge on the milestone diff (with
   the security checklist when `touches` names data, auth or external). One round each, no grant.
@@ -126,12 +135,12 @@ Six v6 lessons hold:
 ## Rollback
 
 ```bash
-(cd install && ./install.sh --uninstall)                   # on the v7.1 tree
+(cd install && ./install.sh --uninstall)                   # on the current tree
 git rm -r -q install && git checkout methodology/v6-base -- install && (cd install && ./install.sh)
 ```
 
-`git rm` first: a plain checkout overlays the older tree on v7.1 and keeps v7.1-only files, which
-the older installer would copy. To return to v7 rather than v6, check out `goal/S-1/M2` in place of
-`methodology/v6-base`.
+`git rm` first: a plain checkout overlays the older tree on the current one and keeps the files
+only the current tree has, which the older installer would copy. To return to v7 rather than v6,
+check out `goal/S-1/M2` in place of `methodology/v6-base`; to return to v7.2, `goal/S-6/M1`.
 
 A migrated project reverts its migration commit ([migrate-v5.md](../runbooks/migrate-v5.md)).

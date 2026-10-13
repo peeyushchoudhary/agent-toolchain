@@ -1077,5 +1077,362 @@ class CostTest(RepoCase):
                       packet)
 
 
+class CleanupTest(RepoCase):
+    """goal.py own and cleanup against a bare origin; a builder is a linked worktree under .claude/worktrees/."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = Path(os.path.realpath(tempfile.mkdtemp(prefix="goal-cleanup-")))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.origin = self.tmp / "origin.git"
+        self.repo.git("init", "-q", "--bare", str(self.origin))
+        self.repo.git("remote", "add", "origin", str(self.origin))
+        self.repo.write(".gitignore", self.repo.read(".gitignore") + "/.claude/\n")
+        self.repo.commit("ignore nested worktrees")
+        self.repo.git("branch", "elsewhere")
+        self.repo.git("tag", "v-old")
+        self.repo.git("push", "-q", "origin", "main", "elsewhere", "v-old")
+        self.repo.git("tag", "-d", "v-old")
+        self.record = self.repo.path(".runs/F-9/worktrees.jsonl")
+
+    def builder(self, x, change=True):
+        """Worktree .claude/worktrees/agent-<x> on branch worktree-agent-<x>, with src/<x>.py staged when change."""
+        path = self.repo.dir / ".claude" / "worktrees" / f"agent-{x}"
+        self.repo.git("worktree", "add", "-q", "-b", f"worktree-agent-{x}", str(path))
+        if change:
+            (path / "src").mkdir(exist_ok=True)
+            (path / "src" / f"{x}.py").write_text(f"{x.upper()} = 1\n")
+            self.repo.git("-C", str(path), "add", f"src/{x}.py")
+        return path
+
+    def land(self, x):
+        self.repo.write(f"src/{x}.py", f"{x.upper()} = 1\n")
+        self.repo.commit(f"[T1] land {x}")
+        self.repo.git("push", "-q", "origin", "main")
+
+    def sample(self):
+        path = self.tmp / "sample"
+        self.repo.git("worktree", "add", "-q", "--detach", str(path), "HEAD")
+        return path
+
+    def goal_in(self, cwd, *args):
+        return subprocess.run([sys.executable, str(GOAL), *args], cwd=cwd, env=env(), capture_output=True,
+                              text=True, timeout=120)
+
+    def own(self, path):
+        res = self.repo.goal("own", "--goal", "F-9", str(path))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        return res
+
+    def cleanup(self, *args, code=0):
+        res = self.repo.goal("cleanup", "--goal", "F-9", *args)
+        self.assertEqual(res.returncode, code, res.stdout + res.stderr)
+        return res.stdout.splitlines()
+
+    def head(self, mode):
+        return f"cleanup: {mode} for F-9 against origin/main at {self.repo.git('rev-parse', 'refs/remotes/origin/main')[:10]}"
+
+    def rows(self):
+        return [json.loads(l) for l in self.record.read_text().splitlines()]
+
+    def exists(self, ref):
+        return subprocess.run(["git", "rev-parse", "-q", "--verify", ref], cwd=self.repo.dir,
+                              capture_output=True).returncode == 0
+
+    def test_own_records_only_linked_worktrees_of_this_repository(self):
+        a = self.builder("a")
+        self.assertEqual(self.own(a).stdout, f"own: {a} (worktree-agent-a)\n")
+        rows = self.rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(sorted(rows[0]), ["at", "branch", "head", "path"])
+        self.assertEqual((rows[0]["path"], rows[0]["branch"], rows[0]["head"]),
+                         (str(a), "worktree-agent-a", self.repo.git("rev-parse", "HEAD")))
+        before = self.record.read_text()
+        self.own(a)
+        self.assertEqual(self.record.read_text(), before)
+        other = Repo()
+        self.addCleanup(other.cleanup)
+        elsewhere = self.tmp / "other-wt"
+        other.git("worktree", "add", "-q", "--detach", str(elsewhere))
+        plain = self.tmp / "plain"
+        plain.mkdir()
+        for path in (self.repo.dir, plain, elsewhere):
+            res = self.repo.goal("own", "--goal", "F-9", str(path))
+            self.assertEqual((res.returncode, res.stdout, res.stderr),
+                             (2, "", f"goal.py: {path} is not a linked worktree of this repository\n"))
+        res = self.goal_in(a, "own", "--goal", "F-9", ".")  # the worktree holding the current directory
+        self.assertEqual((res.returncode, res.stderr), (2, f"goal.py: {a} is not a linked worktree of this repository\n"))
+        self.assertEqual(self.record.read_text(), before)
+
+    def test_cleanup_removes_only_recorded_work_main_holds(self):
+        a = self.builder("a")
+        self.land("a")
+        sample = self.sample()
+        self.own(a)
+        self.own(sample)
+        self.repo.git("worktree", "add", "-q", "-b", "other-session", str(self.repo.dir / ".claude/worktrees/other-session"))
+        self.repo.git("branch", "old-goal")
+        self.repo.git("-C", str(self.origin), "branch", "-q", "-D", "elsewhere")
+        tracking = self.repo.git("rev-parse", "refs/remotes/origin/elsewhere")
+        self.assertEqual(self.cleanup(), [
+            self.head("dry run"),
+            "remove worktree .claude/worktrees/agent-a (changes already in origin/main)",
+            "remove branch worktree-agent-a (merged)",
+            f"remove worktree {sample} (merged)",
+            "cleanup: 3 to remove, 0 kept"])
+        self.assertEqual(self.repo.git("rev-parse", "refs/remotes/origin/elsewhere"), tracking)
+        self.assertEqual(self.repo.git("tag", "-l", "v-old"), "")
+        listed = self.repo.git("worktree", "list", "--porcelain")
+        for path in (a, sample, self.repo.dir / ".claude/worktrees/other-session"):
+            self.assertIn(f"worktree {path}\n", listed)
+        for branch in ("worktree-agent-a", "other-session", "old-goal"):
+            self.assertTrue(self.exists(f"refs/heads/{branch}"), branch)
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"),
+            "removed worktree .claude/worktrees/agent-a (changes already in origin/main)",
+            "removed branch worktree-agent-a (merged)",
+            f"removed worktree {sample} (merged)",
+            "cleanup: 3 removed, 0 kept"])
+        self.assertFalse(a.exists() or sample.exists())
+        self.assertFalse(self.exists("refs/heads/worktree-agent-a"))
+        self.assertTrue(self.exists("refs/heads/other-session") and self.exists("refs/heads/old-goal"))
+        self.assertTrue((self.repo.dir / ".claude/worktrees/other-session").is_dir())
+        self.assertEqual(self.repo.git("rev-parse", "refs/remotes/origin/elsewhere"), tracking)
+        self.assertEqual(self.repo.git("tag", "-l", "v-old"), "")
+        self.assertEqual(self.cleanup("--apply"), [self.head("apply"), "cleanup: 0 removed, 0 kept"])
+
+    def test_cleanup_from_another_checkout_uses_the_ownership_record(self):
+        a = self.builder("a", change=False)
+        sample = self.sample()
+        self.own(a)
+        self.own(sample)
+        res = self.goal_in(sample, "cleanup", "--goal", "F-9")
+        self.assertEqual((res.returncode, res.stdout.splitlines()), (0, [
+            self.head("dry run"),
+            f"remove worktree {a} (merged)",
+            "remove branch worktree-agent-a (merged)",
+            f"keep worktree {sample}: in use here",
+            "cleanup: 2 to remove, 1 kept"]), res.stderr)
+        self.assertFalse((sample / ".runs").exists())
+
+    def test_cleanup_keeps_recorded_work_main_lacks(self):
+        git = lambda wt, *args: self.repo.git("-C", str(wt), *args)  # noqa: E731
+        locked = self.builder("locked", change=False)
+        (locked / "notes.txt").write_text("untracked\n")
+        self.repo.git("worktree", "lock", str(locked))
+        untracked = self.builder("untracked", change=False)
+        (untracked / "notes.txt").write_text("untracked\n")
+        staged = self.builder("staged")
+        diff = git(staged, "diff", "--cached")
+        commit = self.builder("commit", change=False)
+        (commit / "src").mkdir()
+        (commit / "src/commit.py").write_text("C = 1\n")
+        git(commit, "add", "src/commit.py")
+        git(commit, "commit", "-q", "-m", "unpushed")
+        sub = self.builder("sub", change=False)
+        git(sub, "update-index", "--add", "--cacheinfo", f"160000,{self.repo.git('rev-parse', 'HEAD')},sub")
+        unstaged = self.builder("unstaged", change=False)
+        (unstaged / "f.txt").write_text("A\n")
+        (unstaged / "f.txt").write_text("B\n")
+        git(unstaged, "add", "f.txt")
+        (unstaged / "f.txt").write_text("A\n")
+        paths = (locked, untracked, staged, commit, sub, unstaged)
+        for path in paths:
+            self.own(path)
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"),
+            "keep worktree .claude/worktrees/agent-locked: locked",
+            "keep worktree .claude/worktrees/agent-untracked: untracked files",
+            "keep worktree .claude/worktrees/agent-staged: staged changes not in origin/main",
+            "keep worktree .claude/worktrees/agent-commit: 1 commit(s) not in origin/main",
+            "keep worktree .claude/worktrees/agent-sub: submodules",
+            "keep worktree .claude/worktrees/agent-unstaged: unstaged changes",
+            "cleanup: 0 removed, 6 kept"])
+        for path in paths:
+            self.assertTrue(path.is_dir(), path)
+        self.assertEqual(git(staged, "diff", "--cached"), diff)
+        self.assertEqual(git(unstaged, "show", ":f.txt"), "B")
+
+    def test_cleanup_keeps_recorded_branches_that_moved(self):
+        c, d = self.builder("c", change=False), self.builder("d", change=False)
+        self.own(c)
+        self.own(d)
+        self.repo.git("worktree", "remove", str(c))
+        self.repo.git("worktree", "remove", str(d))
+        self.repo.git("checkout", "-q", "worktree-agent-c")
+        tip = self.repo.git("commit-tree", "worktree-agent-d^{tree}", "-p", "worktree-agent-d", "-m", "unpushed")
+        self.repo.git("update-ref", "refs/heads/worktree-agent-d", tip)
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"),
+            "gone worktree .claude/worktrees/agent-c",
+            "keep branch worktree-agent-c: current branch",
+            "gone worktree .claude/worktrees/agent-d",
+            "keep branch worktree-agent-d: 1 commit(s) not in origin/main",
+            "cleanup: 0 removed, 2 kept"])
+        self.assertTrue(self.exists("refs/heads/worktree-agent-c") and self.exists("refs/heads/worktree-agent-d"))
+
+    def test_cleanup_retries_a_branch_whose_removal_failed(self):
+        b = self.builder("b", change=False)
+        self.own(b)
+        common = Path(self.repo.git("rev-parse", "--path-format=absolute", "--git-common-dir"))
+        lock = common / "refs" / "heads" / "worktree-agent-b.lock"
+        lock.write_text("")
+        out = self.cleanup("--apply", code=1)
+        self.assertEqual(out[:2], [self.head("apply"), "removed worktree .claude/worktrees/agent-b (merged)"])
+        self.assertTrue(out[2].startswith("cleanup: could not remove branch worktree-agent-b: "), out)
+        self.assertEqual(out[3:], ["cleanup: 1 removed, 0 kept"])
+        self.assertFalse(b.exists())
+        self.assertFalse(any("branch_removed" in r for r in self.rows()))
+        lock.unlink()
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "removed branch worktree-agent-b (merged)", "cleanup: 1 removed, 0 kept"])
+        self.assertFalse(self.exists("refs/heads/worktree-agent-b"))
+
+    def test_cleanup_treats_a_deleted_worktree_directory_as_gone(self):
+        e, other = self.builder("e", change=False), self.builder("other", change=False)
+        self.own(e)
+        shutil.rmtree(e)
+        self.assertIn(f"worktree {e}\n", self.repo.git("worktree", "list", "--porcelain"))  # git still lists it
+        self.assertEqual(self.cleanup(), [
+            self.head("dry run"), "remove worktree .claude/worktrees/agent-e (directory gone)",
+            "remove branch worktree-agent-e (merged)", "cleanup: 2 to remove, 0 kept"])
+        res = self.repo.goal("cleanup", "--goal", "F-9", "--apply")
+        self.assertEqual((res.returncode, res.stdout.splitlines(), res.stderr), (0, [
+            self.head("apply"), "removed worktree .claude/worktrees/agent-e (directory gone)",
+            "removed branch worktree-agent-e (merged)", "cleanup: 2 removed, 0 kept"], ""))
+        listed = self.repo.git("worktree", "list", "--porcelain")
+        self.assertNotIn(f"worktree {e}\n", listed)
+        self.assertIn(f"worktree {other}\n", listed)
+        self.assertFalse(self.exists("refs/heads/worktree-agent-e"))
+        self.assertEqual([sorted(r) for r in self.rows()],
+                         [["at", "branch", "head", "path"], ["path", "removed"], ["branch_removed", "path"]])
+
+    def test_cleanup_keeps_a_locked_worktree_whose_directory_is_gone(self):
+        f = self.builder("f", change=False)
+        self.own(f)
+        self.repo.git("worktree", "lock", str(f))
+        shutil.rmtree(f)  # a locked worktree on a drive that is away: the lock keeps it
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "keep worktree .claude/worktrees/agent-f: locked", "cleanup: 0 removed, 1 kept"])
+        self.assertIn(f"worktree {f}\n", self.repo.git("worktree", "list", "--porcelain"))
+        self.assertTrue(self.exists("refs/heads/worktree-agent-f"))
+
+    def test_cleanup_completes_records_and_refuses_without_origin_main(self):
+        self.assertEqual(self.cleanup(), [self.head("dry run"), "cleanup: 0 to remove, 0 kept"])
+        e = self.builder("e", change=False)
+        self.own(e)
+        self.repo.git("worktree", "remove", str(e))
+        self.repo.git("branch", "-q", "-D", "worktree-agent-e")
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "gone worktree .claude/worktrees/agent-e", "cleanup: 0 removed, 0 kept"])
+        self.assertEqual(self.cleanup("--apply"), [self.head("apply"), "cleanup: 0 removed, 0 kept"])
+        bare = Repo()
+        self.addCleanup(bare.cleanup)
+        res = bare.goal("cleanup", "--goal", "F-9")
+        self.assertEqual((res.returncode, res.stdout), (2, ""), res.stderr)
+        self.assertTrue(res.stderr.startswith("goal.py: cleanup needs origin/main: "), res.stderr)
+
+
+    def test_cleanup_keeps_untracked_files_when_status_hides_them(self):
+        self.repo.git("config", "status.showUntrackedFiles", "no")
+        u = self.builder("u", change=False)
+        (u / "notes.txt").write_text("untracked\n")
+        self.own(u)
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "keep worktree .claude/worktrees/agent-u: untracked files", "cleanup: 0 removed, 1 kept"])
+        self.assertTrue((u / "notes.txt").is_file())
+
+    def test_failed_cached_diff_prevents_removal(self):
+        self.repo.git("config", "diff.external", str(self.tmp / "no-such-diff"))
+        x = self.builder("x")
+        self.own(x)
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "keep worktree .claude/worktrees/agent-x: staged changes not in origin/main",
+            "cleanup: 0 removed, 1 kept"])
+        self.assertEqual(self.repo.git("-C", str(x), "diff-index", "--cached", "--name-only", "HEAD"), "src/x.py")
+
+    def test_cleanup_preserves_changes_hidden_by_textconv(self):
+        self.repo.write("f.doc", "one\n")
+        self.repo.commit("[T1] land f.doc")
+        self.repo.git("push", "-q", "origin", "main")
+        info = Path(self.repo.git("rev-parse", "--path-format=absolute", "--git-common-dir")) / "info"
+        info.mkdir(exist_ok=True)
+        (info / "attributes").write_text("*.doc diff=strip\n")
+        self.repo.git("config", "diff.strip.textconv", "true")  # every version converts to the same empty text
+        t = self.builder("t", change=False)
+        (t / "f.doc").write_text("two\n")
+        self.repo.git("-C", str(t), "add", "f.doc")
+        w = self.builder("w", change=False)
+        (w / "f.doc").write_text("two\n")
+        self.own(t)
+        self.own(w)
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "keep worktree .claude/worktrees/agent-t: staged changes not in origin/main",
+            "keep worktree .claude/worktrees/agent-w: unstaged changes", "cleanup: 0 removed, 2 kept"])
+        self.assertEqual(self.repo.git("-C", str(t), "show", ":f.doc"), "two")
+        self.assertEqual((w / "f.doc").read_text(), "two\n")
+
+    def test_cleanup_fetch_preserves_additional_mapped_refs(self):
+        self.repo.git("config", "--add", "remote.origin.fetch", "+refs/heads/main:refs/remotes/secondary/main")
+        self.assertEqual(self.cleanup(), [self.head("dry run"), "cleanup: 0 to remove, 0 kept"])
+        self.assertTrue(self.exists("refs/remotes/origin/main"))
+        self.assertFalse(self.exists("refs/remotes/secondary/main"))
+
+    def test_own_handles_newline_paths_without_accepting_their_prefixes(self):
+        prefix, odd = self.tmp / "nl", self.tmp / "nl\nwt"
+        prefix.mkdir()
+        self.repo.git("worktree", "add", "-q", "--detach", str(odd))
+        self.assertEqual(self.own(odd).stdout, f"own: {odd} (detached)\n")
+        self.assertEqual(self.rows()[0]["path"], str(odd))
+        res = self.repo.goal("own", "--goal", "F-9", str(prefix))
+        self.assertEqual((res.returncode, res.stderr),
+                         (2, f"goal.py: {prefix} is not a linked worktree of this repository\n"))
+        res = self.repo.goal("cleanup", "--goal", "F-9")  # raw stdout: the path itself holds a newline
+        self.assertEqual((res.returncode, res.stdout), (0, "\n".join([
+            self.head("dry run"), f"remove worktree {odd} (merged)", "cleanup: 1 to remove, 0 kept", ""])))
+
+    def test_cleanup_preserves_unrecorded_nested_worktree(self):
+        a = self.builder("a", change=False)
+        nested = a / ".claude" / "worktrees" / "other-session"  # under a's ignored .claude/
+        self.repo.git("worktree", "add", "-q", "-b", "other-session", str(nested))
+        (nested / "work.txt").write_text("unsaved\n")
+        self.own(a)
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "keep worktree .claude/worktrees/agent-a: holds another worktree",
+            "cleanup: 0 removed, 1 kept"])
+        self.assertEqual((nested / "work.txt").read_text(), "unsaved\n")
+        self.assertTrue(self.exists("refs/heads/worktree-agent-a") and self.exists("refs/heads/other-session"))
+
+    def test_missing_directory_preserves_unmerged_head_and_index(self):
+        commit, staged = self.tmp / "gone-commit", self.tmp / "gone-staged"
+        for path in (commit, staged):
+            self.repo.git("worktree", "add", "-q", "--detach", str(path), "HEAD")
+        (commit / "c.txt").write_text("C\n")
+        self.repo.git("-C", str(commit), "add", "c.txt")
+        self.repo.git("-C", str(commit), "commit", "-q", "-m", "unpushed")
+        (staged / "s.txt").write_text("S\n")
+        self.repo.git("-C", str(staged), "add", "s.txt")
+        for path in (commit, staged):
+            self.own(path)
+            shutil.rmtree(path)  # the directory goes; git's record of its HEAD and index stays
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), f"keep worktree {commit}: 1 commit(s) not in origin/main",
+            f"keep worktree {staged}: staged changes not in origin/main", "cleanup: 0 removed, 2 kept"])
+        listed = self.repo.git("worktree", "list", "--porcelain")
+        for path in (commit, staged):
+            self.assertIn(f"worktree {path}\n", listed)
+        self.assertFalse(any("removed" in r for r in self.rows()))
+
+    def test_cleanup_keeps_recorded_branch_checked_out_elsewhere(self):
+        c = self.builder("c", change=False)
+        self.own(c)
+        self.repo.git("worktree", "remove", str(c))
+        elsewhere = self.tmp / "elsewhere"
+        self.repo.git("worktree", "add", "-q", str(elsewhere), "worktree-agent-c")  # unrecorded
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "gone worktree .claude/worktrees/agent-c",
+            "keep branch worktree-agent-c: checked out", "cleanup: 0 removed, 1 kept"])
+        self.assertTrue(self.exists("refs/heads/worktree-agent-c") and elsewhere.is_dir())
+
 if __name__ == "__main__":
     unittest.main()
