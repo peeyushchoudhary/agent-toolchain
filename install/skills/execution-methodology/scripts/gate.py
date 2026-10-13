@@ -421,6 +421,17 @@ def failure_named(failure: str, subset: str) -> bool:
     return any(k in subset for k in keys)
 
 
+def last_complete_run(runs: Path, cmd: str) -> dict:
+    """The newest PASS receipt of cmd in any goal under runs, not itself completed by a rerun: how many
+    tests a run of cmd executes when nothing stops it early."""
+    found = []
+    for path in runs.glob("*/receipts/*.json"):
+        r = read_receipt(path)
+        if r.get("command") == cmd and r.get("verdict") == "PASS" and "partial" not in r:
+            found.append((str(r.get("finished_at", "")), r))
+    return max(found, key=lambda x: x[0])[1] if found else {}
+
+
 def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
     """Why `--rerun-failed subset` cannot complete the receipt old for (tree, cmd); empty when it can."""
     if "partial" in old:
@@ -432,6 +443,12 @@ def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
         return "--rerun-failed needs a FAIL receipt whose only reason is failures not in baseline"
     if re.search(r"\bgradlew?\b", cmd) and "--continue" not in cmd:
         return "gradle command without --continue: the modules after the first failure did not run"
+    complete = last_complete_run(checks.parent.parent, cmd)
+    if not complete:
+        return "no earlier PASS receipt of this command shows how many tests a complete run executes"
+    if old.get("executed", 0) < complete.get("executed", 0):
+        return (f"the failed run executed {old.get('executed', 0)} test(s), fewer than the {complete['executed']} "
+                "of the last complete run: tests that did not run need the full gate")
     if SHELL_CONTROL.search(subset) or re.match(r"\s*(?:echo|printf|true|:)\b", subset):
         return ("the --rerun-failed command must be one plain test command: no comment, echo, chaining, "
                 "pipe, redirection or substitution")

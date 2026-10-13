@@ -402,8 +402,18 @@ class RerunFailedTest(GateCase):
         return self.repo.gate("receipt", "--goal", "F-9", "--cmd", cmd, "--name", "full_gate",
                               "--rerun-failed", subset, *extra, GATE_FIXTURE_MODE=mode)
 
-    def failed(self, cmd=TIMED_OUT, mode="ok", **plant):
-        """A FAIL receipt for cmd, with plant (load, cpus) written over what this machine measured."""
+    def complete(self, cmd, executed=3):
+        """An earlier PASS receipt of cmd on another tree: a run that executed `executed` tests."""
+        path = self.repo.path(f".runs/F-9/receipts/{'0' * 40}-{gate.cmd_hash(cmd)}.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"command": cmd, "verdict": "PASS", "executed": executed,
+                                    "finished_at": "2026-01-01T00:00:00+00:00", "tree": "0" * 40}))
+
+    def failed(self, cmd=TIMED_OUT, mode="ok", complete=3, **plant):
+        """A FAIL receipt for cmd, with plant (load, cpus) written over what this machine measured, after
+        an earlier complete run of cmd that executed `complete` tests (None: no earlier run)."""
+        if complete is not None:
+            self.complete(cmd, complete)
         self.assertGate(self.receipt(cmd, mode=mode), "FAIL", "failures not in baseline: ")
         path = gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(), cmd)
         r = {**json.loads(path.read_text()), **plant}
@@ -471,6 +481,14 @@ class RerunFailedTest(GateCase):
         self.assertEqual(failed["new_failures"], ["tests/a.py::test_x", "tests/b.py::test_x"])
         self.assertRefused(self.rerun(EMIT + " tests/a.py::test_x tests/b.py::test_x", cmd=cmd),
                            "tests/a.py::test_x: not a timeout or resource error")
+
+    def test_rerun_cannot_complete_a_short_circuited_suite(self):
+        # `unittest a && unittest b` whose first suite times out: b never ran, so 3 of a complete run's 5.
+        self.failed(complete=5, **BUSY)
+        self.assertRefused(self.rerun(), "executed 3 test(s), fewer than the 5 of the last complete run")
+        other = failing("subprocess.TimeoutExpired: Command timed out after 60 seconds")
+        self.failed(other, complete=None, **BUSY)
+        self.assertRefused(self.rerun(cmd=other), "no earlier PASS receipt of this command")
 
     def test_rerun_failed_accepts_a_gradle_tests_filter(self):
         subset = "./gradlew test --continue --rerun-tasks --tests '*FooTest.bar'"
