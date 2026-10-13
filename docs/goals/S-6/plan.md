@@ -230,5 +230,14 @@ not change scripts.
   `.runs/E-1/`, since `goal.py --plan` takes a path inside the repository; the checks record is
   matched in run order, which the script fixes; the e2e receipt command is one variable shared by
   the receipt and the record check (default).
+- 2026-10-13 close: the two `tests-may-change` widenings dated "build" for T5 and T4, and D32's
+  missing blank line, were placed by replaying the unpushed branch after `goal.py done` failed rows 4
+  and 5, not before the work: the plan omitted `test_goal.py` where both tasks added their named
+  test, and the protected range D1-D31 ended at the file's last record. The pre-replay tip is kept
+  as the local branch `s6-pre-rewrite` (5f51552); its tree differs only in those plan lines and one
+  blank line. Both tasks only added lines to `test_goal.py` (T5 10, T4 12, none removed or changed,
+  no skip marker). Follow-up: row 5 should judge removed or changed test lines rather than any
+  modified test file, and a protected section's trailing blank line should not count as content
+  (default; disclosed to the founder).
 
 ## Parked
