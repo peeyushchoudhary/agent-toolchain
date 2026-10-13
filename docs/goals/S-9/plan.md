@@ -229,5 +229,12 @@ T4's commit (design review R2).
     the comparison" still reads as if the pilot runs, and `measurements.md`'s `summary` still names
     its stop rule. Both are wording the plan did not name (default).
 - 2026-10-13 AC6: after T4's commit 48b8899, `docs.py stale .` printed `docs.py stale: PASS`.
+- 2026-10-13 merge review (codex gpt-6-astra, PASS, 2 non-blocking findings), both parked.
 
 ## Parked
+- Merge review R1 (non-blocking): if an earlier milestone already pushed `goal/<id>/approved` and a
+  re-approval later moves it, close step 3's push is rejected for that tag. The milestone tag may
+  still go out. A recovery policy waits for the founder.
+- Merge review R2 (non-blocking): `test_d35_ends_the_pilot_and_updates_d29` does not check D35's
+  Chose paragraph (`install/` changes are ordinary founder-approved goals). A content assertion
+  waits for the next goal that touches `test_records.py`.
