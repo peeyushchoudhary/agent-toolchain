@@ -190,6 +190,8 @@ def parse_junit(root, pattern, since: float) -> dict | None:
             if tags & {"failure", "error"}:
                 res["failed"] += 1
                 res["failures"].append(f"{case.get('classname', '')}.{case.get('name', '')}")
+            else:
+                res.setdefault("passed", []).append(f"{case.get('classname', '')}.{case.get('name', '')}")
     return res
 
 
@@ -428,12 +430,28 @@ def plain_command(cmd: str) -> bool:
     return bool(tokens) and not operators and tokens == uncommented and tokens[0] not in ("echo", "printf", "true", ":")
 
 
-def failure_named(failure: str, subset: str) -> bool:
-    """Whether subset names the failure: its id, or for a dotted id without `()` and the package, the
-    `Class.method` a Gradle `--tests` filter uses."""
-    bare = failure[:-2] if failure.endswith("()") else failure
-    keys = [failure, bare] + ([".".join(bare.split(".")[-2:])] if "::" not in bare and "." in bare else [])
-    return any(k in subset for k in keys)
+UNITTEST_OK = re.compile(r"^(\w+) \(([^)\s]+)\)(?: .*)? \.\.\. ok$", re.M)
+PYTEST_PASSED = re.compile(r"^(?:(\S+::\S+) PASSED\b|PASSED (\S+::\S+))", re.M)
+GRADLE_PASSED = re.compile(r"^(\S+) > (\S+).* PASSED\s*$", re.M)
+
+
+def canonical(test_id: str) -> str:
+    """One spelling per test: a pytest node `tests/a.py::C::t` reads as JUnit XML names it, `tests.a.C.t`."""
+    if "::" not in test_id:
+        return test_id
+    path, rest = test_id.split("::", 1)
+    path = path[:-3] if path.endswith(".py") else path
+    return path.replace("/", ".") + "." + rest.replace("::", ".")
+
+
+def passed_ids(out: str, xml: dict | None) -> set:
+    """The tests a run reports by name as passed: unittest -v, pytest -v or -rA, Gradle's PASSED events,
+    and JUnit XML."""
+    ids = [where if where.endswith("." + name) else f"{where}.{name}" for name, where in UNITTEST_OK.findall(out)]
+    ids += [a or b for a, b in PYTEST_PASSED.findall(out)]
+    ids += [f"{c}.{m}" for c, m in GRADLE_PASSED.findall(out)]
+    ids += (xml or {}).get("passed", [])
+    return {canonical(i) for i in ids}
 
 
 def last_complete_run(runs: Path, cmd: str) -> dict:
@@ -467,9 +485,6 @@ def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
     if not plain_command(subset):
         return ("the --rerun-failed command must be one plain test command: no comment, echo, chaining, "
                 "pipe, redirection or substitution")
-    missing = [f for f in old.get("new_failures", []) if not failure_named(f, subset)]
-    if missing:
-        return "the --rerun-failed command does not name " + ", ".join(missing)
     try:
         blocks = failure_blocks(Path(old.get("log", "")).read_text(errors="replace"))
     except OSError:
@@ -516,10 +531,18 @@ def cmd_receipt(args, root):
         # The one try is spent before the subset runs, so an interrupted attempt cannot be repeated.
         write_receipt(path, {**old, "rerun_started": now()})
     res, duration = evaluate(root, cmd, args.goal, args.count == "none", args.junit, args.name, args.runs)
-    if args.rerun_failed and res["executed"] < len(old.get("new_failures", [])):
-        res["reasons"].append(f"the --rerun-failed command executed {res['executed']} test(s), fewer than the "
-                              f"{len(old['new_failures'])} it must rerun")
-        res["verdict"] = "FAIL"
+    if args.rerun_failed:
+        # The subset proves each failure passed by naming it in its own output; naming it in the command
+        # proves nothing, since a different test can share the name as a prefix.
+        out = Path(res["log"]).read_text(errors="replace")
+        since = dt.datetime.fromisoformat(res["started_at"]).timestamp()
+        passed = passed_ids(out, parse_junit(root, args.junit, since) if args.junit else None)
+        missing = [f for f in old.get("new_failures", []) if canonical(f) not in passed]
+        if missing:
+            res["reasons"].append("the rerun did not report " + ", ".join(missing) + " as passed; run those "
+                                  "tests verbosely (unittest -v, pytest -v, Gradle testLogging events "
+                                  "\"passed\") or name their JUnit XML with --junit")
+            res["verdict"] = "FAIL"
     # `command` stays the full command, so the receipt path and `goal.py done` are unchanged.
     res.update({"command": args.cmd, "tree": tree, "name": args.name, **rerun_fields(old)})
     if args.rerun_failed:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import shlex
 import os
 import re
 import shutil
@@ -391,13 +392,19 @@ def failing(*block):
     return "printf '%s\\n' " + " ".join(f"'{line}'" for line in lines) + "; exit 1"
 
 
+def passing(*ids):
+    """A plain command whose output reports each unittest id as passed, as `unittest -v` does."""
+    lines = [f"{i.rsplit('.', 1)[1]} ({i}) ... ok" for i in ids] + ["", f"Ran {len(ids)} tests in 0.01s", "", "OK"]
+    return "python3 -c " + shlex.quote("print(" + repr("\n".join(lines)) + ")")
+
+
 TIMED_OUT = failing("subprocess.TimeoutExpired: Command timed out after 120 seconds")
 BUSY = {"load": [6.0, 5.5, 4.0], "cpus": 4}  # the failed run's planted load, at or above its CPU count
 IDLE = {"load": [0.5, 0.5, 0.5], "cpus": 8}
 
 
 class RerunFailedTest(GateCase):
-    def rerun(self, subset=EMIT + " " + SLOW, cause="timeout under load; passes alone", cmd=TIMED_OUT, mode="ok"):
+    def rerun(self, subset=passing(SLOW), cause="timeout under load; passes alone", cmd=TIMED_OUT, mode="ok"):
         extra = ["--cause", cause] if cause else []
         return self.repo.gate("receipt", "--goal", "F-9", "--cmd", cmd, "--name", "full_gate",
                               "--rerun-failed", subset, *extra, GATE_FIXTURE_MODE=mode)
@@ -429,9 +436,9 @@ class RerunFailedTest(GateCase):
     def test_rerun_failed_completes_a_load_failed_receipt(self):
         failed = self.failed(**BUSY)
         self.assertEqual(failed["new_failures"], [SLOW])
-        subset = EMIT + " " + SLOW
+        subset = passing(SLOW)
         res = self.rerun(subset)
-        self.assertGate(res, "PASS", "3 run / 0 failed / 0 skipped")
+        self.assertGate(res, "PASS", "1 run / 0 failed / 0 skipped")
         self.assertIn("  - partial: reran 1 failed test(s) after a load failure; cause: timeout under load; "
                       "passes alone", res.stdout)
         self.assertTrue(res.stdout.splitlines()[-1].startswith("budget: ok"))
@@ -455,7 +462,7 @@ class RerunFailedTest(GateCase):
             with self.subTest(subset=subset):
                 self.assertRefused(self.rerun(subset), plain)
         res = self.rerun(EMIT + " " + SLOW, mode="zero")  # names it, runs nothing
-        self.assertGate(res, "FAIL", "executed 0 test(s), fewer than the 1 it must rerun")
+        self.assertGate(res, "FAIL", "the rerun did not report " + SLOW + " as passed")
 
     def test_rerun_rejects_assertion_with_timeout_in_traceback_name(self):
         not_load = SLOW + ": not a timeout or resource error"
@@ -515,17 +522,18 @@ class RerunFailedTest(GateCase):
         lines = ("=== short test summary info ===", f"FAILED {node} - Failed: Timeout >5.0s", "=== 1 failed, 2 passed in 6.0s ===")
         cmd = "printf '%s\\n' " + " ".join(f"'{line}'" for line in lines) + "; exit 1"
         self.failed(cmd, **BUSY)
-        self.assertGate(self.rerun(f"{EMIT} '{node}'", cmd=cmd), "PASS")
+        shown = "python3 -c " + shlex.quote("print(" + repr(f"{node} PASSED\n=== 1 passed in 0.1s ===") + ")")
+        self.assertGate(self.rerun(shown, cmd=cmd), "PASS")
         self.assertTrue(gate.plain_command(f"python3 -m pytest '{node}'"))
         for cmd in (f"python3 -m pytest {node}", "pytest t.py # x", "pytest t.py && true", "pytest $(ls)", "echo t"):
             self.assertFalse(gate.plain_command(cmd), cmd)
 
-    def test_rerun_failed_accepts_a_gradle_tests_filter(self):
-        subset = "./gradlew test --continue --rerun-tasks --tests '*FooTest.bar'"
-        self.assertTrue(gate.failure_named("com.example.FooTest.bar()", subset))
-        self.assertTrue(gate.failure_named("test_goal.CostTest.test_x", "python3 -m unittest test_goal.CostTest.test_x"))
-        self.assertFalse(gate.failure_named("com.example.FooTest.baz()", subset))
-        self.assertFalse(gate.failure_named("tests/a.py::test_x", "pytest tests/b.py::test_x"))
+    def test_rerun_rejects_a_different_test_with_the_failure_id_as_prefix(self):
+        self.failed(**BUSY)
+        res = self.rerun(passing(SLOW + "_other"))
+        self.assertGate(res, "FAIL", "the rerun did not report " + SLOW + " as passed")
+        self.assertEqual(gate.passed_ids("PASSED tests/a.py::C::test_x\nb.FooTest > bar() PASSED\n", None),
+                         {"tests.a.C.test_x", "b.FooTest.bar()"})
 
     def test_rerun_failed_refuses_what_it_cannot_prove(self):
         subset = EMIT + " " + KNOWN
@@ -533,7 +541,6 @@ class RerunFailedTest(GateCase):
         self.assertGate(self.receipt(mode="crash"), "FAIL")
         self.assertRefused(self.rerun(subset, cmd=EMIT), "only reason is failures not in baseline")
         self.failed(EMIT, mode="base", **BUSY)
-        self.assertRefused(self.rerun(EMIT + " mod.Case", cmd=EMIT), "does not name " + KNOWN)
         self.assertRefused(self.rerun(subset, cause="", cmd=EMIT), "--rerun-failed and --cause go together")
         not_load = ": not a timeout or resource error; a test that fails in the suite and passes alone may " \
                    "depend on another test, so run the full gate"
@@ -547,7 +554,7 @@ class RerunFailedTest(GateCase):
         with open(self.repo.path(".runs/F-9/checks.jsonl"), "a") as fh:  # another run spanning it
             fh.write(json.dumps({"label": "check", "command": "other", "tree": self.repo.tree(), "duration_s": 3600,
                                  "verdict": "PASS", "finished_at": ended.isoformat(timespec="seconds")}) + "\n")
-        self.assertGate(self.rerun(mode="crash"), "FAIL", "nonzero exit 1")  # a subset that fails stays FAIL
+        self.assertGate(self.rerun(EMIT + " " + SLOW, mode="crash"), "FAIL", "nonzero exit 1")  # a failing subset stays FAIL
         r = json.loads(gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(), TIMED_OUT).read_text())
         self.assertEqual((r["verdict"], r["partial"]["verdict"], r["rerun_command"]), ("FAIL", "FAIL", EMIT + " " + SLOW))
         self.assertRefused(self.rerun(), "already completed once with --rerun-failed")
@@ -559,7 +566,7 @@ class RerunFailedTest(GateCase):
         self.assertRefused(self.rerun(cmd=gradle), "gradle command without --continue")
         gradle = "echo ./gradlew test --rerun-tasks --continue >/dev/null; " + TIMED_OUT
         self.failed(gradle, **BUSY)
-        self.assertGate(self.rerun(f"{EMIT} --tests {SLOW}", cmd=gradle), "PASS")
+        self.assertGate(self.rerun(passing(SLOW), cmd=gradle), "PASS")
 
 
 if __name__ == "__main__":
