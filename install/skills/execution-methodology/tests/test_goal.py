@@ -1342,5 +1342,14 @@ class CleanupTest(RepoCase):
             self.head("apply"), "keep worktree .claude/worktrees/agent-u: untracked files", "cleanup: 0 removed, 1 kept"])
         self.assertTrue((u / "notes.txt").is_file())
 
+    def test_failed_cached_diff_prevents_removal(self):
+        self.repo.git("config", "diff.external", str(self.tmp / "no-such-diff"))
+        x = self.builder("x")
+        self.own(x)
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "keep worktree .claude/worktrees/agent-x: staged changes not in origin/main",
+            "cleanup: 0 removed, 1 kept"])
+        self.assertEqual(self.repo.git("-C", str(x), "diff-index", "--cached", "--name-only", "HEAD"), "src/x.py")
+
 if __name__ == "__main__":
     unittest.main()

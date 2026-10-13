@@ -1017,7 +1017,10 @@ def worktree_verdict(w, here, base):
         return "untracked files", False
     if git_try(wt, "diff", "--quiet").returncode:
         return "unstaged changes", False
-    staged = git_try(wt, "diff", "--cached", "--binary").stdout  # bytes, fed to apply unchanged
+    proc = git_try(wt, "diff", "--cached", "--binary")
+    staged = proc.stdout  # bytes, fed to apply unchanged
+    if proc.returncode:  # a failed diff proves nothing: keep
+        return "staged changes not in origin/main", False
     if not staged:
         return "merged", True
     tmp = tempfile.mkdtemp()
