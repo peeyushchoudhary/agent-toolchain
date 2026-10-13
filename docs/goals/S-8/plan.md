@@ -69,7 +69,7 @@ Test in class `ReceiptTest`: `test_run_closes_its_output_pipe` (AC3). Under
 `ResourceWarning`. Import `gc` and `warnings` at the top of the file. The test fails before the
 change.
 
-### [ ] T3 — `goal.py own` records a goal's worktrees; `goal.py cleanup` removes what `origin/main` holds
+### [x] T3 — `goal.py own` records a goal's worktrees; `goal.py cleanup` removes what `origin/main` holds
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-8/design.md#interfaces, docs/goals/S-8/design.md#data-touched, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
@@ -304,5 +304,20 @@ key but `summary` and `last-verified`, and no file under `install/`.
   directly, since `modmap.load` rejects a non-string test. The module docstring's `--modules` lines
   do not mention the two refusals (follow-up) (default).
 - 2026-10-13 T2: built by the chief, as a trivial task. The new test failed before the change, and
-  `test_gate.py` no longer prints a ResourceWarning (default).
+  `test_gate.py` no longer prints a ResourceWarning (default).- 2026-10-13 T3:
+  - **Paths in output.** The checkout cleanup runs from prints as an absolute path, and `own`
+    prints and stores the resolved absolute path. A second `own` of a recorded path prints its line
+    and appends nothing.
+  - **Record writes.** Records are written only under `--apply`.
+  - **Dry run.** A worktree the dry run would remove no longer counts as checking out its branch.
+  - **Counts.** A failed removal counts as neither removed nor kept.
+  - **Directory gone.** A recorded worktree that git still lists but whose directory is gone
+    (`prunable` or missing) is removed with reason `directory gone`. This runs `git worktree remove
+    --force <path>` for that path only, and its branch rules follow. The lock and `in use here`
+    rules come first, so a locked worktree on an absent drive is kept. The chief added that order
+    and `test_cleanup_keeps_a_locked_worktree_whose_directory_is_gone` (default).
+  - **Follow-ups.**
+    - With no `origin`, the refusal quotes git's last stderr line, not its `fatal:` line.
+    - A finished path that is re-created and owned again is ignored.
+
 ## Parked

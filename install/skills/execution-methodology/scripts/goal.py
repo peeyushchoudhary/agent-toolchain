@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Goal state computed from docs/goals/<id>/plan.md and git: lint, status, next, resume, packet, done, cost.
+"""Goal state computed from docs/goals/<id>/plan.md and git: lint, status, next, resume, packet, done, cost, own, cleanup.
 
 The plan is --plan, else docs/goals/<--goal>/plan.md, else the one plan whose last milestone is not
 tagged goal/<id>/<Mn>. `cost` sums the harness transcripts' tokens; it records, never enforces.
+`own` records a goal's linked worktree; `cleanup` removes recorded worktrees and branches origin/main holds.
 Exit codes: 0 ok or done, 1 finding or not done, 2 usage or internal error.
 """
 from __future__ import annotations
@@ -12,8 +13,10 @@ import html
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -945,13 +948,176 @@ def cmd_cost(ctx, a):
     print("\n".join(cost_lines(ctx, a.since)))
     return 0
 
+def git_try(cwd, *args, **kw):
+    """git whose non-zero exit is a decision, not an error: the CompletedProcess (bytes unless text=True)."""
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, **kw)
+
+def last_line(text):
+    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    return lines[-1] if lines else ""
+
+def now():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+def contains(path, cwd):
+    return cwd == Path(path) or Path(path) in cwd.parents
+
+def worktrees(root):
+    """[{path, head, branch, locked, prunable}] from `git worktree list --porcelain`, the main worktree first."""
+    out = []
+    for line in git(root, "worktree", "list", "--porcelain").splitlines():
+        key, _, val = line.partition(" ")
+        if key == "worktree":
+            out.append({"path": os.path.realpath(val), "head": None, "branch": None, "locked": False,
+                        "prunable": False})
+        elif out and key == "prunable":
+            out[-1]["prunable"] = True
+        elif out and key == "HEAD":
+            out[-1]["head"] = val
+        elif out and key == "branch":
+            out[-1]["branch"] = val.removeprefix("refs/heads/")
+        elif out and key == "locked":
+            out[-1]["locked"] = True
+    return out
+
+def worktree_record(ctx):
+    """<main>/.runs/<id>/worktrees.jsonl: one record for every checkout of the repository (Interface 3)."""
+    common = git(ctx.root, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    return Path(os.path.realpath(common)).parent / ".runs" / ctx.goal / "worktrees.jsonl"
+
+def append_record(path, row):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row) + "\n")
+
+def cmd_own(ctx, a):
+    path, cwd = os.path.realpath(a.path), Path(os.path.realpath(os.getcwd()))
+    wt = next((w for w in worktrees(ctx.root)[1:] if w["path"] == path and not contains(path, cwd)), None)
+    if wt is None:
+        raise PlanError(f"{path} is not a linked worktree of this repository")
+    record = worktree_record(ctx)
+    if not any(r.get("path") == path and "at" in r for r in records(record)):  # a path keeps its first entry
+        append_record(record, {"path": path, "branch": wt["branch"], "head": wt["head"], "at": now()})
+    print(f"own: {path} ({wt['branch'] or 'detached'})")
+    return 0
+
+def worktree_verdict(w, here, base):
+    """(reason, remove) by the first of Interface 5's nine rules that holds for listed worktree w."""
+    wt = w["path"]
+    if here:
+        return "in use here", False
+    if w["locked"]:
+        return "locked", False
+    if git_try(wt, "merge-base", "--is-ancestor", w["head"], base).returncode:
+        n = git(wt, "rev-list", "--count", f"{base}..{w['head']}")
+        return f"{n} commit(s) not in origin/main", False
+    if any(l.startswith("160000 ") for l in git(wt, "ls-files", "-s").splitlines()):
+        return "submodules", False
+    if any(l.startswith("?? ") for l in git(wt, "status", "--porcelain").splitlines()):
+        return "untracked files", False
+    if git_try(wt, "diff", "--quiet").returncode:
+        return "unstaged changes", False
+    staged = git_try(wt, "diff", "--cached", "--binary").stdout  # bytes, fed to apply unchanged
+    if not staged:
+        return "merged", True
+    tmp = tempfile.mkdtemp()
+    try:
+        env = {**os.environ, "GIT_INDEX_FILE": os.path.join(tmp, "index")}
+        held = (git_try(wt, "read-tree", base, env=env).returncode == 0
+                and git_try(wt, "apply", "--cached", "--check", "-R", input=staged, env=env).returncode == 0)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return ("changes already in origin/main", True) if held else ("staged changes not in origin/main", False)
+
+def cmd_cleanup(ctx, a):
+    try:
+        proc = subprocess.run(["git", "fetch", "--no-tags", "origin", "refs/heads/main:refs/remotes/origin/main"],
+                              cwd=ctx.root, capture_output=True, text=True, timeout=120)
+        why = last_line(proc.stderr) if proc.returncode else None
+    except subprocess.TimeoutExpired:
+        why = "timed out"
+    if why is not None:
+        raise PlanError(f"cleanup needs origin/main: {why}")
+    base = "refs/remotes/origin/main"
+    print(f"cleanup: {'apply' if a.apply else 'dry run'} for {ctx.goal} against origin/main at "
+          f"{git(ctx.root, 'rev-parse', base)[:10]}")
+    record, cwd = worktree_record(ctx), Path(os.path.realpath(os.getcwd()))
+    entries = {}  # path -> its first own line and whether removed / branch_removed lines follow
+    for r in records(record):
+        if isinstance(r.get("path"), str):
+            e = entries.setdefault(r["path"], {})
+            if "at" in r:
+                e.setdefault("own", r)
+            e.update({k: True for k in ("removed", "branch_removed") if k in r})
+    listed = worktrees(ctx.root)
+    main_wt, listed = listed[0]["path"], {w["path"]: w for w in listed}
+    current = git(ctx.root, "symbolic-ref", "-q", "--short", "HEAD", check=False)
+    shown = lambda p: (Path(p).relative_to(ctx.root).as_posix()  # noqa: E731
+                       if Path(p) != ctx.root and Path(p).is_relative_to(ctx.root) else p)
+    did = "removed" if a.apply else "remove"
+    removed, kept, failed, gone = 0, 0, False, set()  # gone: worktrees removed, or to be, in this run
+    for path, e in entries.items():
+        if "own" not in e or (e.get("removed") and e.get("branch_removed")):
+            continue
+        if not e.get("removed"):
+            if path not in listed:
+                print(f"gone worktree {shown(path)}")
+            else:  # an unlocked listed entry whose directory is gone holds nothing to lose; its record goes
+                w, here = listed[path], path == main_wt or contains(path, cwd)
+                reason, remove = (("directory gone", True) if not (here or w["locked"])
+                                  and (w["prunable"] or not Path(path).is_dir()) else worktree_verdict(w, here, base))
+                if not remove:
+                    print(f"keep worktree {shown(path)}: {reason}")
+                    kept += 1
+                    continue
+                if a.apply and (proc := git_try(ctx.root, "worktree", "remove", "--force", path, text=True)).returncode:
+                    print(f"cleanup: could not remove worktree {shown(path)}: {last_line(proc.stderr)}")
+                    failed = True
+                    continue
+                print(f"{did} worktree {shown(path)} ({reason})")
+                removed += 1
+            gone.add(path)
+            if a.apply:
+                append_record(record, {"path": path, "removed": now()})
+        name = e["own"].get("branch")
+        ref = f"refs/heads/{name}"
+        if not name or not git(ctx.root, "rev-parse", "-q", "--verify", ref, check=False):
+            if a.apply:
+                append_record(record, {"path": path, "branch_removed": now()})
+            continue
+        if name == current:
+            why = "current branch"
+        elif any(w["branch"] == name for p, w in listed.items() if p not in gone):
+            why = "checked out"
+        elif git_try(ctx.root, "merge-base", "--is-ancestor", ref, base).returncode:
+            why = f"{git(ctx.root, 'rev-list', '--count', f'{base}..{ref}')} commit(s) not in origin/main"
+        else:
+            why = None
+        if why:
+            print(f"keep branch {name}: {why}")
+            kept += 1
+        elif a.apply and (proc := git_try(ctx.root, "branch", "-D", name, text=True)).returncode:
+            print(f"cleanup: could not remove branch {name}: {last_line(proc.stderr)}")
+            failed = True
+        else:
+            print(f"{did} branch {name} (merged)")
+            removed += 1
+            if a.apply:
+                append_record(record, {"path": path, "branch_removed": now()})
+    print(f"cleanup: {removed} {'removed' if a.apply else 'to remove'}, {kept} kept")
+    return 1 if failed else 0
+
 def main(argv=None):
     common = argparse.ArgumentParser(add_help=False)
     [common.add_argument(opt, default=argparse.SUPPRESS) for opt in ("--plan", "--goal")]
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0], parents=[common])
     sub = ap.add_subparsers(dest="action", required=True)
-    for name in ("lint", "status", "next", "resume", "packet", "done", "cost"):
+    for name in ("lint", "status", "next", "resume", "packet", "done", "cost", "own", "cleanup"):
         p = sub.add_parser(name, parents=[common])
+        if name == "own":
+            p.add_argument("path", help="a linked worktree to record in .runs/<id>/worktrees.jsonl")
+        if name == "cleanup":
+            p.add_argument("--apply", action="store_true", help="remove what the dry run lists")
         if name in ("done", "packet"):
             p.add_argument("--milestone")
         if name == "packet":
