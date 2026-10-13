@@ -23,12 +23,13 @@ PLANNING = SKILL / "references" / "planning.md"
 ROLES = SKILL / "references" / "roles.md"
 SECURITY = SKILL / "references" / "security-checklist.md"
 CLOSE = SKILL / "references" / "close.md"
+MODULES = SKILL / "references" / "modules.md"
 BUILDER_TOML = SKILL / "agents" / "builder.toml"
 ALWAYS_LOADED = (REPO / "install" / "global.md", REPO / "AGENTS.md", ENTRY)
-SKILL_FILES = (ENTRY, BUILDER, REVIEWER, SCOUT, DESIGN, PLANNING, ROLES, SECURITY, CLOSE)
+SKILL_FILES = (ENTRY, BUILDER, REVIEWER, SCOUT, DESIGN, PLANNING, ROLES, SECURITY, CLOSE, MODULES)
 
 # Word ceilings of the on-demand references (D30); words are whitespace-separated tokens.
-REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150, CLOSE: 400}
+REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150, CLOSE: 400, MODULES: 200}
 PLANNING_RULES_WORDS = 200
 # Word ceilings of the agent files' bodies, the text after the closing frontmatter line (D30).
 AGENT_BODY_WORDS = {BUILDER: 350, REVIEWER: 350, SCOUT: 200}
@@ -178,6 +179,12 @@ class Loop(unittest.TestCase):
     def test_the_loop_runs_the_tasks_gate(self):
         self.assertIn("the task's gate", loop_step(5))
 
+    def test_step_5_names_the_modules_next_derives(self):
+        # v7.3 (D33): a task without a gate: line runs the modules goal.py next derives from the map.
+        step = loop_step(5)
+        for words in ("`gate:`", "the modules `goal.py next` names", "--modules", "the plan's"):
+            self.assertIn(words, step)
+
     def test_the_full_gate_runs_every_third_task_and_a_due_sample_waits(self):
         step = loop_step(8)
         for words in ("every third task commit", "newest", "600 s", "only at close"):
@@ -206,6 +213,34 @@ class Loop(unittest.TestCase):
                 self.assertIn("merge-base --is-ancestor", text)
                 self.assertIn("the chief's checkout", text)
         self.assertEqual(frontmatter(BUILDER).get("isolation", "").strip(), "worktree")
+
+
+def flat(path: Path) -> str:
+    return " ".join(path.read_text(encoding="utf-8").split())
+
+
+class Close(unittest.TestCase):
+    """v7.3 (D33): the composed full gate at close, and the one retry of a failed module."""
+
+    def test_close_composes_the_full_gate_from_modules_and_states_the_retry(self):
+        text = flat(CLOSE)
+        for words in ("`full_gate: modules`", "receipt --goal <id> --modules all", "keeps passed modules",
+                      "retries a failed one once", "second failure needs a fix commit"):
+            self.assertIn(words, text)
+
+
+class Planning(unittest.TestCase):
+    """v7.3 (D33), AC8: the planner drafts the module map with the plan, by references/modules.md."""
+
+    def test_planning_drafts_the_map_with_the_plan(self):
+        self.assertIn(MODULES.resolve(), {resolved for _label, resolved in named_paths(PLANNING)})
+        self.assertIn("committed with the plan", flat(PLANNING))
+        text = flat(MODULES)
+        for words in ("`docs/goals/modules.json`", "build files", "`replaces`", '`count: "none"`',
+                      "tests switched off", "Commit it with the plan", "--modules all", "gate.py coverage",
+                      "`full_gate: modules`", "Decisions line naming the module that runs each non-test check",
+                      "Prefer derived gates"):
+            self.assertIn(words, text)
 
 
 if __name__ == "__main__":

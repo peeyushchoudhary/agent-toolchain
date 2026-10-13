@@ -249,7 +249,33 @@ class ReceiptTest(GateCase):
     def test_receipt_omits_removed_load_rerun_metadata(self):
         self.assertGate(self.receipt(), "PASS")
         (r,) = self.receipts()
-        self.assertFalse({"load", "cpus", "partial", "cause", "rerun_command"} & r.keys(), r)
+        self.assertFalse({"load", "partial", "cause", "rerun_command"} & r.keys(), r)
+
+    def test_every_record_and_receipt_carries_load_readings(self):
+        readings = {"started_at", "load_before", "load_peak", "cpus"}
+        self.assertGate(self.check(), "PASS")
+        self.assertGate(self.receipt(), "PASS")
+        (r,) = self.receipts()
+        self.assertLessEqual(readings, r.keys(), r)
+        res = self.repo.gate("baseline", "--goal", "F-9", "--cmd", EMIT, GATE_FIXTURE_MODE="base")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.repo.write("dirty.txt", "x")
+        self.assertIn("receipt refused", self.receipt().stdout)
+        lines = [json.loads(line) for line in self.repo.read(".runs/F-9/checks.jsonl").splitlines()]
+        self.assertEqual([x["label"] for x in lines], ["check", "receipt", "baseline", "receipt"])
+        for x in lines:
+            self.assertLessEqual(readings, x.keys(), x)
+            self.assertIsInstance(x["load_before"], float)
+            self.assertEqual(x["cpus"], os.cpu_count())
+        self.assertEqual(lines[-1]["load_peak"], lines[-1]["load_before"])
+
+    def test_load_peak_is_at_least_load_before(self):
+        self.assertGate(self.receipt(), "PASS")
+        (r,) = self.receipts()
+        self.assertGreaterEqual(r["load_peak"], r["load_before"])
+        self.assertEqual(r["load_before"], round(r["load_before"], 2))
+        *_, readings = gate.run(self.repo.dir, "true", "F-9", "check", load_before=1e6)
+        self.assertEqual((readings["load_before"], readings["load_peak"]), (1e6, 1e6))
 
     def test_rerun_history_accumulates_across_receipts_and_checks(self):
         self.assertGate(self.receipt(mode="base"), "FAIL", "failures not in baseline: " + KNOWN)
@@ -395,6 +421,293 @@ class RefusalTest(GateCase):
         self.assertTrue(res.stdout.splitlines()[-1].startswith("budget: ok"), res.stdout)
         last = json.loads(self.repo.read(".runs/F-9/checks.jsonl").splitlines()[-1])
         self.assertEqual((last["label"], last["command"], last["verdict"]), ("receipt", EMIT, "REFUSED"))
+
+
+def module_cmd(name, prefix=""):
+    """A module test command: the fixture emitter in the mode the test wrote to .runs/mode-<name>."""
+    return f"{prefix}GATE_FIXTURE_MODE=$(cat .runs/mode-{name} 2>/dev/null || echo ok) {EMIT}"
+
+
+class ModulesTest(GateCase):
+    """Three modules over the fixture emitter: b needs a, c is a count-none module."""
+
+    def setUp(self):
+        super().setUp()
+        self.write_map({"a": module_cmd("a"), "b": module_cmd("b"), "c": module_cmd("c")})
+
+    def write_map(self, cmds):
+        self.repo.write("docs/goals/modules.json", json.dumps({"modules": {
+            "a": {"paths": ["src/a/**"], "test": cmds["a"]},
+            "b": {"paths": ["src/b/**"], "needs": ["a"], "test": cmds["b"]},
+            "c": {"paths": ["docs/**"], "test": cmds["c"], "count": "none"}}}, indent=2))
+        self.repo.commit("module map")
+        self.cmds = cmds
+
+    def mode(self, name, mode):
+        self.repo.write(f".runs/mode-{name}", mode)
+
+    def modules(self, action, which="all"):
+        return self.repo.gate(action, "--goal", "F-9", "--modules", which)
+
+    def module_receipt(self, name):
+        return gate.read_receipt(gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(),
+                                                   f"module:{name}\n" + self.cmds[name]))
+
+    def logs(self):
+        return len(list(self.repo.path(".runs/F-9/logs").glob("*.log")))
+
+    def test_modules_run_each_command_and_pass_only_when_all_pass(self):
+        self.mode("c", "zero")
+        res = self.modules("check")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        for name in ("a", "b", "c"):
+            self.assertIn(f"module {name}: gate: PASS", res.stdout)
+        self.assertEqual(res.stdout.splitlines()[-2], "modules: PASS 3 of 3")
+        self.assertRegex(res.stdout.splitlines()[-1], r"^budget: ok \(\d+ s of 600 s\)$")
+        self.assertEqual(self.logs(), 3)
+        self.mode("a", "crash")
+        res = self.modules("check")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("module a: gate: FAIL", res.stdout)
+        self.assertIn("module c: gate: PASS", res.stdout)  # every module runs after a failure
+        self.assertEqual(res.stdout.splitlines()[-2], "modules: FAIL 1 of 3 (a)")
+        res = self.modules("check", "c,b")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertNotIn("module a:", res.stdout)
+        self.assertLess(res.stdout.index("module b:"), res.stdout.index("module c:"))  # map order
+        self.assertIn("modules: PASS 2 of 2", res.stdout)
+        res = self.modules("receipt", "a,x")
+        self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+        self.assertIn("gate.py: no module x in docs/goals/modules.json", res.stderr)
+        self.repo.git("rm", "-q", "docs/goals/modules.json")
+        self.repo.commit("no map")
+        res = self.modules("check", "a")
+        self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+        self.assertIn("gate.py: no module a in docs/goals/modules.json", res.stderr)
+
+    def test_receipt_keeps_passed_modules_on_the_same_tree(self):
+        res = self.modules("receipt")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("modules: PASS 3 of 3", res.stdout)
+        a = self.module_receipt("a")
+        self.assertEqual((a["verdict"], a["name"], a["module"], a["command"], a["tree"]),
+                         ("PASS", "module", "a", self.cmds["a"], self.repo.tree()))
+        res = self.modules("receipt")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        for name in ("a", "b", "c"):
+            self.assertIn(f"module {name}: PASS on this tree (kept)", res.stdout)
+        self.assertIn("modules: PASS 3 of 3", res.stdout)
+        self.assertEqual(self.logs(), 3)
+        lines = [json.loads(x) for x in self.repo.read(".runs/F-9/checks.jsonl").splitlines()]
+        self.assertEqual([(x["label"], x["module"]) for x in lines],
+                         [("receipt", "a"), ("receipt", "b"), ("receipt", "c")])
+        self.assertEqual(len({x["load_before"] for x in lines}), 1)  # one reading per invocation
+
+    def test_failed_module_is_retried_once_then_refused(self):
+        self.mode("b", "crash")
+        self.assertEqual(self.modules("receipt", "b").returncode, 1)
+        self.assertEqual(self.module_receipt("b")["verdict"], "FAIL")
+        self.mode("b", "ok")
+        res = self.modules("receipt", "b")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("module b: retry after a failure on this tree", res.stdout)
+        b = self.module_receipt("b")
+        self.assertEqual((b["verdict"], b["retry_of"]["verdict"]), ("PASS", "FAIL"))
+        self.mode("a", "crash")  # a fails, fails again on its retry, and is then refused
+        self.assertEqual(self.modules("receipt", "a").returncode, 1)
+        res = self.modules("receipt", "a")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("module a: retry after a failure on this tree", res.stdout)
+        self.assertEqual(self.module_receipt("a")["retry_of"]["verdict"], "FAIL")
+        logs = self.logs()
+        res = self.modules("receipt")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("module a failed twice on this tree; diagnose and commit a fix", res.stdout)
+        self.assertIn("module b: PASS on this tree (kept)", res.stdout)
+        self.assertIn("module c: gate: PASS", res.stdout)  # the other modules still run
+        self.assertEqual(res.stdout.splitlines()[-2], "modules: FAIL 1 of 3 (a)")
+        self.assertEqual(self.logs(), logs + 1)
+        refused = json.loads(self.repo.read(".runs/F-9/checks.jsonl").splitlines()[-2])
+        self.assertEqual((refused["module"], refused["verdict"]), ("a", "REFUSED"))
+        self.assertEqual(refused["load_peak"], refused["load_before"])
+
+    def test_command_key_collision_cannot_reopen_spent_retry(self):
+        self.mode("b", "crash")
+        self.assertEqual(self.modules("receipt", "b").returncode, 1)
+        self.assertEqual(self.modules("receipt", "b").returncode, 1)  # the retry, spent
+        for action in ("receipt", "check"):
+            res = self.repo.gate(action, "--goal", "F-9", "--cmd", "module:b\n" + self.cmds["b"])
+            self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+            self.assertIn("may not start with 'module:'", res.stderr)
+        self.assertEqual(self.module_receipt("b")["retry_of"]["verdict"], "FAIL")
+        self.mode("b", "ok")
+        res = self.modules("receipt", "b")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("module b failed twice on this tree; diagnose and commit a fix", res.stdout)
+
+    def test_module_receipts_do_not_alias_commands_or_other_modules(self):
+        self.assertEqual(self.modules("receipt", "a,b").returncode, 0)
+        self.mode("a", "crash")
+        self.assertGate(self.receipt(self.cmds["a"]), "FAIL", "nonzero exit 1")
+        cmd = gate.read_receipt(gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(), self.cmds["a"]))
+        self.assertEqual((cmd["verdict"], "module" in cmd), ("FAIL", False))
+        self.assertEqual(self.module_receipt("b")["verdict"], "PASS")
+        paths = {gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(), key) for key in
+                 (self.cmds["a"], "module:a\n" + self.cmds["a"], "module:b\n" + self.cmds["b"])}
+        self.assertEqual(len(paths), 3)
+
+    def test_check_modules_writes_no_new_module_receipt(self):
+        self.assertEqual(self.modules("check").returncode, 0)
+        self.mode("b", "crash")
+        self.assertEqual(self.modules("check").returncode, 1)
+        self.assertEqual(self.receipts(), [])
+        lines = [json.loads(x) for x in self.repo.read(".runs/F-9/checks.jsonl").splitlines()]
+        self.assertEqual({x["label"] for x in lines}, {"check"})
+        self.assertEqual([x["module"] for x in lines], ["a", "b", "c"] * 2)
+
+    def test_failed_command_check_invalidates_matching_module_pass(self):
+        self.assertEqual(self.modules("receipt", "a,b").returncode, 0)
+        self.mode("a", "crash")
+        res = self.check(self.cmds["a"])
+        self.assertIn("receipt superseded:", res.stdout)
+        a = self.module_receipt("a")
+        self.assertEqual((a["verdict"], a["superseded"]["verdict"], a["module"]), ("FAIL", "PASS", "a"))
+        self.assertEqual(self.module_receipt("b")["verdict"], "PASS")
+        self.mode("a", "ok")  # the contradicted PASS no longer counts: a reruns as its retry
+        res = self.modules("receipt", "a")
+        self.assertIn("module a: retry after a failure on this tree", res.stdout)
+        self.assertEqual(self.module_receipt("a")["verdict"], "PASS")
+        self.mode("a", "crash")  # a failing command receipt contradicts it as well
+        self.assertGate(self.receipt(self.cmds["a"]), "FAIL", "nonzero exit 1")
+        a = self.module_receipt("a")
+        self.assertEqual((a["verdict"], a["retry_of"]["verdict"]), ("FAIL", "FAIL"))
+
+    def test_head_move_does_not_preserve_contradicted_destination_tree_pass(self):
+        move = "printf 'x\\n' > moved.txt && git add moved.txt && git commit -q -m moved && "
+        self.write_map({"a": module_cmd("a", move), "b": module_cmd("b"), "c": module_cmd("c")})
+        self.repo.write("moved.txt", "x\n")
+        self.repo.commit("moved")  # tree B, the tree module a's run will move HEAD to
+        self.assertEqual(self.modules("receipt", "b").returncode, 0)
+        self.repo.git("reset", "-q", "--hard", "HEAD~1")
+        self.mode("b", "crash")
+        res = self.modules("check", "a,b")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertTrue(self.repo.path("moved.txt").is_file())  # HEAD is on tree B again
+        b = self.module_receipt("b")
+        self.assertEqual((b["verdict"], b["superseded"]["verdict"]), ("FAIL", "PASS"))
+
+    def test_failed_check_invalidates_pass_without_reopening_retry(self):
+        self.assertEqual(self.modules("receipt", "a").returncode, 0)
+        self.mode("a", "crash")
+        res = self.modules("check", "a")
+        self.assertIn("receipt superseded:", res.stdout)
+        a = self.module_receipt("a")
+        self.assertEqual((a["verdict"], a["superseded"]["verdict"], a["module"]), ("FAIL", "PASS", "a"))
+        self.mode("a", "ok")  # the contradicted PASS no longer counts: a reruns as its retry
+        res = self.modules("receipt", "a")
+        self.assertIn("module a: retry after a failure on this tree", res.stdout)
+        self.assertEqual(self.module_receipt("a")["verdict"], "PASS")
+        self.mode("a", "crash")  # a retried PASS contradicted by a check keeps its spent retry
+        self.assertIn("receipt superseded:", self.modules("check", "a").stdout)
+        a = self.module_receipt("a")
+        self.assertEqual((a["verdict"], a["retry_of"]["verdict"]), ("FAIL", "FAIL"))
+        self.mode("a", "ok")
+        res = self.modules("receipt", "a")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("module a failed twice on this tree; diagnose and commit a fix", res.stdout)
+
+    def test_module_receipt_accepts_gradle_rerun(self):
+        self.write_map({"a": module_cmd("a", "echo ./gradlew test --rerun >/dev/null; "),
+                        "b": module_cmd("b", "echo ./gradlew test --rerun-tasks >/dev/null; "),
+                        "c": module_cmd("c", "echo ./gradlew test >/dev/null; ")})
+        res = self.modules("receipt")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("module a: gate: PASS", res.stdout)
+        self.assertIn("module b: gate: PASS", res.stdout)
+        self.assertIn("module c: gate: FAIL", res.stdout)
+        self.assertIn("gradle command without --rerun or --rerun-tasks may report cached results", res.stdout)
+        self.assertGate(self.receipt(self.cmds["a"]), "FAIL", "gradle command without --rerun-tasks")
+
+    def test_a_new_tree_reruns_every_module(self):
+        self.assertEqual(self.modules("receipt").returncode, 0)
+        self.repo.write("src/a/x.py", "A = 1\n")
+        self.repo.commit("change a")
+        res = self.modules("receipt")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertNotIn("(kept)", res.stdout)
+        for name in ("a", "b", "c"):
+            self.assertIn(f"module {name}: gate: PASS", res.stdout)
+        self.assertEqual((self.logs(), len(self.receipts())), (6, 6))
+
+
+class CoverageTest(GateCase):
+    """The map replaces a full gate that runs a's and b's tests; c is a count-none module."""
+
+    def setUp(self):
+        super().setUp()
+        self.full = f"{module_cmd('a')} && {module_cmd('b')}"
+        self.repo.write("docs/goals/modules.json", json.dumps({"replaces": self.full, "modules": {
+            "a": {"paths": ["src/a/**"], "test": module_cmd("a")},
+            "b": {"paths": ["src/b/**"], "test": module_cmd("b")},
+            "c": {"paths": ["docs/**"], "test": module_cmd("c"), "count": "none"}}}, indent=2))
+        self.repo.commit("module map")
+        self.repo.write(".runs/mode-c", "zero")
+
+    def coverage(self, *args):
+        return self.repo.gate("coverage", "--goal", "F-9", *args)
+
+    def modules(self, which):
+        res = self.repo.gate("receipt", "--goal", "F-9", "--modules", which)
+        self.assertIn("modules: PASS", res.stdout, res.stdout + res.stderr)
+
+    def test_coverage_reports_equal_counts(self):
+        self.assertGate(self.receipt(self.full), "PASS", "6 run")
+        self.modules("all")
+        before = (sorted(self.repo.path(".runs").rglob("*")), self.repo.read(".runs/F-9/checks.jsonl"))
+        res = self.coverage()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "coverage: 6 = 6")
+        self.assertEqual((sorted(self.repo.path(".runs").rglob("*")), self.repo.read(".runs/F-9/checks.jsonl")),
+                         before)  # runs nothing, writes nothing
+        self.repo.write("dirty.txt", "x")
+        res = self.coverage()
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("coverage refused: the working tree is not clean; commit first:", res.stdout)
+        self.repo.path("dirty.txt").unlink()
+        self.repo.write("docs/goals/modules.json", json.dumps({"modules": {
+            "a": {"paths": ["src/a/**"], "test": module_cmd("a")}}}))
+        self.repo.commit("map without replaces")
+        res = self.coverage()
+        self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+        self.assertIn("gate.py: coverage needs --cmd or a replaces command in docs/goals/modules.json", res.stderr)
+
+    def test_coverage_names_missing_module_receipts_and_short_sums(self):
+        res = self.coverage()
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), f"coverage: no PASS receipt for {self.full} on tree {self.repo.tree()}")
+        self.assertGate(self.receipt(self.full), "PASS")
+        self.modules("a")
+        self.repo.write(".runs/mode-b", "crash")
+        self.repo.gate("receipt", "--goal", "F-9", "--modules", "b")  # a FAIL receipt is no PASS
+        res = self.coverage()
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "coverage: full 6, modules 3; b missing")
+        self.repo.write(".runs/mode-b", "ok")
+        self.modules("b")  # its one retry
+        wider = f"{self.full} && {EMIT}"
+        self.assertGate(self.receipt(wider), "PASS", "9 run")
+        res = self.coverage("--cmd", wider)
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "coverage: full 9, modules 6")
+
+    def test_coverage_skips_count_none_modules(self):
+        self.assertGate(self.receipt(self.full), "PASS")
+        self.modules("a,b")  # c has no receipt
+        res = self.coverage()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "coverage: 6 = 6")
+        self.modules("c")  # a count-none module adds nothing
+        self.assertEqual(self.coverage().stdout.strip(), "coverage: 6 = 6")
 
 
 if __name__ == "__main__":

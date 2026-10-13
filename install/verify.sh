@@ -5,17 +5,19 @@
 #   ./verify.sh --installed   also: parity of the installed copies in ~/.claude and $CODEX_HOME
 #                             (read-only; never part of the default run)
 #   ./verify.sh --installed-only   that parity check alone
+#   ./verify.sh --no-suites   every check but the two unittest suites (steps 1 and 2)
 #
 # Output contract, which gate.py reads: each unittest suite prints unittest's own output unchanged,
 # every other check prints `verify: <id> ok` or `FAIL: <id> (verify.checks)`, and the last line is
 # `verify: PASS` or `verify: FAIL (<n> checks)`; exit 0 or 1.
 set -uo pipefail
-INSTALLED=0
+INSTALLED=0 SUITES=1
 for arg in "$@"; do
   case "$arg" in
     --installed) INSTALLED=1 ;;
     --installed-only) INSTALLED=2 ;;
-    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+    --no-suites) SUITES=0 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 64 ;;
   esac
 done
@@ -82,8 +84,8 @@ verdict() {
 [ "$INSTALLED" -ne 2 ] || { installed_parity; verdict; }
 
 # 1–2. The skill's suite, then the installer's (test_install.py and the size ceiling, test_size.py).
-run_suite suite_execution-methodology "$SKILL/tests"
-run_suite install install/tests
+[ "$SUITES" -eq 0 ] || run_suite suite_execution-methodology "$SKILL/tests"
+[ "$SUITES" -eq 0 ] || run_suite install install/tests
 
 # 3–4. The guard: its self-test, then the tree (tracked plus untracked non-ignored files, symlinks as
 # their link text) staged into a scratch repository by tree_scan.py and scanned there. Exit 2 (the

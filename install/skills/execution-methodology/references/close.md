@@ -25,5 +25,10 @@ Clean tree → `gate.py receipt --goal <id> --name full_gate --cmd "<full_gate>"
 --cmd "<e2e>"` → merge review (fix commits need fresh receipts) → `goal.py done` prints DONE →
 `goal.py packet` writes the PR body. Once the merge review passes and `done` prints DONE, the chief
 pushes the branch and opens the PR; the founder merges and tags. Next milestone: same branch.
+
+With `full_gate: modules`, the full gate is `gate.py receipt --goal <id> --modules all`. After a
+failure, the same command keeps passed modules and retries a failed one once on the same tree; a
+second failure needs a fix commit.
+
 Record failures present at approval once with `gate.py baseline`; diagnose any new failure, never
-rerun until green.
+rerun until green beyond that one retry.

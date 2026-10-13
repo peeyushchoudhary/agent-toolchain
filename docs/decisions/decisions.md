@@ -1,5 +1,5 @@
 ---
-summary: The one decisions record: a table of every decision id with its date, a one-line statement and its status (standing, superseded, removed or archived), then the full text of the decisions that keep it, D1 to D19 among them. A section whose row is not standing is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session.
+summary: The one decisions record: a table of every decision id with its date, a one-line statement and its status (standing, superseded, removed or archived), then the full text of the decisions that keep it, D1 to D19 among them. A section whose row is not standing is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning and dispatches builders by dependency; D33 adds the test-module map that picks task gates, can compose the full gate and retries a failed module once.
 read-when: Making or citing a decision, or asking why the methodology is the way it is
 covers: []
 last-verified: 2026-10-09
@@ -44,6 +44,8 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | [D29](#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints) | 2026-10-09 | Simplified goal execution (methodology v7) | standing; pilot clause amended by D30 |
 | [D30](#d30--methodology-v71-context-roles-and-planning-documents-s-2) | 2026-10-09 | Methodology v7.1: context, roles and planning documents (S-2) | standing |
 | [D31](#d31--the-skill-is-model-invocable-the-chief-is-the-root-session-never-a-subagent) | 2026-10-10 | The skill is model-invocable; the chief is the root session, never a subagent | standing |
+| [D32](#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6) | 2026-10-13 | Methodology v7.2: each task's gate chosen at planning, builders dispatched by dependency (S-6) | standing |
+| [D33](#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7) | 2026-10-13 | Methodology v7.3: a test-module map picks task gates, composes the full gate and retries a failed module once (S-7) | standing |
 
 ---
 
@@ -380,3 +382,47 @@ The founder set the 600 s budget, the every-third cadence, the slow-repository e
 builders and the fresh worktree.
 
 **Reverses:** nothing; D29 to D31 stand.
+## D33 — Methodology v7.3: a test-module map picks task gates, composes the full gate and retries a failed module once (S-7)
+
+**Chose:** a repository may commit `docs/goals/modules.json`, a map of its test modules: each with
+the paths it owns, the modules it `needs` and one test command, plus the `shared` paths every module
+reads, a `replaces` naming the single full-gate command the map stands in for, and a
+`count: "none"` module that runs that command with its tests switched off. The chief drafts the map
+from the build files at planning; the founder approves it with the plan, and it is protected from
+then on. A task without a `gate:` line runs the modules its writes reach, which `goal.py next`
+names, through `gate.py check --modules`; `check` and `receipt` run each module as its own process,
+in map order. A plan may set `full_gate: modules`: the full gate is then `receipt --modules all`,
+done row 7 needs a PASS module receipt for every module on HEAD's tree and no unmapped tracked
+file, and lint requires `replaces` and a count-none module. A second `receipt --modules` on the
+same tree keeps passed modules, runs unrun ones, retries a failed one once whatever the load, and
+refuses a second failure until a fix commit. Every run records `started_at`, `load_before`,
+`load_peak` and `cpus` as diagnostics no rule reads; the PR packet lists each retried module with
+both runs' readings. `gate.py coverage` compares test counts as an advisory drafting aid. Module
+receipts accept Gradle `--rerun`; `--cmd` receipts and baselines keep `--rerun-tasks`.
+
+**Over:** per-test reruns, S-6's removed `--rerun-failed`; a retry gated on load evidence, the
+founder's first choice, which the design review found unsound (a crashed run's registry entry
+stayed running, entries collided within a second, readers raced writers, clock changes and other
+local users faked overlap, pruning lost the evidence, one reading at the start vouched for late
+failures); a coverage certificate for row 7, since equal counts prove neither the same checks nor
+the same tests; command-keyed module receipts, which two modules or a `--cmd` receipt could share;
+reusing a module's PASS across trees; inferring the map from imports or the build graph, one tool
+per stack; YAML or TOML, a dependency or Python 3.11 where the installer accepts 3.10; running
+modules in parallel, where they load each other.
+
+**Why:** D32 left each task's gate to be sized by hand, and a failed full gate reran whole. A
+committed map, reviewable for any stack, picks a task's gate from its writes and lets a failed full
+gate rerun only the modules that failed. The founder answered on 2026-10-13: a committed map the
+chief drafts and the founder approves; same-tree reuse only; one retry regardless of load, which
+replaced the load-gated retry the founder first chose; module receipts accept `--rerun`; the
+approved map is protected; it lives at `docs/goals/modules.json`. S-6's R24 had removed the
+end-of-run load reading, which mostly measured the run itself; the founder flagged the removal, so
+readings return, sampled before and during each run, shown beside a retry for the reviewer to
+judge and read by no rule. Under `full_gate: modules` a check the map leaves out would stop running
+unflagged, so the count-none module runs the replaced command without its tests, lint requires it,
+and the approval page sets the replaced command beside every module for the founder to check. A
+pass on retry may hide an intermittent bug, so the packet lists it for review at merge; a composed
+full gate pays one process start per module and may be slower than one command.
+
+**Reverses:** nothing; D29 to D32 stand. The "per-repository test-module map, a later goal" that
+D32 names is this decision.

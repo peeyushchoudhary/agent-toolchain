@@ -4,23 +4,24 @@
 2. Write `docs/goals/<id>/spec.md`.
 3. Send a scout ([roles.md](roles.md)) for the files, patterns and tests involved.
 4. Write `design.md` when `touches:` names anything but `none` ([design.md](design.md)).
-5. Write `plan.md` in the skill's format: one-session tasks, each with `writes`, `reads`,
-   `tests-may-change`, the test it adds, `needs:` and a `gate:` under 600 s alone covering the
-   module's build, the named test and the tests the writes reach. Time the plan's `gate` once;
-   `goal.py lint` passes.
-6. Ask at most five questions as `- Q:` lines under Parked; each answer becomes a Decisions line.
-7. The other vendor reviews the design, then the plan; resolve findings in them.
-8. The founder approves: tag `goal/<id>/approved`, or tells the chief to; never the chief alone.
+5. Write `plan.md` in the skill's format: one-session tasks with `writes`, `reads`,
+   `tests-may-change`, the test each adds, `needs:` and a `gate:` under 600 s alone covering the
+   module's build, the named test and the tests the writes reach. Lacking `docs/goals/modules.json`,
+   draft it by [modules.md](modules.md), committed with the plan; prefer its derived gates to `gate:`
+   lines. Time the plan's `gate` once; `goal.py lint` passes.
+6. Ask at most five `- Q:` lines under Parked; answers become Decisions lines.
+7. The other vendor reviews the design, then the plan; resolve findings there.
+8. The founder tags `goal/<id>/approved`, or tells the chief to; never the chief alone.
 
 ## Chief's planning rules
 
 MUST
-- Cut each task to one session: `writes`, `tests-may-change`, a `reads:` line of `path#anchor` identifiers that includes the pattern to copy, and one named test; a fresh session restarts from the plan alone.
-- Write each acceptance criterion as behaviour a human can verify; the task's named test is its instance.
-- State in each task what the builder must not do: widen scope, touch other tests, add configuration or dependencies.
+- Cut each task to one session: `writes`, `tests-may-change`, `reads:` as `path#anchor` identifiers including the pattern to copy, one named test; a fresh session restarts from the plan alone.
+- Write each criterion as behaviour a human can verify; a task's named test is its instance.
+- State what each task's builder must not do: widen scope, touch other tests, add configuration or dependencies.
 - Put every magic value, signature, path and test name in the task text; packets carry identifiers, not text.
-- Resolve contradictions between spec, design and plan before dispatch; an unsettled choice is a Decisions or `- Q:` line.
-- Hand the reviewer the diff and the criteria, never the builder's report; run the gate yourself.
+- Resolve spec, design and plan contradictions before dispatch; an unsettled choice is a Decisions or `- Q:` line.
+- Hand the reviewer the diff and criteria, never the builder's report; run the gate yourself.
 
 SHOULD
 - Give a needed refactor its own task before the feature task.
