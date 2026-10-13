@@ -286,8 +286,7 @@ def evaluate(root, cmd, goal, count_none, junit, label, runs=None):
     return {"command": cmd, "exit": code, "executed": executed, "failed": failed,
             "skipped": skipped, "failures": failures, "new_failures": new,
             "baseline_failures": known, "started_at": started_at, "finished_at": now(),
-            "verdict": "FAIL" if reasons else "PASS", "reasons": reasons, "log": str(log),
-            "load": [round(x, 2) for x in os.getloadavg()], "cpus": os.cpu_count()}, duration
+            "verdict": "FAIL" if reasons else "PASS", "reasons": reasons, "log": str(log)}, duration
 
 
 def summary(res) -> str:

@@ -246,6 +246,11 @@ class ReceiptTest(GateCase):
             self.assertIn(key, r)
         self.assertEqual((r["rerun_of"], r["reruns"]), ([], 0))
 
+    def test_receipt_omits_removed_load_rerun_metadata(self):
+        self.assertGate(self.receipt(), "PASS")
+        (r,) = self.receipts()
+        self.assertFalse({"load", "cpus", "partial", "cause", "rerun_command"} & r.keys(), r)
+
     def test_rerun_history_accumulates_across_receipts_and_checks(self):
         self.assertGate(self.receipt(mode="base"), "FAIL", "failures not in baseline: " + KNOWN)
         res = self.receipt()
