@@ -478,5 +478,12 @@ modules`.
   - **Follow-ups.**
     - A map module without `test` makes `done` raise, though lint reports it first.
     - A malformed receipt or map ends `goal.py` with exit 2 rather than a row message.
+- 2026-10-13 close: on d4a2a67 this repository's map was compared with its full gate. The single
+  command passed 261 tests in 231 s. `receipt --modules all` passed 7 of 7 modules in 230 s: modmap 7,
+  gate 51, goal 110, guard 38, rules 24, install 31, and repository, which is count-none.
+  `gate.py coverage` printed `coverage: 261 = 261`. S-7 keeps its single `full_gate` command, and a
+  later goal may set `full_gate: modules` (default).
+- 2026-10-13 close: a full-gate sample was due at the sixth task commit (a8a93a5) and was started
+  late, on the seventh (e83df5a). It passed 257 tests (default).
 
 ## Parked
