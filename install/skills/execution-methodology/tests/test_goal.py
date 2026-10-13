@@ -22,7 +22,7 @@ from fixtures.goal_fixture import DESIGN, E2E, FULL, GOAL, SPEC, V71_FILES, Repo
 
 sys.path.insert(0, str(GOAL.parent))
 import goal  # noqa: E402
-from gate import receipt_path  # noqa: E402
+from gate import module_key, receipt_path  # noqa: E402
 
 REAL_PLAN = Path(__file__).resolve().parents[4] / "docs" / "goals" / "S-1" / "plan.md"
 S2_PLAN = REAL_PLAN.parents[1] / "S-2" / "plan.md"
@@ -298,6 +298,67 @@ class ModuleMapTest(RepoCase):
         for name, spec in MODULES["modules"].items():
             kind = "non-test checks" if spec.get("count") == "none" else "tests"
             self.assertIn(f"<tr><td>{name}</td><td>{html.escape(spec['test'])}</td><td>{kind}</td></tr>", page)
+
+
+class ModuleRowTest(RepoCase):
+    """full_gate: modules at done row 7, the approved map at row 4, retried modules in the packet; receipts written directly."""
+    plan = plan_text().replace(f"full_gate: {FULL}\n", "full_gate: modules\n")
+
+    def setUp(self):
+        self.repo = Repo(self.plan, files={MAP_PATH: json.dumps(MODULES, indent=1)})
+        self.addCleanup(self.repo.cleanup)
+        self.repo.close()
+
+    def plant(self, name, verdict="PASS", **extra):
+        tree = self.repo.tree()
+        path = receipt_path(self.repo.dir, "F-9", tree, module_key(name, MODULES["modules"][name]))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"tree": tree, "name": "module", "module": name, "verdict": verdict,
+                                    "command": MODULES["modules"][name]["test"], **extra}))
+
+    def test_module_receipts_satisfy_row_7_for_full_gate_modules(self):
+        self.assertRow(7, f"no PASS module receipt for a on tree {self.repo.tree()[:10]}")
+        for name in MODULES["modules"]:
+            self.plant(name)
+        code, rows, res = self.done()
+        self.assertEqual(code, 0, res.stdout + res.stderr)
+        self.assertEqual(rows["row 7"], "row 7 ok")
+        self.plant("b", "FAIL")
+        self.assertRow(7, f"no PASS module receipt for b on tree {self.repo.tree()[:10]}")
+
+    def test_row_7_names_a_missing_module_or_an_unmapped_file(self):
+        for name in ("a", "b", "checks"):
+            self.plant(name)
+        self.assertRow(7, f"no PASS module receipt for c on tree {self.repo.tree()[:10]}")
+        self.plant("c", module="a")  # a receipt naming another module does not count
+        self.assertRow(7, "no PASS module receipt for c")
+        self.fix("tools/x.py", "X = 1\n", "[T1] a tool nobody maps")
+        for name in MODULES["modules"]:
+            self.plant(name)
+        self.assertRow(7, "1 tracked file(s) no module covers, first tools/x.py")
+
+    def test_unapproved_map_change_fails_row_4(self):
+        self.assertRowOk(4)
+        mods = {**MODULES["modules"], "a": {**MODULES["modules"]["a"], "paths": ["src/**"]}}
+        sha = self.fix(MAP_PATH, json.dumps({**MODULES, "modules": mods}, indent=1), "[T1] alpha remaps itself")
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected {MAP_PATH}")
+        self.repo.edit(PLAN, "writes: src/c/**", f"writes: src/c/**, {MAP_PATH}")
+        self.assertIn("lint: T3: writes intersect protected\n", self.repo.goal("lint").stdout)
+
+    def test_packet_lists_retried_modules_with_load_readings(self):
+        self.repo.goal("packet")
+        self.assertIn("\nRetried modules:\nnone\n", self.repo.read(".runs/F-9/packet.md"))
+        failed = {"verdict": "FAIL", "module": "a", "started_at": "2026-10-13T09:00:00+00:00",
+                  "load_before": 6.5, "load_peak": 11.25, "cpus": 8}
+        self.plant("a", started_at="2026-10-13T09:05:00+00:00", load_before=1.5, load_peak=2.0, cpus=8,
+                   retry_of=failed)
+        self.plant("b")
+        res = self.repo.goal("packet")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        packet = self.repo.read(".runs/F-9/packet.md")
+        self.assertRegex(packet, r"\nReceipts:\n(\S+\.json\n)+\nRetried modules:\n"
+                                 r"a: failed 2026-10-13T09:00:00\+00:00 \(load 6\.5/11\.25 on 8 cpus\), "
+                                 r"retry PASS \(load 1\.5/2\.0\)\n\n")
 
 
 class DoneTest(RepoCase):

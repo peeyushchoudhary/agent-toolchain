@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gate import git, receipt_path  # noqa: E402
+from gate import git, module_key, receipt_path  # noqa: E402
 import modmap  # noqa: E402
 from modmap import MapError, glob_re, matches, overlap  # noqa: E402
 
@@ -182,11 +182,14 @@ def goal_has(ctx, name):
 
 def protected_entries(plan, ctx=None):
     """The plan's protected entries plus a v7.1 goal's unlisted defaults: spec.md whole, and
-    design.md's Interfaces and Data touched sections when the page exists."""
+    design.md's Interfaces and Data touched sections when the page exists; and the module map
+    when it exists at the approval tag, so a map change waits for the founder."""
     out = [p for p in plan["meta"].get("protected") or [] if isinstance(p, str)]
     if getattr(ctx, "root", None) is not None and (spec := goal_has(ctx, "spec.md")):
         design = goal_has(ctx, "design.md")
         out += [spec] + ([f"{design}#interfaces", f"{design}#data-touched"] if design else [])
+    if getattr(ctx, "root", None) is not None and file_at(ctx.root, ctx.tag("approved"), modmap.MAP) is not None:
+        out.append(modmap.MAP)
     return list(dict.fromkeys(out))
 
 def path_protected(plan, ctx=None):
@@ -571,6 +574,20 @@ def review_findings(ctx):
             out.append(f"{c[:10]} after reviewed: is neither a fix commit named by a closed finding nor plan-only")
     return out
 
+def module_gaps(ctx, tree):
+    """Row 7 under full_gate: modules: the first module of the map without a PASS module receipt on
+    tree, else the tracked files no module covers."""
+    m = modmap.load(ctx.root)
+    if m is None:
+        return [f"full_gate: modules and no {modmap.MAP}"]
+    for name, spec in (m.get("modules") or {}).items():
+        path = receipt_path(ctx.root, ctx.goal, tree, module_key(name, spec))
+        r = json.loads(path.read_text()) if path.is_file() else {}
+        if not (r.get("tree") == tree and r.get("module") == name and r.get("verdict") == "PASS"):
+            return [f"no PASS module receipt for {name} on tree {tree[:10]}"]
+    left = modmap.unmapped(m, git(ctx.root, "ls-files", "-z").split("\0")[:-1])
+    return [f"{len(left)} tracked file(s) no module covers, first {left[0]}"] if left else []
+
 def done_rows(ctx, mid):
     """{row: [reasons]} for milestone mid on HEAD; every list empty means done."""
     plan, head = ctx.plan_at("HEAD"), "HEAD"
@@ -592,8 +609,9 @@ def done_rows(ctx, mid):
         rows.update(commit_findings(ctx, approved))
         if frozen_view(file_at(ctx.root, approved, ctx.plan_rel)) != frozen_view(file_at(ctx.root, head, ctx.plan_rel)):
             rows[6].append(f"{ctx.plan_rel} changed outside ticks, writes, Decisions and Parked")
-    tree = git(ctx.root, "rev-parse", "HEAD^{tree}")
-    for label, cmd in (("full_gate", plan["meta"].get("full_gate")), ("e2e", m["e2e"])):
+    tree, full = git(ctx.root, "rev-parse", "HEAD^{tree}"), plan["meta"].get("full_gate")
+    rows[7] += module_gaps(ctx, tree) if full == "modules" else []
+    for label, cmd in ((("e2e", m["e2e"]),) if full == "modules" else (("full_gate", full), ("e2e", m["e2e"]))):
         path = receipt_path(ctx.root, ctx.goal, tree, cmd or "")
         r = json.loads(path.read_text()) if cmd and path.is_file() else {}
         if not (r.get("tree") == tree and r.get("command") == cmd and r.get("verdict") == "PASS"):
@@ -802,6 +820,13 @@ def cmd_packet(ctx, a):
                                            ctx.plan_rel, check=False).split()
               if file_at(ctx.root, f"{c}^", ctx.plan_rel) for w in widenings(ctx.plan_at(f"{c}^"), ctx.plan_at(c))]
     receipts = sorted(p.name for p in (ctx.runs / "receipts").glob(f"{tree}-*.json"))
+    retried = []  # every module receipt of the goal that spent its retry, with both runs' load readings
+    for p in sorted((ctx.runs / "receipts").glob("*.json")):
+        r = json.loads(p.read_text())
+        if isinstance(r, dict) and r.get("module") and isinstance(f := r.get("retry_of"), dict):
+            retried.append(f"{r['module']}: failed {f.get('started_at')} (load {f.get('load_before')}/"
+                           f"{f.get('load_peak')} on {f.get('cpus')} cpus), retry {r.get('verdict')} "
+                           f"(load {r.get('load_before')}/{r.get('load_peak')})")
     review = ctx.runs / "review.md"
     found = [l.strip() for l in (review.read_text().splitlines() if review.is_file() else [])
              if re.match(r"^\s*- \[[ x]\] ", l)]
@@ -809,7 +834,8 @@ def cmd_packet(ctx, a):
            "Outcome:", *[l for l in plan["sections"].get("Outcome", []) if l.strip()], "",
            f"Diff {approved}..HEAD:", stat, "", "Done:",
            *[f"row {n} ok" if not w else f"row {n}: {'; '.join(w[:3])}" for n, w in rows.items()], "",
-           "Receipts:", *(receipts or ["none"]), "", "Review findings:", *(found or ["none"]),
+           "Receipts:", *(receipts or ["none"]), "", "Retried modules:", *(retried or ["none"]), "",
+           "Review findings:", *(found or ["none"]),
            cause_counts(review.read_text() if review.is_file() else ""), "",
            "Decisions:", *plan["decisions"], "", "Parked:", *(plan["parked"] or ["none"]), "",
            "Reads:", *([f"{t['id']} reads: {', '.join(t['reads'])}" for t in plan["tasks"].values() if t["reads"]]

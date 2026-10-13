@@ -201,7 +201,7 @@ Design Interfaces 3 and 4.
 - `test_full_gate_modules_needs_replaces_and_a_non_test_module` (AC4);
 - `test_approval_page_lists_every_module_under_the_replaced_command` (AC4).
 
-### [ ] T6 — `goal.py`: `full_gate: modules` at done row 7, the protected map at row 4, retried modules in the packet
+### [x] T6 — `goal.py`: `full_gate: modules` at done row 7, the protected map at row 4, retried modules in the packet
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
@@ -465,5 +465,18 @@ modules`.
     shows a derived gate.
   - **Placement.** The module block runs after done, packet, cost and the push check, so the earlier
     record assertions and HEAD stay unchanged (default).
+- 2026-10-13 T6:
+  - **Which map.** Row 7 reads the map from the working tree, which row 2 already requires to be
+    clean.
+  - **Which receipts count.** A module receipt counts only when its `tree` is HEAD's tree.
+  - **No map.** With `full_gate: modules` and no map, row 7 says `full_gate: modules and no
+    docs/goals/modules.json`.
+  - **First gap only.** Row 7 names one gap, the first module in map order, and the unmapped-file
+    message appears only when every module has a PASS receipt.
+  - **Packet scope.** `Retried modules:` lists every module receipt with `retry_of` in the goal's
+    receipts (default).
+  - **Follow-ups.**
+    - A map module without `test` makes `done` raise, though lint reports it first.
+    - A malformed receipt or map ends `goal.py` with exit 2 rather than a row message.
 
 ## Parked
