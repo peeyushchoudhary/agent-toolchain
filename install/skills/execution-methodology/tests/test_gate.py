@@ -546,11 +546,12 @@ class ModulesTest(GateCase):
         self.assertIn("module b failed twice on this tree; diagnose and commit a fix", res.stdout)
 
     def test_module_receipts_do_not_alias_commands_or_other_modules(self):
-        self.assertEqual(self.modules("receipt", "a").returncode, 0)
+        self.assertEqual(self.modules("receipt", "a,b").returncode, 0)
         self.mode("a", "crash")
         self.assertGate(self.receipt(self.cmds["a"]), "FAIL", "nonzero exit 1")
-        self.assertGate(self.check(self.cmds["a"]), "FAIL", "nonzero exit 1")
-        self.assertEqual(self.module_receipt("a")["verdict"], "PASS")
+        cmd = gate.read_receipt(gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(), self.cmds["a"]))
+        self.assertEqual((cmd["verdict"], "module" in cmd), ("FAIL", False))
+        self.assertEqual(self.module_receipt("b")["verdict"], "PASS")
         paths = {gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(), key) for key in
                  (self.cmds["a"], "module:a\n" + self.cmds["a"], "module:b\n" + self.cmds["b"])}
         self.assertEqual(len(paths), 3)
@@ -563,6 +564,23 @@ class ModulesTest(GateCase):
         lines = [json.loads(x) for x in self.repo.read(".runs/F-9/checks.jsonl").splitlines()]
         self.assertEqual({x["label"] for x in lines}, {"check"})
         self.assertEqual([x["module"] for x in lines], ["a", "b", "c"] * 2)
+
+    def test_failed_command_check_invalidates_matching_module_pass(self):
+        self.assertEqual(self.modules("receipt", "a,b").returncode, 0)
+        self.mode("a", "crash")
+        res = self.check(self.cmds["a"])
+        self.assertIn("receipt superseded:", res.stdout)
+        a = self.module_receipt("a")
+        self.assertEqual((a["verdict"], a["superseded"]["verdict"], a["module"]), ("FAIL", "PASS", "a"))
+        self.assertEqual(self.module_receipt("b")["verdict"], "PASS")
+        self.mode("a", "ok")  # the contradicted PASS no longer counts: a reruns as its retry
+        res = self.modules("receipt", "a")
+        self.assertIn("module a: retry after a failure on this tree", res.stdout)
+        self.assertEqual(self.module_receipt("a")["verdict"], "PASS")
+        self.mode("a", "crash")  # a failing command receipt contradicts it as well
+        self.assertGate(self.receipt(self.cmds["a"]), "FAIL", "nonzero exit 1")
+        a = self.module_receipt("a")
+        self.assertEqual((a["verdict"], a["retry_of"]["verdict"]), ("FAIL", "FAIL"))
 
     def test_failed_check_invalidates_pass_without_reopening_retry(self):
         self.assertEqual(self.modules("receipt", "a").returncode, 0)

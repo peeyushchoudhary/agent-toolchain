@@ -373,6 +373,17 @@ def supersede(path, res):
         print(f"receipt superseded: {path}")
 
 
+def contradict(root, goal, tree, cmd, res, runs=None):
+    """A FAIL of cmd on a clean tree supersedes every PASS on that tree that ran cmd: the command's own
+    receipt and the receipt of each module whose test is cmd."""
+    try:
+        mods = (modmap.load(root) or {}).get("modules") or {}
+    except modmap.MapError:
+        mods = {}
+    for key in [cmd] + [module_key(n, s) for n, s in mods.items() if s.get("test") == cmd]:
+        supersede(receipt_path(root, goal, tree, key, runs), dict(res))
+
+
 def cmd_check(args, root):
     if args.modules is not None:
         return check_modules(args, root)
@@ -384,7 +395,7 @@ def cmd_check(args, root):
         record(root, goal, "check", args.cmd, tree, duration, res["verdict"], args.runs,
                {k: res[k] for k in READINGS})
     if goal and res["verdict"] == "FAIL" and not dirty_paths(root):
-        supersede(receipt_path(root, goal, tree, args.cmd, args.runs), res)
+        contradict(root, goal, tree, args.cmd, res, args.runs)
     print(budget_line("check", duration))
     return 0 if res["verdict"] == "PASS" else 1
 
@@ -419,6 +430,8 @@ def cmd_receipt(args, root):
         res["reasons"].append("HEAD moved during the run")
         res["verdict"] = "FAIL"
     write_receipt(path, res)
+    if res["verdict"] == "FAIL" and git(root, "rev-parse", "HEAD^{tree}") == tree:
+        contradict(root, args.goal, tree, args.cmd, res, args.runs)
     record(root, args.goal, "receipt", args.cmd, tree, duration, res["verdict"], args.runs,
            {k: res[k] for k in READINGS})
     print(summary(res))
@@ -475,7 +488,7 @@ def check_modules(args, root):
         if res["verdict"] == "FAIL":
             failed.append(name)
             if goal and not dirty_paths(root):
-                supersede(receipt_path(root, goal, tree, module_key(name, spec), args.runs), res)
+                contradict(root, goal, tree, spec["test"], res, args.runs)
     print(modules_line(failed, len(mods)))
     print(budget_line("check", total))
     return 1 if failed else 0
@@ -516,6 +529,8 @@ def receipt_modules(args, root):
             res["reasons"].append("HEAD moved during the run")
             res["verdict"] = "FAIL"
         write_receipt(path, res)
+        if res["verdict"] == "FAIL" and git(root, "rev-parse", "HEAD^{tree}") == tree:
+            contradict(root, args.goal, tree, spec["test"], res, args.runs)
         record(root, args.goal, "receipt", spec["test"], tree, duration, res["verdict"], args.runs,
                {**{k: res[k] for k in READINGS}, "module": name})
         print(f"module {name}: {summary(res)}")
