@@ -824,9 +824,13 @@ def cmd_packet(ctx, a):
     for p in sorted((ctx.runs / "receipts").glob("*.json")):
         r = json.loads(p.read_text())
         if isinstance(r, dict) and r.get("module") and isinstance(f := r.get("retry_of"), dict):
+            sup = r.get("superseded")  # a retry's PASS that a later failing check superseded
+            run = sup if isinstance(sup, dict) and isinstance(sup.get("retry_of"), dict) else r
             retried.append(f"{r['module']}: failed {f.get('started_at')} (load {f.get('load_before')}/"
-                           f"{f.get('load_peak')} on {f.get('cpus')} cpus), retry {r.get('verdict')} "
-                           f"(load {r.get('load_before')}/{r.get('load_peak')})")
+                           f"{f.get('load_peak')} on {f.get('cpus')} cpus), retry {run.get('verdict')} "
+                           f"(load {run.get('load_before')}/{run.get('load_peak')})"
+                           + (f", later check {r.get('verdict')} (load {r.get('load_before')}/"
+                              f"{r.get('load_peak')})" if run is not r else ""))
     review = ctx.runs / "review.md"
     found = [l.strip() for l in (review.read_text().splitlines() if review.is_file() else [])
              if re.match(r"^\s*- \[[ x]\] ", l)]

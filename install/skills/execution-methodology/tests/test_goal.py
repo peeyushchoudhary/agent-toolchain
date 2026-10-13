@@ -361,6 +361,19 @@ class ModuleRowTest(RepoCase):
                                  r"retry PASS \(load 1\.5/2\.0\)\n\n")
 
 
+    def test_packet_preserves_actual_retry_after_superseding_check(self):
+        failed = {"verdict": "FAIL", "module": "a", "started_at": "2026-10-13T09:00:00+00:00",
+                  "load_before": 6.5, "load_peak": 11.25, "cpus": 8}
+        retry = {"verdict": "PASS", "module": "a", "started_at": "2026-10-13T09:05:00+00:00",
+                 "load_before": 1.5, "load_peak": 2.0, "cpus": 8, "retry_of": failed}
+        self.plant("a", "FAIL", started_at="2026-10-13T09:30:00+00:00", load_before=3.0, load_peak=4.0, cpus=8,
+                   superseded=retry, retry_of=failed)
+        res = self.repo.goal("packet")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("\nRetried modules:\n"
+                      "a: failed 2026-10-13T09:00:00+00:00 (load 6.5/11.25 on 8 cpus), retry PASS (load 1.5/2.0), "
+                      "later check FAIL (load 3.0/4.0)\n\n", self.repo.read(".runs/F-9/packet.md"))
+
 class DoneTest(RepoCase):
     def test_all_green_prints_done(self):
         self.repo.close()
