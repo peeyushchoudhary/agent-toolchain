@@ -785,7 +785,12 @@ def cmd_packet(ctx, a):
     fields = [f"{c[:10]} {w}" for c in git(ctx.root, "rev-list", "--reverse", f"{approved}..HEAD", "--",
                                            ctx.plan_rel, check=False).split()
               if file_at(ctx.root, f"{c}^", ctx.plan_rel) for w in widenings(ctx.plan_at(f"{c}^"), ctx.plan_at(c))]
-    receipts = sorted(p.name for p in (ctx.runs / "receipts").glob(f"{tree}-*.json"))
+    receipts = []  # a receipt completed by --rerun-failed keeps the failed run under `partial`: say so
+    for p in sorted((ctx.runs / "receipts").glob(f"{tree}-*.json")):
+        r = json.loads(p.read_text())
+        part = r.get("partial")
+        receipts.append(f"{p.name} (partial rerun: {len(part.get('new_failures', []))} failed test(s); "
+                        f"cause: {r.get('cause')})" if part else p.name)
     review = ctx.runs / "review.md"
     found = [l.strip() for l in (review.read_text().splitlines() if review.is_file() else [])
              if re.match(r"^\s*- \[[ x]\] ", l)]

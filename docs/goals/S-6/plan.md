@@ -140,7 +140,7 @@ FAILs; old XML from an up-to-date task is not counted; `from cache` with fresh X
 FAIL) (AC6); `test_receipt_and_baseline_require_rerun_tasks` replacing `test_gradle_needs_rerun_tasks`
 (`--rerun` alone is refused there) (AC6). Do not change `goal.py`.
 
-### [ ] T4 — `e2e_run.sh`: ready tasks and the checks record in both harnesses
+### [x] T4 — `e2e_run.sh`: ready tasks and the checks record in both harnesses
 writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: install/skills/execution-methodology/tests/e2e_run.sh, docs/goals/S-6/design.md#interfaces
 tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/test_goal.py
@@ -226,5 +226,9 @@ not change scripts.
   (`test_rerun_failed_accepts_a_gradle_tests_filter`) (default). Follow-ups: a pytest traceback
   header names only the test, so same-named tests in two files share a block; receipts older than
   this change carry no `load`.
+- 2026-10-13 T4: the parked-plan copy and captured outputs live under the scratch repository's ignored
+  `.runs/E-1/`, since `goal.py --plan` takes a path inside the repository; the checks record is
+  matched in run order, which the script fixes; the e2e receipt command is one variable shared by
+  the receipt and the record check (default).
 
 ## Parked

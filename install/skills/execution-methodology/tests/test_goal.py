@@ -789,6 +789,18 @@ class ReviewRowTest(RepoCase):
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("cause: context 1, logic 1, spec 0\n", self.repo.read(".runs/F-9/packet.md"))
 
+    def test_packet_marks_a_partial_receipt(self):
+        path = receipt_path(self.repo.dir, "F-9", self.repo.tree(), E2E)
+        failed = {"verdict": "FAIL", "new_failures": ["tests.test_a.T.test_value", "tests.test_a.T.test_flag"]}
+        path.write_text(json.dumps({**json.loads(path.read_text()), "partial": failed,
+                                    "cause": "timeout; load 9.1 on 8 cpus"}))
+        res = self.repo.goal("packet")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        packet = self.repo.read(".runs/F-9/packet.md")
+        self.assertIn(f"\n{path.name} (partial rerun: 2 failed test(s); cause: timeout; load 9.1 on 8 cpus)\n", packet)
+        full = receipt_path(self.repo.dir, "F-9", self.repo.tree(), FULL).name
+        self.assertIn(f"\n{full}\n", packet)
+
 
 def jsonl(path: Path, rows) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
