@@ -57,7 +57,7 @@ Tests:
   remote, `goal.py cleanup --goal F-9` exits 2. Its stderr is exactly `goal.py: cleanup needs
   origin/main: fatal: 'origin' does not appear to be a git repository\n`.
 
-### [ ] T2 — `gate.py`'s usage names the `--modules` refusals
+### [x] T2 — `gate.py`'s usage names the `--modules` refusals
 writes: install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 reads: docs/goals/S-9/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
@@ -211,5 +211,7 @@ T4's commit (design review R2).
   - **Tests before the change.** The two whitespace tests pass both before and after it: they
     guard against stripping too much (design review R1). The append test and the `fatal:` test
     failed before it (default).
+- 2026-10-13 T2: the new sentence starts its own docstring line, so the phrase the test matches
+  has no line break in it (default).
 
 ## Parked

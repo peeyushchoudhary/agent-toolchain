@@ -17,6 +17,8 @@ in `rerun_of`, and counts the replacements in `reruns`. Exit codes: 0 PASS, 1 FA
 `--modules` runs each named module of docs/goals/modules.json in map order, each through the same rules
 (`count` from the map). Its receipts are keyed by "module:<name>\n" + test; `receipt --modules` keeps a
 module's PASS on the same tree, retries a failed one once (`retry_of`), and then refuses it.
+An empty selection, or a selected module whose test command is blank, is refused with exit 2
+before anything runs.
 
 `coverage` runs nothing and writes nothing: on HEAD's clean tree it compares the test count of the PASS
 receipt for `--cmd` (default: the map's `replaces`) with the summed counts of the modules' PASS receipts,
