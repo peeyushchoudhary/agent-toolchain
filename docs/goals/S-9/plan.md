@@ -114,8 +114,8 @@ layout.
   - holds the line `## D35 — The pilot and its stop rule have ended (S-9)`;
   - its D35 section, up to the next `## ` heading or the end, has a `**Reverses:**` line naming
     `D29` and `D30`;
-  - the table row that begins `| [D29](` contains `ended by D35`;
-  - the table row that begins `| [D35](` ends `| standing |`.
+  - the D29 table row (the line starting with a pipe, then the D29 link) contains `ended by D35`;
+  - the D35 table row, found the same way, ends `| standing |`.
 
 Run `docs.py lint .` and `docs.py index .` if the index is out of date. The generated
 `docs/README.md` is outside this task's writes, so report it and stop rather than edit it.
@@ -199,5 +199,10 @@ T4's commit (design review R2).
   - **R3.** T1 names `commit_findings`, where the row-4 comparison lives (default).
 - 2026-10-13 approval: the founder approved the plan and told the chief to place
   `goal/S-9/approved` (founder).
+- 2026-10-13 re-approval: T3's text named the table rows by their opening characters, a pipe and a
+  bracketed link followed by an open parenthesis. The link check read those as two broken links,
+  and the baseline recorded `verify.checks.links` failing. The founder chose to re-approve the
+  reworded lines. `goal/S-9/approved` moved from 8114fc1 to this commit, with no task committed
+  before it (founder).
 
 ## Parked
