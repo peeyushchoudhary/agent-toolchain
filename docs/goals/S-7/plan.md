@@ -485,5 +485,21 @@ modules`.
   later goal may set `full_gate: modules` (default).
 - 2026-10-13 close: a full-gate sample was due at the sixth task commit (a8a93a5) and was started
   late, on the seventh (e83df5a). It passed 257 tests (default).
+- 2026-10-13 merge review R1: `gate.py` refuses a `--cmd` that starts with `module:`, the prefix of
+  module receipt keys, with exit 2 (default).
+- 2026-10-13 merge review R2: a map glob ending in `/` names its whole tree in `select` and
+  `contained`, as a write glob already did (default).
+- 2026-10-13 merge review R3: a failing `check` or `receipt` of a command on a clean tree supersedes
+  every PASS on that tree that ran the command: the command's own receipt and each module's whose
+  test it is. The alias test now asserts that the keys stay distinct, not that the module PASS
+  survives (default).
+- 2026-10-13 merge review R4: `check` and `check --modules` read the tree before and after each run
+  and supersede only when HEAD kept it (default).
+- 2026-10-13 merge review R5: a retried module whose PASS a later check superseded prints its retry
+  and then `, later check <verdict> (load <before>/<peak>)` (default).
+- 2026-10-13 merge review R6: `modmap.load` rejects a module test that is absent or not a string,
+  paths or needs that are not string lists, and a shared list that is not one. The closing test
+  sits in `test_modmap.py`, inside T1's write set, rather than the reviewer's `test_goal.py`
+  (default). An empty test string remains a `lint` problem only.
 
 ## Parked
