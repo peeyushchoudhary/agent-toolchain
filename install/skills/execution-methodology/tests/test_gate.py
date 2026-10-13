@@ -594,5 +594,75 @@ class ModulesTest(GateCase):
         self.assertEqual((self.logs(), len(self.receipts())), (6, 6))
 
 
+class CoverageTest(GateCase):
+    """The map replaces a full gate that runs a's and b's tests; c is a count-none module."""
+
+    def setUp(self):
+        super().setUp()
+        self.full = f"{module_cmd('a')} && {module_cmd('b')}"
+        self.repo.write("docs/goals/modules.json", json.dumps({"replaces": self.full, "modules": {
+            "a": {"paths": ["src/a/**"], "test": module_cmd("a")},
+            "b": {"paths": ["src/b/**"], "test": module_cmd("b")},
+            "c": {"paths": ["docs/**"], "test": module_cmd("c"), "count": "none"}}}, indent=2))
+        self.repo.commit("module map")
+        self.repo.write(".runs/mode-c", "zero")
+
+    def coverage(self, *args):
+        return self.repo.gate("coverage", "--goal", "F-9", *args)
+
+    def modules(self, which):
+        res = self.repo.gate("receipt", "--goal", "F-9", "--modules", which)
+        self.assertIn("modules: PASS", res.stdout, res.stdout + res.stderr)
+
+    def test_coverage_reports_equal_counts(self):
+        self.assertGate(self.receipt(self.full), "PASS", "6 run")
+        self.modules("all")
+        before = (sorted(self.repo.path(".runs").rglob("*")), self.repo.read(".runs/F-9/checks.jsonl"))
+        res = self.coverage()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "coverage: 6 = 6")
+        self.assertEqual((sorted(self.repo.path(".runs").rglob("*")), self.repo.read(".runs/F-9/checks.jsonl")),
+                         before)  # runs nothing, writes nothing
+        self.repo.write("dirty.txt", "x")
+        res = self.coverage()
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("coverage refused: the working tree is not clean; commit first:", res.stdout)
+        self.repo.path("dirty.txt").unlink()
+        self.repo.write("docs/goals/modules.json", json.dumps({"modules": {
+            "a": {"paths": ["src/a/**"], "test": module_cmd("a")}}}))
+        self.repo.commit("map without replaces")
+        res = self.coverage()
+        self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+        self.assertIn("gate.py: coverage needs --cmd or a replaces command in docs/goals/modules.json", res.stderr)
+
+    def test_coverage_names_missing_module_receipts_and_short_sums(self):
+        res = self.coverage()
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), f"coverage: no PASS receipt for {self.full} on tree {self.repo.tree()}")
+        self.assertGate(self.receipt(self.full), "PASS")
+        self.modules("a")
+        self.repo.write(".runs/mode-b", "crash")
+        self.repo.gate("receipt", "--goal", "F-9", "--modules", "b")  # a FAIL receipt is no PASS
+        res = self.coverage()
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "coverage: full 6, modules 3; b missing")
+        self.repo.write(".runs/mode-b", "ok")
+        self.modules("b")  # its one retry
+        wider = f"{self.full} && {EMIT}"
+        self.assertGate(self.receipt(wider), "PASS", "9 run")
+        res = self.coverage("--cmd", wider)
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "coverage: full 9, modules 6")
+
+    def test_coverage_skips_count_none_modules(self):
+        self.assertGate(self.receipt(self.full), "PASS")
+        self.modules("a,b")  # c has no receipt
+        res = self.coverage()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "coverage: 6 = 6")
+        self.modules("c")  # a count-none module adds nothing
+        self.assertEqual(self.coverage().stdout.strip(), "coverage: 6 = 6")
+
+
 if __name__ == "__main__":
     unittest.main()

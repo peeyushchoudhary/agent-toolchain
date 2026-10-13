@@ -142,7 +142,7 @@ test writes:
 
 Do not change `goal.py` or `modmap.py`.
 
-### [ ] T4 — `gate.py coverage`, advisory
+### [x] T4 — `gate.py coverage`, advisory
 writes: install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
@@ -452,5 +452,12 @@ modules`.
     map, since lint already reports it.
   - **"Full gate" section.** It follows the Tasks table, and its caption reads `none` without
     `replaces` (default).
+- 2026-10-13 T4:
+  - **Refusal prefix.** The dirty-tree refusal starts `coverage refused:`, with `receipt`'s reason text.
+  - **No full-gate receipt.** A missing PASS receipt for the command prints `coverage: no PASS
+    receipt for <cmd> on tree <t>`.
+  - **What counts as missing.** A FAIL module receipt counts as missing, and any missing module exits
+    1 even when the sums match. Count-none modules are never summed or named.
+  - **Order of checks.** Usage errors come before the dirty-tree refusal (default).
 
 ## Parked

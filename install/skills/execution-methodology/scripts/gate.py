@@ -5,6 +5,7 @@
   gate.py receipt  --goal G (--cmd CMD | --modules a,b|all) [--name full_gate|e2e|proof] [--count none]
                    [--junit GLOB] [--runs DIR]
   gate.py baseline --goal G --cmd CMD [--junit GLOB] [--runs DIR]
+  gate.py coverage --goal G [--cmd CMD] [--runs DIR]
 
 `check` gates a commit and writes nothing but a log, except that a failing check on a clean committed
 tree rewrites a PASS receipt for (HEAD's tree, command) as FAIL, keeping the old record under
@@ -16,6 +17,10 @@ in `rerun_of`, and counts the replacements in `reruns`. Exit codes: 0 PASS, 1 FA
 `--modules` runs each named module of docs/goals/modules.json in map order, each through the same rules
 (`count` from the map). Its receipts are keyed by "module:<name>\n" + test; `receipt --modules` keeps a
 module's PASS on the same tree, retries a failed one once (`retry_of`), and then refuses it.
+
+`coverage` runs nothing and writes nothing: on HEAD's clean tree it compares the test count of the PASS
+receipt for `--cmd` (default: the map's `replaces`) with the summed counts of the modules' PASS receipts,
+skipping count-none modules. Advisory: exit 0 when they are equal, 1 otherwise.
 
 Under a goal each run appends one line to `<runs>/<goal>/checks.jsonl`, and each command's last line is
 its budget line. Every record line and receipt carries load readings (`started_at`, `load_before`,
@@ -521,6 +526,41 @@ def receipt_modules(args, root):
     return 1 if failed else 0
 
 
+def cmd_coverage(args, root):
+    """Compare the full gate's PASS receipt count with the modules' PASS receipt counts on HEAD's tree."""
+    try:
+        cmd = args.cmd or (modmap.load(root) or {}).get("replaces")
+    except modmap.MapError as exc:
+        raise RuntimeError(f"{modmap.MAP}: {exc}") from None
+    if not cmd:
+        raise RuntimeError(f"coverage needs --cmd or a replaces command in {modmap.MAP}")
+    mods = named_modules(root, "all")
+    dirty = dirty_paths(root)
+    if dirty:
+        print("coverage refused: the working tree is not clean; commit first:\n  " + "\n  ".join(dirty[:10]))
+        return 1
+    tree = git(root, "rev-parse", "HEAD^{tree}")
+    full = read_receipt(receipt_path(root, args.goal, tree, cmd, args.runs))
+    if full.get("verdict") != "PASS":
+        print(f"coverage: no PASS receipt for {cmd} on tree {tree}")
+        return 1
+    total, missing = 0, []
+    for name, spec in mods:
+        if spec.get("count") == "none":
+            continue
+        res = read_receipt(receipt_path(root, args.goal, tree, module_key(name, spec), args.runs))
+        if res.get("verdict") == "PASS":
+            total += res.get("executed", 0)
+        else:
+            missing.append(name)
+    n = full.get("executed", 0)
+    if n == total and not missing:
+        print(f"coverage: {n} = {total}")
+        return 0
+    print(f"coverage: full {n}, modules {total}" + (f"; {', '.join(missing)} missing" if missing else ""))
+    return 1
+
+
 def cmd_baseline(args, root):
     if re.search(r"\bgradlew?\b", args.cmd) and "--rerun-tasks" not in args.cmd:
         print("baseline refused: gradle command without --rerun-tasks may report cached results")
@@ -563,10 +603,15 @@ def main(argv=None):
             p.add_argument("--count", choices=["none"])
         if name == "receipt":
             p.add_argument("--name", default="proof", choices=["full_gate", "e2e", "proof", "gate"])
+    p = sub.add_parser("coverage")
+    p.add_argument("--goal", required=True)
+    p.add_argument("--cmd", help="the full gate command (default: the map's replaces)")
+    p.add_argument("--runs", help="the .runs directory to use (default: <root>/.runs)")
     args = ap.parse_args(argv)
     try:
         root = repo_root()
-        return {"check": cmd_check, "receipt": cmd_receipt, "baseline": cmd_baseline}[args.action](args, root)
+        return {"check": cmd_check, "receipt": cmd_receipt, "baseline": cmd_baseline,
+                "coverage": cmd_coverage}[args.action](args, root)
     except (RuntimeError, OSError, ET.ParseError) as exc:
         print(f"gate.py: {exc}", file=sys.stderr)
         return 2
