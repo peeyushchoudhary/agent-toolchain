@@ -223,7 +223,7 @@ It keeps "Next milestone: same branch." `close.md` stays within its 400-word cei
   --goal <id> <path>`, and `loop_step(8)` contains `goal.py own`. Use the existing `loop_step`
   helper; `SKILL` is the skill directory and `ENTRY` its `SKILL.md`.
 
-### [ ] T5 — Re-verify the three stale architecture pages
+### [x] T5 — Re-verify the three stale architecture pages
 writes: docs/architecture/methodology.md, docs/architecture/personas.md, docs/architecture/repository-standard.md, docs/README.md, .claude/rules/**
 reads: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/agents/builder.md, install/skills/execution-methodology/agents/reviewer.md, install/skills/execution-methodology/agents/scout.md, docs/goals/modules.json
 tests-may-change: none
@@ -327,5 +327,13 @@ key but `summary` and `last-verified`, and no file under `install/`.
   - **Word budget.** The always-loaded files total 1,341 of 1,350 words, and `close.md` is 310 of
     400.
   - **Follow-up.** `close.md` step 1 repeats the arrow chain's "`goal.py done` prints DONE" (default).
+- 2026-10-13 T5:
+  - **The close bullet.** `methodology.md` had none, so T5 added a "The close" bullet after the
+    done check rather than widening "Two founder touchpoints".
+  - **Summaries.** All three pages keep their `summary`, so no generated file changes.
+  - **Rollback.** It names `goal/S-1/M2` for v7 and `goal/S-6/M1` for v7.2; no tag marks v7.1 alone.
+  - **Follow-ups, not changed.** `methodology.md` still states D29's pilot stop rule, which later
+    goals have passed; whether the pilot has ended is the founder's. `repository-standard.md` files
+    `docs/goals/**` under dated records, which `modules.json` is not (default).
 
 ## Parked

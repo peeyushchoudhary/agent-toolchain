@@ -2,7 +2,7 @@
 summary: The layout this repository keeps: where each kind of file belongs, from the contract and `install/` to the product, architecture, decision, runbook, goal and archive pages and the generated pointer files. Which pages are dated records and which state only what is true now. What enforces the standard in `install/verify.sh`: the link check, the dangling-name check, `docs.py lint` and the always-loaded size ceiling. And the smaller minimum a product repository needs.
 read-when: Adding, moving or removing a file, or deciding where something belongs
 covers: [docs/**]
-last-verified: 2026-10-10
+last-verified: 2026-10-13
 ---
 
 # Repository standard
@@ -21,6 +21,8 @@ docs/product/features/         one page per feature
 docs/product/measurements.md   dated numbers
 docs/runbooks/                 procedures
 docs/goals/<id>/               spec.md, design.md unless touches is none, plan.md; one per goal
+docs/goals/modules.json        the test-module map (D33): each module's paths, needs and test
+                               command; approved with a plan, protected after
 docs/archive/                  pointers to tags; nothing current
 .claude/rules/<page-slug>.md   generated: one pointer file per page with a non-empty covers; the
                                slug is the page's path under docs/ with `/` as `--`

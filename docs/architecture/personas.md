@@ -2,7 +2,7 @@
 summary: The three Claude agent files the skill ships (builder, reviewer, scout), what each guards against, the evidence and source behind every adopted line, and what was left out and where it lives instead. The lines come from a persona council held on 2026-10-09: four experts (each harness's vendor guidance, open-source practice, prompt craft) and an adversarial synthesis. The council record stays on the founder's machine; this page is its public part.
 read-when: Changing a line of an agent file, or asking why a persona says what it says
 covers: [install/skills/execution-methodology/agents/**]
-last-verified: 2026-10-10
+last-verified: 2026-10-13
 ---
 
 # Personas
@@ -18,12 +18,14 @@ for byte (asserted by the install tests). Model and effort agree with
 
 The council ranked its sources: the methodology's own enforced rules and measurements first, then
 primary vendor documentation, then secondary studies, then community files. A rule a gate, lint or
-plan already enforces is not restated in a persona.
+plan already enforces is restated in a persona only where the agent must stop at it: the builder's
+write set and tests.
 
 ## What each file guards against
 
 - **builder** (`opus`, `effort: high`, `maxTurns: 200`, `permissionMode: dontAsk`,
-  `isolation: worktree`): out-of-scope edits, quiet narrowing or widening of the task, code
+  `isolation: worktree`): work started in the chief's checkout or on a base without the goal
+  branch, out-of-scope edits, quiet narrowing or widening of the task, code
   written to the test's inputs instead of the behaviour, tests edited to pass, success claimed
   without the gate's own output, speculative abstraction and adjacent clean-ups, and work started
   from a summary instead of the files.
@@ -37,6 +39,7 @@ plan already enforces is not restated in a persona.
 
 | Line | File | Evidence and source |
 |---|---|---|
+| First, stop if the worktree is the chief's checkout or lacks the packet's commit | builder | The harness caveats below: a worktree from the remote default branch misses the goal branch, and a builder in the chief's checkout shares its index; [D32](../decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6) dispatches each builder from the goal branch |
 | If the task looks wrong, say so in one sentence, then do it as written | builder | The scope-declaration study: out-of-scope actions fell from 17.1% to 0.0% ([arXiv 2605.18583](https://arxiv.org/abs/2605.18583)); the [Opus 5 prompting guide](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5) |
 | Read the `reads:` ranges first; open a file before claiming anything about it; trust no summary | builder | Claude Code [best practices](https://code.claude.com/docs/en/best-practices); softened from a hard read mandate, which GPT-6 guidance says hinders |
 | Copy the nearest existing pattern and name the file | builder | Best practices, "follow the pattern" (same page) |
@@ -64,10 +67,11 @@ function, [arXiv 2605.10039](https://arxiv.org/abs/2605.10039)); no "be thorough
 
 ## Left out, and where it lives instead
 
-- Write sets, protected paths and test immutability: the plan and `goal.py done` rows 4 and 5.
+- Protected paths, and the enforcement of write sets and test immutability: the plan and
+  `goal.py done` rows 4 and 5. The builder body states only where it must stop.
 - What to read: the task's `reads:` line, resolved by `docs.py reads`.
 - Model, effort, turn cap and tool set: the frontmatter and `roles.md`.
-- Push, reset and destructive commands: the builder body keeps "never commit, tag, push or reset";
+- Push, reset and destructive commands: the builder body keeps "never commit, tag, push, reset or edit `plan.md`";
   pushes pass the pre-push guard and the harness's permission prompts.
 - Security questions: `references/security-checklist.md`, handed to the reviewer when `touches:`
   names data, auth or external.
@@ -85,7 +89,8 @@ function, [arXiv 2605.10039](https://arxiv.org/abs/2605.10039)); no "be thorough
 ## Harness caveats
 
 - `isolation: worktree` branches from the remote default branch unless the founder's settings set
-  `worktree.baseRef: "head"`; without it a builder misses the goal branch.
+  `worktree.baseRef: "head"`; without it a builder misses the goal branch, and its first MUST
+  stops it.
 - `permissionMode: dontAsk` is ignored under bypass, accept-edits or auto mode; it matters only
   for a default-mode chief.
 - `CLAUDE_CODE_EFFORT_LEVEL` overrides `effort`, so no session exports it.
