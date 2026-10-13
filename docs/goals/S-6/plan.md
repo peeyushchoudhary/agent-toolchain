@@ -141,9 +141,9 @@ FAIL) (AC6); `test_receipt_and_baseline_require_rerun_tasks` replacing `test_gra
 (`--rerun` alone is refused there) (AC6). Do not change `goal.py`.
 
 ### [ ] T4 — `e2e_run.sh`: ready tasks and the checks record in both harnesses
-writes: install/skills/execution-methodology/tests/e2e_run.sh
+writes: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: install/skills/execution-methodology/tests/e2e_run.sh, docs/goals/S-6/design.md#interfaces
-tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh
+tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh, install/skills/execution-methodology/tests/test_goal.py
 needs: T2, T3
 gate: install/skills/execution-methodology/tests/e2e_run.sh
 The script prints no test counts, so its check runs with `gate.py check --count none`, as every e2e
@@ -204,5 +204,17 @@ not change scripts.
   in `resume` by `; `; the approval page's Gate column sits before Named test, which an existing
   test keeps last; the slow-gate warning fires only above 600 s, rounded to whole seconds; a needs
   cycle's back edge is reported as not an earlier task (default).
+- 2026-10-13 build: the load rerun proves its cause in `gate.py`, not in the chief's words (founder's
+  note: a wrong load diagnosis, or a bug that shows only when the suite runs together, could hide
+  behind it). Every receipt records `load` (the load averages at the run's end) and `cpus`.
+  `--rerun-failed` also needs each new failure's log block to show a timeout or resource error, and
+  the failed run to overlap another run in `checks.jsonl` or end with a 5-minute load at or above
+  the CPU count. An assertion failure that passes alone points at a test depending on another one:
+  fix it, then rerun the full gate. The approval-time timeouts would have passed the first two
+  checks, then failed the subset rerun, since each took about 123 s alone against a 120 s limit,
+  leaving a fix and a full run. Residual: a real slowdown that shows only under load passes. T4's
+  writes and `tests-may-change` widen to `goal.py` and `test_goal.py`: the packet's receipts list marks a receipt
+  completed this way with its cause (`test_packet_marks_a_partial_receipt`), so the merge reviewer
+  and the founder see every one (founder).
 
 ## Parked
