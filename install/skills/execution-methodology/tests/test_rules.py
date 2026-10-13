@@ -7,6 +7,8 @@ No prose is pinned here; the always-loaded ceiling is install/tests/test_size.py
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -117,6 +119,13 @@ class FilesAndNames(unittest.TestCase):
                                       f"{path.name} names retired {name}")
 
 
+class EntryPoint(unittest.TestCase):
+    def test_direct_execution_includes_loop_tests(self):
+        run = subprocess.run([sys.executable, __file__, "-v", "Loop"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("test_the_loop_runs_the_tasks_gate", run.stderr)
+
+
 class Frontmatter(unittest.TestCase):
     def test_the_skill_is_model_invocable_in_both_harnesses(self):
         # D31 reversed the 2026-08-22 user-invoked gate: the approval tag is the human gate, so the
@@ -154,9 +163,6 @@ class Budgets(unittest.TestCase):
         self.assertIsNotNone(rules, "planning.md has no ## Chief's planning rules section")
         self.assertLessEqual(len(rules.group(1).split()), PLANNING_RULES_WORDS)
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 def loop_step(n: int) -> str:
@@ -206,3 +212,7 @@ class Loop(unittest.TestCase):
                 self.assertIn("merge-base --is-ancestor", text)
                 self.assertIn("the chief's checkout", text)
         self.assertEqual(frontmatter(BUILDER).get("isolation", "").strip(), "worktree")
+
+
+if __name__ == "__main__":
+    unittest.main()
