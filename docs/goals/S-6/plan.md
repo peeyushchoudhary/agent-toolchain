@@ -28,7 +28,7 @@ D32; design [design.md](design.md); spec [spec.md](spec.md).
 
 ## Tasks
 
-### [ ] T5 — The `goal.py` test fixtures run with a scratch HOME and CODEX_HOME
+### [x] T5 — The `goal.py` test fixtures run with a scratch HOME and CODEX_HOME
 writes: install/skills/execution-methodology/tests/fixtures/goal_fixture.py, install/skills/execution-methodology/tests/test_goal.py
 reads: install/skills/execution-methodology/tests/fixtures/goal_fixture.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/scripts/goal.py
 tests-may-change: install/skills/execution-methodology/tests/fixtures/goal_fixture.py, install/skills/execution-methodology/tests/test_goal.py

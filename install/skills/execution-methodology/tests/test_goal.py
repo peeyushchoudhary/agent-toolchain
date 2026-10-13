@@ -6,6 +6,7 @@ goal/F-9/approved, and plants one way a run could fake progress; the matching do
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -709,6 +710,15 @@ class ReviewRowTest(RepoCase):
 def jsonl(path: Path, rows) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+
+class FixtureTest(unittest.TestCase):
+    def test_fixture_runs_use_a_scratch_home(self):
+        e = env()
+        self.assertNotEqual(Path(e["HOME"]).resolve(), Path.home().resolve())
+        self.assertTrue(Path(e["CODEX_HOME"]).is_relative_to(e["HOME"]))
+        self.assertNotEqual(e["CODEX_HOME"], os.environ.get("CODEX_HOME"))
+        self.assertEqual(env(HOME="/elsewhere")["HOME"], "/elsewhere")
 
 
 class CostTest(RepoCase):
