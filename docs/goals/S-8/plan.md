@@ -335,6 +335,22 @@ key but `summary` and `last-verified`, and no file under `install/`.
   - **Follow-ups, not changed.** `methodology.md` still states D29's pilot stop rule, which later
     goals have passed; whether the pilot has ended is the founder's. `repository-standard.md` files
     `docs/goals/**` under dated records, which `modules.json` is not (default).
-- 2026-10-13 AC8: after T5's commit 4db4add, `docs.py stale .` printed `docs.py stale: PASS`.
+- 2026-10-13 AC8: after T5's commit (4db4add, b7f326b once rewritten), `docs.py stale .` printed `docs.py stale: PASS`.
+- 2026-10-13 merge review (codex gpt-6-astra, BLOCK: 7 blocking, 1 non-blocking), every finding
+  closed by a `[T3][Rn]` commit with its test, each test first seen failing:
+  - **Refinements beyond the design's words.** `design.md#interfaces` is protected, so these stand
+    here: the fetch adds `--refmap=` (R6); the worktree list is read with `-z` (R7); the untracked
+    check passes `--untracked-files=all` (R3); the unstaged check passes `--no-ext-diff
+    --no-textconv`, and the staged check uses `diff-index`, whose failure keeps the worktree (R4, R5).
+  - **A rule after `locked`:** a recorded worktree holding another listed worktree is kept, `holds
+    another worktree` (R2).
+  - **A listed worktree whose directory is gone** is removed only when its HEAD is in `origin/main`
+    and its index, read through its administrative directory, passes the staged check; otherwise it
+    is kept with that rule's reason (R1). The T3 default's unconditional `directory gone` is replaced.
+- 2026-10-13 done row 4: T4 had added a blank line at the end of D33, which the protected range
+  `D1-D33` counts (S-7's plan warned of it; the T4 packet did not). The unpushed branch was rebased
+  to drop that line from T4, with every later commit replayed unchanged. The pre-rewrite head is kept
+  as the local branch `s8-before-t4-rewrite`. `review.md` names the rewritten shas and says so
+  (default).
 
 ## Parked
