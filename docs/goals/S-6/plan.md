@@ -85,7 +85,7 @@ ceilings: always-loaded 1,350 words (`test_size.py`), each reference 400
 body 350 (`Budgets.test_each_agent_body_is_within_its_word_ceiling`; the builder is at 348): tighten
 existing lines to make room, never drop a MUST. Do not touch scripts or other tests.
 
-### [ ] T2 — `goal.py`: task `gate:` and `needs:`, ready and blocked tasks, lint warnings, the gate column
+### [x] T2 — `goal.py`: task `gate:` and `needs:`, ready and blocked tasks, lint warnings, the gate column
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-6/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
@@ -200,5 +200,9 @@ not change scripts.
 - 2026-10-13 T1: `references/close.md` joins the skill files the rules tests check, with a 400-word
   ceiling like `planning.md`; to fit the new lines, `planning.md` and both builder files were
   tightened without dropping a MUST (default).
+- 2026-10-13 T2: several unmet needs print on one line joined by commas, and several blocked tasks
+  in `resume` by `; `; the approval page's Gate column sits before Named test, which an existing
+  test keeps last; the slow-gate warning fires only above 600 s, rounded to whole seconds; a needs
+  cycle's back edge is reported as not an earlier task (default).
 
 ## Parked

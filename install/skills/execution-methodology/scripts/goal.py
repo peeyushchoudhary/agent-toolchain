@@ -25,7 +25,9 @@ KEYS = ("goal", "title", "gate", "full_gate", "milestones", "touches", "protecte
 TOUCHES = ("none", "data", "auth", "external", "interface", "ui")
 SPEC_HEADINGS = ("Users and problem", "What changes for the user", "Acceptance criteria", "Non-goals", "Constraints")
 TASK_RE = re.compile(r"^###\s+\[([ x!])\]\s+(T\d+)\s+[—–-]+\s*(.*)$")
-FIELD_RE = re.compile(r"^(writes|tests-may-change|reads):\s*(.*)$")
+FIELD_RE = re.compile(r"^(writes|tests-may-change|reads|gate|needs):\s*(.*)$")
+TASK_FIELDS = ("writes", "tests-may-change", "reads", "gate", "needs")
+BUDGET_S = 600
 TEST_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)src/test/|(^|/)test_[^/]*\.py$"
                      r"|_(test|spec)\.[^/.]+$|\.(test|spec)\.[^/]+$|Tests?\.(java|kt|cs|swift)$")
 SKIP_RE = re.compile(r"\bunittest\.(skip\w*|expectedFailure)\b|@(skip|skipIf|skipUnless)\s*\(|@expectedFailure\b"
@@ -100,7 +102,7 @@ def flow(text: str):
     return out
 
 def parse_plan(text: str) -> dict:
-    """Frontmatter, sections, tasks (with writes, tests-may-change and reads), Decisions and Parked."""
+    """Frontmatter, sections, tasks (with writes, tests-may-change, reads, gate and needs), Decisions and Parked."""
     plan = {"meta": {}, "milestones": {}, "sections": {}, "tasks": {}, "errors": []}
     lines = (text or "").splitlines()
     if lines and lines[0].strip() == "---" and "---" in [l.strip() for l in lines[1:]]:
@@ -134,21 +136,22 @@ def parse_plan(text: str) -> dict:
         m = TASK_RE.match(line)
         if section == "Tasks" and m:
             task = {"id": m.group(2), "state": m.group(1), "title": m.group(3).strip(),
-                    "writes": [], "tests-may-change": [], "reads": []}
+                    "writes": [], "tests-may-change": [], "reads": [], "gate": "", "needs": []}
             if task["id"] in plan["tasks"]:
                 plan["errors"].append(f"duplicate task id {task['id']}")
             plan["tasks"][task["id"]] = task
         elif section == "Tasks" and line.startswith("### "):
             plan["errors"].append(f"malformed task header: {line.strip()}")
-        elif task is not None and (f := FIELD_RE.match(line)):
-            task[f.group(1)] = [x.strip() for x in f.group(2).split(",") if x.strip()]
+        elif task is not None and (f := FIELD_RE.match(line)):  # gate: is one command, never split
+            task[f.group(1)] = f.group(2).strip() if f.group(1) == "gate" else [
+                x.strip() for x in f.group(2).split(",") if x.strip()]
     for name in ("Decisions", "Parked"):
         plan[name.lower()] = [l for l in plan["sections"].get(name, []) if l.strip()]
     return plan
 
 def frozen_view(text) -> str:
-    """The plan with ticks normalised, Decisions/Parked bodies dropped, and writes/tests-may-change/reads
-    lines dropped only where parse_plan reads them: under a task header in Tasks."""
+    """The plan with ticks normalised, Decisions/Parked bodies dropped, and task field lines (writes,
+    tests-may-change, reads, gate, needs) dropped only where parse_plan reads them: under a task header in Tasks."""
     out, skip, section, task = [], False, None, False
     for line in (text or "").splitlines():
         if line.startswith("## "):
@@ -161,10 +164,11 @@ def frozen_view(text) -> str:
     return "\n".join(out).rstrip()
 
 def widenings(old, new):
-    """['T5 tests-may-change: a -> a, b'] for every writes/tests-may-change/reads field that differs."""
-    return [f"{tid} {k}: {', '.join(old['tasks'].get(tid, {}).get(k, [])) or '(none)'} -> {', '.join(t[k]) or '(none)'}"
-            for tid, t in new["tasks"].items() for k in ("writes", "tests-may-change", "reads")
-            if t[k] != old["tasks"].get(tid, {}).get(k, [])]
+    """['T5 tests-may-change: a -> a, b'] for every task field (TASK_FIELDS) that differs."""
+    shown = lambda v: (v if isinstance(v, str) else ", ".join(v)) or "(none)"  # noqa: E731
+    return [f"{tid} {k}: {shown(was)} -> {shown(t[k])}"
+            for tid, t in new["tasks"].items() for k in TASK_FIELDS
+            if t[k] != (was := old["tasks"].get(tid, {}).get(k, "" if k == "gate" else []))]
 
 def adds_decision(old, new) -> bool:
     return bool(Counter(new["decisions"]) - Counter(old["decisions"]))
@@ -357,7 +361,7 @@ def commit_findings(ctx, base):
         tids = sorted(set(re.findall(r"\[(T\d+)\]", subject)))
         before = ctx.plan_at(parent) if parent and file_at(ctx.root, parent, ctx.plan_rel) else None
         if before and widenings(before, ctx.plan_at(c)) and not adds_decision(before, ctx.plan_at(c)):
-            rows[3].append(f"{short} changes writes or tests-may-change without adding a Decisions line")
+            rows[3].append(f"{short} changes a task field without adding a Decisions line")
         if len(tids) != 1:
             if not plan_only(ctx, subject, ch, plan_same):
                 rows[3].append(f"{short} names {len(tids)} tasks and is not plan-only")
@@ -618,10 +622,42 @@ def cmd_done(ctx, a):
     print(f"DONE {mid} on tree {tree}" if not any(rows.values()) else f"NOT DONE {mid}")
     return 1 if any(rows.values()) else 0
 
+def reaches(plan, a, b) -> bool:
+    """True when task a needs task b, directly or through other tasks' needs; the visited set ends a cycle."""
+    seen, todo = set(), list(plan["tasks"][a]["needs"])
+    while todo:
+        t = todo.pop()
+        if t == b:
+            return True
+        if t in plan["tasks"] and t not in seen:
+            seen.add(t)
+            todo += plan["tasks"][t]["needs"]
+    return False
+
+def lint_warnings(ctx):
+    """needs that name no earlier task; same-milestone pairs whose writes overlap with no needs path
+    either way; a task without gate: when the plan gate's last check in checks.jsonl took over budget."""
+    plan, order = ctx.plan, list(ctx.plan["tasks"])
+    out = [f"{t['id']} needs {n}, which is not an earlier task" for t in plan["tasks"].values() for n in t["needs"]
+           if n not in order or order.index(n) >= order.index(t["id"])]
+    for m in plan["milestones"].values():
+        ids = [t for t in order if t in m["tasks"]]
+        out += [f"{a} and {b} overlap in writes and neither needs the other" for i, a in enumerate(ids)
+                for b in ids[i + 1:] if overlap(plan["tasks"][a]["writes"], plan["tasks"][b]["writes"])
+                and not reaches(plan, a, b) and not reaches(plan, b, a)]
+    cmd = plan["meta"].get("gate")
+    last = [r for r in records(ctx.runs / "checks.jsonl") if r.get("label") == "check" and r.get("command") == cmd]
+    took = last[-1].get("duration_s") if cmd and last else None
+    if isinstance(took, (int, float)) and took > BUDGET_S:
+        out += [f"{t['id']} has no gate line and the plan gate's last check took {round(took)} s (budget {BUDGET_S} s)"
+                for t in plan["tasks"].values() if not t["gate"]]
+    return out
+
 def cmd_lint(ctx, a):
     errs = lint(ctx)
     print("".join(f"{t['id']} reads: {', '.join(t['reads'])}\n" for t in ctx.plan["tasks"].values() if t["reads"])
-          + "".join(f"lint: {e}\n" for e in errs) + f"lint: {'FAIL' if errs else 'PASS'} · "
+          + "".join(f"lint: {e}\n" for e in errs) + "".join(f"lint: warning: {w}\n" for w in lint_warnings(ctx))
+          + f"lint: {'FAIL' if errs else 'PASS'} · "
           f"{len(ctx.plan['milestones'])} milestone(s), {len(ctx.plan['tasks'])} task(s)")
     return 1 if errs else 0
 
@@ -635,22 +671,33 @@ def status_lines(ctx):
 def cmd_status(ctx, a):
     return print(f"{ctx.goal}: {ctx.plan['meta'].get('title', '')}\n" + "\n".join(status_lines(ctx))) or 0
 
-def next_task(ctx):
-    mid = ctx.active()
-    tasks = [ctx.plan["tasks"][t] for t in ctx.plan["milestones"].get(mid, {}).get("tasks", [])
-             if t in ctx.plan["tasks"]]
-    return next((t for t in tasks if t["state"] == " "), None)
+def ready_tasks(ctx):
+    """(ready, blocked): the active milestone's open tasks in plan order whose needs naming a task are all
+    [x], and a 'T4 needs T2 (parked)' line for each other open one."""
+    plan, ready, blocked = ctx.plan, [], []
+    names = plan["milestones"].get(ctx.active(), {}).get("tasks", [])
+    for t in (t for t in plan["tasks"].values() if t["id"] in names and t["state"] == " "):
+        waits = [n for n in t["needs"] if n in plan["tasks"] and plan["tasks"][n]["state"] != "x"]
+        if waits:
+            blocked.append(f"{t['id']} needs " + ", ".join(
+                f"{n} ({'parked' if plan['tasks'][n]['state'] == '!' else 'open'})" for n in waits))
+        else:
+            ready.append(t)
+    return ready, blocked
 
 def cmd_next(ctx, a):
-    t = next_task(ctx)
-    print(f"{t['id']} — {t['title']}" if t else "no open task in the active milestone")
-    return 0 if t else 1
+    ready, blocked = ready_tasks(ctx)
+    print("\n".join([f"{t['id']} — {t['title']}" + (f" · gate: {t['gate']}" if t["gate"] else "") for t in ready]
+                    or [f"no ready task: {b}" for b in blocked] or ["no open task in the active milestone"]))
+    return 0 if ready else 1
 
 def cmd_resume(ctx, a):
     outcome = " ".join(l.strip() for l in ctx.plan["sections"].get("Outcome", []) if l.strip())
-    t, first = next_task(ctx), re.split(r"(?<=[.!?])\s", outcome, maxsplit=1)[0]
+    (ready, blocked), first = ready_tasks(ctx), re.split(r"(?<=[.!?])\s", outcome, maxsplit=1)[0]
+    step = (f"{ready[0]['id']} — {ready[0]['title']}" if ready else
+            "no ready task; " + "; ".join(blocked) if blocked else "close the milestone")
     head = (f"Continue goal {ctx.goal}: {ctx.plan['meta'].get('title', '')}. Read {ctx.plan_rel} and the "
-            f"execution-methodology skill. Next: {t['id'] + ' — ' + t['title'] if t else 'close the milestone'}. "
+            f"execution-methodology skill. Next: {step}. "
             "Per task: work inside its writes, run the gate, commit as [Tn] with its tick; park [!] with a "
             "Parked line when blocked. Stop when `goal.py done` prints DONE.\n"
             f"Outcome: {first}\n" + "\n".join(status_lines(ctx)))
@@ -696,7 +743,7 @@ def approval_page(ctx):
         named = re.search(r"(?<=::)test_\w+", prose) or re.search(r"\btest_\w+\b(?!\.py)", prose)
         shown = named.group(0) if named else ", ".join(t["tests-may-change"]) or "—"
         rows.append(f"<tr><td>{e(t['id'] + ' ' + t['title'])}</td><td>{e(', '.join(t['writes']))}</td>"
-                    f"<td>{e(', '.join(t['reads']))}</td><td>{e(shown)}</td></tr>")
+                    f"<td>{e(', '.join(t['reads']))}</td><td>{e(t['gate'] or 'plan gate')}</td><td>{e(shown)}</td></tr>")
     meta = lambda k: ", ".join(map(str, v)) if isinstance(v := plan["meta"].get(k), list) else str(v or "none")  # noqa: E731
     questions = [l.strip()[2:] for l in plan["parked"] if l.strip().startswith("- Q:")]
     out = ["<!doctype html>", '<html><head><meta charset="utf-8">',
@@ -710,7 +757,7 @@ def approval_page(ctx):
         if re.search(rf"^## {name}\s*$", design, re.M):
             out += [f"<h2>design.md: {name}</h2>",
                     *html_blocks(re.sub(r"^## .*\n?", "", protected_text(design, slug(name)), count=1))]
-    out += ["<h2>Tasks</h2>", "<table><tr><th>Task</th><th>Writes</th><th>Reads</th><th>Named test</th></tr>",
+    out += ["<h2>Tasks</h2>", "<table><tr><th>Task</th><th>Writes</th><th>Reads</th><th>Gate</th><th>Named test</th></tr>",
             *rows, "</table>", f"<p>touches: {e(meta('touches'))}</p>", f"<p>protected: {e(meta('protected'))}</p>",
             "<h2>Questions</h2>", "<ul>" + "".join(f"<li>{e(q)}</li>" for q in questions or ["none"]) + "</ul>",
             "</body></html>"]

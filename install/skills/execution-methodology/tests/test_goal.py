@@ -5,6 +5,7 @@ goal/F-9/approved, and plants one way a run could fake progress; the matching do
 """
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -131,6 +132,75 @@ class LintTest(RepoCase):
         self.assertEqual(self.repo.goal("lint").returncode, 0)
 
 
+class TaskFieldTest(RepoCase):
+    """Task gate: and needs: lines: next, resume, the lint warnings and the approval page's Gate column."""
+    plan = (plan_text().replace("tasks: [T1, T2]", "tasks: [T1, T2, T3]").replace("tasks: [T3]", "tasks: []")
+            .replace("writes: src/c/**\n", "writes: src/c/**\nneeds: T1\n"))
+
+    def test_next_lists_every_ready_task(self):
+        res = self.repo.goal("next")
+        self.assertEqual((res.returncode, res.stdout), (0, "T1 — alpha\nT2 — beta\n"), res.stderr)
+        self.repo.tick("T1")
+        res = self.repo.goal("next")
+        self.assertEqual((res.returncode, res.stdout), (0, "T2 — beta\nT3 — gamma\n"), res.stderr)
+
+    def test_resume_reports_blocked_dependencies_without_suggesting_close(self):
+        self.repo.write(PLAN, plan_text().replace("tests-may-change: tests/test_a.py\n",
+                                                  "tests-may-change: tests/test_a.py\nneeds: T1\n"))
+        self.repo.tick("T1", "!")
+        res = self.repo.goal("next")
+        self.assertEqual((res.returncode, res.stdout), (1, "no ready task: T2 needs T1 (parked)\n"), res.stderr)
+        res = self.repo.goal("resume")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("Next: no ready task; T2 needs T1 (parked).", res.stdout)
+        self.assertNotIn("close the milestone", res.stdout)
+
+    def test_a_task_gate_is_parsed_and_shown(self):
+        cmd = "python3 -m unittest -k 'a, b' tests/test_a.py # focused"
+        self.repo.edit(PLAN, "writes: src/b/**, tests/**\n", f"writes: src/b/**, tests/**\ngate: {cmd}\n")
+        plan = goal.parse_plan(self.repo.read(PLAN))
+        self.assertEqual((plan["tasks"]["T2"]["gate"], plan["tasks"]["T1"]["gate"]), (cmd, ""))
+        self.assertEqual((plan["tasks"]["T3"]["needs"], plan["tasks"]["T2"]["needs"]), (["T1"], []))
+        self.assertEqual(self.repo.goal("next").stdout, f"T1 — alpha\nT2 — beta · gate: {cmd}\n")
+        self.assertEqual(self.repo.goal("packet", "--approval").returncode, 0)
+        page = self.repo.read(".runs/F-9/approval.html")
+        self.assertIn("<th>Gate</th>", page)
+        self.assertRegex(page, rf"<tr><td>T2 [^\n]*<td>{re.escape(html.escape(cmd))}</td>")
+        self.assertRegex(page, r"<tr><td>T1 [^\n]*<td>plan gate</td>")
+
+    def test_needs_and_overlap_warn_without_failing(self):
+        self.repo.write(PLAN, plan_text().replace("writes: src/a/**, tests/**\n", "writes: src/a/**, tests/**\nneeds: T9\n")
+                        .replace("tests-may-change: tests/test_a.py\n", "tests-may-change: tests/test_a.py\nneeds: T3\n"))
+        res = self.repo.goal("lint")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        for text in ("lint: warning: T1 needs T9, which is not an earlier task",
+                     "lint: warning: T2 needs T3, which is not an earlier task",
+                     "lint: warning: T1 and T2 overlap in writes and neither needs the other"):
+            self.assertIn(text, res.stdout)
+        self.assertTrue(res.stdout.splitlines()[-1].startswith("lint: PASS"), res.stdout)
+        self.repo.edit(PLAN, "needs: T9", "needs: T2")
+        self.repo.edit(PLAN, "needs: T3", "needs: T1")  # a cycle: T1 needs T2, T2 needs T1
+        res = self.repo.goal("lint")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("lint: warning: T1 needs T2, which is not an earlier task", res.stdout)
+        self.assertNotIn("T2 needs T1", res.stdout)
+        self.assertNotIn("overlap", res.stdout)
+
+    def test_slow_default_gate_warns(self):
+        self.assertNotIn("has no gate line", self.repo.goal("lint").stdout)
+        check = {"label": "check", "command": f"{FULL} -q", "tree": self.repo.tree(), "duration_s": 700,
+                 "verdict": "PASS", "finished_at": "2026-01-01T00:00:00Z"}
+        jsonl(self.repo.path(".runs/F-9/checks.jsonl"), [{**check, "duration_s": 10}, check,
+                                                         {**check, "command": "other", "duration_s": 5}])
+        self.repo.edit(PLAN, "writes: src/c/**\n", "writes: src/c/**\ngate: make gamma\n")
+        res = self.repo.goal("lint")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        for tid in ("T1", "T2"):
+            self.assertIn(f"lint: warning: {tid} has no gate line and the plan gate's last check took 700 s "
+                          "(budget 600 s)", res.stdout)
+        self.assertNotIn("T3 has no gate line", res.stdout)
+
+
 class DoneTest(RepoCase):
     def test_all_green_prints_done(self):
         self.repo.close()
@@ -185,7 +255,7 @@ class DoneTest(RepoCase):
     def test_plan_only_cannot_expand_test_permissions(self):
         self.repo.edit(PLAN, "tests-may-change: tests/test_a.py", "tests-may-change: **")
         sha = self.repo.commit("F-9: let T2 change every test")
-        self.assertRow(3, f"{sha[:10]} changes writes or tests-may-change without adding a Decisions line")
+        self.assertRow(3, f"{sha[:10]} changes a task field without adding a Decisions line")
         self.repo.git("reset", "-q", "--hard", "HEAD~1")
         self.repo.edit(PLAN, "tests-may-change: tests/test_a.py", "tests-may-change: **")
         self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n",
@@ -196,6 +266,19 @@ class DoneTest(RepoCase):
         packet = self.repo.read(".runs/F-9/packet.md")
         self.assertIn(f"{sha[:10]} T2 tests-may-change: tests/test_a.py -> **", packet)
         self.assertIn("Widenings", packet)
+
+    def test_changing_a_task_gate_needs_a_decisions_line(self):
+        self.repo.edit(PLAN, "tests-may-change: tests/test_a.py\n", "tests-may-change: tests/test_a.py\ngate: make beta\n")
+        sha = self.repo.commit("F-9: give T2 its own gate")
+        self.assertRow(3, f"{sha[:10]} changes a task field without adding a Decisions line")
+        self.repo.git("reset", "-q", "--hard", "HEAD~1")
+        self.repo.edit(PLAN, "tests-may-change: tests/test_a.py\n", "tests-may-change: tests/test_a.py\ngate: make beta\n")
+        self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n",
+                       "- 2026-01-01: fixture decision.\n- T2 runs its own gate.\n")
+        sha = self.repo.commit("F-9: give T2 its own gate, with a decision")
+        self.assertRowOk(3)
+        self.repo.goal("packet")
+        self.assertIn(f"{sha[:10]} T2 gate: (none) -> make beta", self.repo.read(".runs/F-9/packet.md"))
 
     def test_row5_names_an_added_skip_marker(self):
         text = self.repo.read("tests/test_a.py").replace("    def test_flag", SKIP_DECORATOR + "    def test_flag")
@@ -379,7 +462,7 @@ class SpecLintTest(RepoCase):
         old, new = f"reads: {DESIGN_PATH}#interfaces", f"reads: {DESIGN_PATH}#interfaces, src/b/**"
         self.repo.edit(PLAN, old, new)  # the first reads: line is T1's
         sha = self.repo.commit("F-9: T1 reads beta")
-        self.assertRow(3, f"{sha[:10]} changes writes or tests-may-change without adding a Decisions line")
+        self.assertRow(3, f"{sha[:10]} changes a task field without adding a Decisions line")
         self.repo.git("reset", "-q", "--hard", "HEAD~1")
         self.repo.edit(PLAN, old, new)
         self.repo.edit(PLAN, "- 2026-01-01: fixture decision.\n", "- 2026-01-01: fixture decision.\n- T1 reads beta.\n")
