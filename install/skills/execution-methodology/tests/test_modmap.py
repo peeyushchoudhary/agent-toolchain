@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.goal_fixture import GOAL  # noqa: E402
+from fixtures.goal_fixture import FULL, GOAL, Repo, plan_text  # noqa: E402
 
 sys.path.insert(0, str(GOAL.parent))
 import modmap  # noqa: E402
@@ -48,6 +48,26 @@ class ModMapTest(unittest.TestCase):
             self.write(bad)
             with self.assertRaises(modmap.MapError, msg=bad):
                 modmap.load(self.root)
+
+    def test_invalid_map_fields_are_diagnosed_without_tracebacks(self):
+        ok = {"paths": ["a/**"], "test": "make a"}
+        bad = [{"a": {**ok, "test": 42}}, {"a": {"paths": ["a/**"]}}, {"a": {**ok, "needs": 1}},
+               {"a": {**ok, "needs": [1]}}, {"a": {**ok, "paths": "a/**"}}]
+        for mods in bad:
+            self.write({"modules": mods})
+            with self.assertRaises(modmap.MapError, msg=mods):
+                modmap.load(self.root)
+        self.write({"modules": {"a": ok}, "shared": "Makefile"})
+        self.assertRaises(modmap.MapError, modmap.load, self.root)
+        repo = Repo(plan_text().replace(f"full_gate: {FULL}\n", "full_gate: modules\n"))  # done reads the map
+        self.addCleanup(repo.cleanup)
+        for mods in bad[:3]:
+            repo.write(modmap.MAP, json.dumps({"modules": mods}))
+            repo.commit("a broken map")
+            for res in (repo.goal("lint"), repo.goal("done"), repo.gate("check", "--goal", "F-9", "--modules", "all")):
+                self.assertNotEqual(res.returncode, 0, res.stdout + res.stderr)
+                self.assertNotIn("Traceback", res.stdout + res.stderr)
+                self.assertIn("module a", res.stdout + res.stderr)
 
     def test_problems_name_unknown_needs_cycles_missing_fields_and_shared_commands(self):
         m = self.load({"a": {"paths": ["a/**"], "needs": ["b", "ghost"], "test": "make a"},

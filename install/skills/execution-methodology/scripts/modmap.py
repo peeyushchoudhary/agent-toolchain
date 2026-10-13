@@ -42,8 +42,12 @@ def overlap(a_globs, b_globs) -> bool:
                 return True
     return False
 
+def strings(v) -> bool:
+    return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
 def load(root) -> dict | None:
-    """The map under root, None when the file is absent; MapError(text) when it is malformed."""
+    """The map under root, None when the file is absent; MapError(text) when it is malformed: a field of
+    the wrong type, or a module without a test string. An empty test or paths list is problems' to name."""
     path = Path(root) / MAP
     if not path.is_file():
         return None
@@ -57,6 +61,8 @@ def load(root) -> dict | None:
         raise MapError(f"unknown key {extra[0]!r}")
     if "replaces" in m and not (isinstance(m["replaces"], str) and m["replaces"].strip()):
         raise MapError("replaces must be a non-empty command")
+    if "shared" in m and not strings(m["shared"]):
+        raise MapError("shared must be a list of globs")
     for name, spec in m.get("modules", {}).items():
         if not NAME_RE.match(name):
             raise MapError(f"module name {name!r} does not match {NAME_RE.pattern}")
@@ -64,6 +70,10 @@ def load(root) -> dict | None:
             raise MapError(f"module {name} must be a JSON object")
         if extra := [k for k in spec if k not in MODULE_KEYS]:
             raise MapError(f"module {name} has unknown key {extra[0]!r}")
+        if not isinstance(spec.get("test"), str):
+            raise MapError(f"module {name} needs a test command string")
+        if bad := [k for k in ("paths", "needs") if k in spec and not strings(spec[k])]:
+            raise MapError(f"module {name} {bad[0]} must be a list of strings")
         if "count" in spec and spec["count"] != "none":
             raise MapError(f"module {name} has count {spec['count']!r}; only \"none\" is allowed")
     return m
