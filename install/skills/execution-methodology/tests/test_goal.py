@@ -201,6 +201,105 @@ class TaskFieldTest(RepoCase):
         self.assertNotIn("T3 has no gate line", res.stdout)
 
 
+MAP_PATH = "docs/goals/modules.json"
+MODULES = {"replaces": "cd tests && ./verify.sh", "modules": {
+    "a": {"paths": ["src/a/**", "tests/test_a.py"], "test": "python3 -m unittest tests.test_a"},
+    "b": {"paths": ["src/b/**", "tests/test_b_*.py"], "needs": ["a"], "test": "python3 -m unittest tests.test_b_start"},
+    "c": {"paths": ["src/c/**"], "test": "python3 -m unittest tests.test_c"},
+    "checks": {"paths": ["emit.py"], "test": "python3 emit.py", "count": "none"}},
+    "shared": ["docs/**", ".gitignore", "tests/test_e2e*.py"]}
+
+
+class ModuleMapTest(RepoCase):
+    """docs/goals/modules.json: lint, the derived task gate in next and on the approval page, full_gate: modules."""
+    plan = (plan_text().replace("tasks: [T1, T2]", "tasks: [T1, T2, T3]").replace("tasks: [T3]", "tasks: []")
+            .replace("writes: src/a/**, tests/**", "writes: src/a/**"))
+
+    def setUp(self):
+        self.repo = Repo(self.plan, files={MAP_PATH: json.dumps(MODULES, indent=1)})
+        self.addCleanup(self.repo.cleanup)
+
+    def write_map(self, m):
+        self.repo.write(MAP_PATH, json.dumps(m, indent=1))
+
+    def test_lint_fails_on_a_broken_map_and_warns_about_unmapped_files(self):
+        res = self.repo.goal("lint")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertNotIn("modules.json", res.stdout)
+        self.repo.write("tools/x.py", "X = 1\n")
+        self.repo.write("tools/y.py", "Y = 1\n")
+        self.repo.commit("tools nobody maps")
+        res = self.repo.goal("lint")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("lint: warning: modules.json: 2 tracked file(s) no module covers, first tools/x.py\n", res.stdout)
+        mods = json.loads(json.dumps(MODULES["modules"]))
+        mods["a"]["needs"], mods["c"]["needs"] = ["z", "b"], ["c"]
+        mods["c"]["paths"], mods["c"]["test"], mods["checks"]["test"] = [], "", mods["b"]["test"]
+        self.write_map({**MODULES, "modules": mods})
+        res = self.repo.goal("lint")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        for text in ("module a needs z, which is not a module", "modules needs cycle: a -> b -> a",
+                     "modules needs cycle: c -> c", "module c has no test command", "module c has no paths",
+                     "modules b and checks share one test command"):
+            self.assertIn(f"lint: modules.json: {text}\n", res.stdout)
+        self.repo.write(MAP_PATH, "{not json")
+        res = self.repo.goal("lint")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("lint: modules.json: not valid JSON", res.stdout)
+
+    def test_next_and_approval_show_the_derived_gate(self):
+        res = self.repo.goal("next")
+        self.assertEqual((res.returncode, res.stdout), (0, "T1 — alpha · gate: modules: a, b\n"
+                                                           "T2 — beta · gate: modules: a, b, c, checks\n"
+                                                           "T3 — gamma · gate: modules: c\n"), res.stderr)
+        self.assertEqual(self.repo.goal("packet", "--approval").returncode, 0)
+        page = self.repo.read(".runs/F-9/approval.html")
+        self.assertRegex(page, r"<tr><td>T1 [^\n]*<td>modules: a, b</td>")
+        self.assertRegex(page, r"<tr><td>T3 [^\n]*<td>modules: c</td>")
+        self.assertNotIn("plan gate", page)
+        check = {"label": "check", "command": f"{FULL} -q", "tree": self.repo.tree(), "duration_s": 700,
+                 "verdict": "PASS", "finished_at": "2026-01-01T00:00:00Z"}
+        jsonl(self.repo.path(".runs/F-9/checks.jsonl"), [check])
+        self.assertNotIn("has no gate line", self.repo.goal("lint").stdout)
+        self.repo.path(MAP_PATH).unlink()
+        self.assertEqual(self.repo.goal("next").stdout, "T1 — alpha\nT2 — beta\nT3 — gamma\n")
+        self.assertIn("lint: warning: T3 has no gate line", self.repo.goal("lint").stdout)
+
+    def test_a_gate_line_overrides_the_map(self):
+        self.repo.edit(PLAN, "writes: src/c/**\n", "writes: src/c/**\ngate: make gamma\n")
+        self.assertEqual(self.repo.goal("next").stdout.splitlines()[2], "T3 — gamma · gate: make gamma")
+        self.assertEqual(self.repo.goal("packet", "--approval").returncode, 0)
+        self.assertRegex(self.repo.read(".runs/F-9/approval.html"), r"<tr><td>T3 [^\n]*<td>make gamma</td>")
+
+    def test_full_gate_modules_needs_replaces_and_a_non_test_module(self):
+        bare = {**MODULES, "modules": {k: v for k, v in MODULES["modules"].items() if k != "checks"}}
+        del bare["replaces"]
+        self.write_map(bare)
+        self.assertEqual(self.repo.goal("lint").returncode, 0)
+        self.repo.edit(PLAN, f"full_gate: {FULL}\n", "full_gate: modules\n")
+        res = self.repo.goal("lint")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("lint: full_gate: modules needs the map to name the command it replaces\n", res.stdout)
+        self.assertIn("lint: full_gate: modules needs a count-none module for the non-test checks\n", res.stdout)
+        self.write_map(MODULES)
+        res = self.repo.goal("lint")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertNotIn("full_gate", res.stdout)
+
+    def test_approval_page_lists_every_module_under_the_replaced_command(self):
+        self.assertEqual(self.repo.goal("packet", "--approval").returncode, 0)
+        self.assertNotIn("Full gate", self.repo.read(".runs/F-9/approval.html"))
+        self.repo.edit(PLAN, f"full_gate: {FULL}\n", "full_gate: modules\n")
+        self.assertEqual(self.repo.goal("packet", "--approval").returncode, 0)
+        page = self.repo.read(".runs/F-9/approval.html")
+        self.assertIn("<p>Check that every non-test check the replaced command runs is run by a module.</p>", page)
+        self.assertIn("<caption>cd tests &amp;&amp; ./verify.sh</caption>", page)
+        self.assertNotIn("&& ./verify.sh", page)
+        for name, spec in MODULES["modules"].items():
+            kind = "non-test checks" if spec.get("count") == "none" else "tests"
+            self.assertIn(f"<tr><td>{name}</td><td>{html.escape(spec['test'])}</td><td>{kind}</td></tr>", page)
+
+
 class DoneTest(RepoCase):
     def test_all_green_prints_done(self):
         self.repo.close()

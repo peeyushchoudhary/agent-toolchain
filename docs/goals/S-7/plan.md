@@ -164,7 +164,7 @@ parses the plan (design review R15).
 - `test_coverage_names_missing_module_receipts_and_short_sums` (AC7);
 - `test_coverage_skips_count_none_modules`.
 
-### [ ] T5 — `goal.py`: the map at `lint`, and the derived task gate in `next` and the approval page
+### [x] T5 — `goal.py`: the map at `lint`, and the derived task gate in `next` and the approval page
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/scripts/modmap.py, install/skills/execution-methodology/tests/test_goal.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
@@ -444,5 +444,13 @@ modules`.
   - **Follow-ups.** `--modules ""` names an empty module, and the T2 test that calls `gate.run`
     directly prints a `ResourceWarning` (default).
 - 2026-10-13 full gate sample at 7a78c33, the third task commit: PASS, 237 tests, 328 s.
+- 2026-10-13 T5:
+  - **`KEYS`.** Unchanged, because it checks only that a key is present; a test pins that
+    `full_gate: modules` lints.
+  - **No modules selected.** When `select` returns none, `task_gate` falls back to the plan gate.
+  - **Broken map.** `next` and `packet --approval` exit 2 on it, and `lint_warnings` treats it as no
+    map, since lint already reports it.
+  - **"Full gate" section.** It follows the Tasks table, and its caption reads `none` without
+    `replaces` (default).
 
 ## Parked

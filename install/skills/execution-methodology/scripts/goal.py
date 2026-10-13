@@ -20,7 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gate import git, receipt_path  # noqa: E402
-from modmap import glob_re, matches, overlap  # noqa: E402
+import modmap  # noqa: E402
+from modmap import MapError, glob_re, matches, overlap  # noqa: E402
 
 KEYS = ("goal", "title", "gate", "full_gate", "milestones", "touches", "protected")
 TOUCHES = ("none", "data", "auth", "external", "interface", "ui")
@@ -281,7 +282,21 @@ def lint(ctx):
         errs += [f"{t['id']}: no writes"] if not t["writes"] else []
         if overlap(t["writes"], path_protected(plan, ctx)):
             errs.append(f"{t['id']}: writes intersect protected")
-    return errs + (spec_lint(ctx) if getattr(ctx, "root", None) is not None else [])
+    return errs + (spec_lint(ctx) + map_lint(ctx) if getattr(ctx, "root", None) is not None else [])
+
+def map_lint(ctx):
+    """docs/goals/modules.json's problems, or its MapError, as modules.json: errors; with full_gate: modules,
+    a map that names no replaced command or has no count-none module."""
+    try:
+        m = modmap.load(ctx.root)
+    except MapError as exc:
+        return [f"modules.json: {exc}"]
+    errs = [f"modules.json: {p}" for p in modmap.problems(m)] if m is not None else []
+    if ctx.plan["meta"].get("full_gate") == "modules":
+        errs += [] if (m or {}).get("replaces") else ["full_gate: modules needs the map to name the command it replaces"]
+        errs += [] if any(s.get("count") == "none" for s in ((m or {}).get("modules") or {}).values()) else [
+            "full_gate: modules needs a count-none module for the non-test checks"]
+    return errs
 
 def spec_lint(ctx):
     """A goal with docs/goals/<id>/spec.md in the working tree is a v7.1 goal: every task with writes
@@ -611,9 +626,18 @@ def reaches(plan, a, b) -> bool:
             todo += plan["tasks"][t]["needs"]
     return False
 
+def task_gate(ctx, task) -> str:
+    """The task's gate: line; else, with docs/goals/modules.json, `modules: a, b` for its writes; else ''."""
+    if task["gate"]:
+        return task["gate"]
+    m = modmap.load(ctx.root)
+    names = modmap.select(m, task["writes"]) if m is not None else []
+    return f"modules: {', '.join(names)}" if names else ""
+
 def lint_warnings(ctx):
     """needs that name no earlier task; same-milestone pairs whose writes overlap with no needs path
-    either way; a task without gate: when the plan gate's last check in checks.jsonl took over budget."""
+    either way; tracked files the module map does not cover; a task with neither a gate: line nor a
+    derived gate when the plan gate's last check in checks.jsonl took over budget."""
     plan, order = ctx.plan, list(ctx.plan["tasks"])
     out = [f"{t['id']} needs {n}, which is not an earlier task" for t in plan["tasks"].values() for n in t["needs"]
            if n not in order or order.index(n) >= order.index(t["id"])]
@@ -622,12 +646,18 @@ def lint_warnings(ctx):
         out += [f"{a} and {b} overlap in writes and neither needs the other" for i, a in enumerate(ids)
                 for b in ids[i + 1:] if overlap(plan["tasks"][a]["writes"], plan["tasks"][b]["writes"])
                 and not reaches(plan, a, b) and not reaches(plan, b, a)]
+    try:  # a broken map is lint's error to name; here it derives no gate and covers no file
+        m = modmap.load(ctx.root)
+    except MapError:
+        m = None
+    left = modmap.unmapped(m, git(ctx.root, "ls-files", "-z").split("\0")[:-1]) if m is not None else []
+    out += [f"modules.json: {len(left)} tracked file(s) no module covers, first {left[0]}"] if left else []
     cmd = plan["meta"].get("gate")
     last = [r for r in records(ctx.runs / "checks.jsonl") if r.get("label") == "check" and r.get("command") == cmd]
     took = last[-1].get("duration_s") if cmd and last else None
     if isinstance(took, (int, float)) and took > BUDGET_S:
         out += [f"{t['id']} has no gate line and the plan gate's last check took {round(took)} s (budget {BUDGET_S} s)"
-                for t in plan["tasks"].values() if not t["gate"]]
+                for t in plan["tasks"].values() if not (task_gate(ctx, t) if m is not None else t["gate"])]
     return out
 
 def cmd_lint(ctx, a):
@@ -664,7 +694,7 @@ def ready_tasks(ctx):
 
 def cmd_next(ctx, a):
     ready, blocked = ready_tasks(ctx)
-    print("\n".join([f"{t['id']} — {t['title']}" + (f" · gate: {t['gate']}" if t["gate"] else "") for t in ready]
+    print("\n".join([f"{t['id']} — {t['title']}" + (f" · gate: {g}" if (g := task_gate(ctx, t)) else "") for t in ready]
                     or [f"no ready task: {b}" for b in blocked] or ["no open task in the active milestone"]))
     return 0 if ready else 1
 
@@ -720,7 +750,7 @@ def approval_page(ctx):
         named = re.search(r"(?<=::)test_\w+", prose) or re.search(r"\btest_\w+\b(?!\.py)", prose)
         shown = named.group(0) if named else ", ".join(t["tests-may-change"]) or "—"
         rows.append(f"<tr><td>{e(t['id'] + ' ' + t['title'])}</td><td>{e(', '.join(t['writes']))}</td>"
-                    f"<td>{e(', '.join(t['reads']))}</td><td>{e(t['gate'] or 'plan gate')}</td><td>{e(shown)}</td></tr>")
+                    f"<td>{e(', '.join(t['reads']))}</td><td>{e(task_gate(ctx, t) or 'plan gate')}</td><td>{e(shown)}</td></tr>")
     meta = lambda k: ", ".join(map(str, v)) if isinstance(v := plan["meta"].get(k), list) else str(v or "none")  # noqa: E731
     questions = [l.strip()[2:] for l in plan["parked"] if l.strip().startswith("- Q:")]
     out = ["<!doctype html>", '<html><head><meta charset="utf-8">',
@@ -735,7 +765,16 @@ def approval_page(ctx):
             out += [f"<h2>design.md: {name}</h2>",
                     *html_blocks(re.sub(r"^## .*\n?", "", protected_text(design, slug(name)), count=1))]
     out += ["<h2>Tasks</h2>", "<table><tr><th>Task</th><th>Writes</th><th>Reads</th><th>Gate</th><th>Named test</th></tr>",
-            *rows, "</table>", f"<p>touches: {e(meta('touches'))}</p>", f"<p>protected: {e(meta('protected'))}</p>",
+            *rows, "</table>"]
+    if plan["meta"].get("full_gate") == "modules":  # the founder compares each module with the replaced command
+        m = modmap.load(ctx.root) or {}
+        out += ["<h2>Full gate</h2>", "<p>Check that every non-test check the replaced command runs is run by a module.</p>",
+                f"<table><caption>{e(str(m.get('replaces') or 'none'))}</caption>"
+                "<tr><th>Module</th><th>Command</th><th>Runs</th></tr>",
+                *[f"<tr><td>{e(n)}</td><td>{e(str(s.get('test') or ''))}</td>"
+                  f"<td>{'non-test checks' if s.get('count') == 'none' else 'tests'}</td></tr>"
+                  for n, s in (m.get("modules") or {}).items()], "</table>"]
+    out += [f"<p>touches: {e(meta('touches'))}</p>", f"<p>protected: {e(meta('protected'))}</p>",
             "<h2>Questions</h2>", "<ul>" + "".join(f"<li>{e(q)}</li>" for q in questions or ["none"]) + "</ul>",
             "</body></html>"]
     ctx.runs.mkdir(parents=True, exist_ok=True)
@@ -893,7 +932,7 @@ def main(argv=None):
     try:
         ctx = find_ctx(getattr(a, "plan", None), getattr(a, "goal", None))
         return globals()["cmd_" + a.action](ctx, a)
-    except (PlanError, RuntimeError, OSError, ValueError) as exc:
+    except (PlanError, MapError, RuntimeError, OSError, ValueError) as exc:
         print(f"goal.py: {exc}", file=sys.stderr)
         return 2
 
