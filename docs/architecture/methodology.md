@@ -1,5 +1,5 @@
 ---
-summary: How a goal runs under methodology v7.3 and why: three bounded documents per goal (`spec.md`, `design.md` when `touches` names anything but `none`, `plan.md` with `reads:` per task) frozen at the approval tag; pages disclosed in layers (frontmatter, the generated index, anchors, generated pointer files, the stale warning); builder, reviewer and scout roles with declared models; the founder's own session as the chief, with cost recorded, never enforced; gate receipts, the eight-row done check, one read-only review by the other vendor per stage, one guard, two founder touchpoints. Also what v6 was and the measurements that retired it, the accepted risks with the amended stop rule, the v6 lessons that still hold, and the rollback.
+summary: How a goal runs under methodology v7.3 and why: three bounded documents per goal (`spec.md`, `design.md` when `touches` names anything but `none`, `plan.md` with `reads:` per task) frozen at the approval tag; pages disclosed in layers (frontmatter, the generated index, anchors, generated pointer files, the stale warning); builder, reviewer and scout roles with declared models; the founder's own session as the chief, with cost recorded, never enforced; gate receipts, the eight-row done check, one read-only review by the other vendor per stage, one guard, two founder touchpoints. Also what v6 was and the measurements that retired it, the accepted risks, the ended stop rule, the v6 lessons that still hold, and the rollback.
 read-when: Changing anything under `install/`, or asking how a goal runs, what v7 replaced, its risks or its rollback
 covers: [install/**]
 last-verified: 2026-10-13
@@ -9,11 +9,12 @@ last-verified: 2026-10-13
 
 How a goal runs, and why. The rules are in the
 [skill](../../install/skills/execution-methodology/SKILL.md); the decisions are
-[D29](../decisions/decisions.md#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints)
+[D29](../decisions/decisions.md#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints),
 [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2),
 [D32](../decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6),
-[D33](../decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7)
-and [D34](../decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8).
+[D33](../decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7),
+[D34](../decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8)
+and [D35](../decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9).
 
 ## Shape
 
@@ -80,9 +81,9 @@ and [D34](../decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-it
   `full_gate` and `e2e` receipts, the merge review, `goal.py done` printing DONE, then the chief
   pushes the branch and opens the PR. Once the founder says to merge, the chief runs `gh pr merge
   <n> --merge`, with `--delete-branch` only at the goal's last milestone; tags
-  `goal/<id>/<milestone>` at the PR's head commit and pushes the tag; then runs `goal.py cleanup
-  --goal <id> --apply`, which removes only the recorded worktrees, and their branches, whose work
-  `origin/main` holds (D34).
+  `goal/<id>/<milestone>` at the PR's head commit and pushes it with `goal/<id>/approved`; then
+  runs `goal.py cleanup --goal <id> --apply`, which removes only the recorded worktrees, and their
+  branches, whose work `origin/main` holds (D34).
 - **One review by the other vendor** per stage, read-only and adversarial, with `agents/reviewer.md`:
   design whenever `design.md` exists, plan before the approval tag, merge on the milestone diff (with
   the security checklist when `touches` names data, auth or external). One round each, no grant.
@@ -96,9 +97,10 @@ and [D34](../decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-it
   defaulted and logged; scope, data, auth, cost, secrets and external actions park.
 - **One instruction source** for both harnesses, at most 1,350 words always loaded; the references
   and agent files load on demand.
-- **The amended stop rule.** D29's stop rule stands with D30's one amendment: goal S-2's mechanism
-  entered `install/` during the pilot, and nothing else does (Accepted risks). D30 is judged by the
-  `cause:` tags, founder decisions per milestone, review catches by stage and the recorded cost.
+- **The stop rule, ended.** During the pilot, D29's stop rule with D30's one amendment let only goal
+  S-2's mechanism into `install/` (Accepted risks). The pilot and D29's stop rule ended with
+  [D35](../decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9): a change to
+  `install/` is an ordinary goal the founder approves.
 
 ## What it replaced
 
@@ -117,10 +119,11 @@ policing per line of done-check. See [measurements.md](../product/measurements.m
   whole milestone diff, and `e2e` on real services is mandatory: it caught errors every review missed.
 - **The evidence is observational**; quota, availability or hosting may explain part of it.
 - **The cross-vendor case rests on n=1.** The pilot's sampled follow-up reviews make the comparison.
-- **Stop rule.** Over four weeks on the pilot repository, any one reverts: a blocking escape in two
-  milestones; merges per week below the recomputed baseline without a logged external cause;
-  founder decisions above four per milestone twice; more than one default in five reversed at
-  merge. No new mechanism enters `install/` during the pilot except goal S-2
+- **Stop rule.** Until D35 ended it, any one of these reverted over four weeks on the pilot
+  repository: a blocking escape in two milestones; merges per week below the recomputed baseline
+  without a logged external cause; founder decisions above four per milestone twice; more than one
+  default in five reversed at merge. No new mechanism was to enter `install/` during the pilot
+  except goal S-2
   ([D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2)).
 
 Six v6 lessons hold:

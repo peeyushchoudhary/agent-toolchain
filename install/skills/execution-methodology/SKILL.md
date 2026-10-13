@@ -28,7 +28,7 @@ Each role's model and effort: [references/roles.md](references/roles.md).
    (`agents/builder.md`) under `.claude/worktrees/`, which the repository must ignore. Record each
    builder's worktree, once reported, with `goal.py own --goal <id> <path>`. A task waits
    until every task it `needs` is committed. Build only trivial tasks yourself.
-4. With your checkout clean, apply one builder's staged diff; remove its worktree after the commit.
+4. With your checkout clean, apply one builder's staged diff; remove its worktree and branch after the commit.
 5. Run the task's gate yourself: its `gate:`, the modules `goal.py next` names (`--modules a,b`),
    or the plan's, one check at a time: `gate.py check --goal <id> --cmd "<gate>"`. Red goes back to a builder with the output; a task
    that stays red is parked.

@@ -1,5 +1,5 @@
 ---
-summary: The one decisions record: a table of every decision id with its date, a one-line statement and its status (standing, superseded, removed or archived), then the full text of the decisions that keep it. A section whose row is not standing is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning and dispatches builders by dependency; D33 adds the test-module map that picks task gates, can compose the full gate and retries a failed module once; D34 removes the chief's recorded, merged worktrees.
+summary: The one decisions record: a table of every decision id with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning and dispatches builders by dependency; D33 adds the test-module map that picks task gates, composes the full gate and retries a failed module once; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot and its stop rule.
 read-when: Making or citing a decision, or asking why the methodology is the way it is
 covers: []
 last-verified: 2026-10-09
@@ -41,12 +41,13 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | D26 | 2026-08-25 | The vendored check reads the installer's preserve list | removed |
 | D27 | 2026-10-06 | Approved completion and technical recovery | removed |
 | D28 | 2026-10-08 | Review closure ends in fixes, not in grants | archived, never merged |
-| [D29](#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints) | 2026-10-09 | Simplified goal execution (methodology v7) | standing; pilot clause amended by D30 |
+| [D29](#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints) | 2026-10-09 | Simplified goal execution (methodology v7) | standing; pilot clause amended by D30, ended by D35 |
 | [D30](#d30--methodology-v71-context-roles-and-planning-documents-s-2) | 2026-10-09 | Methodology v7.1: context, roles and planning documents (S-2) | standing |
 | [D31](#d31--the-skill-is-model-invocable-the-chief-is-the-root-session-never-a-subagent) | 2026-10-10 | The skill is model-invocable; the chief is the root session, never a subagent | standing |
 | [D32](#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6) | 2026-10-13 | Methodology v7.2: each task's gate chosen at planning, builders dispatched by dependency (S-6) | standing |
 | [D33](#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7) | 2026-10-13 | Methodology v7.3: a test-module map picks task gates, composes the full gate and retries a failed module once (S-7) | standing |
 | [D34](#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8) | 2026-10-13 | Post-merge cleanup: the chief records its worktrees and removes what origin/main holds (S-8) | standing |
+| [D35](#d35--the-pilot-and-its-stop-rule-have-ended-s-9) | 2026-10-13 | The pilot and its stop rule have ended (S-9) | standing |
 
 ---
 
@@ -464,3 +465,16 @@ hand once.
 
 **Reverses:** nothing; D29 to D33 stand. The close's "the founder merges and tags" is now the
 chief's merge on the founder's word, then its tag and cleanup.
+
+## D35 — The pilot and its stop rule have ended (S-9)
+
+**Chose:** no stop rule. A change to `install/` is a goal the founder approves like any other.
+`measurements.md` keeps recording numbers, and nothing reverts automatically.
+
+**Over:** keeping the four triggers as watch items; a new stop rule.
+
+**Why:** S-2, S-3 and S-6 to S-8 added mechanism to `install/` under the founder's approval, so
+the clause no longer described practice (founder, 2026-10-13).
+
+**Reverses:** D29's stop rule and D30's amendment of it. Both sections stay byte-identical as
+rationale, and D29's table status names D35.

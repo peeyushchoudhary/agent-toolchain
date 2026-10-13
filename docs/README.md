@@ -13,7 +13,7 @@ page's `read-when`, then print it with `docs.py index`.
 | [architecture/repository-standard.md](architecture/repository-standard.md) | Adding, moving or removing a file, or deciding where something belongs |
 | [archive/README.md](archive/README.md) | Looking for superseded material, a removed decision's text or the v6 tree |
 | [decisions/decisions.md](decisions/decisions.md) | Making or citing a decision, or asking why the methodology is the way it is |
-| [product/measurements.md](product/measurements.md) | Citing a number, recording a measurement, or applying the pilot's stop rule |
+| [product/measurements.md](product/measurements.md) | Citing a number or recording a measurement |
 | [product/prd.md](product/prd.md) | Deciding whether a change belongs in the methodology, or what `install/` must keep doing |
 | [runbooks/codex.md](runbooks/codex.md) | Running Codex as the chief or as the other vendor's reviewer |
 | [runbooks/github.md](runbooks/github.md) | Creating a repository, merging a milestone, or installing the guard in a clone |

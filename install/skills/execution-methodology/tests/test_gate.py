@@ -573,6 +573,10 @@ class ModulesTest(GateCase):
         self.assertEqual(self.logs(), 0)
         self.assertEqual(self.receipts(), [])
 
+    def test_usage_names_the_modules_refusals(self):
+        self.assertIn("An empty selection, or a selected module whose test command is blank, is refused with exit 2",
+                      gate.__doc__)
+
     def test_module_receipts_do_not_alias_commands_or_other_modules(self):
         self.assertEqual(self.modules("receipt", "a,b").returncode, 0)
         self.mode("a", "crash")
