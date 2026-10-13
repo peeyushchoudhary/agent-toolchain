@@ -559,6 +559,30 @@ class ProtectedSectionTest(RepoCase):
         self.assertEqual(goal.protected_text(RECORD, "D2"), "## D2 — second\n\nTwo.\n")
         self.assertEqual(goal.protected_text(RECORD, "whole"), RECORD.rstrip("\n"))
 
+    def test_whitespace_before_an_unprotected_section_remains_protected(self):
+        sha = self.fix("docs/record.md", RECORD.replace("Two.", "Two.  "), "[T1] trailing spaces in D2")
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected docs/record.md#D1-D2")
+
+
+class ProtectedLastSectionTest(RepoCase):
+    plan = (plan_text().replace("protected: [docs/design.md]", "protected: [docs/design.md, docs/record.md#D1-D3]")
+            .replace("writes: src/a/**, tests/**", "writes: src/a/**, docs/record.md, tests/**"))
+
+    def setUp(self):
+        self.repo = Repo(self.plan, files={"docs/record.md": RECORD})
+        self.addCleanup(self.repo.cleanup)
+
+    def test_appending_after_the_last_protected_section_passes(self):
+        self.fix("docs/record.md", RECORD + "\n## D4 — fourth\n\nFour.\n", "[T1] append D4")
+        self.assertRowOk(4)
+        sha = self.fix("docs/record.md", self.repo.read("docs/record.md").replace("Three.", "Three, revised."),
+                       "[T1] inside D3")
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected docs/record.md#D1-D3")
+
+    def test_last_content_line_whitespace_remains_protected(self):
+        sha = self.fix("docs/record.md", RECORD.replace("Three.", "Three.  "), "[T1] trailing spaces in D3")
+        self.assertRow(4, f"{sha[:10]} [T1] changes protected docs/record.md#D1-D3")
+
 
 class SpecLintTest(RepoCase):
     """A v7.1 goal: the fixture goal with spec.md and design.md, T1 may write the design."""
@@ -1332,6 +1356,12 @@ class CleanupTest(RepoCase):
         self.assertEqual((res.returncode, res.stdout), (2, ""), res.stderr)
         self.assertTrue(res.stderr.startswith("goal.py: cleanup needs origin/main: "), res.stderr)
 
+    def test_cleanup_refusal_quotes_gits_fatal_line(self):
+        bare = Repo()
+        self.addCleanup(bare.cleanup)
+        res = bare.goal("cleanup", "--goal", "F-9")
+        self.assertEqual((res.returncode, res.stderr),
+                         (2, "goal.py: cleanup needs origin/main: fatal: 'origin' does not appear to be a git repository\n"))
 
     def test_cleanup_keeps_untracked_files_when_status_hides_them(self):
         self.repo.git("config", "status.showUntrackedFiles", "no")

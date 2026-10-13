@@ -21,7 +21,7 @@ Design: [design.md](design.md).
 
 ## Tasks
 
-### [ ] T1 — Row 4 ignores a protected section's trailing blank lines; cleanup quotes git's `fatal:` line
+### [x] T1 — Row 4 ignores a protected section's trailing blank lines; cleanup quotes git's `fatal:` line
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-9/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
@@ -204,5 +204,12 @@ T4's commit (design review R2).
   and the baseline recorded `verify.checks.links` failing. The founder chose to re-approve the
   reworded lines. `goal/S-9/approved` moved from 8114fc1 to this commit, with no task committed
   before it (founder).
+- 2026-10-13 T1:
+  - **Test class.** `ProtectedLastSectionTest` copies `ProtectedSectionTest`'s plan and `setUp`
+    rather than subclassing it, so the inherited test does not rerun under `#D1-D3`.
+  - **Placement.** `settled` sits next to `protected_text`.
+  - **Tests before the change.** The two whitespace tests pass both before and after it: they
+    guard against stripping too much (design review R1). The append test and the `fatal:` test
+    failed before it (default).
 
 ## Parked

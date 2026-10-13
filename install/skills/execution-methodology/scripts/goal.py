@@ -227,6 +227,10 @@ def protected_text(text, anchor):
             out.append(line)
     return "\n".join(out if out or m else lines)
 
+def settled(text):
+    """text without its trailing empty or whitespace-only lines; every other byte kept."""
+    return re.sub(r"(\n[ \t]*)+\Z", "", text or "")
+
 def file_at(root, rev, path):
     proc = subprocess.run(["git", "show", f"{rev}:{path}"], cwd=root, capture_output=True)
     return proc.stdout.decode(errors="replace") if proc.returncode == 0 else None
@@ -375,9 +379,9 @@ def commit_findings(ctx, base):
         for status, path in ch:
             for entry in entries:
                 ppath, _, anchor = entry.partition("#")  # whole file, or only the anchored sections
-                if glob_re(ppath).match(path) and (not anchor or protected_text(
-                        file_at(ctx.root, parent, path) if parent else "", anchor)
-                        != protected_text(file_at(ctx.root, c, path), anchor)):
+                if glob_re(ppath).match(path) and (not anchor or settled(protected_text(
+                        file_at(ctx.root, parent, path) if parent else "", anchor))
+                        != settled(protected_text(file_at(ctx.root, c, path), anchor))):
                     rows[4].append(f"{short} [{tids[0]}] changes protected {entry}")
             if path == ctx.plan_rel and plan_same:
                 continue  # ticks and writes lines; the frozen view is row 6's to judge
@@ -1063,7 +1067,8 @@ def cmd_cleanup(ctx, a):
         proc = subprocess.run(["git", "fetch", "--no-tags", "--refmap=", "origin",
                                "refs/heads/main:refs/remotes/origin/main"],
                               cwd=ctx.root, capture_output=True, text=True, timeout=120)
-        why = last_line(proc.stderr) if proc.returncode else None
+        fatal = next((l.strip() for l in proc.stderr.splitlines() if l.startswith("fatal:")), None)
+        why = (fatal or last_line(proc.stderr)) if proc.returncode else None
     except subprocess.TimeoutExpired:
         why = "timed out"
     if why is not None:
