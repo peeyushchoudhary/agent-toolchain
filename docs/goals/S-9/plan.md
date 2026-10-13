@@ -71,7 +71,7 @@ Change no code. Test in class `ModulesTest`, `test_usage_names_the_modules_refus
 `gate.__doc__` contains `An empty selection, or a selected module whose test command is blank,
 is refused with exit 2`.
 
-### [ ] T3 — Loop step 4 removes the builder's branch; the close pushes the approval tag; D35
+### [x] T3 — Loop step 4 removes the builder's branch; the close pushes the approval tag; D35
 writes: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_records.py, docs/decisions/decisions.md, AGENTS.md
 reads: docs/goals/S-9/design.md#interfaces, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, docs/decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py
@@ -213,5 +213,12 @@ T4's commit (design review R2).
     failed before it (default).
 - 2026-10-13 T2: the new sentence starts its own docstring line, so the phrase the test matches
   has no line break in it (default).
+- 2026-10-13 T3:
+  - **Summary.** The decisions `summary` makes room for D35 by shortening other clauses; it is
+    119 of 120 words.
+  - **D35's Why** rewords Interface 5's text as one sentence, with the same content.
+  - **Test rows.** `test_records.py` finds a table row by its opening pipe and link.
+  - **Word counts.** The always-loaded files total 1,344 of 1,350 words, and `close.md` is 310 of
+    400 (default).
 
 ## Parked

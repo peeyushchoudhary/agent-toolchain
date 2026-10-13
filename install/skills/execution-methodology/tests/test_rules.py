@@ -233,7 +233,8 @@ class Close(unittest.TestCase):
         text = flat(CLOSE)
         at = 0
         for words in ("goal.py done", "`gh pr merge <n> --merge`", "`git tag goal/<id>/<milestone> <head>`",
-                      "`git push origin goal/<id>/<milestone>`", "`goal.py cleanup --goal <id> --apply`"):
+                      "`git push origin goal/<id>/approved goal/<id>/<milestone>`",
+                      "`goal.py cleanup --goal <id> --apply`"):
             found = text.find(words, at)
             self.assertGreaterEqual(found, 0, f"{words} missing or out of order")
             at = found + len(words)
@@ -244,6 +245,10 @@ class Close(unittest.TestCase):
         # S-8 (D34), AC7: every worktree the chief makes is recorded, so cleanup may remove it.
         self.assertIn("goal.py own --goal <id> <path>", loop_step(3))
         self.assertIn("goal.py own", loop_step(8))
+
+    def test_the_loop_removes_the_builders_worktree_and_branch(self):
+        # S-9, AC4: the chief removes a builder's branch with its worktree.
+        self.assertIn("remove its worktree and branch after the commit", loop_step(4))
 
 
 class Planning(unittest.TestCase):

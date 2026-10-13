@@ -31,7 +31,8 @@ see [D17](docs/decisions/decisions.md#d17--this-repository-complies-with-the-sta
   [D31](docs/decisions/decisions.md#d31--the-skill-is-model-invocable-the-chief-is-the-root-session-never-a-subagent),
   [D32](docs/decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6),
   [D33](docs/decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7),
-  [D34](docs/decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8).
+  [D34](docs/decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8),
+  [D35](docs/decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9).
 
 ## Verification
 
