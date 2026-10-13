@@ -245,7 +245,13 @@ not change scripts.
   command not itself completed by a rerun; without one, the shortcut is refused, which is how tests
   a chained command never reached are ruled out. The try is spent before the subset runs. A refused
   receipt is recorded with the verdict `REFUSED` (default).
+- 2026-10-13 merge review round 2 (the founder asked for it): the load rerun now proves each failed
+  test passed by the rerun's own output naming it (unittest -v, pytest -v, Gradle PASSED events or
+  `--junit`), not by the command text. It needs an earlier PASS receipt of the same command whose
+  test count and suite summaries the failed run matches, refuses fail-fast flags, runs without a
+  baseline, ignores refused and instant records as load, and refuses Playwright output by name. It
+  guards against a mistaken chief, not a forging one: a command that prints fake pass lines would
+  pass, and the receipt's `rerun_command` shows it to the reviewer. R8 was fixed, not parked
+  (default).
 
 ## Parked
-- Merge review R8 (non-blocking): `test_rules.py` defines `Loop` after `unittest.main()`, so running the
-  file directly skips the six new tests; discovery, which every gate uses, runs them.
