@@ -20,11 +20,13 @@ DESIGN = SKILL / "references" / "design.md"
 PLANNING = SKILL / "references" / "planning.md"
 ROLES = SKILL / "references" / "roles.md"
 SECURITY = SKILL / "references" / "security-checklist.md"
+CLOSE = SKILL / "references" / "close.md"
+BUILDER_TOML = SKILL / "agents" / "builder.toml"
 ALWAYS_LOADED = (REPO / "install" / "global.md", REPO / "AGENTS.md", ENTRY)
-SKILL_FILES = (ENTRY, BUILDER, REVIEWER, SCOUT, DESIGN, PLANNING, ROLES, SECURITY)
+SKILL_FILES = (ENTRY, BUILDER, REVIEWER, SCOUT, DESIGN, PLANNING, ROLES, SECURITY, CLOSE)
 
 # Word ceilings of the on-demand references (D30); words are whitespace-separated tokens.
-REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150}
+REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150, CLOSE: 400}
 PLANNING_RULES_WORDS = 200
 # Word ceilings of the agent files' bodies, the text after the closing frontmatter line (D30).
 AGENT_BODY_WORDS = {BUILDER: 350, REVIEWER: 350, SCOUT: 200}
@@ -155,3 +157,43 @@ class Budgets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def loop_step(n: int) -> str:
+    """The text of step n of the entry's per-task loop, continuation lines included."""
+    loop = ENTRY.read_text(encoding="utf-8").split("## The loop, per task", 1)[1].split("\n## ", 1)[0]
+    m = re.search(rf"^{n}\. (.*?)(?=^\d+\. |\Z)", loop, re.M | re.S)
+    return " ".join(m.group(1).split()) if m else ""
+
+
+class Loop(unittest.TestCase):
+    """v7.2 (D32): each task's own gate, the full-gate cadence, dispatch by dependency."""
+
+    def test_the_loop_runs_the_tasks_gate(self):
+        self.assertIn("the task's gate", loop_step(5))
+
+    def test_the_full_gate_runs_every_third_task_and_a_due_sample_waits(self):
+        step = loop_step(8)
+        for words in ("every third task commit", "newest", "600 s", "only at close"):
+            self.assertIn(words, step)
+
+    def test_at_most_four_builders_run_at_once(self):
+        self.assertIn("four builders", loop_step(3))
+
+    def test_dispatch_waits_for_committed_dependencies(self):
+        step = loop_step(3)
+        self.assertIn("needs", step)
+        self.assertIn("committed", step)
+
+    def test_the_chief_applies_only_to_a_clean_checkout(self):
+        step = loop_step(4)
+        self.assertIn("clean", step)
+        self.assertIn("apply", step)
+
+    def test_both_builder_files_check_their_worktree(self):
+        for path in (BUILDER, BUILDER_TOML):
+            with self.subTest(file=path.name):
+                text = " ".join(path.read_text(encoding="utf-8").split())
+                self.assertIn("merge-base --is-ancestor", text)
+                self.assertIn("the chief's checkout", text)
+        self.assertEqual(frontmatter(BUILDER).get("isolation", "").strip(), "worktree")

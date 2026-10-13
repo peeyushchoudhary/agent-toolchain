@@ -19,16 +19,24 @@ Each role's model and effort: [references/roles.md](references/roles.md).
 
 ## The loop, per task
 
-1. `goal.py next` names the first `[ ]` task of the active milestone.
+1. `goal.py next` lists the ready tasks: open, in the active milestone, every task they `needs`
+   committed.
 2. Read the task and its `reads:` (`docs.py reads <Tn> --goal <id>` prints line ranges). Write a
-   packet: goal, `writes`, `tests-may-change`, `reads`, gate, stop conditions; paths, never text.
-3. Dispatch one builder in its own worktree (`agents/builder.md`; until it exists, the harness's
-   default agent). Build only trivial tasks yourself.
-4. Apply its staged diff. Never commit while a builder shares your checkout.
-5. Run the plan's `gate` yourself: `gate.py check --goal <id> --cmd "<gate>"`. Red goes back to the
-   builder with the output; a task that stays red is parked.
+   packet: goal, `writes`, `tests-may-change`, `reads`, the task's gate, stop conditions, your
+   checkout's path and HEAD; paths, never text.
+3. Dispatch one builder per ready task, at most four builders at once, each in its own worktree
+   (`agents/builder.md`) under `.claude/worktrees/`, which the repository must ignore. A task waits
+   until every task it `needs` is committed. Build only trivial tasks yourself.
+4. With your checkout clean, apply one builder's staged diff; remove its worktree after the commit.
+5. Run the task's gate yourself, its `gate:` or else the plan's, one check at a time:
+   `gate.py check --goal <id> --cmd "<gate>"`. Red goes back to a builder with the output; a task
+   that stays red is parked.
 6. Scan the diff for private facts: names, home paths, emails, secrets.
 7. Commit `[Tn] <title>` with the tick and one Decisions line per default taken.
+8. Where the full gate takes 600 s or less, every third task commit start `gate.py receipt --name
+   full_gate --runs <your .runs>` in a detached worktree at that commit, in the background, one at a
+   time; a sample due during a run starts on the newest commit when it ends. Otherwise the full gate
+   runs only at close. A full-gate FAIL stops dispatch until a fix passes.
 
 ## `plan.md` format
 
@@ -49,6 +57,8 @@ protected: [path/**, doc.md#section]
 writes: src/a/**, tests/a/**
 reads: src/b.py, docs/area.md#section
 tests-may-change: tests/a/test_old.py
+gate: <this task's command, under 600 s alone>
+needs: <earlier task ids>
 <what, constraints, the test it adds>
 ## Decisions
 - <date> T1: chose X over Y (default).
@@ -58,7 +68,7 @@ tests-may-change: tests/a/test_old.py
 
 `goal.py lint` checks it. Ticks: `[ ]` open, `[x]` gate green and committed as `[Tn]`, `[!]` parked
 with a Parked line. A plan-only commit (subject `<id>: …`) changes only ticks, Decisions, Parked,
-or `reads:`, or widens `writes:`/`tests-may-change:`, with a new Decisions line. A commit that
+`reads:`, `gate:` or `needs:`, or widens `writes:`/`tests-may-change:`, with a new Decisions line. A commit that
 deletes a file repairs the links naming it.
 
 ## Done, in words
@@ -101,31 +111,8 @@ Codex when Claude is chief, Claude when Codex is. Once each at:
   [references/security-checklist.md](references/security-checklist.md) when `touches:` names
   data, auth or external.
 
-One round, no grant. Findings go to `.runs/<id>/review.md`:
-
-```
-reviewer: <vendor model> (read-only), <date>, <stage>
-reviewed: <full sha>
-verdict: PASS | BLOCK
-## Findings
-- [ ] BLOCKING R1 <defect>
-  paths: <glob>, <glob>
-```
-
-Never reclass a blocking finding. Close it with a `[Tn][Rn]` fix commit that adds or changes its
-test, then tick it and add under it, above `paths:`, `- [x] R1 resolved-by <sha> closes <test
-path>::<name> cause: <c>`; or remove the work: `- [x] R1 removed-by <sha> cause: <c>`. `<c>` is
-`context` (the packet lacked it), `logic` (the build was wrong) or `spec` (the criteria were).
-Park non-blocking findings.
-
-## Milestone close
-
-Clean tree → `gate.py receipt --goal <id> --name full_gate --cmd "<full_gate>"` and `--name e2e
---cmd "<e2e>"` → merge review (fix commits need fresh receipts) → `goal.py done` prints DONE →
-`goal.py packet` writes the PR body. Once the merge review passes and `done` prints DONE, the chief
-pushes the branch and opens the PR; the founder merges and tags. Next milestone: same branch.
-Record failures present at approval once with `gate.py baseline`; diagnose any new failure, never
-rerun until green.
+One round, no grant. Findings go to `.runs/<id>/review.md` in the reviewer's format; closing them
+and the milestone close: [references/close.md](references/close.md).
 
 ## Resuming
 

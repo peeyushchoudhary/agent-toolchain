@@ -44,7 +44,7 @@ still win. Test in `test_goal.py`: `FixtureTest.test_fixture_runs_use_a_scratch_
 is not the real home, `CODEX_HOME` is under it, and an explicit `HOME=` argument overrides it). Do
 not change scripts. The transcript scan's own speed is a follow-up, not this goal.
 
-### [ ] T1 — v7.2 in words: D32, the 2026-10-13 measurements, the loop, dispatch by dependency and the builder's base check
+### [x] T1 — v7.2 in words: D32, the 2026-10-13 measurements, the loop, dispatch by dependency and the builder's base check
 writes: docs/decisions/decisions.md, docs/product/measurements.md, docs/architecture/methodology.md, docs/README.md, AGENTS.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/agents/builder.md, install/skills/execution-methodology/agents/builder.toml, install/skills/execution-methodology/tests/test_rules.py
 reads: docs/goals/S-6/design.md#structure, docs/goals/S-6/design.md#interfaces, docs/decisions/decisions.md#d31--the-skill-is-model-invocable-the-chief-is-the-root-session-never-a-subagent, docs/product/measurements.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/agents/builder.md, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py
@@ -197,5 +197,8 @@ not change scripts.
   not, which is why the cause is recorded and the rule allows one try.
 - 2026-10-13 build: T2 and T3 run as two builders at once from `fa2b225`, the parallel dispatch this
   goal adds; T4 waits for both (default).
+- 2026-10-13 T1: `references/close.md` joins the skill files the rules tests check, with a 400-word
+  ceiling like `planning.md`; to fit the new lines, `planning.md` and both builder files were
+  tightened without dropping a MUST (default).
 
 ## Parked
