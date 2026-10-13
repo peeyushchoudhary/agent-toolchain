@@ -226,7 +226,7 @@ as Interface 10 gives them.
 - `test_packet_lists_retried_modules_with_load_readings` (AC6).
 
 ### [ ] T7 — v7.3 in words: D33, the skill's step 5, planning's map, close's composed gate and retry
-writes: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md, docs/architecture/methodology.md, AGENTS.md
+writes: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/modules.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md, docs/architecture/methodology.md, AGENTS.md
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py
 gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_rules.py' && python3 -m unittest discover -s install/tests -t install/tests -p 'test_size.py' && python3 install/skills/execution-methodology/scripts/docs.py lint .
@@ -417,5 +417,11 @@ modules`.
   taken just before `Popen`; a `READINGS` key tuple lets `check` and `receipt` pass the readings to
   `record()` while `evaluate()` keeps its return shape; the 5 s sampler is not driven by a test,
   since that needs a run longer than 5 s (default).
+- 2026-10-13 T7: Interface 11's map-drafting text does not fit `planning.md`. It would reach 472
+  of its 400 words, and tightening recovers about 12. So step 5 says to draft the map by a new
+  on-demand reference, `references/modules.md`, which carries the full text under its own 200-word
+  ceiling in `test_rules.py`. This keeps the D30 ceiling and loads the detail only when a map is
+  drafted. `writes` is widened to add it, and the Interface 11 text is unchanged in substance
+  (default).
 
 ## Parked
