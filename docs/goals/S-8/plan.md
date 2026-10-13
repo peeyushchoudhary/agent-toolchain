@@ -11,12 +11,15 @@ protected: [docs/decisions/decisions.md#D1-D33, docs/goals/S-8/design.md#interfa
 
 ## Outcome
 
-`goal.py cleanup` fetches `origin` and lists every worktree and local branch whose commits and
-changes `origin/main` already holds. Under `--apply` it removes them; everything else is listed
-with the reason it stays (AC4–AC6). `close.md` closes a milestone in three steps:
+`goal.py cleanup --goal <id>` runs after a milestone's merge and tag. It considers only what that
+milestone created: worktrees at one of its commits, the branches they had checked out, and the
+goal branch at the goal's last milestone. It lists those whose work `origin/main` holds and removes
+them under `--apply`; the rest of the milestone's items are listed with the reason they stay. Every
+other worktree and branch, whichever session made it, is untouched (AC4–AC6). `close.md` closes a
+milestone in three steps:
 - merge with `gh pr merge <n> --merge`, plus `--delete-branch` at the goal's last milestone;
 - push the milestone tag;
-- run `goal.py cleanup --apply`.
+- run `goal.py cleanup --goal <id> --apply`.
 
 D34 records it (AC7). `gate.py --modules` refuses an empty selection and a blank module test
 command before running anything (AC1, AC2). `gate.run` closes its pipe (AC3). The three stale
@@ -65,18 +68,18 @@ Test in class `ReceiptTest`: `test_run_closes_its_output_pipe` (AC3). Under
 `ResourceWarning`. Import `gc` and `warnings` at the top of the file. The test fails before the
 change.
 
-### [ ] T3 — `goal.py cleanup`: list, then remove what `origin/main` holds
+### [ ] T3 — `goal.py cleanup --goal <id>`: list, then remove what the milestone created
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-8/design.md#interfaces, docs/goals/S-8/design.md#data-touched, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
 Design Interface 3, exactly. Its rules, order, line shapes and exit codes are the contract.
 
 **Placement.**
-- Add `cmd_cleanup(root, apply) -> int` and the helpers it needs to `goal.py`.
-- Add a `cleanup` subparser with `--apply` (`store_true`).
-- In `main`, dispatch `cleanup` before `find_ctx`, with
-  `root = Path(os.path.realpath(git(os.getcwd(), "rev-parse", "--show-toplevel")))`, inside the
-  existing `try` so `RuntimeError` exits 2.
+- Add `cmd_cleanup(ctx, a) -> int` and the helpers it needs to `goal.py`.
+- Add `cleanup` to the subparser loop, with `--milestone` and `--apply` (`store_true`). It
+  resolves the goal through the existing `find_ctx`, like every other subcommand.
+- Raise `PlanError` for the refusals, so `main` prints `goal.py: <text>` and exits 2.
+- Milestone order comes from `ctx.plan["milestones"]`, and tags from `ctx.tag(...)` or `git tag`.
 
 **Constraints.**
 - Use git through the existing `git()` helper, plus `subprocess.run` where a non-zero exit is a
@@ -86,30 +89,44 @@ Design Interface 3, exactly. Its rules, order, line shapes and exit codes are th
   `GIT_INDEX_FILE` and removed afterwards.
 - Do not touch `gate.py`, the fixture or any other command.
 
-**Tests: new class `CleanupTest`.** Each test makes a bare repository with `git init --bare`, adds
-it as `origin` of a `Repo()`, pushes `main` and runs `git remote set-head origin main`, all through
-`self.repo.git(...)`. Worktrees go under `<repo>/.claude/worktrees/`.
-- `test_cleanup_lists_then_removes_what_origin_main_holds` (AC4, AC6). The repository holds:
-  - a branch `done-goal` whose commit is pushed into `origin/main`;
-  - a worktree `agent-a` on branch `worktree-agent-a` at the old base, with a staged change that a
-    later commit on `main`, pushed, also makes;
-  - a detached worktree at a pushed commit.
+**Tests: new class `CleanupTest`.**
+- **Setup.** Each test makes a bare repository with `git init --bare` and adds it as `origin` of a
+  `Repo()`. The fixture plan has M1 `[T1, T2]` and M2 `[T3]`. Builders and samples are worktrees
+  under `<repo>/.claude/worktrees/` and a temporary directory. Pushing `main`, then `git remote
+  set-head origin main`, all goes through `self.repo.git(...)`.
+- **Milestone commits.** Commit on a goal branch `goal-f9`, tag `goal/F-9/M1`, merge it into `main`
+  with `--no-ff` and push; repeat for M2.
+- `test_cleanup_removes_only_what_the_milestone_created` (AC4, AC6). After M2's merge, these are
+  removed:
+  - a worktree `agent-a` on branch `worktree-agent-a` at an M2 commit, whose staged change the
+    merged M2 also makes;
+  - a detached sample worktree at an M2 commit;
+  - the branch `goal-f9`, once switched away from it.
 
-  A dry run prints `cleanup: dry run against origin/main at <sha10>`, one `remove` line for each
-  of the four items, and `cleanup: 4 to remove, 0 kept`, and every item still exists. `--apply`
-  prints `removed` lines and exit 0, and the items are gone. A second `--apply` prints `cleanup: 0
+  These are untouched and absent from the output:
+  - a worktree on branch `other-session` at a commit before the approval tag, merged and clean;
+  - a detached worktree at `main`'s merge commit;
+  - a branch `old-goal` merged into `main`.
+
+  A dry run prints `cleanup: dry run for F-9 M2 against origin/main at <sha10>`, four `remove`
+  lines (two worktrees, `worktree-agent-a` and `goal-f9`) and `cleanup: 4 to remove, 0 kept`, and
+  removes nothing. `--apply` removes exactly those four, and a second `--apply` prints `cleanup: 0
   removed, 0 kept`.
-- `test_cleanup_keeps_unmerged_dirty_untracked_locked_current_and_default` (AC5). The repository
-  holds:
-  - a branch with an unpushed commit (`1 commit(s) not in origin/main`);
-  - a worktree whose staged change is not in `origin/main` (`changes not in origin/main`);
-  - a worktree holding an untracked file (`untracked files`);
-  - a locked worktree (`locked`).
+- `test_cleanup_keeps_the_milestones_unfinished_work` (AC5). After M1's merge, run with
+  `--milestone M1`:
+  - an M1-commit worktree with a staged change not in `origin/main` → `changes not in
+    origin/main`;
+  - one with an untracked file → `untracked files`;
+  - a locked one → `locked`;
+  - `goal-f9`, an earlier milestone's branch → `the next milestone continues on it`;
+  - after M2's merge, run with `goal-f9` checked out: `goal-f9` → `current branch`.
 
-  The current branch and `main` are kept as `current branch` and `default branch`. After
-  `--apply`, every one of them still exists.
-- `test_cleanup_needs_origin` (AC4): a `Repo()` without a remote exits 2, and stderr starts
-  `goal.py: cleanup needs origin:`.
+  After `--apply`, every one of them still exists.
+- `test_cleanup_refuses_without_origin_or_merge` (AC5). These exit 2, with stderr starting as
+  quoted:
+  - a `Repo()` without a remote: `goal.py: cleanup needs origin:`;
+  - a milestone tag not merged into `origin/main`: `goal.py: goal/F-9/M1 is not in origin/main`;
+  - no milestone tag: `goal.py: cleanup needs the tag`.
 
 ### [ ] T4 — The close in words: merge, tag, cleanup; D34
 writes: install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md, AGENTS.md
@@ -122,15 +139,15 @@ Design Interface 4.
 aftermath. Once the founder says to merge:
 1. `gh pr merge <n> --merge`, adding `--delete-branch` when the milestone is the goal's last;
 2. push the milestone tag `goal/<id>/<milestone>`;
-3. `goal.py cleanup --apply`.
+3. `goal.py cleanup --goal <id> --apply`, which removes only what that milestone created.
 
 It keeps "Next milestone: same branch." `close.md` stays within its 400-word ceiling.
 
 **D34 in `docs/decisions/decisions.md`.**
 - Add the section `## D34 — Post-merge cleanup: the close removes what origin/main holds (S-8)`
   after D33, in D33's shape (Chose, Why, Rejected). It summarises design Interfaces 3 and 4 and
-  the founder's four answers of 2026-10-13: a subcommand; everything provably merged;
-  `--delete-branch` at merge; cleanup right after the merge and tags.
+  the founder's answers of 2026-10-13: a subcommand; scope narrowed to what the milestone
+  created; `--delete-branch` at merge; cleanup right after the merge and tags.
 - Add a D34 table row dated 2026-10-13, `standing`.
 - Extend the frontmatter `summary` with one D34 clause.
 - D1–D33 stay byte-identical.
@@ -141,7 +158,7 @@ Test in class `Close`: `test_close_merges_tags_then_cleans_up` (AC7). `flat(CLOS
 - `` `gh pr merge <n> --merge` ``;
 - `` `--delete-branch` ``;
 - `goal's last`;
-- `` `goal.py cleanup --apply` ``.
+- `` `goal.py cleanup --goal <id> --apply` ``.
 
 Do not touch `SKILL.md`, which already sends the close to `close.md`.
 
@@ -168,12 +185,19 @@ key but `summary` and `last-verified`, and no file under `install/`.
 
 - 2026-10-13 planning: the founder chose:
   - a `goal.py cleanup` subcommand, dry run by default, with `--apply`;
-  - scope: everything provably merged, not only this goal's leftovers;
+  - scope: first everything provably merged. The founder then narrowed it to what the merged
+    milestone created, because a live session's worktree with nothing unsaved would otherwise
+    qualify;
   - deleting the remote goal branch at merge with `gh pr merge --delete-branch`;
   - cleanup right after the merge and tags (founder).
 - 2026-10-13 planning: `--delete-branch` is used only at a goal's last milestone. It also deletes
   the local branch and switches the checkout, and an earlier milestone's goal branch carries the
   next milestone (default).
+- 2026-10-13 planning: a worktree belongs to the milestone when its HEAD is one of the
+  milestone's commits: the previous milestone's tag, or the approval tag, through the milestone's
+  tag. A builder starts at the chief's HEAD and a sample at a task commit; other sessions' and
+  goals' worktrees start elsewhere. Location (`.claude/worktrees/`) and session locks were
+  rejected as proof of ownership (default).
 - 2026-10-13 planning: cleanup lives in `goal.py`, not a new script. `docs/goals/modules.json` maps
   exact script paths and is protected, so a new file would sit outside every module (default).
 - 2026-10-13 planning: T1–T4 carry no `gate:` line and run the modules `goal.py next` derives from
