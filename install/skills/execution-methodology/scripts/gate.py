@@ -442,8 +442,12 @@ def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
         blocks = failure_blocks(Path(old.get("log", "")).read_text(errors="replace"))
     except OSError:
         blocks = {}
+    shorts = [f.split("::", 1)[1].replace("::", ".") for f in old.get("failures", []) if "::" in f]
     for f in old.get("new_failures", []):
-        keys = [f] + ([f.split("::", 1)[1].replace("::", ".")] if "::" in f else [])
+        short = f.split("::", 1)[1].replace("::", ".") if "::" in f else None
+        # A pytest traceback header names the test without its file: it counts only when no other failure
+        # shares that name, so same-named tests in two files never lend each other evidence.
+        keys = [f] + ([short] if short and shorts.count(short) == 1 else [])
         if not any(timeout_evidence(b) for k in keys for b in blocks.get(k, [])):
             return (f"{f}: not a timeout or resource error; a test that fails in the suite and passes alone "
                     "may depend on another test, so run the full gate")

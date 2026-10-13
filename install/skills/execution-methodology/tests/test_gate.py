@@ -461,6 +461,17 @@ class RerunFailedTest(GateCase):
         self.assertTrue(gate.timeout_evidence(" - Failed: Timeout >5.0s"))
         self.assertTrue(gate.timeout_evidence("\njava.util.concurrent.TimeoutException\n\tat a.B.c(B.java:3)"))
 
+    def test_rerun_binds_pytest_timeout_evidence_to_full_node_id(self):
+        lines = ("____ test_x ____", ">       assert 1 == 2", "E       assert 1 == 2", "tests/a.py:2: AssertionError",
+                 "____ test_x ____", ">       time.sleep(10)", "E       Failed: Timeout >5.0s", "tests/b.py:2: Failed",
+                 "=== short test summary info ===", "FAILED tests/a.py::test_x - assert 1 == 2",
+                 "FAILED tests/b.py::test_x - Failed: Timeout >5.0s", "=== 2 failed, 1 passed in 6.0s ===")
+        cmd = "printf '%s\\n' " + " ".join(f"'{line}'" for line in lines) + "; exit 1"
+        failed = self.failed(cmd, **BUSY)
+        self.assertEqual(failed["new_failures"], ["tests/a.py::test_x", "tests/b.py::test_x"])
+        self.assertRefused(self.rerun(EMIT + " tests/a.py::test_x tests/b.py::test_x", cmd=cmd),
+                           "tests/a.py::test_x: not a timeout or resource error")
+
     def test_rerun_failed_accepts_a_gradle_tests_filter(self):
         subset = "./gradlew test --continue --rerun-tasks --tests '*FooTest.bar'"
         self.assertTrue(gate.failure_named("com.example.FooTest.bar()", subset))
