@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -409,8 +410,22 @@ def overlapping_run(checks: Path, old: dict) -> bool:
     return False
 
 
-# What a plain test command never needs: a comment, a chain, a pipe, a redirection, a substitution.
-SHELL_CONTROL = re.compile(r"[#;|&<>`\n]|\$\(")
+def plain_command(cmd: str) -> bool:
+    """Whether cmd is one plain command: no unquoted comment, chain, pipe or redirection, and no command
+    substitution. Quoted text, such as a pytest id `'t.py::test_x[a#b]'`, is an argument, not syntax."""
+    if "`" in cmd or "$(" in cmd or "\n" in cmd:
+        return False
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lex.whitespace_split, lex.commenters = True, ""
+        tokens = list(lex)
+        bare = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        bare.whitespace_split = True
+        uncommented = list(bare)
+    except ValueError:  # an unclosed quote
+        return False
+    operators = [tok for tok in tokens if tok and set(tok) <= set("();<>|&")]
+    return bool(tokens) and not operators and tokens == uncommented and tokens[0] not in ("echo", "printf", "true", ":")
 
 
 def failure_named(failure: str, subset: str) -> bool:
@@ -449,7 +464,7 @@ def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
     if old.get("executed", 0) < complete.get("executed", 0):
         return (f"the failed run executed {old.get('executed', 0)} test(s), fewer than the {complete['executed']} "
                 "of the last complete run: tests that did not run need the full gate")
-    if SHELL_CONTROL.search(subset) or re.match(r"\s*(?:echo|printf|true|:)\b", subset):
+    if not plain_command(subset):
         return ("the --rerun-failed command must be one plain test command: no comment, echo, chaining, "
                 "pipe, redirection or substitution")
     missing = [f for f in old.get("new_failures", []) if not failure_named(f, subset)]

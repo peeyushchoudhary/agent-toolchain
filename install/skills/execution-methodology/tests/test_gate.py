@@ -510,6 +510,16 @@ class RerunFailedTest(GateCase):
         self.repo.write("dirty.txt", "x")
         refused(self.rerun(), "the working tree is not clean")
 
+    def test_rerun_accepts_quoted_metacharacters_in_pytest_node_ids(self):
+        node = "tests/test_x.py::test_x[a#b|c;d]"
+        lines = ("=== short test summary info ===", f"FAILED {node} - Failed: Timeout >5.0s", "=== 1 failed, 2 passed in 6.0s ===")
+        cmd = "printf '%s\\n' " + " ".join(f"'{line}'" for line in lines) + "; exit 1"
+        self.failed(cmd, **BUSY)
+        self.assertGate(self.rerun(f"{EMIT} '{node}'", cmd=cmd), "PASS")
+        self.assertTrue(gate.plain_command(f"python3 -m pytest '{node}'"))
+        for cmd in (f"python3 -m pytest {node}", "pytest t.py # x", "pytest t.py && true", "pytest $(ls)", "echo t"):
+            self.assertFalse(gate.plain_command(cmd), cmd)
+
     def test_rerun_failed_accepts_a_gradle_tests_filter(self):
         subset = "./gradlew test --continue --rerun-tasks --tests '*FooTest.bar'"
         self.assertTrue(gate.failure_named("com.example.FooTest.bar()", subset))
