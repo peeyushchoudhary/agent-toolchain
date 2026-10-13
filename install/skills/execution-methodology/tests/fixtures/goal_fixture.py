@@ -8,6 +8,7 @@ can be made to pass or fail without changing the committed tree.
 """
 from __future__ import annotations
 
+import atexit
 import os
 import shutil
 import subprocess
@@ -135,11 +136,25 @@ sys.exit(out[1])
 '''
 
 
+_SCRATCH_HOME = None
+
+
+def scratch_home() -> str:
+    """One empty home per test process, so no script reads the real transcripts under ~ or $CODEX_HOME."""
+    global _SCRATCH_HOME
+    if _SCRATCH_HOME is None:
+        _SCRATCH_HOME = tempfile.mkdtemp(prefix="goal-fixture-home-")
+        atexit.register(shutil.rmtree, _SCRATCH_HOME, True)
+    return _SCRATCH_HOME
+
+
 def env(**extra):
     e = {k: v for k, v in os.environ.items() if k not in ("GOAL_ROLE", "GATE_FIXTURE_MODE", "FIXTURE_FAIL")}
+    home = scratch_home()
     e.update(GIT_AUTHOR_NAME="Fixture", GIT_AUTHOR_EMAIL="fixture@example.invalid",
              GIT_COMMITTER_NAME="Fixture", GIT_COMMITTER_EMAIL="fixture@example.invalid",
-             GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, PYTHONDONTWRITEBYTECODE="1")
+             GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, PYTHONDONTWRITEBYTECODE="1",
+             HOME=home, CODEX_HOME=os.path.join(home, ".codex"))
     e.update(extra)
     return e
 

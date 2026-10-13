@@ -7,6 +7,8 @@ No prose is pinned here; the always-loaded ceiling is install/tests/test_size.py
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -20,11 +22,13 @@ DESIGN = SKILL / "references" / "design.md"
 PLANNING = SKILL / "references" / "planning.md"
 ROLES = SKILL / "references" / "roles.md"
 SECURITY = SKILL / "references" / "security-checklist.md"
+CLOSE = SKILL / "references" / "close.md"
+BUILDER_TOML = SKILL / "agents" / "builder.toml"
 ALWAYS_LOADED = (REPO / "install" / "global.md", REPO / "AGENTS.md", ENTRY)
-SKILL_FILES = (ENTRY, BUILDER, REVIEWER, SCOUT, DESIGN, PLANNING, ROLES, SECURITY)
+SKILL_FILES = (ENTRY, BUILDER, REVIEWER, SCOUT, DESIGN, PLANNING, ROLES, SECURITY, CLOSE)
 
 # Word ceilings of the on-demand references (D30); words are whitespace-separated tokens.
-REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150}
+REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150, CLOSE: 400}
 PLANNING_RULES_WORDS = 200
 # Word ceilings of the agent files' bodies, the text after the closing frontmatter line (D30).
 AGENT_BODY_WORDS = {BUILDER: 350, REVIEWER: 350, SCOUT: 200}
@@ -115,6 +119,13 @@ class FilesAndNames(unittest.TestCase):
                                       f"{path.name} names retired {name}")
 
 
+class EntryPoint(unittest.TestCase):
+    def test_direct_execution_includes_loop_tests(self):
+        run = subprocess.run([sys.executable, __file__, "-v", "Loop"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("test_the_loop_runs_the_tasks_gate", run.stderr)
+
+
 class Frontmatter(unittest.TestCase):
     def test_the_skill_is_model_invocable_in_both_harnesses(self):
         # D31 reversed the 2026-08-22 user-invoked gate: the approval tag is the human gate, so the
@@ -151,6 +162,50 @@ class Budgets(unittest.TestCase):
         rules = re.search(r"^## Chief's planning rules\n(.*?)(?=^## )", text, re.M | re.S)
         self.assertIsNotNone(rules, "planning.md has no ## Chief's planning rules section")
         self.assertLessEqual(len(rules.group(1).split()), PLANNING_RULES_WORDS)
+
+
+
+def loop_step(n: int) -> str:
+    """The text of step n of the entry's per-task loop, continuation lines included."""
+    loop = ENTRY.read_text(encoding="utf-8").split("## The loop, per task", 1)[1].split("\n## ", 1)[0]
+    m = re.search(rf"^{n}\. (.*?)(?=^\d+\. |\Z)", loop, re.M | re.S)
+    return " ".join(m.group(1).split()) if m else ""
+
+
+class Loop(unittest.TestCase):
+    """v7.2 (D32): each task's own gate, the full-gate cadence, dispatch by dependency."""
+
+    def test_the_loop_runs_the_tasks_gate(self):
+        self.assertIn("the task's gate", loop_step(5))
+
+    def test_the_full_gate_runs_every_third_task_and_a_due_sample_waits(self):
+        step = loop_step(8)
+        for words in ("every third task commit", "newest", "600 s", "only at close"):
+            self.assertIn(words, step)
+
+    def test_background_gate_worktree_is_removed_when_run_finishes(self):
+        self.assertIn("remove that worktree when the run ends", loop_step(8))
+
+    def test_at_most_four_builders_run_at_once(self):
+        self.assertIn("four builders", loop_step(3))
+
+    def test_dispatch_waits_for_committed_dependencies(self):
+        step = loop_step(3)
+        self.assertIn("needs", step)
+        self.assertIn("committed", step)
+
+    def test_the_chief_applies_only_to_a_clean_checkout(self):
+        step = loop_step(4)
+        self.assertIn("clean", step)
+        self.assertIn("apply", step)
+
+    def test_both_builder_files_check_their_worktree(self):
+        for path in (BUILDER, BUILDER_TOML):
+            with self.subTest(file=path.name):
+                text = " ".join(path.read_text(encoding="utf-8").split())
+                self.assertIn("merge-base --is-ancestor", text)
+                self.assertIn("the chief's checkout", text)
+        self.assertEqual(frontmatter(BUILDER).get("isolation", "").strip(), "worktree")
 
 
 if __name__ == "__main__":

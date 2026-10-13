@@ -7,12 +7,18 @@ environment variable, so one command string can pass, fail, or lie about its res
 from __future__ import annotations
 
 import json
+import os
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
+import time
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.goal_fixture import GATE, Repo  # noqa: E402
+from fixtures.goal_fixture import GATE, Repo, env  # noqa: E402
 
 sys.path.insert(0, str(GATE.parent))
 import gate  # noqa: E402
@@ -200,9 +206,23 @@ class CheckTest(GateCase):
         (r,) = self.receipts()
         self.assertEqual(r["verdict"], "PASS")
 
-    def test_gradle_needs_rerun_tasks(self):
-        self.assertGate(self.check("echo ./gradlew test >/dev/null; " + EMIT), "FAIL", "--rerun-tasks")
+    def test_check_accepts_rerun_and_counts_only_tests_that_ran(self):
+        self.assertGate(self.check("echo ./gradlew test --rerun >/dev/null; " + EMIT), "PASS")
         self.assertGate(self.check("echo ./gradlew test --rerun-tasks >/dev/null; " + EMIT), "PASS")
+        self.assertGate(self.check("echo ./gradlew test >/dev/null; " + EMIT), "FAIL",
+                        "gradle command without --rerun or --rerun-tasks may report cached results")
+        xml = ('<testsuite><testcase classname="a.B" name="ok"/><testcase classname="a.B" name="two"/>'
+               '</testsuite>')
+        self.repo.write(".runs/junit/old.xml", xml)
+        old = time.time() - 600
+        os.utime(self.repo.path(".runs/junit/old.xml"), (old, old))
+        res = self.check("echo ./gradlew test --rerun >/dev/null; " + EMIT, "--junit", ".runs/junit/*.xml")
+        self.assertGate(res, "PASS", "3 run / 0 failed / 0 skipped")
+        cmd = (f"echo ./gradlew test --rerun >/dev/null; printf '%s' '{xml}' > .runs/junit/r.xml; "
+               "echo '4 actionable tasks: 1 executed, 3 from cache'")
+        res = self.check(cmd, "--junit", ".runs/junit/*.xml")
+        self.assertGate(res, "FAIL", "0 run / 0 failed / 0 skipped")
+        self.assertIn("test results restored from the build cache did not run; add --no-build-cache", res.stdout)
 
     def test_junit_xml_counts(self):
         xml = ('<testsuite><testcase classname="a.B" name="ok"/><testcase classname="a.B" name="bad">'
@@ -225,6 +245,11 @@ class ReceiptTest(GateCase):
                     "started_at", "finished_at", "reasons"):
             self.assertIn(key, r)
         self.assertEqual((r["rerun_of"], r["reruns"]), ([], 0))
+
+    def test_receipt_omits_removed_load_rerun_metadata(self):
+        self.assertGate(self.receipt(), "PASS")
+        (r,) = self.receipts()
+        self.assertFalse({"load", "cpus", "partial", "cause", "rerun_command"} & r.keys(), r)
 
     def test_rerun_history_accumulates_across_receipts_and_checks(self):
         self.assertGate(self.receipt(mode="base"), "FAIL", "failures not in baseline: " + KNOWN)
@@ -276,6 +301,100 @@ class ReceiptTest(GateCase):
         res = self.receipt(EMIT + " && git commit -q --allow-empty -m sneak")
         self.assertGate(res, "FAIL", "the run changed the tree")
         self.assertEqual(self.receipts()[0]["verdict"], "FAIL")
+
+    def test_receipt_and_baseline_require_rerun_tasks(self):
+        rerun, rerun_tasks = ("echo ./gradlew test --rerun >/dev/null; " + EMIT,
+                              "echo ./gradlew test --rerun-tasks >/dev/null; " + EMIT)
+        self.assertGate(self.receipt(rerun), "FAIL", "gradle command without --rerun-tasks may report cached results")
+        self.assertGate(self.receipt(rerun_tasks), "PASS")
+        res = self.repo.gate("baseline", "--goal", "F-9", "--cmd", rerun)
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("baseline refused: gradle command without --rerun-tasks", res.stdout)
+        self.assertFalse(self.repo.path(".runs/F-9/baseline.json").exists())
+        self.assertNotIn('"baseline"', self.repo.read(".runs/F-9/checks.jsonl"))
+        res = self.repo.gate("baseline", "--goal", "F-9", "--cmd", rerun_tasks)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertTrue(self.repo.path(".runs/F-9/baseline.json").is_file())
+
+
+class RecordTest(GateCase):
+    def records(self):
+        path = self.repo.path(".runs/F-9/checks.jsonl")
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.is_file() else []
+
+    def test_every_run_appends_to_the_checks_record(self):
+        self.assertGate(self.check(), "PASS")
+        self.assertGate(self.receipt(mode="crash"), "FAIL")
+        res = self.repo.gate("baseline", "--goal", "F-9", "--cmd", EMIT, GATE_FIXTURE_MODE="base")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        records = self.records()
+        tree = self.repo.tree()
+        self.assertEqual([(r["label"], r["command"], r["tree"], r["verdict"]) for r in records],
+                         [("check", EMIT, tree, "PASS"), ("receipt", EMIT, tree, "FAIL"),
+                          ("baseline", EMIT, tree, "RECORDED")])
+        for r in records:
+            self.assertIsInstance(r["duration_s"], (int, float))
+            self.assertIn("finished_at", r)
+        self.assertGate(self.repo.gate("check", "--cmd", EMIT), "PASS")  # no goal: no record
+        self.assertEqual(len(self.records()), 3)
+        self.assertFalse(self.repo.path(".runs/_check/checks.jsonl").exists())
+
+    def test_every_command_ends_with_the_budget_line(self):
+        self.assertEqual(gate.budget_line("check", 12.4), "budget: ok (12 s of 600 s)")
+        self.assertEqual(gate.budget_line("check", 700), "budget: 700 s over 600 s")
+        self.assertEqual(gate.budget_line("receipt", 700), "budget: ok (700 s of 1800 s)")
+        self.assertEqual(gate.budget_line("baseline", 1900), "budget: 1900 s over 1800 s")
+        check, other = re.compile(r"^budget: ok \(\d+ s of 600 s\)$"), re.compile(r"^budget: ok \(\d+ s of 1800 s\)$")
+        self.assertRegex(self.check().stdout.splitlines()[-1], check)
+        self.assertGate(self.receipt(), "PASS")
+        res = self.receipt()  # a replacing receipt
+        self.assertIn("receipt:", res.stdout.splitlines()[-2])
+        self.assertRegex(res.stdout.splitlines()[-1], other)
+        res = self.check(mode="crash")  # a superseding check
+        self.assertIn("receipt superseded:", res.stdout.splitlines()[-2])
+        self.assertRegex(res.stdout.splitlines()[-1], check)
+        res = self.repo.gate("baseline", "--goal", "F-9", "--cmd", EMIT, GATE_FIXTURE_MODE="base")
+        self.assertIn("baseline:", res.stdout.splitlines()[-2])
+        self.assertRegex(res.stdout.splitlines()[-1], other)
+
+    def test_runs_flag_records_a_linked_worktree_run_in_the_named_directory(self):
+        wt = Path(os.path.realpath(tempfile.mkdtemp(prefix="goalfx-wt-"))) / "wt"
+        self.addCleanup(shutil.rmtree, wt.parent, True)
+        self.repo.git("worktree", "add", "-q", "-b", "side", str(wt))
+        (wt / "src").mkdir()
+        (wt / "src/w.py").write_text("W = 1\n")
+        self.repo.git("-C", str(wt), "add", "-A")
+        self.repo.git("-C", str(wt), "commit", "-q", "-m", "side work")
+        tree = self.repo.git("-C", str(wt), "rev-parse", "HEAD^{tree}")
+        self.assertNotEqual(tree, self.repo.tree())
+        main_runs = self.repo.path(".runs")
+
+        def in_worktree(*args):
+            return subprocess.run([sys.executable, str(GATE), "receipt", "--goal", "F-9", "--cmd", EMIT,
+                                   "--name", "full_gate", *args], cwd=wt, env=env(GATE_FIXTURE_MODE="ok"),
+                                  capture_output=True, text=True, timeout=120)
+
+        self.assertGate(in_worktree("--runs", str(main_runs)), "PASS")
+        (r,) = self.receipts()
+        self.assertEqual((r["tree"], r["command"]), (tree, EMIT))
+        self.assertTrue(gate.receipt_path(self.repo.dir, "F-9", tree, EMIT).is_file())
+        self.assertEqual([(x["label"], x["tree"]) for x in self.records()], [("receipt", tree)])
+        self.assertEqual(len(list(main_runs.glob("F-9/logs/*.log"))), 1)
+        self.assertFalse((wt / ".runs").exists())
+        self.assertGate(in_worktree(), "PASS")  # without the flag nothing moves
+        self.assertEqual(len(list(wt.glob(".runs/F-9/receipts/*.json"))), 1)
+        self.assertEqual((len(self.receipts()), len(self.records())), (1, 1))
+
+
+class RefusalTest(GateCase):
+    def test_receipt_refusals_record_verdict_and_end_with_budget(self):
+        self.repo.write("dirty.txt", "x")
+        res = self.receipt(EMIT)
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("receipt refused: the working tree is not clean", res.stdout)
+        self.assertTrue(res.stdout.splitlines()[-1].startswith("budget: ok"), res.stdout)
+        last = json.loads(self.repo.read(".runs/F-9/checks.jsonl").splitlines()[-1])
+        self.assertEqual((last["label"], last["command"], last["verdict"]), ("receipt", EMIT, "REFUSED"))
 
 
 if __name__ == "__main__":

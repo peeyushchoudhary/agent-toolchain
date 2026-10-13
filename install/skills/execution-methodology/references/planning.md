@@ -5,9 +5,10 @@
 3. Send a scout ([roles.md](roles.md)) for the files, patterns and tests involved.
 4. Write `design.md` when `touches:` names anything but `none` ([design.md](design.md)).
 5. Write `plan.md` in the skill's format: one-session tasks, each with `writes`, `reads`,
-   `tests-may-change` and the test it adds; `goal.py lint` passes.
-6. Ask at most five questions, as `- Q:` lines under Parked; at approval each answer becomes a
-   Decisions line.
+   `tests-may-change`, the test it adds, `needs:` and a `gate:` under 600 s alone covering the
+   module's build, the named test and the tests the writes reach. Time the plan's `gate` once;
+   `goal.py lint` passes.
+6. Ask at most five questions as `- Q:` lines under Parked; each answer becomes a Decisions line.
 7. The other vendor reviews the design, then the plan; resolve findings in them.
 8. The founder approves: tag `goal/<id>/approved`, or tells the chief to; never the chief alone.
 
@@ -17,22 +18,20 @@ MUST
 - Cut each task to one session: `writes`, `tests-may-change`, a `reads:` line of `path#anchor` identifiers that includes the pattern to copy, and one named test; a fresh session restarts from the plan alone.
 - Write each acceptance criterion as behaviour a human can verify; the task's named test is its instance.
 - State in each task what the builder must not do: widen scope, touch other tests, add configuration or dependencies.
-- Put every magic value, signature, path and test name in the task text; the packet carries identifiers, never pasted text.
-- Resolve contradictions between spec, design and plan before dispatch; an unsettled choice is a Decisions line or a `- Q:` line.
+- Put every magic value, signature, path and test name in the task text; packets carry identifiers, not text.
+- Resolve contradictions between spec, design and plan before dispatch; an unsettled choice is a Decisions or `- Q:` line.
 - Hand the reviewer the diff and the criteria, never the builder's report; run the gate yourself.
 
 SHOULD
-- Give a refactor the goal needs its own task before the feature task.
-- Over-explain user-visible effects; under-specify incidental implementation.
+- Give a needed refactor its own task before the feature task.
+- Over-explain user-visible effects; under-specify the incidental.
 
 AVOID
 - "Consider several approaches", "be thorough", "double-check", or any verification step beyond the named gate.
-- A task whose test is "it works": name the file and assertion.
 
 ## Templates
 
-`spec.md`, at most 400 words, or the two lines `What changes for the user: nothing` and the
-criteria as the goal's tests:
+`spec.md`, at most 400 words, or `What changes for the user: nothing` and the criteria as tests:
 
 ```
 # <id> spec: <title>

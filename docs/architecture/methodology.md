@@ -1,16 +1,17 @@
 ---
-summary: How a goal runs under methodology v7.1 and why: three bounded documents per goal (`spec.md`, `design.md` when `touches` names anything but `none`, `plan.md` with `reads:` per task) frozen at the approval tag; pages disclosed in layers (frontmatter, the generated index, anchors, generated pointer files, the stale warning); builder, reviewer and scout roles with declared models; the founder's own session as the chief, with cost recorded, never enforced; gate receipts, the eight-row done check, one read-only review by the other vendor per stage, one guard, two founder touchpoints. Also what v6 was and the measurements that retired it, the accepted risks with the amended stop rule, the v6 lessons that still hold, and the rollback.
+summary: How a goal runs under methodology v7.2 and why: three bounded documents per goal (`spec.md`, `design.md` when `touches` names anything but `none`, `plan.md` with `reads:` per task) frozen at the approval tag; pages disclosed in layers (frontmatter, the generated index, anchors, generated pointer files, the stale warning); builder, reviewer and scout roles with declared models; the founder's own session as the chief, with cost recorded, never enforced; gate receipts, the eight-row done check, one read-only review by the other vendor per stage, one guard, two founder touchpoints. Also what v6 was and the measurements that retired it, the accepted risks with the amended stop rule, the v6 lessons that still hold, and the rollback.
 read-when: Changing anything under `install/`, or asking how a goal runs, what v7 replaced, its risks or its rollback
 covers: [install/**]
 last-verified: 2026-10-10
 ---
 
-# Methodology v7.1
+# Methodology v7.2
 
 How a goal runs, and why. The rules are in the
 [skill](../../install/skills/execution-methodology/SKILL.md); the decisions are
 [D29](../decisions/decisions.md#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints)
-and [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2).
+[D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2)
+and [D32](../decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6).
 
 ## Shape
 
@@ -37,8 +38,14 @@ and [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-plann
   read-only; the reviewer, the other vendor's strongest reasoning model, read-only. Their agent files
   ship to both harnesses, marked: `agents/*.md` to `~/.claude/agents/`, `agents/*.toml` to
   `$CODEX_HOME/agents/` ([personas.md](personas.md) holds the evidence). The caps are structural:
-  one builder per task, one review round per stage, each agent's `maxTurns`, at most five planning
-  questions.
+  one builder per task, at most four at once, one review round per stage, each agent's `maxTurns`,
+  at most five planning questions.
+- **Gates sized at planning (v7.2, D32).** Each task names its `gate:`, at most 600 s alone, and the
+  tasks it `needs:`; `goal.py next` lists the ready ones and the chief dispatches a builder per
+  ready task, each in a fresh isolated worktree from the goal branch, which carries every committed
+  dependency. Task checks run one at a time; the full gate runs every third task commit in the
+  background where it takes 600 s or less, else only at close. `gate.py` records every run in
+  `.runs/<id>/checks.jsonl`.
 - **The session is the chief.** The founder's own open session runs the goal on the founder's word,
   from `goal.py resume`; it loads the skill itself when a plan has an open milestone (D31 dropped the
   2026-08-22 user-invoked gate; the approval tag, placed by the founder or by the chief on the

@@ -105,3 +105,26 @@ Taken on the T11 tree before its commit; every number with the command that prin
   generated pointers, `docs.py lint` in the gate) to `DONE M1` in both harnesses with no launcher,
   writes the approval page, and prints `unknown` cost for each harness (a scratch HOME has no
   transcripts); `e2e_install.sh` installs both homes, writes no settings or hooks file and uninstalls.
+
+## 2026-10-13 — S-6 (v7.2)
+
+Measured 2026-10-09 to 13 on four repositories, anonymised A to D, from each goal's gate logs (a
+run's start stamp to its log's last write) and `git log`. A chief task check is the plan's `gate`
+run by `gate.py check`; the cycle is one task commit to the next.
+
+| Repository | Chief checks | Median min | p90 min | Total h | Full gate median min | Task cycle median min | Gate share of cycle |
+|---|---|---|---|---|---|---|---|
+| A | 100 | 1.4 | 3.3 | 2.9 | 8.1 | 15 | 9% |
+| B | 144 | 4.2 | 7.7 | 10.6 | 5.0 | 11 | 38% |
+| C | 52 | 8.9 | 30.9 (max 44.5) | 10.5 | 37 | 23 | 39% |
+| D | 5 | 0.3 | | | 91 | 6 | 5% |
+
+- A check overlapping another gate ran 1.31× (A), 1.40× (B) and 3.68× (C) slower than alone.
+- Across 33 plans: 233 tasks whose critical paths sum to 150, an ideal speedup of 1.55×; median
+  width 2; 11 plans with three or more independent tasks.
+- Worktrees left behind: 108 (B), 11 (A), 9 (C).
+- This repository at approval: the `execution-methodology` suite took 767 s and failed two `goal.py
+  packet` tests at the fixture's 120 s timeout, because the fixtures passed the real home and
+  `goal.py cost` scanned 26 GB of Codex session files; with a scratch home (S-6 T5) `test_goal.py`
+  ran 67 tests in 191 s, against 530 s before.
+

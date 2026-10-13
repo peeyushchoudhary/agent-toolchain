@@ -351,3 +351,32 @@ under another session "took most of the measured spend without adding judgement"
 
 **Reverses:** the 2026-08-22 user-invoked marking of `execution-methodology` (commit 836f8eb). D29
 and D30 stand.
+## D32 — Methodology v7.2: each task's gate chosen at planning, builders dispatched by dependency (S-6)
+
+**Chose:** each task names its own `gate:`, chosen at planning to run in 600 s or less alone (the
+module's build, the named test, `tests-may-change`, the tests the writes reach), and the tasks it
+`needs:`; `goal.py next` lists every ready task. The chief dispatches up to four builders at once,
+one per ready task, each in a fresh isolated worktree from its HEAD, applies a diff only to a clean
+checkout, runs one task check at a time and removes the worktree after the commit. The full gate
+runs every third task commit in the background where it takes 600 s or less, otherwise only at
+close. `gate.py` records every run in `checks.jsonl` and ends with a budget line; a task check may
+force only its Gradle test tasks (`--rerun`); receipts and baselines still force everything.
+
+**Over:** the plan's single gate after every task (v7.1); one reused worktree per dependency chain
+(the founder's first choice); reusing Gradle's up-to-date test results in a task check; rerunning
+only the failed tests after a load-caused failure, which was built and then removed: three merge
+reviews blocked it, because `gate.py` cannot tell from runner output which tests ran, which never
+ran, or why one failed. The founder replaced it with a per-repository test-module map, a later goal.
+
+**Why:** measured 2026-10-09 to 13 on four repositories ([measurements](../product/measurements.md#2026-10-13--s-6-v72)):
+the per-task gate was the full suite, 24 hours of chief gate time in four days and 38–39% of the
+task cycle on the two slowest; the named test never failed at the chief, and half the reds came
+from shared test support only a whole-suite run reaches, which the background and closing full
+gates keep. Plans have width (ideal speedup 1.55× across 33 plans), but overlapped gates ran 1.3 to
+3.7 times slower, so task checks stay one at a time. A fresh worktree from the goal branch already
+carries every committed dependency, so reuse bought only warm caches and cost isolation. Targeted
+tests rerun anyway, so test-result reuse gains nothing; `--rerun-tasks` recompiles every module.
+The founder set the 600 s budget, the every-third cadence, the slow-repository exception, four
+builders and the fresh worktree.
+
+**Reverses:** nothing; D29 to D31 stand.
