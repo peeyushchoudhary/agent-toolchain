@@ -409,11 +409,12 @@ class RerunFailedTest(GateCase):
         return self.repo.gate("receipt", "--goal", "F-9", "--cmd", cmd, "--name", "full_gate",
                               "--rerun-failed", subset, *extra, GATE_FIXTURE_MODE=mode)
 
-    def complete(self, cmd, executed=3):
-        """An earlier PASS receipt of cmd on another tree: a run that executed `executed` tests."""
+    def complete(self, cmd, executed=3, summaries=1):
+        """An earlier PASS receipt of cmd on another tree: a run that executed `executed` tests and printed
+        `summaries` runner summaries."""
         path = self.repo.path(f".runs/F-9/receipts/{'0' * 40}-{gate.cmd_hash(cmd)}.json")
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"command": cmd, "verdict": "PASS", "executed": executed,
+        path.write_text(json.dumps({"command": cmd, "verdict": "PASS", "executed": executed, "summaries": summaries,
                                     "finished_at": "2026-01-01T00:00:00+00:00", "tree": "0" * 40}))
 
     def failed(self, cmd=TIMED_OUT, mode="ok", complete=3, **plant):
@@ -496,6 +497,17 @@ class RerunFailedTest(GateCase):
         other = failing("subprocess.TimeoutExpired: Command timed out after 60 seconds")
         self.failed(other, complete=None, **BUSY)
         self.assertRefused(self.rerun(cmd=other), "no earlier PASS receipt of this command")
+
+    def test_rerun_rejects_unrun_suite_when_earlier_suite_grows(self):
+        # The last complete run: suite A ran 2 tests, suite B 1. A grew to 3 and timed out, so B never ran.
+        self.complete(TIMED_OUT, executed=3, summaries=2)
+        self.assertGate(self.receipt(TIMED_OUT, mode="ok"), "FAIL", "failures not in baseline: ")
+        path = gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(), TIMED_OUT)
+        path.write_text(json.dumps({**json.loads(path.read_text()), **BUSY}))
+        self.assertRefused(self.rerun(), "printed 1 suite summary(ies), fewer than the 2 of the last complete run")
+        fast = TIMED_OUT.replace("; exit 1", " -x; exit 1")
+        self.failed(fast, **BUSY)
+        self.assertRefused(self.rerun(cmd=fast), "a fail-fast command stops at its first failure")
 
     def test_interrupted_subset_consumes_the_single_attempt(self):
         failed = self.failed(**BUSY)

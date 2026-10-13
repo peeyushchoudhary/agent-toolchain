@@ -168,8 +168,11 @@ def parse_counts(out: str) -> dict:
         gradle["failed"] += int(bad)
         gradle["skipped"] += skip
     ids += [f"{c}.{m}" for c, m in GRADLE_ID.findall(out)]
+    # Each runner invocation prints one summary; a suite a chained command never reached prints none.
+    summaries = (len(rans) + len(PYTEST_LINE.findall(out)) + len(GRADLE_LINE.findall(out))
+                 + (1 if PLAYWRIGHT_LINE.search(out) else 0))
     return {"executed": executed, "failed": failed, "skipped": skipped,
-            "failures": ids, "gradle": gradle}
+            "failures": ids, "gradle": gradle, "summaries": summaries}
 
 
 def parse_junit(root, pattern, since: float) -> dict | None:
@@ -317,7 +320,8 @@ def evaluate(root, cmd, goal, count_none, junit, label, runs=None):
             "skipped": skipped, "failures": failures, "new_failures": new,
             "baseline_failures": known, "started_at": started_at, "finished_at": now(),
             "verdict": "FAIL" if reasons else "PASS", "reasons": reasons, "log": str(log),
-            "load": [round(x, 2) for x in os.getloadavg()], "cpus": os.cpu_count()}, duration
+            "load": [round(x, 2) for x in os.getloadavg()], "cpus": os.cpu_count(),
+            "summaries": counts["summaries"]}, duration
 
 
 def summary(res) -> str:
@@ -411,6 +415,16 @@ def overlapping_run(checks: Path, old: dict) -> bool:
     return False
 
 
+def shell_words(cmd: str) -> list:
+    """cmd's words as the shell splits them, operators such as `;` and `&&` apart; [] for unbalanced quotes."""
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lex.whitespace_split, lex.commenters = True, ""
+        return list(lex)
+    except ValueError:
+        return []
+
+
 def plain_command(cmd: str) -> bool:
     """Whether cmd is one plain command: no unquoted comment, chain, pipe or redirection, and no command
     substitution. Quoted text, such as a pytest id `'t.py::test_x[a#b]'`, is an argument, not syntax."""
@@ -475,9 +489,17 @@ def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
         return "--rerun-failed needs a FAIL receipt whose only reason is failures not in baseline"
     if re.search(r"\bgradlew?\b", cmd) and "--continue" not in cmd:
         return "gradle command without --continue: the modules after the first failure did not run"
+    words = shell_words(cmd) or cmd.split()
+    if {"-x", "--exitfirst", "--failfast"} & set(words) or any(w.startswith("--maxfail") for w in words) \
+            or ("unittest" in words and "-f" in words):
+        return "a fail-fast command stops at its first failure, so the tests after it did not run"
     complete = last_complete_run(checks.parent.parent, cmd)
-    if not complete:
-        return "no earlier PASS receipt of this command shows how many tests a complete run executes"
+    if not complete or "summaries" not in complete:
+        return ("no earlier PASS receipt of this command records how many tests and suites a complete run "
+                "reports; run the full receipt again")
+    if old.get("summaries", 0) < complete["summaries"]:
+        return (f"the failed run printed {old.get('summaries', 0)} suite summary(ies), fewer than the "
+                f"{complete['summaries']} of the last complete run: a suite did not run, so run the full gate")
     if old.get("executed", 0) < complete.get("executed", 0):
         return (f"the failed run executed {old.get('executed', 0)} test(s), fewer than the {complete['executed']} "
                 "of the last complete run: tests that did not run need the full gate")
