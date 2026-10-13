@@ -87,6 +87,17 @@ class ModMapTest(unittest.TestCase):
         self.assertEqual(modmap.select(m, ["src/x.py"]), ["src"])
         self.assertEqual(modmap.select(m, ["tools/"]), ["tools"])
 
+    def test_trailing_slash_map_globs_preserve_ownership_and_shared_fallback(self):
+        m = self.load({"a": {"paths": ["src/**"], "test": "make a"},
+                       "b": {"paths": ["tools/**"], "test": "make b"}}, shared=["src/"])
+        self.assertEqual(modmap.select(m, ["src/config.py"]), ["a", "b"])
+        m = self.load({"a": {"paths": ["src/"], "test": "make a"},
+                       "b": {"paths": ["tools/**"], "test": "make b"}})
+        self.assertTrue(modmap.contained("src/config.py", "src/"))
+        self.assertEqual(modmap.select(m, ["src/config.py"]), ["a"])
+        self.assertEqual(modmap.select(m, ["src/**"]), ["a"])
+        self.assertEqual(modmap.unmapped(m, ["src/deep/x.py", "README.md"]), ["README.md"])
+
     def test_select_falls_back_to_every_module_on_shared_or_unowned_paths(self):
         m = self.load({"a": {"paths": ["a/**"], "test": "make a"},
                        "b": {"paths": ["b/**"], "test": "make b"}}, shared=["lib/**", "Makefile"])

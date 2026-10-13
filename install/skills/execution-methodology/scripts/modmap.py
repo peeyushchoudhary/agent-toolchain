@@ -93,20 +93,26 @@ def problems(m) -> list[str]:
             if mods[a].get("test") and mods[a].get("test") == mods[b].get("test")]
     return out
 
+def tree(g):
+    """A glob ending in / names its directory's whole tree, as glob_re reads it."""
+    return g + "**" if g.endswith("/") else g
+
 def contained(w, g) -> bool:
-    """True when module glob g covers every path write glob w can name (w's trailing / reads as /**)."""
-    w = w + "**" if w.endswith("/") else w
+    """True when module glob g covers every path write glob w can name (a trailing / reads as /**)."""
+    w, g = tree(w), tree(g)
     return ("*" not in w and "?" not in w and bool(glob_re(g).match(w))) or (
         g.endswith("/**") and w.startswith(g[:-2]))
 
 def select(m, write_globs) -> list[str]:
     """Module names in file order: every module when a write glob overlaps shared or no single module
     glob contains it; otherwise the modules a write glob overlaps, plus every module needing a selected one."""
-    mods, writes = m.get("modules") or {}, [w + "**" if w.endswith("/") else w for w in write_globs]
-    owned = [g for s in mods.values() for g in s.get("paths") or []]
-    if overlap(writes, m.get("shared") or []) or not all(any(contained(w, g) for g in owned) for w in writes):
+    mods, writes = m.get("modules") or {}, [tree(w) for w in write_globs]
+    paths = {a: [tree(g) for g in s.get("paths") or []] for a, s in mods.items()}
+    owned = [g for gs in paths.values() for g in gs]
+    if (overlap(writes, [tree(g) for g in m.get("shared") or []])
+            or not all(any(contained(w, g) for g in owned) for w in writes)):
         return list(mods)
-    chosen = {a for a, s in mods.items() if overlap(s.get("paths") or [], writes)}
+    chosen = {a for a in mods if overlap(paths[a], writes)}
     todo = list(chosen)
     while todo:
         b = todo.pop()
