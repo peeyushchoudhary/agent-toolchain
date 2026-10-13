@@ -335,5 +335,6 @@ key but `summary` and `last-verified`, and no file under `install/`.
   - **Follow-ups, not changed.** `methodology.md` still states D29's pilot stop rule, which later
     goals have passed; whether the pilot has ended is the founder's. `repository-standard.md` files
     `docs/goals/**` under dated records, which `modules.json` is not (default).
+- 2026-10-13 AC8: after T5's commit 4db4add, `docs.py stale .` printed `docs.py stale: PASS`.
 
 ## Parked
