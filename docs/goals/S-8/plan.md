@@ -304,7 +304,8 @@ key but `summary` and `last-verified`, and no file under `install/`.
   directly, since `modmap.load` rejects a non-string test. The module docstring's `--modules` lines
   do not mention the two refusals (follow-up) (default).
 - 2026-10-13 T2: built by the chief, as a trivial task. The new test failed before the change, and
-  `test_gate.py` no longer prints a ResourceWarning (default).- 2026-10-13 T3:
+  `test_gate.py` no longer prints a ResourceWarning (default).
+- 2026-10-13 T3:
   - **Paths in output.** The checkout cleanup runs from prints as an absolute path, and `own`
     prints and stores the resolved absolute path. A second `own` of a recorded path prints its line
     and appends nothing.
