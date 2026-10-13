@@ -185,5 +185,17 @@ not change scripts.
   file (default).
 - 2026-10-13 approval: the founder approved and told the chief to place `goal/S-6/approved`
   (founder).
+- 2026-10-13 build: a `full_gate` or `e2e` receipt that failed only on named tests, whose cause the
+  chief diagnosed as machine load, is completed by rerunning those tests and any that did not run,
+  not the whole suite (founder). Built inside T3: `gate.py receipt --rerun-failed "<cmd>" --cause
+  "<evidence>"` needs a FAIL receipt for the same tree and command whose only reason is `failures
+  not in baseline`, refuses a Gradle command without `--continue` (unrun modules are unknowable)
+  and a receipt already completed this way, requires every new failure's id in `<cmd>`, runs it,
+  and writes PASS only if it passes, keeping the failed run under `partial`; one try per failed run.
+  T1's `references/close.md` names the evidence: a timeout or resource error, the test passing
+  alone, an overlapping run in `checks.jsonl`. Today's two 120 s timeouts looked like load and were
+  not, which is why the cause is recorded and the rule allows one try.
+- 2026-10-13 build: T2 and T3 run as two builders at once from `fa2b225`, the parallel dispatch this
+  goal adds; T4 waits for both (default).
 
 ## Parked
