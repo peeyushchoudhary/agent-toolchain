@@ -253,5 +253,13 @@ not change scripts.
   guards against a mistaken chief, not a forging one: a command that prints fake pass lines would
   pass, and the receipt's `rerun_command` shows it to the reviewer. R8 was fixed, not parked
   (default).
+- 2026-10-13 merge review round 3: BLOCK with nine blocking findings, R14 to R22, and R23, all in
+  the per-test load rerun. The founder removed it from S-6 ("Strip rerun, merge, then S-7") and chose
+  a test-module map as goal S-7, where a rerun after a failure runs whole modules, only with load
+  evidence. Commits 0310d1f [T3], 031b9df [T1] and the [T4] removal delete the rerun, its partial
+  receipt and their tests; the Decisions lines above that describe `--rerun-failed` are history, not
+  current behaviour. Round 3 is archived as `.runs/S-6/review-3.md` and a fourth round reviews the
+  stripped branch, since a removal commit cannot close several findings under row 8 (founder, the
+  strip; default, the fourth round). Follow-up: let one removal commit close several findings.
 
 ## Parked
