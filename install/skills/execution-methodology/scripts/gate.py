@@ -267,7 +267,7 @@ def load_baseline(root, goal, cmd, runs=None) -> dict:
     return entry if isinstance(entry, dict) else {}
 
 
-def evaluate(root, cmd, goal, count_none, junit, label, runs=None):
+def evaluate(root, cmd, goal, count_none, junit, label, runs=None, baseline=True):
     """Run cmd and apply the failure rules. Return the result record (without tree fields) and the duration."""
     before = snapshot(root)
     started = dt.datetime.now().timestamp()
@@ -282,7 +282,7 @@ def evaluate(root, cmd, goal, count_none, junit, label, runs=None):
     failed = counts["failed"] + src["failed"]
     skipped = counts["skipped"] + src["skipped"]
     failures = sorted(set(counts["failures"] + (xml["failures"] if xml else [])))
-    entry = load_baseline(root, goal, cmd, runs)
+    entry = {} if not baseline else load_baseline(root, goal, cmd, runs)
     baseline = set(entry.get("failures", []))
     new = [f for f in failures if f not in baseline]
     known = [f for f in failures if f in baseline]
@@ -551,7 +551,9 @@ def cmd_receipt(args, root):
         cmd = args.rerun_failed
         # The one try is spent before the subset runs, so an interrupted attempt cannot be repeated.
         write_receipt(path, {**old, "rerun_started": now()})
-    res, duration = evaluate(root, cmd, args.goal, args.count == "none", args.junit, args.name, args.runs)
+    # A rerun must pass alone: no baseline of the subset command excuses a failure in it.
+    res, duration = evaluate(root, cmd, args.goal, args.count == "none", args.junit, args.name, args.runs,
+                             baseline=not args.rerun_failed)
     if args.rerun_failed:
         # The subset proves each failure passed by naming it in its own output; naming it in the command
         # proves nothing, since a different test can share the name as a prefix.

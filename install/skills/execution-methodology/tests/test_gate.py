@@ -540,6 +540,16 @@ class RerunFailedTest(GateCase):
         for cmd in (f"python3 -m pytest {node}", "pytest t.py # x", "pytest t.py && true", "pytest $(ls)", "echo t"):
             self.assertFalse(gate.plain_command(cmd), cmd)
 
+    def test_rerun_cannot_baseline_away_the_original_failure(self):
+        self.failed(**BUSY)
+        script = ("import sys; print('FAIL: test_slow (mod.Case.test_slow)'); print('----'); "
+                  "print('Ran 1 test in 0.01s'); print(); print('FAILED (failures=1)'); sys.exit(1)")
+        subset = "python3 -c " + shlex.quote(script)
+        base = self.repo.path(".runs/F-9/baseline.json")
+        base.write_text(json.dumps({gate.cmd_hash(subset): {"failures": [SLOW], "exit": 1}}))
+        res = self.rerun(subset)
+        self.assertGate(res, "FAIL", "failures not in baseline: " + SLOW)
+
     def test_rerun_rejects_timeout_names_in_pytest_source(self):
         self.assertFalse(gate.timeout_evidence(
             ">       handler(TimeoutError)\nE       TypeError: handler() takes 0 positional arguments but 1 was given"))
