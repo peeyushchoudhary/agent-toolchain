@@ -474,15 +474,20 @@ def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
     return ""
 
 
+def refuse_receipt(root, args, why) -> int:
+    """A refused receipt still leaves its line in the checks record and ends with the budget line."""
+    print(f"receipt refused: {why}")
+    record(root, args.goal, "receipt", args.cmd, git(root, "rev-parse", "HEAD^{tree}"), 0.0, "REFUSED", args.runs)
+    print(budget_line("receipt", 0.0))
+    return 1
+
+
 def cmd_receipt(args, root):
     if bool(args.rerun_failed) != bool(args.cause):
-        print("receipt refused: --rerun-failed and --cause go together")
-        return 1
+        return refuse_receipt(root, args, "--rerun-failed and --cause go together")
     dirty = dirty_paths(root)
     if dirty:
-        print("receipt refused: the working tree is not clean; commit first:\n  "
-              + "\n  ".join(dirty[:10]))
-        return 1
+        return refuse_receipt(root, args, "the working tree is not clean; commit first:\n  " + "\n  ".join(dirty[:10]))
     tree = git(root, "rev-parse", "HEAD^{tree}")
     path = receipt_path(root, args.goal, tree, args.cmd, args.runs)
     old = read_receipt(path)
@@ -491,8 +496,7 @@ def cmd_receipt(args, root):
         why = rerun_refusal(old, tree, args.cmd, args.rerun_failed,
                             runs_dir(root, args.runs) / args.goal / "checks.jsonl")
         if why:
-            print(f"receipt refused: {why}")
-            return 1
+            return refuse_receipt(root, args, why)
         cmd = args.rerun_failed
         # The one try is spent before the subset runs, so an interrupted attempt cannot be repeated.
         write_receipt(path, {**old, "rerun_started": now()})

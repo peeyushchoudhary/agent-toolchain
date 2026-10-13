@@ -499,6 +499,17 @@ class RerunFailedTest(GateCase):
         self.assertIn("rerun_started", r)
         self.assertRefused(self.rerun(), "already completed once with --rerun-failed")
 
+    def test_receipt_refusals_record_verdict_and_end_with_budget(self):
+        def refused(res, why):
+            self.assertRefused(res, why)
+            self.assertTrue(res.stdout.splitlines()[-1].startswith("budget: ok"), res.stdout)
+            last = json.loads(self.repo.read(".runs/F-9/checks.jsonl").splitlines()[-1])
+            self.assertEqual((last["label"], last["command"], last["verdict"]), ("receipt", TIMED_OUT, "REFUSED"))
+        refused(self.rerun(cause=""), "--rerun-failed and --cause go together")
+        refused(self.rerun(), "needs a FAIL receipt for this tree and command")
+        self.repo.write("dirty.txt", "x")
+        refused(self.rerun(), "the working tree is not clean")
+
     def test_rerun_failed_accepts_a_gradle_tests_filter(self):
         subset = "./gradlew test --continue --rerun-tasks --tests '*FooTest.bar'"
         self.assertTrue(gate.failure_named("com.example.FooTest.bar()", subset))
