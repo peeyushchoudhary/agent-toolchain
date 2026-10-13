@@ -239,5 +239,13 @@ not change scripts.
   no skip marker). Follow-up: row 5 should judge removed or changed test lines rather than any
   modified test file, and a protected section's trailing blank line should not count as content
   (default; disclosed to the founder).
+- 2026-10-13 merge review: the fixes for R1 to R6 add three refusals the founder's rerun rule did not
+  name. The subset must be one plain test command that executes at least as many tests as it must
+  rerun. The failed run must have executed as many tests as the newest PASS receipt of the same
+  command not itself completed by a rerun; without one, the shortcut is refused, which is how tests
+  a chained command never reached are ruled out. The try is spent before the subset runs. A refused
+  receipt is recorded with the verdict `REFUSED` (default).
 
 ## Parked
+- Merge review R8 (non-blocking): `test_rules.py` defines `Loop` after `unittest.main()`, so running the
+  file directly skips the six new tests; discovery, which every gate uses, runs them.
