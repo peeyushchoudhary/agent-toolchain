@@ -11,14 +11,15 @@ protected: [docs/decisions/decisions.md#D1-D33, docs/goals/S-8/design.md#interfa
 
 ## Outcome
 
-`goal.py cleanup --goal <id>` runs after a milestone's merge and tag. It considers only what that
-milestone created: worktrees at one of its commits, the branches they had checked out, and the
-goal branch at the goal's last milestone. It lists those whose work `origin/main` holds and removes
-them under `--apply`; the rest of the milestone's items are listed with the reason they stay. Every
-other worktree and branch, whichever session made it, is untouched (AC4–AC6). `close.md` closes a
-milestone in three steps:
+The chief records each builder and full-gate sample worktree it uses with `goal.py own --goal <id>
+<path>` (AC4). After a milestone's merge and tag, `goal.py cleanup --goal <id>` considers only
+those recorded worktrees and their branches. It lists the ones whose commit and staged changes
+`origin/main` holds, removes them under `--apply`, and prints why each other recorded item stays.
+Anything unrecorded, whichever session made it, is untouched (AC5, AC6). The skill says when to
+run `own`; `close.md` closes a milestone in four steps:
+- `done` prints DONE on the PR's head;
 - merge with `gh pr merge <n> --merge`, plus `--delete-branch` at the goal's last milestone;
-- push the milestone tag;
+- tag `goal/<id>/<milestone>` at that head and push the tag;
 - run `goal.py cleanup --goal <id> --apply`.
 
 D34 records it (AC7). `gate.py --modules` refuses an empty selection and a blank module test
@@ -68,106 +69,130 @@ Test in class `ReceiptTest`: `test_run_closes_its_output_pipe` (AC3). Under
 `ResourceWarning`. Import `gc` and `warnings` at the top of the file. The test fails before the
 change.
 
-### [ ] T3 — `goal.py cleanup --goal <id>`: list, then remove what the milestone created
+### [ ] T3 — `goal.py own` records a goal's worktrees; `goal.py cleanup` removes what `origin/main` holds
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-8/design.md#interfaces, docs/goals/S-8/design.md#data-touched, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
-Design Interface 3, exactly. Its rules, order, line shapes and exit codes are the contract.
+Design Interfaces 3, 4 and 5, exactly. Their record format, rule order, line shapes and exit codes
+are the contract.
 
 **Placement.**
-- Add `cmd_cleanup(ctx, a) -> int` and the helpers it needs to `goal.py`.
-- Add `cleanup` to the subparser loop, with `--milestone` and `--apply` (`store_true`). It
-  resolves the goal through the existing `find_ctx`, like every other subcommand.
-- Raise `PlanError` for the refusals, so `main` prints `goal.py: <text>` and exits 2.
-- Milestone order comes from `ctx.plan["milestones"]`, and tags from `ctx.tag(...)` or `git tag`.
+- Add `cmd_own(ctx, a)` and `cmd_cleanup(ctx, a)`, with their helpers, to `goal.py`.
+- Add `own` (a positional `path`) and `cleanup` (`--apply`, `store_true`) to the subparser loop in
+  `main`. The goal resolves through the existing `find_ctx`, like every other subcommand.
+- Refusals raise `PlanError`, so `main` prints `goal.py: <text>` and exits 2.
+- The record lives at `ctx.runs / "worktrees.jsonl"`.
 
 **Constraints.**
-- Use git through the existing `git()` helper, plus `subprocess.run` where a non-zero exit is a
-  decision rather than an error (`merge-base --is-ancestor`, `apply --check`). Standard library
-  only.
-- The temporary index for the reverse-apply test is a file under `tempfile.mkdtemp()`, passed as
-  `GIT_INDEX_FILE` and removed afterwards.
+- Use git through the existing `git()` helper. Use `subprocess.run` where a non-zero exit is a
+  decision rather than an error (`merge-base --is-ancestor`, `diff --quiet`, `apply --check`), and
+  for the fetch with `timeout=120`. Standard library only.
+- No `fetch --prune` and no `git worktree prune`.
 - Do not touch `gate.py`, the fixture or any other command.
 
 **Tests: new class `CleanupTest`.**
-- **Setup.** Each test makes a bare repository with `git init --bare` and adds it as `origin` of a
-  `Repo()`. The fixture plan has M1 `[T1, T2]` and M2 `[T3]`. Builders and samples are worktrees
-  under `<repo>/.claude/worktrees/` and a temporary directory. Pushing `main`, then `git remote
-  set-head origin main`, all goes through `self.repo.git(...)`.
-- **Milestone commits.** Commit on a goal branch `goal-f9`, tag `goal/F-9/M1`, merge it into `main`
-  with `--no-ff` and push; repeat for M2.
-- `test_cleanup_removes_only_what_the_milestone_created` (AC4, AC6). After M2's merge, these are
-  removed:
-  - a worktree `agent-a` on branch `worktree-agent-a` at an M2 commit, whose staged change the
-    merged M2 also makes;
-  - a detached sample worktree at an M2 commit;
-  - the branch `goal-f9`, once switched away from it.
+- **Setup.**
+  - Each test makes a bare repository with `git init --bare` and adds it as `origin` of a
+    `Repo()`. It pushes `main`, and a second branch `elsewhere`, through `self.repo.git(...)`.
+  - A builder is simulated by `git worktree add -b worktree-agent-<x> <repo>/.claude/worktrees/agent-<x>`
+    and a staged change there.
+  - Landing its work means committing the same change on `main` and pushing.
+- `test_own_records_only_linked_worktrees_of_this_repository` (AC4).
+  - `own` on a linked worktree prints `own: <path> (worktree-agent-a)` and appends one line with
+    `path`, `branch`, `head` and `at`; `own` on it again appends nothing.
+  - `own` on the main checkout, a plain directory, and another repository's worktree each exit 2
+    with `is not a linked worktree of this repository`.
+- `test_cleanup_removes_only_recorded_work_main_holds` (AC5, AC6). These are recorded:
+  - `agent-a`, whose staged change has landed;
+  - a detached sample worktree at a pushed commit, clean.
 
-  These are untouched and absent from the output:
-  - a worktree on branch `other-session` at a commit before the approval tag, merged and clean;
-  - a detached worktree at `main`'s merge commit;
-  - a branch `old-goal` merged into `main`.
+  These are not recorded:
+  - a clean worktree `other-session` at a pushed commit;
+  - a merged branch `old-goal`.
 
-  A dry run prints `cleanup: dry run for F-9 M2 against origin/main at <sha10>`, four `remove`
-  lines (two worktrees, `worktree-agent-a` and `goal-f9`) and `cleanup: 4 to remove, 0 kept`, and
-  removes nothing. `--apply` removes exactly those four, and a second `--apply` prints `cleanup: 0
-  removed, 0 kept`.
-- `test_cleanup_keeps_the_milestones_unfinished_work` (AC5). After M1's merge, run with
-  `--milestone M1`:
-  - an M1-commit worktree with a staged change not in `origin/main` → `changes not in
-    origin/main`;
-  - one with an untracked file → `untracked files`;
-  - a locked one → `locked`;
-  - `goal-f9`, an earlier milestone's branch → `the next milestone continues on it`;
-  - after M2's merge, run with `goal-f9` checked out: `goal-f9` → `current branch`.
+  A dry run:
+  - prints `cleanup: dry run for F-9 against origin/main at <sha10>`;
+  - prints `remove` lines for the two worktrees and for branch `worktree-agent-a`, and `cleanup:
+    3 to remove, 0 kept`;
+  - changes nothing but `refs/remotes/origin/main`, while `refs/remotes/origin/elsewhere` survives
+    after `elsewhere` is deleted on `origin`.
 
-  After `--apply`, every one of them still exists.
-- `test_cleanup_refuses_without_origin_or_merge` (AC5). These exit 2, with stderr starting as
-  quoted:
-  - a `Repo()` without a remote: `goal.py: cleanup needs origin:`;
-  - a milestone tag not merged into `origin/main`: `goal.py: goal/F-9/M1 is not in origin/main`;
-  - no milestone tag: `goal.py: cleanup needs the tag`.
+  The unrecorded items never appear in the output. `--apply` removes exactly the three, and a
+  second `--apply` prints `cleanup: 0 removed, 0 kept`.
+- `test_cleanup_keeps_recorded_work_main_lacks` (AC6). These are recorded, and after `--apply` all
+  still exist:
+  - `locked`;
+  - `untracked files`;
+  - `staged changes not in origin/main`;
+  - `1 commit(s) not in origin/main`;
+  - `submodules`, from a worktree with a gitlink added by `git update-index --add --cacheinfo
+    160000,<sha>,sub`;
+  - `unstaged changes`, from a worktree whose file had content `A`, then `B` staged, then the
+    working file restored to `A`.
+- `test_cleanup_retries_a_branch_whose_removal_failed` (AC6). Remove a recorded worktree by hand
+  with `git worktree remove` while its branch stays checked out in a second, unrecorded worktree.
+  - `cleanup --apply` prints `gone worktree <path>` and `keep branch worktree-agent-b: checked
+    out`.
+  - After the second worktree is removed, the next `--apply` prints `removed branch
+    worktree-agent-b (merged)`.
+- `test_cleanup_refuses_without_origin_main` (AC5). A `Repo()` without a remote exits 2, and stderr
+  starts `goal.py: cleanup needs origin/main:`.
 
-### [ ] T4 — The close in words: merge, tag, cleanup; D34
-writes: install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md, AGENTS.md
-reads: docs/goals/S-8/design.md#interfaces, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7
+### [ ] T4 — The loop and the close in words: `own`, merge, tag, cleanup; D34
+writes: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md, AGENTS.md
+reads: docs/goals/S-8/design.md#interfaces, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, docs/decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py
 needs: T3
-Design Interface 4.
+Design Interface 6.
 
-**`close.md`, "Milestone close".** Replace "the founder merges and tags." with the merge and its
-aftermath. Once the founder says to merge:
-1. `gh pr merge <n> --merge`, adding `--delete-branch` when the milestone is the goal's last;
-2. push the milestone tag `goal/<id>/<milestone>`;
-3. `goal.py cleanup --goal <id> --apply`, which removes only what that milestone created.
+**`SKILL.md`, the loop.**
+- Step 3 adds: record each builder's worktree with `goal.py own --goal <id> <path>` once the
+  builder reports it.
+- Step 8 adds: record the sample worktree the same way.
+
+The always-loaded files total 1,324 of 1,350 words today (`install/tests/test_size.py`). Both
+additions together stay within 20 words, and nothing else in `SKILL.md` changes.
+
+**`close.md`, "Milestone close".** Replace "the founder merges and tags." with these steps:
+1. `goal.py done` prints DONE on the PR's head; that commit is the milestone's.
+2. Once the founder says to merge, run `gh pr merge <n> --merge`, adding `--delete-branch` when the
+   milestone is the goal's last.
+3. Tag `goal/<id>/<milestone>` at that head commit, not at the checkout `gh` switched, and push the
+   tag.
+4. Run `goal.py cleanup --goal <id> --apply`. It removes only the worktrees recorded with `own`,
+   and their branches, whose work `origin/main` holds.
 
 It keeps "Next milestone: same branch." `close.md` stays within its 400-word ceiling.
 
 **D34 in `docs/decisions/decisions.md`.**
-- Add the section `## D34 — Post-merge cleanup: the close removes what origin/main holds (S-8)`
-  after D33, in D33's shape (Chose, Why, Rejected). It summarises design Interfaces 3 and 4 and
-  the founder's answers of 2026-10-13: a subcommand; scope narrowed to what the milestone
-  created; `--delete-branch` at merge; cleanup right after the merge and tags.
-- Add a D34 table row dated 2026-10-13, `standing`.
-- Extend the frontmatter `summary` with one D34 clause.
+- Add the section `## D34 — Post-merge cleanup: the chief records its worktrees and removes what
+  origin/main holds (S-8)` after D33, in D33's shape (Chose, Why, Rejected).
+- It summarises design Interfaces 3 to 6 and the founder's answers of 2026-10-13: a subcommand;
+  scope narrowed from everything merged to recorded worktrees; ignored files in a recorded
+  worktree are disposable; `--delete-branch` at the goal's last merge; cleanup right after the
+  merge and tag.
+- Add a D34 table row dated 2026-10-13, `standing`, and one D34 clause in the frontmatter
+  `summary`.
 - D1–D33 stay byte-identical.
 
 **`AGENTS.md`.** Add the D34 link after D33 in the Decisions line.
 
-Test in class `Close`: `test_close_merges_tags_then_cleans_up` (AC7). `flat(CLOSE)` contains:
-- `` `gh pr merge <n> --merge` ``;
-- `` `--delete-branch` ``;
-- `goal's last`;
-- `` `goal.py cleanup --goal <id> --apply` ``.
-
-Do not touch `SKILL.md`, which already sends the close to `close.md`.
+**Tests in class `Close`.**
+- `test_close_tags_the_head_merges_then_cleans_up` (AC7). `flat(CLOSE)` contains:
+  - `` `gh pr merge <n> --merge` ``;
+  - `` `--delete-branch` ``;
+  - `goal's last`;
+  - `at that head commit`;
+  - `` `goal.py cleanup --goal <id> --apply` ``.
+- `test_the_loop_records_builder_and_sample_worktrees` (AC7): `flat(SKILL)` names `goal.py own
+  --goal <id> <path>` in step 3 and `goal.py own` in step 8.
 
 ### [ ] T5 — Re-verify the three stale architecture pages
 writes: docs/architecture/methodology.md, docs/architecture/personas.md, docs/architecture/repository-standard.md, docs/README.md, .claude/rules/**
 reads: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/agents/builder.md, install/skills/execution-methodology/agents/reviewer.md, install/skills/execution-methodology/agents/scout.md, docs/goals/modules.json
 tests-may-change: none
 needs: T1, T2, T3, T4
-gate: python3 install/skills/execution-methodology/scripts/docs.py stale . && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_docs.py' && cd install && ./install.sh --dry-run && ./verify.sh --no-suites
+gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_docs.py' && cd install && ./install.sh --dry-run && ./verify.sh --no-suites
 AC8. Read each page against the files in `reads:` and correct every statement they contradict. Known
 gaps:
 - **`methodology.md`.** Its Rollback names "the v7.1 tree" and "v7.1-only files"; it should name
@@ -177,7 +202,10 @@ gaps:
   map (D33).
 - **`personas.md`.** It is checked line by line against the three agent files.
 
-Set each page's `last-verified` to the day of this commit. If a `summary` changes, run `docs.py
+Set each page's `last-verified` to the day of this commit. After committing, the chief runs
+`python3 install/skills/execution-methodology/scripts/docs.py stale .`, which must print `docs.py
+stale: 0 stale`. It compares commit times, so it cannot pass before the commit, and the chief
+records its output in a Decisions line. If a `summary` changes, run `docs.py
 index .` and `docs.py pointers .`, and commit their output. Change no other page, no frontmatter
 key but `summary` and `last-verified`, and no file under `install/`.
 
@@ -185,29 +213,35 @@ key but `summary` and `last-verified`, and no file under `install/`.
 
 - 2026-10-13 planning: the founder chose:
   - a `goal.py cleanup` subcommand, dry run by default, with `--apply`;
-  - scope: first everything provably merged. The founder then narrowed it to what the merged
-    milestone created, because a live session's worktree with nothing unsaved would otherwise
-    qualify;
+  - scope: first everything provably merged. The founder then narrowed it to what the milestone
+    created, because a live session's worktree with nothing unsaved would otherwise qualify. After
+    the design review, the founder made it the worktrees the chief records with `goal.py own`;
   - deleting the remote goal branch at merge with `gh pr merge --delete-branch`;
   - cleanup right after the merge and tags (founder).
 - 2026-10-13 planning: `--delete-branch` is used only at a goal's last milestone. It also deletes
   the local branch and switches the checkout, and an earlier milestone's goal branch carries the
   next milestone (default).
-- 2026-10-13 planning: a worktree belongs to the milestone when its HEAD is one of the
-  milestone's commits: the previous milestone's tag, or the approval tag, through the milestone's
-  tag. A builder starts at the chief's HEAD and a sample at a task commit; other sessions' and
-  goals' worktrees start elsewhere. Location (`.claude/worktrees/`) and session locks were
-  rejected as proof of ownership (default).
+- 2026-10-13 design review (BLOCK, 12 blocking and 3 non-blocking), resolved in the design.
+  - **Founder's answers.**
+    - Ownership is the chief's record (`goal.py own`), not the milestone's commit range (R1, R2,
+      R3, R14).
+    - Ignored files in a recorded worktree are disposable (R5).
+    - AC8 is checked right after T5's commit (R11, R12).
+  - **Defaults.**
+    - A worktree is kept when its unstaged changes would hide staged content (R4), and when it
+      holds submodules (R6).
+    - The base is `origin/main` alone (R7).
+    - The fetch takes only `main`, prunes nothing, and times out at 120 s (R8, R13).
+    - No `git worktree prune` (R9).
+    - The tag names the PR's head commit, not the checkout `gh` switched (R10).
+    - The file-comparison option is rejected for the reason R15 gives (default).
 - 2026-10-13 planning: cleanup lives in `goal.py`, not a new script. `docs/goals/modules.json` maps
   exact script paths and is protected, so a new file would sit outside every module (default).
 - 2026-10-13 planning: T1–T4 carry no `gate:` line and run the modules `goal.py next` derives from
-  the map. T5 runs `docs.py stale` and the repository's non-test checks, because `verify.sh` only
-  warns on a stale page (default).
+  the map. T5's gate is `test_docs.py` and the repository's non-test checks, and `docs.py stale`
+  runs after its commit (default).
 - 2026-10-13 planning: the plan gate `cd install && ./verify.sh` took 231 s in S-7's last full-gate
   receipts, under the 600 s budget, so it was not timed again (default).
-- 2026-10-13 planning: AC8 is judged at T5's commit. `methodology.md` covers `install/**`, so a
-  later fix commit under `install/` makes it stale again, and only `verify.sh`'s warning reports
-  that (default).
 - 2026-10-13 planning: the e2e is S-7's `e2e_run.sh`, receipted with `--count none`. Cleanup is
   git-only and harness-independent, and `CleanupTest` exercises it against real repositories
   (default).
