@@ -34,8 +34,10 @@ close in words, and three re-verified pages.
    stderr and exits 2. Nothing runs, no line goes to `checks.jsonl` and no receipt is written.
 2. **`gate.run`** keeps its signature, output, return value and readings; only the process handle
    is a context manager.
-3. **The record** (durable). `.runs/<id>/worktrees.jsonl`, one JSON object per line, written only
-   by `goal.py`:
+3. **The record** (durable). `<main>/.runs/<id>/worktrees.jsonl`, one JSON object per line,
+   written only by `goal.py`. `<main>` is the main worktree: the parent of `git rev-parse
+   --path-format=absolute --git-common-dir`. `own` and `cleanup` therefore read and write one
+   record from every checkout of the repository. The lines are:
    - `{"path": <absolute real path>, "branch": <short name or null>, "head": <sha>, "at": <ISO
      time>}` for `own`;
    - `{"path": <path>, "removed": <ISO time>}` once cleanup removed the worktree;
@@ -48,8 +50,8 @@ close in words, and three re-verified pages.
    repository`, exit 2. It appends the `own` line and prints `own: <path> (<branch or detached>)`.
 5. **`goal.py cleanup --goal <id> [--apply]`** (durable). `main` resolves the goal with `find_ctx`.
    - **Base.**
-     - `git fetch origin refs/heads/main:refs/remotes/origin/main`, with a 120 s timeout. It
-       updates that one ref and prunes nothing.
+     - `git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main`, with a 120 s
+       timeout. It updates that one ref, fetches no tag and prunes nothing.
      - On failure or timeout: `goal.py: cleanup needs origin/main: <git's last stderr line or
        "timed out">`, exit 2, with nothing else done.
      - The base `B` is `refs/remotes/origin/main`.
@@ -111,7 +113,8 @@ close in words, and three re-verified pages.
 
 ## Data touched
 
-- **New file.** `.runs/<id>/worktrees.jsonl`, append-only. `.runs/` is ignored and local.
+- **New file.** `<main>/.runs/<id>/worktrees.jsonl`, append-only, in the main worktree whichever
+  checkout writes it. `.runs/` is ignored and local.
 - **Updated ref.** `refs/remotes/origin/main`, by the fetch, in both modes.
 - **Deleted, under `--apply` only.**
   - Recorded worktrees whose commit and staged changes `origin/main` holds, together with their

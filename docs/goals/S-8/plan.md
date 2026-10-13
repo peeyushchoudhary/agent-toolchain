@@ -81,62 +81,92 @@ are the contract.
 - Add `own` (a positional `path`) and `cleanup` (`--apply`, `store_true`) to the subparser loop in
   `main`. The goal resolves through the existing `find_ctx`, like every other subcommand.
 - Refusals raise `PlanError`, so `main` prints `goal.py: <text>` and exits 2.
-- The record lives at `ctx.runs / "worktrees.jsonl"`.
+- The record lives in the main worktree, at `<main>/.runs/<id>/worktrees.jsonl` (Interface 3),
+  not at `ctx.runs`, so every checkout shares it.
 
 **Constraints.**
 - Use git through the existing `git()` helper. Use `subprocess.run` where a non-zero exit is a
   decision rather than an error (`merge-base --is-ancestor`, `diff --quiet`, `apply --check`), and
-  for the fetch with `timeout=120`. Standard library only.
+  for the fetch: `git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main` with
+  `timeout=120`. Standard library only.
 - No `fetch --prune` and no `git worktree prune`.
 - Do not touch `gate.py`, the fixture or any other command.
 
 **Tests: new class `CleanupTest`.**
 - **Setup.**
   - Each test makes a bare repository with `git init --bare` and adds it as `origin` of a
-    `Repo()`. It pushes `main`, and a second branch `elsewhere`, through `self.repo.git(...)`.
-  - A builder is simulated by `git worktree add -b worktree-agent-<x> <repo>/.claude/worktrees/agent-<x>`
-    and a staged change there.
-  - Landing its work means committing the same change on `main` and pushing.
+    `Repo()`.
+  - It appends `/.claude/` to `.gitignore` and commits, so `Repo.commit()`'s `git add -A` never
+    stages a nested worktree.
+  - It pushes `main`, a second branch `elsewhere` and a tag `v-old` on a pushed `main` commit,
+    then deletes the tag locally. All through `self.repo.git(...)`.
+  - A builder is simulated by `git worktree add -b worktree-agent-<x>
+    <repo>/.claude/worktrees/agent-<x>` and a staged change there.
+  - Landing its work means writing the same file on `main`, committing and pushing.
+  - Every assertion on a kept or removed item checks its full output line, not only that it
+    exists.
 - `test_own_records_only_linked_worktrees_of_this_repository` (AC4).
   - `own` on a linked worktree prints `own: <path> (worktree-agent-a)` and appends one line with
-    `path`, `branch`, `head` and `at`; `own` on it again appends nothing.
+    `path`, `branch`, `head` and `at` to `<repo>/.runs/F-9/worktrees.jsonl`.
+  - `own` on the same path again appends nothing.
   - `own` on the main checkout, a plain directory, and another repository's worktree each exit 2
     with `is not a linked worktree of this repository`.
-- `test_cleanup_removes_only_recorded_work_main_holds` (AC5, AC6). These are recorded:
+- `test_cleanup_removes_only_recorded_work_main_holds` (AC5, AC6). Recorded:
   - `agent-a`, whose staged change has landed;
-  - a detached sample worktree at a pushed commit, clean.
+  - a detached sample worktree, under a temporary directory, at a pushed commit, clean.
 
-  These are not recorded:
+  Not recorded:
   - a clean worktree `other-session` at a pushed commit;
   - a merged branch `old-goal`.
 
-  A dry run:
+  Then `elsewhere` is deleted on `origin`. The dry run:
   - prints `cleanup: dry run for F-9 against origin/main at <sha10>`;
-  - prints `remove` lines for the two worktrees and for branch `worktree-agent-a`, and `cleanup:
-    3 to remove, 0 kept`;
-  - changes nothing but `refs/remotes/origin/main`, while `refs/remotes/origin/elsewhere` survives
-    after `elsewhere` is deleted on `origin`.
+  - prints `remove` lines for the two worktrees and for branch `worktree-agent-a`;
+  - ends with `cleanup: 3 to remove, 0 kept`.
 
-  The unrecorded items never appear in the output. `--apply` removes exactly the three, and a
-  second `--apply` prints `cleanup: 0 removed, 0 kept`.
-- `test_cleanup_keeps_recorded_work_main_lacks` (AC6). These are recorded, and after `--apply` all
-  still exist:
-  - `locked`;
+  Afterwards:
+  - `refs/remotes/origin/elsewhere` and the absence of tag `v-old` are unchanged;
+  - every worktree and branch still exists;
+  - the unrecorded items never appear in the output.
+
+  `--apply` removes exactly the three, and a second `--apply` prints `cleanup: 0 removed, 0 kept`.
+- `test_cleanup_from_another_checkout_uses_the_ownership_record` (AC5). Record `agent-a` from the
+  main checkout, then run `cleanup` with the working directory set to the detached sample worktree,
+  which is recorded too. It prints `remove worktree <agent-a path> (merged)` and `keep worktree
+  <sample path>: in use here`.
+- `test_cleanup_keeps_recorded_work_main_lacks` (AC6). These are recorded, and after `--apply` each
+  prints `keep worktree <path>: <reason>` and still exists:
+  - `locked`, on a locked worktree that also holds an untracked file: the first rule wins;
   - `untracked files`;
-  - `staged changes not in origin/main`;
+  - `staged changes not in origin/main`, with `git -C <wt> diff --cached` unchanged afterwards;
   - `1 commit(s) not in origin/main`;
-  - `submodules`, from a worktree with a gitlink added by `git update-index --add --cacheinfo
-    160000,<sha>,sub`;
-  - `unstaged changes`, from a worktree whose file had content `A`, then `B` staged, then the
-    working file restored to `A`.
-- `test_cleanup_retries_a_branch_whose_removal_failed` (AC6). Remove a recorded worktree by hand
-  with `git worktree remove` while its branch stays checked out in a second, unrecorded worktree.
-  - `cleanup --apply` prints `gone worktree <path>` and `keep branch worktree-agent-b: checked
-    out`.
-  - After the second worktree is removed, the next `--apply` prints `removed branch
-    worktree-agent-b (merged)`.
-- `test_cleanup_refuses_without_origin_main` (AC5). A `Repo()` without a remote exits 2, and stderr
-  starts `goal.py: cleanup needs origin/main:`.
+  - `submodules`, from a gitlink added by `git update-index --add --cacheinfo 160000,<sha>,sub`;
+  - `unstaged changes`, from a file with content `A`, then `B` staged, then `A` restored in the
+    working file. The staged `B` is still in the index afterwards.
+- `test_cleanup_keeps_recorded_branches_that_moved` (AC6). Record `worktree-agent-c` and
+  `worktree-agent-d`, landed and clean, then remove both worktrees by hand with `git worktree
+  remove`.
+  - Switch the main checkout to `worktree-agent-c`.
+  - Add an unpushed commit to `worktree-agent-d` with `git commit-tree` and `git update-ref`.
+
+  `--apply` prints:
+  - `gone worktree <path>` for each;
+  - `keep branch worktree-agent-c: current branch`;
+  - `keep branch worktree-agent-d: 1 commit(s) not in origin/main`.
+
+  Both branches still exist.
+- `test_cleanup_retries_a_branch_whose_removal_failed` (AC6). Record `worktree-agent-b`, landed and
+  clean, and create the file `<git common dir>/refs/heads/worktree-agent-b.lock` so that `git branch
+  -D` fails.
+  - The first `--apply` prints `removed worktree <path> (merged)` and `cleanup: could not remove
+    branch worktree-agent-b:`, and exits 1. The record has no `branch_removed` line.
+  - After the lock file is deleted, the next `--apply` prints `removed branch worktree-agent-b
+    (merged)` and exits 0.
+- `test_cleanup_completes_records_and_refuses_without_origin_main` (AC5).
+  - With no record file, cleanup prints `cleanup: 0 to remove, 0 kept`.
+  - A recorded worktree removed by hand whose branch was deleted by hand prints only `gone
+    worktree <path>`, and a second run prints nothing for it.
+  - A `Repo()` without a remote exits 2, and stderr starts `goal.py: cleanup needs origin/main:`.
 
 ### [ ] T4 — The loop and the close in words: `own`, merge, tag, cleanup; D34
 writes: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md, AGENTS.md
@@ -153,12 +183,13 @@ Design Interface 6.
 The always-loaded files total 1,324 of 1,350 words today (`install/tests/test_size.py`). Both
 additions together stay within 20 words, and nothing else in `SKILL.md` changes.
 
-**`close.md`, "Milestone close".** Replace "the founder merges and tags." with these steps:
+**`close.md`, "Milestone close".** Replace "the founder merges and tags." with these steps, in
+this order and in these words:
 1. `goal.py done` prints DONE on the PR's head; that commit is the milestone's.
-2. Once the founder says to merge, run `gh pr merge <n> --merge`, adding `--delete-branch` when the
-   milestone is the goal's last.
-3. Tag `goal/<id>/<milestone>` at that head commit, not at the checkout `gh` switched, and push the
-   tag.
+2. Once the founder says to merge, run `gh pr merge <n> --merge`, adding `--delete-branch` only
+   when the milestone is the goal's last.
+3. `git tag goal/<id>/<milestone> <head>` at that head commit, not at the checkout `gh` switched,
+   then `git push origin goal/<id>/<milestone>`.
 4. Run `goal.py cleanup --goal <id> --apply`. It removes only the worktrees recorded with `own`,
    and their branches, whose work `origin/main` holds.
 
@@ -178,14 +209,19 @@ It keeps "Next milestone: same branch." `close.md` stays within its 400-word cei
 **`AGENTS.md`.** Add the D34 link after D33 in the Decisions line.
 
 **Tests in class `Close`.**
-- `test_close_tags_the_head_merges_then_cleans_up` (AC7). `flat(CLOSE)` contains:
-  - `` `gh pr merge <n> --merge` ``;
-  - `` `--delete-branch` ``;
-  - `goal's last`;
-  - `at that head commit`;
-  - `` `goal.py cleanup --goal <id> --apply` ``.
-- `test_the_loop_records_builder_and_sample_worktrees` (AC7): `flat(SKILL)` names `goal.py own
-  --goal <id> <path>` in step 3 and `goal.py own` in step 8.
+- `test_close_merges_tags_the_head_then_cleans_up` (AC7). In `flat(CLOSE)`, these appear, each
+  after the one before:
+  1. `goal.py done`;
+  2. `` `gh pr merge <n> --merge` ``;
+  3. `` `git tag goal/<id>/<milestone> <head>` ``;
+  4. `` `git push origin goal/<id>/<milestone>` ``;
+  5. `` `goal.py cleanup --goal <id> --apply` ``.
+
+  The sentence holding `` `--delete-branch` `` also holds `only when the milestone is the goal's
+  last`.
+- `test_the_loop_records_builder_and_sample_worktrees` (AC7). `loop_step(3)` contains `goal.py own
+  --goal <id> <path>`, and `loop_step(8)` contains `goal.py own`. Use the existing `loop_step`
+  helper; `SKILL` is the skill directory and `ENTRY` its `SKILL.md`.
 
 ### [ ] T5 — Re-verify the three stale architecture pages
 writes: docs/architecture/methodology.md, docs/architecture/personas.md, docs/architecture/repository-standard.md, docs/README.md, .claude/rules/**
@@ -204,7 +240,7 @@ gaps:
 
 Set each page's `last-verified` to the day of this commit. After committing, the chief runs
 `python3 install/skills/execution-methodology/scripts/docs.py stale .`, which must print `docs.py
-stale: 0 stale`. It compares commit times, so it cannot pass before the commit, and the chief
+stale: PASS`. It compares commit times, so it cannot pass before the commit, and the chief
 records its output in a Decisions line. If a `summary` changes, run `docs.py
 index .` and `docs.py pointers .`, and commit their output. Change no other page, no frontmatter
 key but `summary` and `last-verified`, and no file under `install/`.
@@ -235,6 +271,22 @@ key but `summary` and `last-verified`, and no file under `install/`.
     - No `git worktree prune` (R9).
     - The tag names the PR's head commit, not the checkout `gh` switched (R10).
     - The file-comparison option is rejected for the reason R15 gives (default).
+- 2026-10-13 plan review (BLOCK, 6 blocking and 3 non-blocking), resolved in the plan and design.
+  - **T5.** The after-commit check expects `docs.py stale: PASS`, which `docs.py` prints when no
+    page is stale (R1).
+  - **T4.** Its tests use `loop_step()` and an ordered check of the close's steps, including the
+    tag push (R2, R9).
+  - **The record.** It lives in the main worktree's `.runs/`, so cleanup from any checkout finds it
+    (R3).
+  - **The fetch.** It adds `--no-tags` (R4).
+  - **T3's tests.** They now cover:
+    - a real `git branch -D` failure, through a ref lock file (R5);
+    - recorded branches that became current or gained a commit after their worktree went (R6);
+    - first-rule precedence, `in use here`, an absent record, a completed record, and each
+      reason's full line (R7);
+    - an ignored `/.claude/` in the fixture (R8).
+  - **Not tested.** The fetch timeout and a failed `git worktree remove` are untested, because
+    neither is reproducible without faking git (default).
 - 2026-10-13 planning: cleanup lives in `goal.py`, not a new script. `docs/goals/modules.json` maps
   exact script paths and is protected, so a new file would sit outside every module (default).
 - 2026-10-13 planning: T1–T4 carry no `gate:` line and run the modules `goal.py next` derives from
