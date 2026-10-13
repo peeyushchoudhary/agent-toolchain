@@ -294,11 +294,10 @@ key but `summary` and `last-verified`, and no file under `install/`.
   runs after its commit (default).
 - 2026-10-13 planning: the plan gate `cd install && ./verify.sh` took 231 s in S-7's last full-gate
   receipts, under the 600 s budget, so it was not timed again (default).
+- 2026-10-13 approval: the founder approved the plan and left the `full_gate: modules` question
+  unanswered, so `full_gate` stays the single command (default).
 - 2026-10-13 planning: the e2e is S-7's `e2e_run.sh`, receipted with `--count none`. Cleanup is
   git-only and harness-independent, and `CleanupTest` exercises it against real repositories
   (default).
 
 ## Parked
-
-- Q: S-8 keeps `full_gate` as the single command. Should it use `full_gate: modules` instead, the
-  first real use of the composed gate? Default: the single command.
