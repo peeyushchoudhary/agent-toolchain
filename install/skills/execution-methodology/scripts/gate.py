@@ -434,7 +434,7 @@ def last_complete_run(runs: Path, cmd: str) -> dict:
 
 def rerun_refusal(old: dict, tree, cmd, subset, checks: Path) -> str:
     """Why `--rerun-failed subset` cannot complete the receipt old for (tree, cmd); empty when it can."""
-    if "partial" in old:
+    if "partial" in old or "rerun_started" in old:
         return "this receipt was already completed once with --rerun-failed; run the full receipt again"
     if not (old.get("verdict") == "FAIL" and old.get("tree") == tree and old.get("command") == cmd):
         return "--rerun-failed needs a FAIL receipt for this tree and command"
@@ -494,6 +494,8 @@ def cmd_receipt(args, root):
             print(f"receipt refused: {why}")
             return 1
         cmd = args.rerun_failed
+        # The one try is spent before the subset runs, so an interrupted attempt cannot be repeated.
+        write_receipt(path, {**old, "rerun_started": now()})
     res, duration = evaluate(root, cmd, args.goal, args.count == "none", args.junit, args.name, args.runs)
     if args.rerun_failed and res["executed"] < len(old.get("new_failures", [])):
         res["reasons"].append(f"the --rerun-failed command executed {res['executed']} test(s), fewer than the "

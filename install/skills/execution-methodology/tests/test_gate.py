@@ -490,6 +490,15 @@ class RerunFailedTest(GateCase):
         self.failed(other, complete=None, **BUSY)
         self.assertRefused(self.rerun(cmd=other), "no earlier PASS receipt of this command")
 
+    def test_interrupted_subset_consumes_the_single_attempt(self):
+        failed = self.failed(**BUSY)
+        killed = self.rerun("kill -KILL $PPID " + SLOW)  # the receipt process dies during the subset run
+        self.assertEqual(killed.returncode, -9, killed.stdout + killed.stderr)
+        r = json.loads(gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(), TIMED_OUT).read_text())
+        self.assertEqual((r["verdict"], r["new_failures"]), (failed["verdict"], failed["new_failures"]))
+        self.assertIn("rerun_started", r)
+        self.assertRefused(self.rerun(), "already completed once with --rerun-failed")
+
     def test_rerun_failed_accepts_a_gradle_tests_filter(self):
         subset = "./gradlew test --continue --rerun-tasks --tests '*FooTest.bar'"
         self.assertTrue(gate.failure_named("com.example.FooTest.bar()", subset))
