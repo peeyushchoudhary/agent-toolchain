@@ -197,5 +197,7 @@ T4's commit (design review R2).
     install suite discovers. T3 creates it, and T4 adds to it and runs it in its gate.
   - **R2.** The Outcome states AC6's boundary as T4's commit, matching the spec.
   - **R3.** T1 names `commit_findings`, where the row-4 comparison lives (default).
+- 2026-10-13 approval: the founder approved the plan and told the chief to place
+  `goal/S-9/approved` (founder).
 
 ## Parked
