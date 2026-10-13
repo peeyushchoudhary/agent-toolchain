@@ -24,16 +24,18 @@ Design: [design.md](design.md).
 ### [ ] T1 — Row 4 ignores a protected section's trailing blank lines; cleanup quotes git's `fatal:` line
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-9/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
-tests-may-change: none
+tests-may-change: install/skills/execution-methodology/tests/test_goal.py
 AC1, AC2. Design Interfaces 1 and 2.
 - **Row 4.** In `done_rows`, the anchored comparison (`protected_text(file_at(ctx.root, parent,
   path) …, anchor) != protected_text(file_at(ctx.root, c, path), anchor)`) compares both sides
-  after `.rstrip()`. Leave `protected_text` and the whole-file comparison unchanged.
+  after a module-level helper `settled(text)`, which returns `re.sub(r"(\n[ \t]*)+\Z", "",
+  text or "")`: trailing empty or whitespace-only lines dropped, every other byte kept. Leave
+  `protected_text` and the whole-file comparison unchanged.
 - **Cleanup.** In `cmd_cleanup`, the failed-fetch reason becomes the first line of `proc.stderr`
   that starts `fatal:`, stripped, falling back to `last_line(proc.stderr)`. The timeout reason and
   every other message stay unchanged.
 
-Do not change any existing test, the map, or any other row.
+Add tests only; do not change an existing test, the map, or any other row.
 
 Tests:
 - **`ProtectedSectionTest`.** Add a subclass, `ProtectedLastSectionTest(ProtectedSectionTest)`,
@@ -42,6 +44,13 @@ Tests:
   1. A `[T1]` commit appends `"\n## D4 — fourth\n\nFour.\n"` to `RECORD`, and row 4 is ok.
   2. A later `[T1]` commit changes `Three.` to `Three, revised.`, and row 4 reports `<sha10> [T1]
      changes protected docs/record.md#D1-D3`.
+
+  Its second test, `test_last_content_line_whitespace_remains_protected` (AC1, design review R1):
+  1. A `[T1]` commit changing `Three.` to `Three.  ` (two trailing spaces, at the end of the file)
+     is reported by row 4.
+  2. Under the parent's plan, which protects `#D1-D2` with the unprotected D3 following, a `[T1]`
+     commit changing `Two.` to `Two.  ` is reported too. Put this case in a test method of its own
+     on a `RepoCase` built with the parent's plan.
 
   Copy `test_protected_section_edit_is_rejected`'s use of `self.fix`, `assertRowOk` and
   `assertRow`. The subclass must not re-run the parent's test with the new plan: override it with
@@ -54,7 +63,7 @@ Tests:
 ### [ ] T2 — `gate.py`'s usage names the `--modules` refusals
 writes: install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 reads: docs/goals/S-9/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
-tests-may-change: none
+tests-may-change: install/skills/execution-methodology/tests/test_gate.py
 AC3. Design Interface 3. In the module docstring's `--modules` paragraph (it begins "`--modules`
 runs each named module"), add after its last sentence:
 
@@ -134,7 +143,8 @@ Set `last-verified: 2026-10-13` on `methodology.md` and `repository-standard.md`
 
 After the commit, the chief runs `python3 install/skills/execution-methodology/scripts/docs.py
 stale .`. It must print `docs.py stale: PASS`, and the chief records its output in a Decisions
-line.
+line. That plan-only commit and any merge-review fix may make a page stale again; AC6 is judged at
+T4's commit (design review R2).
 
 ## Decisions
 
@@ -156,5 +166,13 @@ line.
   is S-8 T5's (default).
 - 2026-10-13 planning: the plan's `gate` was not timed again. S-8's last full-gate receipt, a
   superset of it, took 279 s, within the 600 s budget (default).
+- 2026-10-13 design review (BLOCK, 3 blocking), resolved in the spec, design and plan:
+  - **R1.** `settled` drops only trailing empty or whitespace-only lines, not `.rstrip()`. T1 adds
+    `test_last_content_line_whitespace_remains_protected` for a range at end of file and one
+    followed by an unprotected section.
+  - **R2.** AC6 is judged at T4's commit, as S-8's AC8 was. `repository-standard.md` covers
+    `docs/**`, so later plan-only and fix commits can make it stale again (default).
+  - **R3.** T1 and T2 list their test files under `tests-may-change`; row 5 judges test files, not
+    test methods.
 
 ## Parked

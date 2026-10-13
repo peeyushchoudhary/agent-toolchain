@@ -28,8 +28,8 @@
 - AC5 THE decisions record SHALL hold D35: the pilot and D29's stop rule have ended, and changes
   to `install/` are ordinary goals the founder approves. D29's table row SHALL name D35.
 - AC6 `methodology.md` SHALL state the stop rule only as ended rationale, and
-  `repository-standard.md` SHALL call `docs/goals/modules.json` a current-state file. WHEN the
-  last task has committed, `docs.py stale .` SHALL list no page.
+  `repository-standard.md` SHALL call `docs/goals/modules.json` a current-state file. WHEN T4 has
+  committed, `docs.py stale .` SHALL list no page.
 
 **Non-goals.**
 - Any automatic revert trigger in place of the stop rule.

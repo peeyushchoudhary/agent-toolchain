@@ -21,12 +21,14 @@
 
 1. **Done row 4** (durable). For an anchored protected entry, row 4 compares
    `settled(protected_text(<parent's file>, anchor))` with `settled(protected_text(<commit's
-   file>, anchor))`. Here `settled(t)` is `t` with trailing whitespace removed (`t.rstrip()`).
+   file>, anchor))`. Here `settled(t)` drops the trailing lines of `t` that are empty or
+   whitespace-only, as `re.sub(r"(\n[ \t]*)+\Z", "", t)`.
    - `protected_text` itself is unchanged, and so is the comparison for whole-file entries.
    - A section's trailing blank lines carry no content, so appending a section after the last
      protected one passes.
-   - A change to any non-blank line, including trailing spaces on a line followed by another
-     line, still fails.
+   - Every non-blank line stays protected byte for byte, trailing spaces of the last content line
+     included. That holds whether the range ends the file or an unprotected section follows it
+     (design review R1).
 2. **Cleanup's refusal** (durable). On a failed fetch the message is:
    - `goal.py: cleanup needs origin/main: <line>`, exit 2;
    - `<line>` is the first stderr line that starts `fatal:`, stripped;
@@ -61,6 +63,11 @@ judges no commit it passes today as failing.
 
 ## Rejected options
 
+- **`.rstrip()` on both sides.** It would also ignore trailing spaces on the last protected
+  content line (design review R1).
+- **Requiring no stale page on the final tree.** `repository-standard.md` covers `docs/**`, so the
+  plan-only Decisions commit after T4 and any merge-review fix make a page stale again. AC6 is
+  judged at T4's commit, as S-8's AC8 was, and the next goal re-verifies (design review R2).
 - **Stripping trailing blank lines inside `protected_text`.** It also feeds the approval packet's
   HTML. Its tested return value would change for no reader's gain.
 - **Ignoring all blank lines in protected text.** A paragraph break inside a decision is content.
