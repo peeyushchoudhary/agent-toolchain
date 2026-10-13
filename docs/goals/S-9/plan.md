@@ -16,7 +16,7 @@ line still fails it (AC1). Cleanup's fetch refusal quotes git's `fatal:` line (A
 usage names its `--modules` refusals (AC3). The skill removes a builder's branch with its worktree
 after the task's commit, and the close pushes `goal/<id>/approved` with the milestone tag (AC4).
 D35 ends the pilot and D29's stop rule (AC5). `methodology.md` and `repository-standard.md` state
-what is true now, and no page is stale after the last commit (AC6). Spec: [spec.md](spec.md).
+what is true now, and no page is stale at T4's commit (AC6). Spec: [spec.md](spec.md).
 Design: [design.md](design.md).
 
 ## Tasks
@@ -26,7 +26,7 @@ writes: install/skills/execution-methodology/scripts/goal.py, install/skills/exe
 reads: docs/goals/S-9/design.md#interfaces, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
 AC1, AC2. Design Interfaces 1 and 2.
-- **Row 4.** In `done_rows`, the anchored comparison (`protected_text(file_at(ctx.root, parent,
+- **Row 4.** In `commit_findings`, the anchored comparison (`protected_text(file_at(ctx.root, parent,
   path) …, anchor) != protected_text(file_at(ctx.root, c, path), anchor)`) compares both sides
   after a module-level helper `settled(text)`, which returns `re.sub(r"(\n[ \t]*)+\Z", "",
   text or "")`: trailing empty or whitespace-only lines dropped, every other byte kept. Leave
@@ -72,7 +72,7 @@ Change no code. Test in class `ModulesTest`, `test_usage_names_the_modules_refus
 is refused with exit 2`.
 
 ### [ ] T3 — Loop step 4 removes the builder's branch; the close pushes the approval tag; D35
-writes: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, docs/decisions/decisions.md, AGENTS.md
+writes: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_records.py, docs/decisions/decisions.md, AGENTS.md
 reads: docs/goals/S-9/design.md#interfaces, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, docs/decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py
 needs: T1
@@ -107,15 +107,25 @@ are 1,341 of 1,350 words today, and this edit and `AGENTS.md`'s link add at most
 - New: `test_the_loop_removes_the_builders_worktree_and_branch` (AC4). `loop_step(4)` contains
   `remove its worktree and branch after the commit`.
 
+**New file `install/tests/test_records.py`**, class `RecordsTest(unittest.TestCase)`, reading files
+from the repository root (`Path(__file__).resolve().parents[2]`). Copy `install/tests/test_size.py`'s
+layout.
+- `test_d35_ends_the_pilot_and_updates_d29` (AC5). `docs/decisions/decisions.md`:
+  - holds the line `## D35 — The pilot and its stop rule have ended (S-9)`;
+  - its D35 section, up to the next `## ` heading or the end, has a `**Reverses:**` line naming
+    `D29` and `D30`;
+  - the table row that begins `| [D29](` contains `ended by D35`;
+  - the table row that begins `| [D35](` ends `| standing |`.
+
 Run `docs.py lint .` and `docs.py index .` if the index is out of date. The generated
 `docs/README.md` is outside this task's writes, so report it and stop rather than edit it.
 
 ### [ ] T4 — Pages: the stop rule as ended rationale; `modules.json` as a current-state file
-writes: docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/product/measurements.md, docs/README.md, .claude/rules/**
+writes: docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/product/measurements.md, docs/README.md, .claude/rules/**, install/tests/test_records.py
 reads: docs/goals/S-9/design.md#interfaces, docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/product/measurements.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md
-tests-may-change: none
+tests-may-change: install/tests/test_records.py
 needs: T1, T2, T3
-gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_docs.py' && cd install && ./install.sh --dry-run && ./verify.sh --no-suites
+gate: python3 -m unittest discover -s install/tests -t install/tests -p 'test_records.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_docs.py' && cd install && ./install.sh --dry-run && ./verify.sh --no-suites
 AC6.
 
 **`methodology.md`.**
@@ -134,6 +144,17 @@ current map." Check that the dangling-name check in `install/verify.sh` still pa
 
 **`measurements.md`.** `read-when` becomes "Citing a number or recording a measurement". The body
 is a record and stays.
+
+**Test** in `install/tests/test_records.py`, class `RecordsTest`, added without changing T3's test:
+`test_pages_state_the_pilot_ended_and_the_map_as_current` (AC6).
+- `docs/architecture/methodology.md`:
+  - contains `#d35--the-pilot-and-its-stop-rule-have-ended-s-9`;
+  - contains `Until D35 ended it`;
+  - no longer contains `D29's stop rule stands`.
+- `docs/architecture/repository-standard.md` contains `` `docs/goals/<id>/**` `` and
+  `` `docs/goals/modules.json` states the current map ``.
+- `docs/product/measurements.md` has the line `read-when: Citing a number or recording a
+  measurement`.
 
 Set `last-verified: 2026-10-13` on `methodology.md` and `repository-standard.md`. Then run
 `docs.py index .` and `docs.py pointers .` and include their output. Change no `install/` file.
@@ -171,5 +192,10 @@ T4's commit (design review R2).
     `docs/**`, so later plan-only and fix commits can make it stale again (default).
   - **R3.** T1 and T2 list their test files under `tests-may-change`; row 5 judges test files, not
     test methods.
+- 2026-10-13 plan review (BLOCK, 2 blocking and 1 non-blocking), resolved in the plan:
+  - **R1.** AC5 and AC6 get content tests in a new `install/tests/test_records.py`, which the
+    install suite discovers. T3 creates it, and T4 adds to it and runs it in its gate.
+  - **R2.** The Outcome states AC6's boundary as T4's commit, matching the spec.
+  - **R3.** T1 names `commit_findings`, where the row-4 comparison lives (default).
 
 ## Parked
