@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Run a gate command and decide PASS or FAIL from what it actually executed.
 
-  gate.py check    --cmd CMD [--goal G] [--count none] [--junit GLOB] [--runs DIR]
-  gate.py receipt  --goal G --cmd CMD [--name full_gate|e2e|proof] [--count none] [--junit GLOB] [--runs DIR]
+  gate.py check    (--cmd CMD | --modules a,b|all) [--goal G] [--count none] [--junit GLOB] [--runs DIR]
+  gate.py receipt  --goal G (--cmd CMD | --modules a,b|all) [--name full_gate|e2e|proof] [--count none]
+                   [--junit GLOB] [--runs DIR]
   gate.py baseline --goal G --cmd CMD [--junit GLOB] [--runs DIR]
 
 `check` gates a commit and writes nothing but a log, except that a failing check on a clean committed
@@ -11,6 +12,10 @@ tree rewrites a PASS receipt for (HEAD's tree, command) as FAIL, keeping the old
 it never deletes a receipt: replacing one carries its failures, or its reasons when it named no test,
 in `rerun_of`, and counts the replacements in `reruns`. Exit codes: 0 PASS, 1 FAIL or refused,
 2 usage/internal.
+
+`--modules` runs each named module of docs/goals/modules.json in map order, each through the same rules
+(`count` from the map). Its receipts are keyed by "module:<name>\n" + test; `receipt --modules` keeps a
+module's PASS on the same tree, retries a failed one once (`retry_of`), and then refuses it.
 
 Under a goal each run appends one line to `<runs>/<goal>/checks.jsonl`, and each command's last line is
 its budget line. Every record line and receipt carries load readings (`started_at`, `load_before`,
@@ -32,6 +37,9 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import modmap  # noqa: E402
 
 
 def git(root, *args, check=True):
@@ -258,14 +266,17 @@ def load_baseline(root, goal, cmd, runs=None) -> dict:
     return entry if isinstance(entry, dict) else {}
 
 
-def evaluate(root, cmd, goal, count_none, junit, label, runs=None):
-    """Run cmd and apply the failure rules. Return the result record (without tree fields) and the duration."""
+def evaluate(root, cmd, goal, count_none, junit, label, runs=None, load_before=None):
+    """Run cmd and apply the failure rules. Return the result record (without tree fields) and the duration.
+
+    A check or a module receipt (label "module") accepts Gradle's --rerun; other receipts need --rerun-tasks."""
     before = snapshot(root)
     started = dt.datetime.now().timestamp()
-    code, out, log, duration, readings = run(root, cmd, goal, label, runs)
+    code, out, log, duration, readings = run(root, cmd, goal, label, runs, load_before)
     counts = parse_counts(out)
-    # In a check, JUnit XML that Gradle restored from the build cache looks fresh but did not run.
-    cached = label == "check" and GRADLE_CACHED.search(out)
+    rerun_ok = label in ("check", "module")
+    # Under --rerun, JUnit XML that Gradle restored from the build cache looks fresh but did not run.
+    cached = rerun_ok and GRADLE_CACHED.search(out)
     xml = parse_junit(root, junit, started) if junit and not cached else None
     src = xml or counts["gradle"]
     executed = counts["executed"] + src["executed"]
@@ -278,9 +289,9 @@ def evaluate(root, cmd, goal, count_none, junit, label, runs=None):
     known = [f for f in failures if f in baseline]
     reasons = []
     gradle = re.search(r"\bgradlew?\b", cmd)
-    if gradle and label == "check" and not re.search(r"--rerun(?:-tasks)?(?![\w-])", cmd):
+    if gradle and rerun_ok and not re.search(r"--rerun(?:-tasks)?(?![\w-])", cmd):
         reasons.append("gradle command without --rerun or --rerun-tasks may report cached results")
-    elif gradle and label != "check" and "--rerun-tasks" not in cmd:
+    elif gradle and not rerun_ok and "--rerun-tasks" not in cmd:
         reasons.append("gradle command without --rerun-tasks may report cached results")
     if cached:
         reasons.append("test results restored from the build cache did not run; add --no-build-cache")
@@ -345,7 +356,21 @@ def rerun_fields(old: dict) -> dict:
     return {"rerun_of": sorted(set(seen)), "reruns": old.get("reruns", 0) + (1 if old else 0)}
 
 
+def supersede(path, res):
+    """A FAIL on the very tree a PASS receipt certifies: that receipt no longer describes the latest run.
+    It is kept as evidence, under the record that supersedes it, with its history and any spent retry."""
+    old = read_receipt(path)
+    if old.get("verdict") == "PASS":
+        res.update({"tree": old.get("tree"), "name": old.get("name"), "superseded": old,
+                    "rerun_of": old.get("rerun_of", []), "reruns": old.get("reruns", 0)})
+        res.update({k: old[k] for k in ("module", "retry_of") if k in old})
+        write_receipt(path, res)
+        print(f"receipt superseded: {path}")
+
+
 def cmd_check(args, root):
+    if args.modules is not None:
+        return check_modules(args, root)
     goal = args.goal or active_goal(root, args.runs)
     res, duration = evaluate(root, args.cmd, goal, args.count == "none", args.junit, "check", args.runs)
     print(summary(res))
@@ -354,31 +379,29 @@ def cmd_check(args, root):
         record(root, goal, "check", args.cmd, tree, duration, res["verdict"], args.runs,
                {k: res[k] for k in READINGS})
     if goal and res["verdict"] == "FAIL" and not dirty_paths(root):
-        # The same command just failed on the very tree a PASS receipt certifies: that receipt no
-        # longer describes the latest run. It is kept as evidence, under the record that supersedes it.
-        path = receipt_path(root, goal, tree, args.cmd, args.runs)
-        old = read_receipt(path)
-        if old.get("verdict") == "PASS":
-            res.update({"tree": old.get("tree"), "name": old.get("name"), "superseded": old,
-                        "rerun_of": old.get("rerun_of", []), "reruns": old.get("reruns", 0)})
-            write_receipt(path, res)
-            print(f"receipt superseded: {path}")
+        supersede(receipt_path(root, goal, tree, args.cmd, args.runs), res)
     print(budget_line("check", duration))
     return 0 if res["verdict"] == "PASS" else 1
 
 
-def refuse_receipt(root, args, why) -> int:
-    """A refused receipt still leaves its line in the checks record and ends with the budget line."""
+def refused_readings(load=None) -> dict:
+    load = round(os.getloadavg()[0] if load is None else load, 2)  # nothing runs, so the peak is the load before
+    return {"started_at": now(), "load_before": load, "load_peak": load, "cpus": os.cpu_count()}
+
+
+def refuse_receipt(root, args, why, mods=()) -> int:
+    """A refused receipt still leaves its line in the checks record, one per module, and ends with the budget line."""
     print(f"receipt refused: {why}")
-    load = round(os.getloadavg()[0], 2)  # nothing runs, so the peak is the load before
-    readings = {"started_at": now(), "load_before": load, "load_peak": load, "cpus": os.cpu_count()}
-    record(root, args.goal, "receipt", args.cmd, git(root, "rev-parse", "HEAD^{tree}"), 0.0, "REFUSED", args.runs,
-           readings)
+    tree, readings = git(root, "rev-parse", "HEAD^{tree}"), refused_readings()
+    for cmd, extra in [(spec["test"], {"module": name}) for name, spec in mods] or [(args.cmd, {})]:
+        record(root, args.goal, "receipt", cmd, tree, 0.0, "REFUSED", args.runs, {**readings, **extra})
     print(budget_line("receipt", 0.0))
     return 1
 
 
 def cmd_receipt(args, root):
+    if args.modules is not None:
+        return receipt_modules(args, root)
     dirty = dirty_paths(root)
     if dirty:
         return refuse_receipt(root, args, "the working tree is not clean; commit first:\n  " + "\n  ".join(dirty[:10]))
@@ -400,6 +423,102 @@ def cmd_receipt(args, root):
     print(f"receipt: {path}")
     print(budget_line("receipt", duration))
     return 0 if res["verdict"] == "PASS" else 1
+
+
+# ---- modules ------------------------------------------------------------------------------
+
+def named_modules(root, wanted) -> list:
+    """(name, spec) for each module wanted names ("a,b" or "all"), in map order."""
+    try:
+        m = modmap.load(root)
+    except modmap.MapError as exc:
+        raise RuntimeError(f"{modmap.MAP}: {exc}") from None
+    mods = (m or {}).get("modules") or {}
+    names = [n.strip() for n in wanted.split(",") if n.strip()]
+    for n in names or [wanted]:
+        if m is None or (n != "all" and n not in mods):
+            raise RuntimeError(f"no module {n} in {modmap.MAP}")
+    return [(n, spec) for n, spec in mods.items() if "all" in names or n in names]
+
+
+def module_key(name, spec) -> str:
+    """The receipt key of a module: it matches no --cmd receipt and no other module."""
+    return f"module:{name}\n{spec['test']}"
+
+
+def modules_line(failed, total) -> str:
+    if failed:
+        return f"modules: FAIL {len(failed)} of {total} ({', '.join(failed)})"
+    return f"modules: PASS {total} of {total}"
+
+
+def check_modules(args, root):
+    """Run every named module; a failure on a clean tree supersedes that module's PASS receipt."""
+    goal = args.goal or active_goal(root, args.runs)
+    mods = named_modules(root, args.modules)
+    load = os.getloadavg()[0]
+    tree = git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}", check=False)
+    failed, total = [], 0.0
+    for name, spec in mods:
+        res, duration = evaluate(root, spec["test"], goal, spec.get("count") == "none", args.junit, "check",
+                                 args.runs, load)
+        total += duration
+        print(f"module {name}: {summary(res)}")
+        if goal:
+            record(root, goal, "check", spec["test"], tree, duration, res["verdict"], args.runs,
+                   {**{k: res[k] for k in READINGS}, "module": name})
+        if res["verdict"] == "FAIL":
+            failed.append(name)
+            if goal and not dirty_paths(root):
+                supersede(receipt_path(root, goal, tree, module_key(name, spec), args.runs), res)
+    print(modules_line(failed, len(mods)))
+    print(budget_line("check", total))
+    return 1 if failed else 0
+
+
+def receipt_modules(args, root):
+    """Per module on HEAD's tree: keep a PASS, run when there is no receipt, retry a FAIL once, then refuse it."""
+    mods = named_modules(root, args.modules)
+    load = os.getloadavg()[0]
+    dirty = dirty_paths(root)
+    if dirty:
+        return refuse_receipt(root, args, "the working tree is not clean; commit first:\n  " + "\n  ".join(dirty[:10]),
+                              mods)
+    tree = git(root, "rev-parse", "HEAD^{tree}")
+    failed, total = [], 0.0
+    for name, spec in mods:
+        path = receipt_path(root, args.goal, tree, module_key(name, spec), args.runs)
+        old = read_receipt(path)
+        retry = old.get("verdict") == "FAIL"
+        if old.get("verdict") == "PASS":
+            print(f"module {name}: PASS on this tree (kept)")
+            continue
+        if retry and "retry_of" in old:
+            print(f"module {name} failed twice on this tree; diagnose and commit a fix")
+            record(root, args.goal, "receipt", spec["test"], tree, 0.0, "REFUSED", args.runs,
+                   {**refused_readings(load), "module": name})
+            failed.append(name)
+            continue
+        if retry:
+            print(f"module {name}: retry after a failure on this tree")
+        res, duration = evaluate(root, spec["test"], args.goal, spec.get("count") == "none", args.junit, "module",
+                                 args.runs, load)
+        total += duration
+        res.update({"tree": tree, "name": "module", "module": name, **rerun_fields(old)})
+        if retry:
+            res["retry_of"] = old  # the retry is spent whatever the new verdict
+        if git(root, "rev-parse", "HEAD^{tree}") != tree:
+            res["reasons"].append("HEAD moved during the run")
+            res["verdict"] = "FAIL"
+        write_receipt(path, res)
+        record(root, args.goal, "receipt", spec["test"], tree, duration, res["verdict"], args.runs,
+               {**{k: res[k] for k in READINGS}, "module": name})
+        print(f"module {name}: {summary(res)}")
+        if res["verdict"] == "FAIL":
+            failed.append(name)
+    print(modules_line(failed, len(mods)))
+    print(budget_line("receipt", total))
+    return 1 if failed else 0
 
 
 def cmd_baseline(args, root):
@@ -431,7 +550,12 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="action", required=True)
     for name in ("check", "receipt", "baseline"):
         p = sub.add_parser(name)
-        p.add_argument("--cmd", required=True)
+        if name == "baseline":
+            p.add_argument("--cmd", required=True)
+        else:
+            which = p.add_mutually_exclusive_group(required=True)
+            which.add_argument("--cmd")
+            which.add_argument("--modules", help="a,b or all: the modules of docs/goals/modules.json to run")
         p.add_argument("--goal", required=name != "check")
         p.add_argument("--junit", help="glob of JUnit XML files, relative to the repository root")
         p.add_argument("--runs", help="the .runs directory to use (default: <root>/.runs)")

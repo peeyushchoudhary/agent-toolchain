@@ -100,7 +100,7 @@ Design Interface 6.
 In `ReceiptTest.test_receipt_omits_removed_load_rerun_metadata`, remove `"cpus"` from the
 asserted-absent set. Do not change `goal.py`.
 
-### [ ] T3 — `gate.py --modules`: module runs, same-tree reuse and one retry
+### [x] T3 — `gate.py --modules`: module runs, same-tree reuse and one retry
 writes: install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 reads: docs/goals/S-7/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/scripts/modmap.py, install/skills/execution-methodology/tests/test_gate.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
@@ -431,5 +431,18 @@ modules`.
 - 2026-10-13 T8: `verify.sh --no-suites` guards each `run_suite` call with `$SUITES`, and its help
   range moves to line 12. `test_map.py` also pins the module order and the `replaces` text, and
   finds the `run_suite` calls as non-comment lines (default).
+- 2026-10-13 T3:
+  - **Failure line.** A failure line counts the failures, as in `modules: FAIL 1 of 4`.
+  - **Exit 2.** A malformed map exits 2 with the `MapError` text.
+  - **Receipt history.** Module receipts keep `rerun_of`/`reruns`, and a retry stores the whole
+    failed receipt under `retry_of`.
+  - **Refusals.** A dirty-tree refusal records one REFUSED line per module.
+  - **Kept modules.** They record no line and add no time.
+  - **Flags.** `--count` and `--name` are ignored with `--modules`, while `--junit` passes to every
+    module. Module receipts also get the build-cache check.
+  - **Shared supersede.** The supersede logic moved into `supersede()`, which both paths share.
+  - **Follow-ups.** `--modules ""` names an empty module, and the T2 test that calls `gate.run`
+    directly prints a `ResourceWarning` (default).
+- 2026-10-13 full gate sample at 7a78c33, the third task commit: PASS, 237 tests, 328 s.
 
 ## Parked
