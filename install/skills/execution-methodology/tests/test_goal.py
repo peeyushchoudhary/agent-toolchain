@@ -1423,5 +1423,16 @@ class CleanupTest(RepoCase):
             self.assertIn(f"worktree {path}\n", listed)
         self.assertFalse(any("removed" in r for r in self.rows()))
 
+    def test_cleanup_keeps_recorded_branch_checked_out_elsewhere(self):
+        c = self.builder("c", change=False)
+        self.own(c)
+        self.repo.git("worktree", "remove", str(c))
+        elsewhere = self.tmp / "elsewhere"
+        self.repo.git("worktree", "add", "-q", str(elsewhere), "worktree-agent-c")  # unrecorded
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "gone worktree .claude/worktrees/agent-c",
+            "keep branch worktree-agent-c: checked out", "cleanup: 0 removed, 1 kept"])
+        self.assertTrue(self.exists("refs/heads/worktree-agent-c") and elsewhere.is_dir())
+
 if __name__ == "__main__":
     unittest.main()
