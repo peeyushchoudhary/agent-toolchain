@@ -531,6 +531,20 @@ class ModulesTest(GateCase):
         self.assertEqual((refused["module"], refused["verdict"]), ("a", "REFUSED"))
         self.assertEqual(refused["load_peak"], refused["load_before"])
 
+    def test_command_key_collision_cannot_reopen_spent_retry(self):
+        self.mode("b", "crash")
+        self.assertEqual(self.modules("receipt", "b").returncode, 1)
+        self.assertEqual(self.modules("receipt", "b").returncode, 1)  # the retry, spent
+        for action in ("receipt", "check"):
+            res = self.repo.gate(action, "--goal", "F-9", "--cmd", "module:b\n" + self.cmds["b"])
+            self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+            self.assertIn("may not start with 'module:'", res.stderr)
+        self.assertEqual(self.module_receipt("b")["retry_of"]["verdict"], "FAIL")
+        self.mode("b", "ok")
+        res = self.modules("receipt", "b")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("module b failed twice on this tree; diagnose and commit a fix", res.stdout)
+
     def test_module_receipts_do_not_alias_commands_or_other_modules(self):
         self.assertEqual(self.modules("receipt", "a").returncode, 0)
         self.mode("a", "crash")

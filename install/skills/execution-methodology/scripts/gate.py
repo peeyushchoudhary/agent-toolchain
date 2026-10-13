@@ -608,6 +608,9 @@ def main(argv=None):
     p.add_argument("--cmd", help="the full gate command (default: the map's replaces)")
     p.add_argument("--runs", help="the .runs directory to use (default: <root>/.runs)")
     args = ap.parse_args(argv)
+    if (getattr(args, "cmd", None) or "").startswith("module:"):
+        print("gate.py: a --cmd may not start with 'module:', the prefix of module receipt keys", file=sys.stderr)
+        return 2
     try:
         root = repo_root()
         return {"check": cmd_check, "receipt": cmd_receipt, "baseline": cmd_baseline,
