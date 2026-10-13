@@ -22,7 +22,11 @@
 # durations and verdicts, the last line of every baseline, check and receipt starts `budget:`,
 # `goal.py done` prints DONE M1, `goal.py packet` writes .runs/E-1/packet.md, `goal.py cost` prints
 # a claude and a codex line (`unknown` here: a scratch HOME has no transcripts), and the
-# repository's bare origin received nothing. Then, in one more disposable home: install.sh puts the skill (minus
+# repository's bare origin received nothing. The fixture's module map (docs/goals/modules.json: `a`, and
+# `b` needing `a`, each an emitter command) derives both tasks' gate, so `next` names `modules: a, b`;
+# `gate.py check --modules a,b` passes both; a `receipt --modules all` whose `b` fails once is followed
+# by one that keeps `a` and retries `b` to a pass; on a second tree where `b` fails twice, the third
+# receipt refuses `b` and exits 1. Inner runs write to files under .runs/E-1/, never to stdout. Then, in one more disposable home: install.sh puts the skill (minus
 # tests/), the global files and the six agent files there and nothing else, --uninstall leaves the
 # home byte-identical to before, and the documented D29 rollback (install/README.md) to
 # methodology/v6-base installs every v6 skill and hook as shipped in a temporary clone. Exit 0 when
@@ -78,6 +82,13 @@ last-verified: 2026-10-09
 
 One function per file, one unittest per function.
 PAGE
+  # The module map: `b` needs `a`; each test command is an emitter, and `b` fails while .runs/mode-b says so.
+  cat > docs/goals/modules.json <<'MAP'
+{"modules": {
+  "a": {"paths": ["src/a/**"], "test": "printf 'Ran 1 test in 0.001s\\n\\nOK\\n'"},
+  "b": {"paths": ["src/b/**"], "needs": ["a"],
+        "test": "test \"$(cat .runs/mode-b 2>/dev/null || echo ok)\" = ok && printf 'Ran 2 tests in 0.001s\\n\\nOK\\n'"}}}
+MAP
   printf -- '---\ngoal: E-1\ntitle: A two-function arithmetic module\ngate: %s\nfull_gate: %s\n' "$3" "$3" \
     > docs/goals/E-1/plan.md
   cat >> docs/goals/E-1/plan.md <<'PLAN'
@@ -94,7 +105,7 @@ protected: [AGENTS.md]
 ## Tasks
 
 ### [ ] T1 — add
-writes: calc/__init__.py, calc/add.py, tests/__init__.py, tests/test_add.py
+writes: src/a/**, calc/__init__.py, calc/add.py, tests/__init__.py, tests/test_add.py
 reads: docs/goals/E-1/spec.md, docs/area.md#layout
 `calc/add.py` defines `add(a, b)` returning `a + b`; `tests/test_add.py` checks `add(2, 3) == 5` (AC1).
 
@@ -153,7 +164,8 @@ harness_run() {  # harness_run claude|codex
   printf '%s\n' "$out" | sed 's/^/    /'
   case "$out" in *"Next: T1 — add"*) ok "$h resume" "names T1" ;; *) bad "$h resume" "does not name T1" ;; esac
   out="$(python3 "$skill/goal.py" --goal E-1 next)"
-  [ "$out" = "T1 — add" ] && ok "$h next before [T1]" "$out" || bad "$h next before [T1]" "not T1 alone: $out"
+  [ "$out" = "T1 — add · gate: modules: a, b" ] && ok "$h next before [T1]" "$out" ||
+    bad "$h next before [T1]" "not T1 alone with the derived gate: $out"
   sed 's/^### \[ \] T1 /### [!] T1 /' docs/goals/E-1/plan.md > .runs/E-1/plan-T1-parked.md
   out="$(python3 "$skill/goal.py" --plan .runs/E-1/plan-T1-parked.md resume)"
   case "$out" in *"Next: no ready task; T2 needs T1 (parked)."*) ok "$h resume, T1 parked" "T2 needs T1 (parked)" ;;
@@ -166,7 +178,8 @@ harness_run() {  # harness_run claude|codex
     else bad "$h [$t]" "the task did not land as one [$t] commit"; fi
     if [ "$t" = T1 ]; then
       out="$(python3 "$skill/goal.py" --goal E-1 next)"
-      [ "$out" = "T2 — mul" ] && ok "$h next after [T1]" "$out" || bad "$h next after [T1]" "not T2 alone: $out"
+      [ "$out" = "T2 — mul · gate: modules: a, b" ] && ok "$h next after [T1]" "$out" ||
+        bad "$h next after [T1]" "not T2 alone with the derived gate: $out"
     fi
   done
   python3 "$skill/gate.py" receipt --goal E-1 --name full_gate --cmd "$gate" > .runs/E-1/out/receipt-full_gate.out &&
@@ -199,6 +212,29 @@ PY
   case "$out" in "claude: "*$'\n'"codex: "*) ok "$h cost" "$(printf '%s' "$out" | tr '\n' ';')" ;; *) bad "$h cost" "$out" ;; esac
   t="$(gitq -C "$origin" for-each-ref | wc -l | tr -d ' ')"
   [ "$t" = 0 ] && ok "$h push" "nothing pushed to origin" || bad "$h push" "$t ref(s) on origin"
+
+  # The derived gate's modules, then same-tree reuse, one retry and the refusal after a second failure
+  f=.runs/E-1/mod; mkdir -p "$f"
+  python3 "$skill/gate.py" check --goal E-1 --modules a,b > "$f/check.out" &&
+    [ "$(grep -c '^module [ab]: gate: PASS' "$f/check.out")" = 2 ] && grep -qx 'modules: PASS 2 of 2' "$f/check.out" &&
+    ok "$h check --modules a,b" "two module lines, modules: PASS 2 of 2" ||
+    bad "$h check --modules a,b" "not two passing modules: $(tr '\n' ';' < "$f/check.out")"
+  printf fail > .runs/mode-b
+  python3 "$skill/gate.py" receipt --goal E-1 --modules all > "$f/receipt-1.out"; t="$?"
+  printf ok > .runs/mode-b
+  python3 "$skill/gate.py" receipt --goal E-1 --modules all > "$f/receipt-2.out"; t="$t $?"
+  [ "$t" = "1 0" ] && grep -qx 'module a: PASS on this tree (kept)' "$f/receipt-2.out" &&
+    grep -qx 'module b: retry after a failure on this tree' "$f/receipt-2.out" &&
+    grep -q '^module b: gate: PASS' "$f/receipt-2.out" && grep -qx 'modules: PASS 2 of 2' "$f/receipt-2.out" &&
+    ok "$h b fails once" "a kept, b retried and passed" ||
+    bad "$h b fails once" "exits $t; $(tr '\n' ';' < "$f/receipt-2.out")"
+  mkdir -p src/b && printf 'b\n' > src/b/b.txt && gitq add -A && gitq commit -qm "a second tree"
+  printf fail > .runs/mode-b; out=""
+  for t in 3 4 5; do python3 "$skill/gate.py" receipt --goal E-1 --modules all > "$f/receipt-$t.out"; out="$out $?"; done
+  [ "$out" = " 1 1 1" ] && grep -qx 'module b failed twice on this tree; diagnose and commit a fix' "$f/receipt-5.out" &&
+    grep -qx 'modules: FAIL 1 of 2 (b)' "$f/receipt-5.out" &&
+    ok "$h b fails twice" "refused on the second tree, exit 1" ||
+    bad "$h b fails twice" "exits$out; $(tr '\n' ';' < "$f/receipt-5.out")"
 }
 
 for h in claude codex; do (errors=0; harness_run "$h"; exit "$errors") || errors=$((errors + $?)); done
@@ -256,7 +292,7 @@ else bad "uninstall after rollback" "install.sh --uninstall exited non-zero"; fi
 
 echo
 if [ "$errors" -eq 0 ]; then
-  echo "e2e_run: PASS (claude, codex: lint, approval page → resume → ready tasks by needs → baseline → [T1] [T2] with docs.py lint in the gate → checks record with budget lines → DONE, cost lines; no launcher; install byte-identity, rollback to v6-base)"
+  echo "e2e_run: PASS (claude, codex: lint, approval page → resume → ready tasks by needs → baseline → [T1] [T2] with docs.py lint in the gate → checks record with budget lines → DONE, cost lines; module map → derived gate → kept, retried and refused modules; no launcher; install byte-identity, rollback to v6-base)"
   exit 0
 fi
 echo "e2e_run: FAIL ($errors)"; exit 1

@@ -327,7 +327,7 @@ clean closing commit the chief runs `gate.py receipt --goal S-7 --modules all` o
 next to the `full_gate` receipt, then `gate.py coverage --goal S-7`, and records the printed line in
 a Decisions line (plan review R25).
 
-### [ ] T9 — `e2e_run.sh`: derived gates, module runs and the retry in both harnesses
+### [x] T9 — `e2e_run.sh`: derived gates, module runs and the retry in both harnesses
 writes: install/skills/execution-methodology/tests/e2e_run.sh
 reads: install/skills/execution-methodology/tests/e2e_run.sh, docs/goals/S-7/design.md#interfaces
 tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh
@@ -459,5 +459,11 @@ modules`.
   - **What counts as missing.** A FAIL module receipt counts as missing, and any missing module exits
     1 even when the sums match. Count-none modules are never summed or named.
   - **Order of checks.** Usage errors come before the dirty-tree refusal (default).
+- 2026-10-13 T9:
+  - **T1's writes.** The fixture adds `src/a/**` to T1's writes rather than replacing them, so done
+    row 4 still holds. T1 therefore shows `modules: a, b` through the all-modules rule, and T2 also
+    shows a derived gate.
+  - **Placement.** The module block runs after done, packet, cost and the push check, so the earlier
+    record assertions and HEAD stay unchanged (default).
 
 ## Parked
