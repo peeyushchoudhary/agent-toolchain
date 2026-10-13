@@ -37,9 +37,10 @@ AGENTS.md pointer block        generated: in the nearest AGENTS.md, which must c
 page's frontmatter (`summary` of at most 120 words, `read-when`, `covers`, `last-verified`), never
 by hand.
 
-**Records and pages.** `decisions.md`, `measurements.md` and `docs/goals/**` are records: dated
-entries that may name removed components as rationale. Every other page states what is true now;
-history stays in git and its tags.
+**Records and pages.** `decisions.md`, `measurements.md` and `docs/goals/<id>/**` are records:
+dated entries that may name removed components as rationale.
+`docs/goals/modules.json` states the current map. Every other page states what is true now; history
+stays in git and its tags.
 
 **Enforcement** is in `install/verify.sh`, not a validator script: the link check (every relative
 link in `AGENTS.md`, `README.md` and `docs/` resolves, decision anchors included), `docs.py lint`

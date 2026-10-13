@@ -120,7 +120,7 @@ layout.
 Run `docs.py lint .` and `docs.py index .` if the index is out of date. The generated
 `docs/README.md` is outside this task's writes, so report it and stop rather than edit it.
 
-### [ ] T4 — Pages: the stop rule as ended rationale; `modules.json` as a current-state file
+### [x] T4 — Pages: the stop rule as ended rationale; `modules.json` as a current-state file
 writes: docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/product/measurements.md, docs/README.md, .claude/rules/**, install/tests/test_records.py
 reads: docs/goals/S-9/design.md#interfaces, docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/product/measurements.md, install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md
 tests-may-change: install/tests/test_records.py
@@ -220,5 +220,13 @@ T4's commit (design review R2).
   - **Test rows.** `test_records.py` finds a table row by its opening pipe and link.
   - **Word counts.** The always-loaded files total 1,344 of 1,350 words, and `close.md` is 310 of
     400 (default).
+- 2026-10-13 T4:
+  - **Line break.** The `modules.json` sentence starts its own line, so the phrase its test
+    matches is unbroken.
+  - **`last-verified`.** Both architecture pages already said 2026-10-13.
+  - **Pointer files.** `docs.py pointers .` changed nothing.
+  - **Follow-ups, not changed.** `methodology.md`'s "the pilot's sampled follow-up reviews make
+    the comparison" still reads as if the pilot runs, and `measurements.md`'s `summary` still names
+    its stop rule. Both are wording the plan did not name (default).
 
 ## Parked
