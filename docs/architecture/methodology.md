@@ -45,8 +45,7 @@ and [D32](../decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-
   ready task, each in a fresh isolated worktree from the goal branch, which carries every committed
   dependency. Task checks run one at a time; the full gate runs every third task commit in the
   background where it takes 600 s or less, else only at close. `gate.py` records every run in
-  `.runs/<id>/checks.jsonl`. A closing receipt that failed only from machine load reruns just the
-  failed and unrun tests, once, with the evidence recorded.
+  `.runs/<id>/checks.jsonl`.
 - **The session is the chief.** The founder's own open session runs the goal on the founder's word,
   from `goal.py resume`; it loads the skill itself when a plan has an open milestone (D31 dropped the
   2026-08-22 user-invoked gate; the approval tag, placed by the founder or by the chief on the

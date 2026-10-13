@@ -360,13 +360,13 @@ one per ready task, each in a fresh isolated worktree from its HEAD, applies a d
 checkout, runs one task check at a time and removes the worktree after the commit. The full gate
 runs every third task commit in the background where it takes 600 s or less, otherwise only at
 close. `gate.py` records every run in `checks.jsonl` and ends with a budget line; a task check may
-force only its Gradle test tasks (`--rerun`); receipts and baselines still force everything. A
-`full_gate` or `e2e` receipt that failed only on named tests, from machine load, is completed once
-by rerunning those tests and any that did not run.
+force only its Gradle test tasks (`--rerun`); receipts and baselines still force everything.
 
 **Over:** the plan's single gate after every task (v7.1); one reused worktree per dependency chain
-(the founder's first choice); reusing Gradle's up-to-date test results in a task check; rerunning a
-whole suite after a load-caused failure.
+(the founder's first choice); reusing Gradle's up-to-date test results in a task check; rerunning
+only the failed tests after a load-caused failure, which was built and then removed: three merge
+reviews blocked it, because `gate.py` cannot tell from runner output which tests ran, which never
+ran, or why one failed. The founder replaced it with a per-repository test-module map, a later goal.
 
 **Why:** measured 2026-10-09 to 13 on four repositories ([measurements](../product/measurements.md#2026-10-13--s-6-v72)):
 the per-task gate was the full suite, 24 hours of chief gate time in four days and 38–39% of the
@@ -377,6 +377,6 @@ gates keep. Plans have width (ideal speedup 1.55× across 33 plans), but overlap
 carries every committed dependency, so reuse bought only warm caches and cost isolation. Targeted
 tests rerun anyway, so test-result reuse gains nothing; `--rerun-tasks` recompiles every module.
 The founder set the 600 s budget, the every-third cadence, the slow-repository exception, four
-builders, the fresh worktree and the load rerun.
+builders and the fresh worktree.
 
 **Reverses:** nothing; D29 to D31 stand.
