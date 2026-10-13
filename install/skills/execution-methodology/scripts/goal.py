@@ -1002,13 +1002,16 @@ def cmd_own(ctx, a):
     print(f"own: {path} ({wt['branch'] or 'detached'})")
     return 0
 
-def worktree_verdict(w, here, base):
-    """(reason, remove) by the first of Interface 5's nine rules that holds for listed worktree w."""
+def worktree_verdict(w, here, base, inner=False):
+    """(reason, remove) by the first of Interface 5's nine rules that holds for listed worktree w, with
+    a tenth after `locked`: inner, another listed worktree inside w, which a forced removal would delete."""
     wt = w["path"]
     if here:
         return "in use here", False
     if w["locked"]:
         return "locked", False
+    if inner:
+        return "holds another worktree", False
     if git_try(wt, "merge-base", "--is-ancestor", w["head"], base).returncode:
         n = git(wt, "rev-list", "--count", f"{base}..{w['head']}")
         return f"{n} commit(s) not in origin/main", False
@@ -1073,8 +1076,9 @@ def cmd_cleanup(ctx, a):
                 print(f"gone worktree {shown(path)}")
             else:  # an unlocked listed entry whose directory is gone holds nothing to lose; its record goes
                 w, here = listed[path], path == main_wt or contains(path, cwd)
+                inner = any(Path(path) in Path(p).parents for p in listed)
                 reason, remove = (("directory gone", True) if not (here or w["locked"])
-                                  and (w["prunable"] or not Path(path).is_dir()) else worktree_verdict(w, here, base))
+                                  and (w["prunable"] or not Path(path).is_dir()) else worktree_verdict(w, here, base, inner))
                 if not remove:
                     print(f"keep worktree {shown(path)}: {reason}")
                     kept += 1

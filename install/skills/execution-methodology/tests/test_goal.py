@@ -1391,5 +1391,17 @@ class CleanupTest(RepoCase):
         self.assertEqual((res.returncode, res.stdout), (0, "\n".join([
             self.head("dry run"), f"remove worktree {odd} (merged)", "cleanup: 1 to remove, 0 kept", ""])))
 
+    def test_cleanup_preserves_unrecorded_nested_worktree(self):
+        a = self.builder("a", change=False)
+        nested = a / ".claude" / "worktrees" / "other-session"  # under a's ignored .claude/
+        self.repo.git("worktree", "add", "-q", "-b", "other-session", str(nested))
+        (nested / "work.txt").write_text("unsaved\n")
+        self.own(a)
+        self.assertEqual(self.cleanup("--apply"), [
+            self.head("apply"), "keep worktree .claude/worktrees/agent-a: holds another worktree",
+            "cleanup: 0 removed, 1 kept"])
+        self.assertEqual((nested / "work.txt").read_text(), "unsaved\n")
+        self.assertTrue(self.exists("refs/heads/worktree-agent-a") and self.exists("refs/heads/other-session"))
+
 if __name__ == "__main__":
     unittest.main()
