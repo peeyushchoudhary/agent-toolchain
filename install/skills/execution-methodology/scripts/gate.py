@@ -227,17 +227,17 @@ def run(root, cmd, goal, label, runs=None, load_before=None):
     readings = {"started_at": now()}
     started = time.monotonic()
     with open(log, "w") as fh:
-        proc = subprocess.Popen(["bash", "-c", cmd], cwd=root, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, errors="replace")
-        sampler = threading.Thread(target=sample, daemon=True)
-        sampler.start()
-        for line in proc.stdout:
-            chunks.append(line)
-            fh.write(line)
-            sys.stdout.write(line)
-        proc.wait()
-        done.set()
-        sampler.join()
+        with subprocess.Popen(["bash", "-c", cmd], cwd=root, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, errors="replace") as proc:
+            sampler = threading.Thread(target=sample, daemon=True)
+            sampler.start()
+            for line in proc.stdout:
+                chunks.append(line)
+                fh.write(line)
+                sys.stdout.write(line)
+            proc.wait()
+            done.set()
+            sampler.join()
     readings.update({"load_before": round(load_before, 2), "load_peak": round(max(samples), 2),
                      "cpus": os.cpu_count()})
     return proc.returncode, "".join(chunks), log, round(time.monotonic() - started, 2), readings

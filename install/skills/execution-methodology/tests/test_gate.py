@@ -6,6 +6,7 @@ environment variable, so one command string can pass, fail, or lie about its res
 """
 from __future__ import annotations
 
+import gc
 import json
 import os
 import re
@@ -15,6 +16,7 @@ import sys
 import tempfile
 import time
 import unittest
+import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -268,6 +270,13 @@ class ReceiptTest(GateCase):
             self.assertIsInstance(x["load_before"], float)
             self.assertEqual(x["cpus"], os.cpu_count())
         self.assertEqual(lines[-1]["load_peak"], lines[-1]["load_before"])
+
+    def test_run_closes_its_output_pipe(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            gate.run(self.repo.dir, "true", "F-9", "check")
+            gc.collect()
+        self.assertEqual([w for w in caught if issubclass(w.category, ResourceWarning)], [])
 
     def test_load_peak_is_at_least_load_before(self):
         self.assertGate(self.receipt(), "PASS")

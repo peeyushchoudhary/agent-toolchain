@@ -53,7 +53,7 @@ use of `self.repo.gate(...)`:
   has no test command in docs/goals/modules.json`; no log is written and no receipt file is
   created.
 
-### [ ] T2 — `gate.run` closes its output pipe
+### [x] T2 — `gate.run` closes its output pipe
 writes: install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 reads: docs/goals/S-8/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
@@ -303,5 +303,6 @@ key but `summary` and `last-verified`, and no file under `install/`.
   `--modules ""` gives the AC1 text even without a map. The blank check reads `spec["test"]`
   directly, since `modmap.load` rejects a non-string test. The module docstring's `--modules` lines
   do not mention the two refusals (follow-up) (default).
-
+- 2026-10-13 T2: built by the chief, as a trivial task. The new test failed before the change, and
+  `test_gate.py` no longer prints a ResourceWarning (default).
 ## Parked
