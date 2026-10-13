@@ -1372,5 +1372,11 @@ class CleanupTest(RepoCase):
         self.assertEqual(self.repo.git("-C", str(t), "show", ":f.doc"), "two")
         self.assertEqual((w / "f.doc").read_text(), "two\n")
 
+    def test_cleanup_fetch_preserves_additional_mapped_refs(self):
+        self.repo.git("config", "--add", "remote.origin.fetch", "+refs/heads/main:refs/remotes/secondary/main")
+        self.assertEqual(self.cleanup(), [self.head("dry run"), "cleanup: 0 to remove, 0 kept"])
+        self.assertTrue(self.exists("refs/remotes/origin/main"))
+        self.assertFalse(self.exists("refs/remotes/secondary/main"))
+
 if __name__ == "__main__":
     unittest.main()

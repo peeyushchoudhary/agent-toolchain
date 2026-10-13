@@ -1038,7 +1038,8 @@ def staged_verdict(run, base):
 
 def cmd_cleanup(ctx, a):
     try:
-        proc = subprocess.run(["git", "fetch", "--no-tags", "origin", "refs/heads/main:refs/remotes/origin/main"],
+        proc = subprocess.run(["git", "fetch", "--no-tags", "--refmap=", "origin",
+                               "refs/heads/main:refs/remotes/origin/main"],
                               cwd=ctx.root, capture_output=True, text=True, timeout=120)
         why = last_line(proc.stderr) if proc.returncode else None
     except subprocess.TimeoutExpired:
