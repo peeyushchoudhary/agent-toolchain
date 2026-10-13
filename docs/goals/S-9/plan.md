@@ -228,5 +228,6 @@ T4's commit (design review R2).
   - **Follow-ups, not changed.** `methodology.md`'s "the pilot's sampled follow-up reviews make
     the comparison" still reads as if the pilot runs, and `measurements.md`'s `summary` still names
     its stop rule. Both are wording the plan did not name (default).
+- 2026-10-13 AC6: after T4's commit 48b8899, `docs.py stale .` printed `docs.py stale: PASS`.
 
 ## Parked
