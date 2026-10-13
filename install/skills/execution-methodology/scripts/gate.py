@@ -454,10 +454,16 @@ def named_modules(root, wanted) -> list:
         raise RuntimeError(f"{modmap.MAP}: {exc}") from None
     mods = (m or {}).get("modules") or {}
     names = [n.strip() for n in wanted.split(",") if n.strip()]
-    for n in names or [wanted]:
+    if not names:
+        raise RuntimeError("--modules needs module names, as in a,b, or all")
+    for n in names:
         if m is None or (n != "all" and n not in mods):
             raise RuntimeError(f"no module {n} in {modmap.MAP}")
-    return [(n, spec) for n, spec in mods.items() if "all" in names or n in names]
+    chosen = [(n, spec) for n, spec in mods.items() if "all" in names or n in names]
+    for n, spec in chosen:
+        if not spec["test"].strip():
+            raise RuntimeError(f"module {n} has no test command in {modmap.MAP}")
+    return chosen
 
 
 def module_key(name, spec) -> str:

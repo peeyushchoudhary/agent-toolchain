@@ -28,7 +28,7 @@ architecture pages are re-verified (AC8). Spec: [spec.md](spec.md). Design: [des
 
 ## Tasks
 
-### [ ] T1 — `gate.py --modules` refuses an empty selection and a blank test command
+### [x] T1 — `gate.py --modules` refuses an empty selection and a blank test command
 writes: install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 reads: docs/goals/S-8/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
@@ -299,5 +299,9 @@ key but `summary` and `last-verified`, and no file under `install/`.
 - 2026-10-13 planning: the e2e is S-7's `e2e_run.sh`, receipted with `--count none`. Cleanup is
   git-only and harness-independent, and `CleanupTest` exercises it against real repositories
   (default).
+- 2026-10-13 T1: the empty-selection refusal comes before the map and unknown-module checks, so
+  `--modules ""` gives the AC1 text even without a map. The blank check reads `spec["test"]`
+  directly, since `modmap.load` rejects a non-string test. The module docstring's `--modules` lines
+  do not mention the two refusals (follow-up) (default).
 
 ## Parked

@@ -545,6 +545,25 @@ class ModulesTest(GateCase):
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
         self.assertIn("module b failed twice on this tree; diagnose and commit a fix", res.stdout)
 
+    def test_empty_module_selection_is_refused(self):
+        logs = self.logs()
+        for which in ("", ","):
+            for action in ("check", "receipt"):
+                res = self.repo.gate(action, "--goal", "F-9", "--modules", which)
+                self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+                self.assertIn("gate.py: --modules needs module names, as in a,b, or all", res.stderr)
+        self.assertEqual(self.logs(), logs)
+        self.assertFalse(self.repo.path(".runs/F-9/checks.jsonl").exists())
+
+    def test_blank_module_test_is_refused_without_running(self):
+        self.write_map({"a": module_cmd("a"), "b": "  ", "c": module_cmd("c")})
+        for action, which in (("check", "all"), ("receipt", "b")):
+            res = self.repo.gate(action, "--goal", "F-9", "--modules", which)
+            self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+            self.assertIn("gate.py: module b has no test command in docs/goals/modules.json", res.stderr)
+        self.assertEqual(self.logs(), 0)
+        self.assertEqual(self.receipts(), [])
+
     def test_module_receipts_do_not_alias_commands_or_other_modules(self):
         self.assertEqual(self.modules("receipt", "a,b").returncode, 0)
         self.mode("a", "crash")
