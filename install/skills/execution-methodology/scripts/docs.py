@@ -273,11 +273,14 @@ def links(root):
                 n = numbers[text.count("\n", 0, at)]  # the line the destination starts on
                 path, _, anchor = d.partition("#")
                 anchor = urllib.parse.unquote(anchor).lower()
-                dest = os.path.normpath(os.path.join(os.path.dirname(f), urllib.parse.unquote(path))) if path else f
+                path = urllib.parse.unquote(path)  # a leading / is the repository root, as GitHub resolves it
+                rel = path.lstrip("/") if path[:1] == "/" else os.path.join(os.path.dirname(f), path)
+                dest = os.path.normpath(rel) if path else f
                 target = root / dest
                 if anchor and dest.endswith(".md") and target.is_file() and dest not in found:
                     found[dest] = anchors(headings(target.read_text(encoding="utf-8").splitlines()))
-                if not os.path.exists(target) or anchor and dest in found and anchor not in found[dest]:
+                if (dest.split("/")[0] == ".." or not os.path.exists(target)
+                        or anchor and dest in found and anchor not in found[dest]):
                     bad.append(f"{f}:{n}: {d}")
     listed = git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ":(glob)**/AGENTS.md")
     for rel in sorted(filter(None, listed.split("\0"))):

@@ -217,6 +217,13 @@ class LinksTest(DocsCase):
         self.assertEqual(res.stdout.splitlines(), ["README.md:5: docs/user guide2.md", "README.md:6: docs/a(c).md",
                                                    "docs.py links: FAIL (2)"])
 
+    def test_link_targets_resolve_within_the_repository(self):
+        outside, back = f"{self.repo.dir}/docs/record.md", f"../{self.repo.dir.name}/docs/record.md"
+        res = self.links_with(f"[a]({outside})\n[b](/docs/record.md#detail)\n[c]({back})\n[d](docs/../../x.md)\n",
+                              **{"docs/sub.md": "[e](/README.md)\n[f](../docs/record.md)\n"})
+        self.assertEqual(res.stdout.splitlines(), [f"README.md:1: {outside}", f"README.md:3: {back}",
+                                                   "README.md:4: docs/../../x.md", "docs.py links: FAIL (3)"])
+
     def test_destination_after_opening_whitespace_is_checked(self):
         res = self.links_with("[a]( missing.md)\n")
         self.assertEqual(res.stdout.splitlines(), ["README.md:1: missing.md", "docs.py links: FAIL (1)"])
