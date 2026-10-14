@@ -248,6 +248,12 @@ class LinksTest(DocsCase):
                                                    "README.md:8: missing3.md", "README.md:11: missing4.md",
                                                    "README.md:14: missing5.md", "docs.py links: FAIL (5)"])
 
+    def test_escaped_backticks_do_not_hide_links(self):
+        res = self.links_with("\\` [x](missing.md) \\`\n\n[a\\](docs/none.md)\n\n`a\\` [c](none2.md) `\n\n"
+                              "\\\\`[d](docs/none.md)`\n")
+        self.assertEqual(res.stdout.splitlines(), ["README.md:1: missing.md", "README.md:5: none2.md",
+                                                   "docs.py links: FAIL (2)"])
+
     def test_duplicate_suffix_collisions_match_rendered_anchors(self):
         self.assertEqual(docs.anchors([(1, 1, "X"), (3, 1, "X"), (5, 1, "X-1")]), ["x", "x-1", "x-1-1"])
         res = self.links_with("[a](docs/x.md#x)\n[b](docs/x.md#x-1)\n[c](docs/x.md#x-1-1)\n",

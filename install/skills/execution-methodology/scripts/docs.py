@@ -227,14 +227,21 @@ def destination(text):
 
 def destinations(text):
     """(offset, destination) for each inline link, image and reference definition outside code in a paragraph."""
-    runs, k, masked = list(re.finditer(r"`+", text)), 0, text
-    while k < len(runs):  # a run of n backticks opens a span the next run of exactly n closes
-        close = next((j for j in range(k + 1, len(runs)) if len(runs[j][0]) == len(runs[k][0])), None)
-        if close is None:
+    masked, k, ticks = list(text), 0, re.compile(r"`+")
+    while k < len(text):
+        if text[k] == "\\":  # an escaped backtick or bracket is literal: it opens or closes nothing
+            if text[k + 1:k + 2] in ("`", "[", "]"):
+                masked[k + 1] = " "
+            k += 2
+        elif text[k] == "`":  # a run of n backticks opens a span the next run of exactly n closes
+            run = ticks.match(text, k).end() - k  # inside a span a backslash is literal
+            close = next((m for m in ticks.finditer(text, k + run) if m.end() - m.start() == run), None)
+            if close:
+                masked[k:close.end()] = " " * (close.end() - k)
+            k = close.end() if close else k + run
+        else:
             k += 1
-            continue
-        masked = masked[:runs[k].start()] + " " * (runs[close].end() - runs[k].start()) + masked[runs[close].end():]
-        k = close + 1
+    masked = "".join(masked)
     dests = [(m.end() + at, d) for m in re.finditer(r"\]\(", masked) for at, d in [destination(masked[m.end():])]]
     dests += [(d.start(1), destination(d[1])[1])  # a definition's destination may start on the next line
               for d in re.finditer(r"^ {0,3}\[[^\]]+\]:[ \t]*(?:\n[ \t]*)?(\S.*)$", masked, re.M)]
