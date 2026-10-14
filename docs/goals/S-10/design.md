@@ -4,7 +4,8 @@
 
 - **`docs.py`.**
   - A new subcommand, `links`.
-  - `pages` excludes `CLAUDE.md`.
+  - `fenced` and `anchors` follow GitHub's fence and anchor rules.
+  - `pages` excludes a `CLAUDE.md` that is only the import line.
   - `pointers` writes a twin for each `AGENTS.md` it creates.
   - `stale` reads a README's `covers` comment.
 - **`verify.sh`.** Its links section calls `docs.py links`. `install/tests/link_check.py` and its
@@ -29,28 +30,51 @@
 
 1. **`docs.py links [ROOT]`** (durable).
    - **Scope.** `README.md`, `AGENTS.md` and the tracked `docs/**/*.md`; a missing file is skipped.
-   - **Links.** For each relative Markdown link outside a code fence and outside inline code:
-     - the target path must exist;
-     - `#anchor` on a `.md` target, or a bare `#anchor` on the same file, must equal one of the
-       target's heading anchors (`docs.anchors`), or be `dNN` where a heading starts `DNN`.
+   - **Code** (design review R7, R10), in `fenced` itself, so headings and `reads:` agree with links.
+     - A fence opens on a run of three or more backticks or tildes, indented at most three spaces.
+       It closes on a run of the same character at least as long.
+     - On a line outside a fence, a backtick run of length n opens a code span. The span closes at
+       the next run of exactly n backticks on that line; a run left unmatched is literal.
+     - A span running across lines is not recognised. A link inside it is checked, so the error is
+       a false failure, never a false pass.
+   - **Destinations** (R6). For each inline link or image, the destination (what follows the
+     closing bracket's opening parenthesis) is:
+     - `<…>` up to the first `>`; or
+     - else a run without spaces, with balanced parentheses.
+     - A title after whitespace is ignored, and percent-encoding is decoded before the path is
+       checked.
+     - A destination with a URI scheme, such as `https:`, is skipped.
+   - **Targets.** The path must exist.
+   - **Anchors** (R8, R9).
+     - `#anchor` on a `.md` target, or alone for the same file, must equal one of the target's
+       GitHub anchors.
+     - `docs.anchors` reserves every anchor it emits, so a colliding slug takes the next free
+       suffix. For headings `X`, `X`, `X-1`, the anchors are `x`, `x-1`, `x-1-1`.
+     - There is no `dNN` shorthand in links, since GitHub renders none; `reads:` keeps it. The
+       three `#d30`-style links in `docs/product/prd.md` become full anchors.
    - **Twins.** Each `AGENTS.md` that `git ls-files --cached --others --exclude-standard` lists
-     needs a sibling `CLAUDE.md` holding a line that is exactly `@AGENTS.md`.
+     needs a sibling `CLAUDE.md`: a regular file inside the repository, holding a line that is
+     exactly `@AGENTS.md`.
    - **Output.**
-     - A bad link prints `<file>:<n>: <target>`.
+     - A bad link prints `<file>:<n>: <destination as written>`.
      - A missing twin prints `<dir>/CLAUDE.md: missing; it holds the line @AGENTS.md`.
-     - A twin without the line prints `<dir>/CLAUDE.md: no @AGENTS.md line`.
+     - Any other bad twin prints `<dir>/CLAUDE.md: no @AGENTS.md line`.
      - Then `docs.py links: PASS` or `FAIL (<n>)`.
      - Exit 0, 1, or 2 when it cannot run.
    - **Gate.** Not part of `lint`: each repository adds it to its gate at its layout migration.
-2. **`pages`** (durable). It also excludes every `CLAUDE.md`, so a twin under `docs/` needs no
-   frontmatter.
-3. **`pointers`** (durable).
-   - **Twin.** When it creates an `AGENTS.md` and the directory has no `CLAUDE.md`, it also writes
-     `CLAUDE.md` as `@AGENTS.md\n` and prints `<dir>/CLAUDE.md: written`.
-   - **`--check`.** It reports nothing new.
-4. **The README's `covers` comment** (durable).
-   - **Form.** A line of `README.md` that is exactly `<!-- covers: [<glob>, <glob>] -->`, with
-     repository-relative globs.
+2. **`pages`** (durable; R5). It excludes a `CLAUDE.md` whose only non-blank line is
+   `@AGENTS.md`. A `CLAUDE.md` with other content, such as frontmatter, stays a page, so no gate
+   that passes today changes verdict on install.
+3. **`pointers`** (durable; R11).
+   - **Twin.** It creates an `AGENTS.md` only where none existed. When no entry named `CLAUDE.md`
+     exists in that directory (`os.path.lexists`, so a dangling symlink counts as existing), and
+     the destination resolves inside the repository, it also writes `CLAUDE.md` as `@AGENTS.md\n`
+     and prints `<dir>/CLAUDE.md: written`.
+   - **Otherwise** it never writes a `CLAUDE.md`, and `--check` reports nothing new.
+4. **The README's `covers` comment** (durable; R12).
+   - **Form.** The first line of `README.md`, outside a fence, that matches `<!-- covers: <flow
+     list> -->`, read with `goal.flow`, so quoted globs keep their commas. Later matching lines are
+     ignored. The globs are repository-relative.
    - **`stale` warning.** When a covered path's last commit is later than the README's own last
      commit, `stale` prints `README.md: <time> after README.md's last commit <time>`.
    - **Without the line.** The README is never stale.
@@ -70,43 +94,61 @@
 7. **`references/repository.md`** (durable words), at most 900 words, with four sections:
    - **The README:** Interfaces 4 and 5.
    - **Layout:**
-     - Code goes where the build file declares it. `modules.json` partitions the tests, and each
-       module's `test` calls the build tool's own selector.
-     - New code and docs paths are lowercase with unique names. Goal ids are exempt; existing names
-       are never renamed.
+     - Code goes where the build file declares it. `modules.json` is as `modules.md` says (R14).
+     - New paths are lowercase with unique names. Goal ids, and names a tool or convention fixes
+       (`README.md`, `AGENTS.md`, `CLAUDE.md`, `LICENSE`, `Makefile`, build files), keep their
+       spelling. Existing names are never renamed (R13).
      - One home per kind: decisions, in-flight work in `docs/goals/`, history in `docs/archive/`.
        The home already cited is kept.
-     - Tool output and run state are never tracked. What a tool folder holds that is still read is
-       moved out first, never re-included with a `!` rule.
-     - Generated files the build consumes stay tracked, with a regeneration check in the gate.
+     - Tool output means a tool's working files and run state: a plugin's plans and specs,
+       code-graph output, scratch workspaces, `.runs/`. It is never tracked; what it holds that is
+       still read is moved out first, never re-included with a `!` rule.
+     - Generated files a gate checks are not tool output and stay tracked. These include
+       `docs.py`'s pointer files and generated types or schemas (R1).
    - **Agent files:**
      - `AGENTS.md` is authored; every `AGENTS.md` has a sibling `CLAUDE.md` holding `@AGENTS.md`.
      - The root `AGENTS.md` names the gate within its first 15 lines.
      - A tracked hook names only things that exist.
      - A gate step calls only tooling the repository holds or the skill ships.
    - **Lifecycle:**
-     - Records (decisions, measurements, goals, `docs/agents/lessons.md`) are dated, cited by
-       anchor and never moved.
-     - A finished goal stays in place; its folder holds spec, design, plan and the inputs its
-       `reads:` cite, and review output stays in `.runs/`.
-     - Supersession goes in a status cell, never by rewriting the text.
-     - An archive entry is one row in `docs/archive/README.md` naming a commit on `origin/main`,
-       never a copy.
-     - Before moving or untracking a path, `git grep` for it outside `*.md`, repoint each reader in
-       the same commit, and run the full gate. Code and domain content are never moved.
+     - **Records.** Decisions, measurements, goals and `docs/agents/lessons.md` are dated, cited by
+       anchor, and may name removed components as rationale. Every other page states what is true
+       now (R15). Records are never moved.
+     - **Finished goals.** A finished goal stays in place, and nothing is copied into it. Review
+       output stays in `.runs/` (R17).
+     - **Supersession** goes in a status cell, never by rewriting the text.
+     - **Archive entries.** An archive entry is one row in `docs/archive/README.md`, never a copy.
+       The row names a commit or tag pushed to `origin` whose tree holds the removed content, which
+       `git cat-file -e <ref>:<path>` confirms (R4, R18).
+     - **Moving or untracking a path** (R2, R4).
+       - First, `git grep` across all tracked files, Markdown included, for the path, its
+         directory and its basename, and run `docs.py links`.
+       - A path something reads or cites stays, unless every reader is repointed in the same
+         commit.
+       - Then run the full gate in a fresh worktree of the commit (`git worktree add --detach`),
+         never in the working tree, where an untracked file still sits on disk.
+       - Code and domain content are never moved.
+     - **Rollback after untracking** (R3). Copy the untracked paths aside, `git revert`, then
+       restore them.
    - **The product minimum:** moved here from `repository-standard.md`, plus `docs.py links` in
      the gate.
 
 ## Data touched
 
-None. `links` and `stale` read only. `pointers` writes one more generated file, and only beside an
-`AGENTS.md` it creates.
+- **The scripts.** `links` and `stale` only read. `pointers` writes one more generated file, and
+  only beside an `AGENTS.md` it creates, inside the repository.
+- **`fenced` and `anchors`.** These change what `reads:` resolves to only where they were wrong:
+  a shorter fence inside a longer one, or a colliding suffix.
+- **The runbook.** It is where data could be lost, so Interface 7 guards it with the reader grep,
+  the fresh-worktree gate, the verified archive reference and the copy-aside rollback.
 
 ## Smallest change
 
-- **Code.** One subcommand built from `link_check.py`'s loop and `docs.py`'s `fenced` and
-  `anchors`. One more exclusion in `pages`. One file write in `pointers`. One comment parse in
-  `stale`.
+- **Code.**
+  - One subcommand built from `link_check.py`'s loop.
+  - A corrected `fenced` and `anchors`.
+  - One narrow exclusion in `pages` and one guarded write in `pointers`.
+  - One comment parse in `stale`, through `goal.flow`.
 - **The rest.** Words, and the README.
 
 ## Rejected options
@@ -128,3 +170,9 @@ None. `links` and `stale` read only. `pointers` writes one more generated file, 
 - **A `done/` folder or goal status field.** Most product plans cite other goals' folders by path.
 - **"A nested `AGENTS.md` only for its own invariants."** `docs.py pointers` creates `AGENTS.md`
   files to carry pointer blocks.
+- **Excluding every `CLAUDE.md` from `pages`.** One product repository indexes a `docs/CLAUDE.md`
+  with frontmatter, and its gate would turn red on install (design review R5).
+- **Keeping `dNN` as a link anchor.** GitHub renders no such anchor (R8).
+- **A full CommonMark parser.** It is not in the standard library. The two cases left are a code
+  span running across lines and reference-style links. The first fails safe; the second is not
+  checked.

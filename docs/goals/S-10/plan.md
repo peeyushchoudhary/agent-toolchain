@@ -25,81 +25,126 @@ repository's README answers the seven questions (AC6). Spec: [spec.md](spec.md).
 
 ## Tasks
 
-### [ ] T1 — `docs.py links`, `CLAUDE.md` twins, and the README's `covers` comment
+### [ ] T1 — `docs.py links`, GitHub's fences and anchors, `CLAUDE.md` twins, the README's `covers`
 writes: install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/tests/test_docs.py
-reads: docs/goals/S-10/design.md#interfaces, install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/tests/test_docs.py, install/tests/link_check.py, install/tests/test_install.py
+reads: docs/goals/S-10/design.md#interfaces, install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_docs.py, install/tests/link_check.py, install/tests/test_install.py
 tests-may-change: install/skills/execution-methodology/tests/test_docs.py
-AC1, AC2, AC3. Design Interfaces 1–4.
+AC1, AC2, AC3. Design Interfaces 1–4. Each design-review finding named below gets its test here.
+
+**`fenced(lines)`** (R10). Keep its signature and yield shape. It remembers the opening run's
+character and length: up to three spaces of indent, then at least three backticks or tildes. A
+line closes the fence only when it opens with a run of the same character at least as long.
+
+**`anchors(heads)`** (R9). Keep its signature. It keeps a set of every anchor already emitted. For
+a slug already taken, it tries `-1`, `-2`, and so on, until one is free.
 
 **`links(root)`**, a new module-level function returning findings, wired into `main` beside `lint`
-and `stale` with the same verdict line (`docs.py links: PASS` or `FAIL (<n>)`) and exit codes.
-- Port `install/tests/link_check.py`'s `check_links` loop: the files are `README.md`, `AGENTS.md`
-  and `git ls-files docs/*.md`, skipping a missing file. External links (`https:`, `http:`,
-  `mailto:`) are skipped.
-- Before matching `\]\(<?([^)\s>]+)` on a line outside a fence, remove its inline code spans
-  (`re.sub(r"(`+).+?\1", "", line)`).
-- **Anchors.** A target with `#anchor` whose path is empty means the same file. When the target is
-  a `.md` file, the anchor (lowercased) must be in `anchors(headings(<target lines>))`, or match
-  `d(\d+)` with a heading of the target starting `D<number>` (case-insensitive, word boundary).
-  Anchors on other files are not checked.
-- **Twins.** For each path from `git ls-files -z --cached --others --exclude-standard --
-  ':(glob)**/AGENTS.md'`, the sibling `CLAUDE.md` must exist and hold a line equal to
-  `@AGENTS.md`.
-- Findings, in this order: links in file order, then twins sorted by path. The texts are Interface
-  1's.
+and `stale`. It uses the same verdict line (`docs.py links: PASS` or `FAIL (<n>)`) and exit codes.
+- **Files.** `README.md`, `AGENTS.md`, then `git ls-files docs/*.md`, skipping a missing file.
+- **Lines.** On each line outside a fence, remove code spans first (R7). A backtick run of length
+  n opens a span that closes at the next run of exactly n backticks on that line. Scan run by run;
+  an unmatched run is literal text.
+- **Destinations** (R6). After each closing bracket followed by an opening parenthesis (links and
+  images alike), read the destination:
+  - `<…>` up to the first `>`; or
+  - else characters up to whitespace or the unbalanced `)`, counting nested parentheses.
+  - Skip one with a URI scheme (`re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", d)`).
+  - Split off `#anchor`, and `urllib.parse.unquote` the path.
+- **Anchors** (R8). An empty path means the same file. When the target is a `.md` file, the anchor
+  (lowercased) must be in `anchors(headings(<target lines>))`. There is no `dNN` shorthand here;
+  `resolve` (for `reads:`) keeps its own.
+- **Twins.** Iterate `git ls-files -z --cached --others --exclude-standard --
+  ':(glob)**/AGENTS.md'`. The sibling `CLAUDE.md` must be a regular file (not a symlink), resolve
+  inside the root, and hold a line equal to `@AGENTS.md`.
+- **Findings.** Links in file order, then twins sorted by path, with Interface 1's texts.
 
-**`pages`** also excludes paths ending `/CLAUDE.md`.
+**`pages`** (R5) also excludes a path ending `CLAUDE.md` whose non-blank lines are exactly
+`["@AGENTS.md"]`.
 
-**`pointers`.** When it writes an `AGENTS.md` that did not exist (`have is None` and `rel in
-blocks`), and no `CLAUDE.md` exists in that directory, it writes `CLAUDE.md` with `@AGENTS.md\n`
-right after and prints `<dir>/CLAUDE.md: written`. `--check` is unchanged.
+**`pointers`** (R11). When it writes an `AGENTS.md` that did not exist (`have is None` and `rel in
+blocks`), it checks the directory's `CLAUDE.md`:
+- `not os.path.lexists(<dir>/CLAUDE.md)`, and `inside(root, <dir>/CLAUDE.md)`;
+- then it writes `@AGENTS.md\n` and prints `<dir>/CLAUDE.md: written`;
+- otherwise it writes nothing for the twin.
 
-**`stale`.** After the pages, `README.md`, if it has a line that is exactly
-`<!-- covers: [<globs>] -->`. The globs are split on commas, stripped of spaces and quotes, and
-kept when `relative()`. When the covered paths' last commit is later than `README.md`'s own last
-commit (committer timestamps, compared as in the pages' same-day rule), add `README.md: <last>
-after README.md's last commit <own>`.
+`--check` is unchanged.
 
-**Docstring.** The first line adds `links [ROOT]`. Add one paragraph for `links` and one sentence
+**`stale`** (R12). After the pages, it checks `README.md`.
+- **Its declaration** is the first line outside a fence that matches `^<!-- covers: (.*) -->$`.
+  Parse group 1 with `goal.flow`; a parse error or non-list is no declaration. Keep the entries
+  where `relative()` holds.
+- **The finding.** When the covered paths' last commit is later than `README.md`'s own last commit
+  (committer timestamps, compared as the pages' same-day rule compares them), add `README.md:
+  <last> after README.md's last commit <own>`.
+
+**Docstring.** The first line adds `links [ROOT]`. Add one paragraph for `links`, and one sentence
 to `stale`'s paragraph for the README.
 
-Tests in `test_docs.py`:
-- New class **`LinksTest(DocsCase)`**:
-  - `test_links_anchors_and_twins_pass` (AC1, AC2). `README.md` links `docs/record.md#d17`,
-    `docs/record.md#d17--zeta-rule-v2`, `docs/record.md#d18-other-thing` and
-    `docs/record.md#detail`. `AGENTS.md` sits beside a `CLAUDE.md` holding `@AGENTS.md`. Result:
-    exit 0, `docs.py links: PASS`.
-  - `test_bad_links_and_anchors_are_listed` (AC1). In `README.md`:
-    - line 1 links `docs/none.md`;
-    - line 2 links `docs/record.md#d17--nonexistent`;
-    - line 3 links `docs/record.md#d99`;
-    - line 4 links `#nowhere`;
-    - line 5 holds a link to `docs/none.md` inside inline code (backticks around the whole link);
-    - lines 6–8 are a fenced block holding the same link.
+Tests in `test_docs.py`, new class **`LinksTest(DocsCase)`** unless named otherwise:
+- **`test_links_anchors_and_twins_pass`** (AC1, AC2). `README.md` links the following, and
+  `AGENTS.md` sits beside a `CLAUDE.md` holding `@AGENTS.md`. Result: exit 0, `docs.py links:
+  PASS`.
+  - `docs/record.md#d17--zeta-rule-v2`
+  - `docs/record.md#d18-other-thing`
+  - `docs/record.md#detail`
+  - `<docs/record.md>`
+  - `docs/record.md "Title"`
+  - an image of `docs/record.md`
+- **`test_bad_links_and_anchors_are_listed`** (AC1). In `README.md`:
+  - line 1 links `docs/none.md`;
+  - line 2 links `docs/record.md#d17--nonexistent`;
+  - line 3 links `docs/record.md#d17` (R8);
+  - line 4 links `#nowhere`;
+  - line 5 holds a link to `docs/none.md` inside a matched one-backtick code span;
+  - lines 6–8 are a fenced block holding the same link.
 
-    The output is exactly `README.md:1: docs/none.md`, `README.md:2:
-    docs/record.md#d17--nonexistent`, `README.md:3: docs/record.md#d99`, `README.md:4: #nowhere`,
-    `docs.py links: FAIL (4)`. Exit 1.
-  - `test_agents_md_twins` (AC2). `sub/AGENTS.md` without a `CLAUDE.md` gives `sub/CLAUDE.md:
-    missing; it holds the line @AGENTS.md`. Then `sub/CLAUDE.md` holding `hello\n` gives
-    `sub/CLAUDE.md: no @AGENTS.md line`.
+  The output is exactly `README.md:1: docs/none.md`, `README.md:2:
+  docs/record.md#d17--nonexistent`, `README.md:3: docs/record.md#d17`, `README.md:4: #nowhere`,
+  `docs.py links: FAIL (4)`. Exit 1.
+- **`test_rendered_destinations_with_spaces_encoding_titles_and_images`** (R6). `docs/user
+  guide.md` and a directory `docs/user/` exist.
+  - These pass: an angle-bracket link to `docs/user guide.md` with the title `"Guide"`, the link
+    `docs/user%20guide.md`, and an image of `docs/user%20guide.md`.
+  - An angle-bracket link to `docs/user guide2.md` is listed.
+- **`test_code_spans_require_matching_complete_backtick_runs`** (R7).
+  - A line opening with two backticks, then a link to `docs/none.md`, then one backtick, lists the
+    link.
+  - A line where the link sits between two-backtick runs does not.
+- **`test_duplicate_suffix_collisions_match_rendered_anchors`** (R9).
+  - `docs.anchors` of headings `X`, `X`, `X-1` is `["x", "x-1", "x-1-1"]`.
+  - Links to all three pass `links`.
+- **`test_shorter_fence_does_not_expose_example_headings`** (R10). A page has a four-backtick fence
+  holding a three-backtick line and `## Inside`, then the real closing fence, then `## After`.
+  - A link to `#inside` is listed; one to `#after` passes.
+  - `docs.py reads` of the page's `#after` resolves.
+- **`test_agents_md_twins`** (AC2).
+  - `sub/AGENTS.md` without a `CLAUDE.md` gives `sub/CLAUDE.md: missing; it holds the line
+    @AGENTS.md`.
+  - `sub/CLAUDE.md` holding `hello\n` gives `sub/CLAUDE.md: no @AGENTS.md line`.
 - **`PointersTest.test_first_generation_writes_the_rule_file_and_a_new_agents_md`.** The expected
   lines gain `src/a/CLAUDE.md: written` after `src/a/AGENTS.md: written`, and `tests/CLAUDE.md:
   written` after `tests/AGENTS.md: written`. `tests/CLAUDE.md` reads `@AGENTS.md\n`.
-- New **`PointersTest.test_a_claude_md_under_docs_is_not_a_page`** (AC2). `docs/CLAUDE.md` holding
-  `@AGENTS.md\n`, committed, passes `lint`.
+- New **`PointersTest.test_twin_symlink_cannot_write_outside_repository`** (R11). `src/a/CLAUDE.md`
+  is a dangling symlink to a path in a temporary directory outside the repository. `pointers`
+  writes `src/a/AGENTS.md`, does not print a twin line, and the outside path stays absent.
+- New **`LintTest.test_install_rollout_with_an_existing_claude_page`** (R5).
+  - A `docs/CLAUDE.md` with frontmatter and its index row passes `lint`.
+  - Replaced by `@AGENTS.md\n` alone, with its index row removed, it also passes.
 - New **`StaleTest.test_a_readme_covers_comment`** (AC3).
   1. `README.md` holds `# R\n\n<!-- covers: [src/a/**] -->\n` and is committed at
-     `2026-10-01T10:00:00+02:00`, and `stale` does not list it.
+     `2026-10-01T10:00:00+02:00`. It is not listed.
   2. A `src/a/y.py` commit at `10:01` lists `README.md: 2026-10-01T10:01:00+02:00 after
      README.md's last commit 2026-10-01T10:00:00+02:00`.
-  3. A README without the comment line is never listed.
+  3. A README without the line is never listed.
+- New **`StaleTest.test_readme_covers_preserves_quoted_globs_and_ignores_examples`** (R12).
+  - With `<!-- covers: ["src/a,b/**"] -->`, a later commit under `src/a,b/` lists `README.md`.
+  - A covers line inside a fence only is no declaration.
 
 Do not change `lint`'s checks beyond `pages`, any other test, the map, or any file outside the
 writes.
 
 ### [ ] T2 — `verify.sh` runs `docs.py links`; `link_check.py` is removed; `docs/CLAUDE.md`
-writes: install/verify.sh, install/tests/link_check.py, install/tests/test_install.py, install/tests/test_map.py, install/README.md, docs/CLAUDE.md
+writes: install/verify.sh, install/tests/link_check.py, install/tests/test_install.py, install/tests/test_map.py, install/README.md, docs/CLAUDE.md, docs/product/prd.md
 reads: docs/goals/S-10/design.md#interfaces, install/verify.sh, install/tests/test_install.py, install/tests/test_map.py, install/README.md
 tests-may-change: install/tests/test_install.py, install/tests/test_map.py
 needs: T1
@@ -117,18 +162,23 @@ AC4, AC2.
 - **`install/README.md`.** "the docs link check (`tests/link_check.py`)" becomes "the docs link and
   twin check (the skill's `docs.py links`)".
 - **`docs/CLAUDE.md`** holds `@AGENTS.md\n`.
+- **`docs/product/prd.md`.** Its three links ending `decisions.md#d30` (and any other bare `#dNN`)
+  take the decision's full GitHub anchor, as `AGENTS.md`'s links do. `links` has no `dNN`
+  shorthand (design review R8).
 - New test **`test_install.py::LinksInVerify.test_verify_runs_the_shipped_link_check`** (AC4).
   `install/verify.sh` contains `docs.py" links "$ROOT"` and does not contain `link_check.py`.
 
 ### [ ] T3 — The repository reference, the reading rule, D36 and the layout runbook
 writes: install/skills/execution-methodology/references/repository.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, docs/architecture/repository-standard.md, install/global.md, AGENTS.md, docs/decisions/decisions.md, docs/runbooks/migrate-layout.md, docs/architecture/methodology.md, docs/product/measurements.md, docs/README.md, docs/AGENTS.md, .claude/rules/**, install/tests/test_records.py, install/skills/execution-methodology/tests/test_rules.py
-reads: docs/goals/S-10/design.md#interfaces, docs/architecture/repository-standard.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, install/global.md, AGENTS.md, docs/decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9, docs/runbooks/migrate-v5.md, docs/architecture/methodology.md, docs/product/measurements.md, install/tests/test_records.py, install/tests/test_size.py, install/verify.sh
+reads: docs/goals/S-10/design.md#interfaces, docs/architecture/repository-standard.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/references/modules.md, install/global.md, AGENTS.md, docs/decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9, docs/runbooks/migrate-v5.md, docs/architecture/methodology.md, docs/product/measurements.md, install/tests/test_records.py, install/tests/test_size.py, install/verify.sh
 tests-may-change: install/tests/test_records.py, install/skills/execution-methodology/tests/test_rules.py
 needs: T2
-AC5. Design Interfaces 4–7.
+AC5. Design Interfaces 4–7, with design review R1–R4 and R13–R18.
 
 **New `install/skills/execution-methodology/references/repository.md`.** Design Interface 7, as
-prose, at most 900 words.
+prose, at most 900 words. Its rules hold every exemption the design names: the generated files a
+gate checks, the conventional filenames, the `count: "none"` module, and the records that keep
+removed names.
 - Its four sections are `## The README`, `## Layout`, `## Agent files` and `## Lifecycle`.
 - The product minimum closes `## Layout`. Move it word for word from `repository-standard.md`'s
   last paragraph, and add `docs.py links` to the gate.
@@ -200,24 +250,31 @@ paragraph.
 - D1–D35's text stays byte-identical.
 
 **New `docs/runbooks/migrate-layout.md`,** with frontmatter (`covers: []`). Numbered steps for a
-product repository at a milestone boundary, on a branch:
-1. Before moving, archiving or untracking any path, `git grep -n <path> -- ':!*.md'`. Repoint each
-   reader in the same commit; a path that code or the gate reads stays put. Code, build roots and
-   domain content are never moved or renamed.
-2. Move whatever a tool folder holds that is still read into its home, and delete the `!`
-   re-include for it.
-3. Untrack tool output: add it to `.gitignore`, then `git rm -r --cached`.
-4. Bring each kind to one home, keeping the home already cited. Replace copied history with one
-   row in `docs/archive/README.md` that names a commit on `origin/main`.
-5. Drop gate steps, Make targets, PR-template lines and tracked hooks that call or name tools the
-   skill no longer installs, so the gate passes on a fresh clone.
-6. Add each missing `CLAUDE.md` twin, and move the gate into the root `AGENTS.md`'s first 15
-   lines.
-7. Rewrite `README.md` to the seven sections, with its `covers` comment.
-8. Add `docs.py links` to the gate. Run `docs.py lint`, `docs.py links`, `docs.py stale` and the
-   full gate.
+product repository at a milestone boundary, on a branch, following the reference's Lifecycle:
+1. **Readers first.** For each path to move, archive or untrack, `git grep -n` its path, its
+   directory and its basename across all tracked files, Markdown included, and run `docs.py links`.
+   A path something reads or cites stays, unless every reader is repointed in the same commit.
+   Code, build roots, records and domain content are never moved or renamed.
+2. **Move the content.** Move whatever a tool folder holds that is still read into its home,
+   repointing its readers, and delete the `!` re-include for it.
+3. **Untrack tool output.** Add it to `.gitignore`, then `git rm -r --cached`.
+4. **One home per kind.** Bring each kind to one home, keeping the home already cited.
+   - Replace copied history with one row in `docs/archive/README.md` naming a commit or tag pushed
+     to `origin`.
+   - Before deleting the copy, confirm `git cat-file -e <ref>:<path>` for each path.
+5. **Retired tooling.** Drop gate steps, Make targets, PR-template lines and tracked hooks that call
+   or name tools the skill no longer installs.
+6. **Agent files.** Add each missing `CLAUDE.md` twin, and move the gate into the root
+   `AGENTS.md`'s first 15 lines.
+7. **The README.** Rewrite `README.md` to the seven sections, with its `covers` comment.
+8. **Verify.**
+   - Add `docs.py links` to the gate, and commit.
+   - Run the full gate in a fresh worktree of that commit (`git worktree add --detach <dir>
+     HEAD`), not in the working tree, where untracked files still sit on disk.
+   - Run `docs.py lint`, `docs.py links` and `docs.py stale` there too.
 
-Rollback: `git revert`. Name no project, and no name `verify.sh`'s dangling-name scan lists.
+Rollback: copy the untracked paths aside, `git revert` the migration, then restore them. Name no
+project, and no name `verify.sh`'s dangling-name scan lists.
 
 **`methodology.md`.**
 - In the "Disclosure in layers" bullet, "a marked block in the nearest `AGENTS.md` for Codex"
@@ -243,11 +300,26 @@ Tests:
     D36`.
   - D36's row ends `| standing |`.
   - `install/global.md` contains `read each AGENTS.md between the repository root and it`.
-- **`test_rules.py`**, new class `Repository`:
-  - `test_the_reference_carries_the_readme_layout_and_lifecycle` (AC5). `references/repository.md`:
-    - has the headings `## The README`, `## Layout`, `## Agent files`, `## Lifecycle`;
-    - is at most 900 words;
-    - contains `` `git grep` ``.
+- **`test_rules.py`**, new class `Repository`. Each test reads `references/repository.md`.
+  - `test_the_reference_carries_the_readme_layout_and_lifecycle` (AC5). It has the headings `## The
+    README`, `## Layout`, `## Agent files` and `## Lifecycle`, is at most 900 words, and contains
+    `` `git grep` ``.
+  - `test_repository_rules_preserve_required_generated_pointers` (R1). The sentence holding
+    `Generated files a gate checks` also names `pointer files`.
+  - `test_naming_rule_allows_required_interface_filenames` (R13). The sentence holding
+    `lowercase` names `AGENTS.md`, `CLAUDE.md` and `README.md` as kept spellings.
+  - `test_module_rule_preserves_non_test_gate_modules` (R14). The text links `modules.md` and does
+    not contain `selector`.
+  - `test_lessons_record_can_retain_retired_component_rationale` (R15). The sentence naming
+    `docs/agents/lessons.md` contains `may name removed components`.
+- **`test_records.py`**, new class `LayoutMigrationTest`, reading
+  `docs/runbooks/migrate-layout.md`:
+  - `test_gate_input_survives_migration_in_a_fresh_checkout` (R2). It contains `git worktree add
+    --detach` and `Markdown included`.
+  - `test_rollback_preserves_modified_ignored_files` (R3). Its rollback line contains `copy the
+    untracked paths aside`.
+  - `test_archival_preserves_cited_records_and_verifies_recovery_content` (R4, R18). It contains
+    `git cat-file -e`, `pushed` and `records`, and does not contain `:!*.md`.
   - `test_planning_and_close_point_to_the_reference` (AC5).
     - `planning.md` contains `` a last task with `writes: README.md` `` and `(repository.md)`.
     - `close.md` contains `(repository.md#lifecycle)`.
@@ -300,15 +372,28 @@ Test: **`test_records.py::RecordsTest.test_readme_answers_the_seven_questions_in
 - The last line starts `<!-- covers: [`.
 - No word matches `\b[0-9a-f]{7,40}\b`.
 
-At T4's commit, `docs.py stale .` and `docs.py links .` list nothing.
+At T4's commit, `docs.py links .` passes and `docs.py stale .` does not list `README.md`. Pages
+covering `install/**` or `docs/**` may be listed; T4's own test and tick touch those paths
+(design review R16).
 
 ## Decisions
 
 - 2026-10-14: the link check ships as its own subcommand, `docs.py links`, not inside `lint`.
   Inside `lint` it would turn four product gates red on install (116, 34, 23 and 5 findings,
   measured) (default; design Rejected options).
-- 2026-10-14: anchors are checked on every `.md` target, not only `decisions.md`. This repository
-  passes, with 45 anchors checked (default).
+- 2026-10-14: anchors are checked on every `.md` target, not only `decisions.md`, against
+  GitHub's rendered anchors only. This repository passes once `prd.md`'s three `#d30` links take
+  full anchors (default; design review R8).
+- 2026-10-14: the design review returned BLOCK with 16 blocking findings and 2 non-blocking. All
+  are resolved in the design and plan before approval:
+  - R1, R13–R15 and R17–R18: the reference's exemptions;
+  - R2–R4: the runbook's reader grep, fresh-worktree gate, verified archive reference and
+    copy-aside rollback;
+  - R5: `pages` excludes only an import-only `CLAUDE.md`;
+  - R6–R12: the parser, the anchors and fences, the twin boundary and the `covers` parse;
+  - R16: T4's stale criterion is narrowed to the README.
+
+  Each blocking finding names its closing test in T1 or T3 (default).
 - 2026-10-14: undefined reference links are not checked. The case found, `[T9]`, is plain
   bracketed text (default).
 - 2026-10-14: this repository's own README test fixes its seven headings. Product repositories keep
