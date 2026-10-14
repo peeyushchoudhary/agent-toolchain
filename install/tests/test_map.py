@@ -34,7 +34,7 @@ class RepositoryMapTest(unittest.TestCase):
         self.assertEqual(modmap.unmapped(self.map, files), [])
 
     def test_selection_includes_repository_and_docs_consumers(self):
-        for write, want in (("install/tests/link_check.py", ["install", "repository"]),
+        for write, want in (("install/tests/tree_scan.py", ["install", "repository"]),
                             ("install/skills/execution-methodology/scripts/docs.py", ["goal", "install", "repository"]),
                             ("AGENTS.md", ALL),
                             ("install/verify.sh", ["install", "repository"])):

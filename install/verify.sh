@@ -95,9 +95,10 @@ check guard_self_test python3 "$GUARD" --self-test
 mkdir -p "$TMP/tree"
 check guard bash -c 'python3 "$1/install/tests/tree_scan.py" "$1" "$2" && cd "$2" && python3 "$1/$3" --staged' _ "$ROOT" "$TMP/tree" "$GUARD"
 
-# 5. Relative links in AGENTS.md, README.md and docs/**/*.md resolve (install/tests/link_check.py).
+# 5. Relative links and anchors in AGENTS.md, README.md and docs/**/*.md resolve, and each AGENTS.md
+# has its CLAUDE.md twin (the skill's docs.py links).
 section "links"
-python3 install/tests/link_check.py "$ROOT" || failed links   # prints `verify: links ok` itself
+check links python3 "$ROOT/install/skills/execution-methodology/scripts/docs.py" links "$ROOT"
 
 # 6. Every page under docs/ but the index and docs/goals/** carries summary, read-when, covers and
 # last-verified, and docs/README.md's table is `docs.py index`'s output (the skill's docs.py lint).

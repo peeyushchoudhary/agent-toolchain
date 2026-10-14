@@ -165,7 +165,7 @@ Tests in `test_docs.py`, new class **`LinksTest(DocsCase)`** unless named otherw
 Do not change `lint`'s checks beyond `pages`, any other test, the map, or any file outside the
 writes.
 
-### [ ] T2 — `verify.sh` runs `docs.py links`; `link_check.py` is removed; `docs/CLAUDE.md`
+### [x] T2 — `verify.sh` runs `docs.py links`; `link_check.py` is removed; `docs/CLAUDE.md`
 writes: install/verify.sh, install/tests/link_check.py, install/tests/test_install.py, install/tests/test_map.py, install/README.md, docs/CLAUDE.md, docs/product/prd.md
 reads: docs/goals/S-10/design.md#interfaces, install/verify.sh, install/tests/test_install.py, install/tests/test_map.py, install/README.md, docs/product/prd.md, docs/decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2
 tests-may-change: install/tests/test_install.py, install/tests/test_map.py, install/tests/link_check.py
@@ -463,6 +463,8 @@ covering `install/**` or `docs/**` may be listed; T4's own test and tick touch t
 - 2026-10-14 T1: an angle-bracket destination is reported without its brackets; a code span is
   blanked rather than cut, so text either side cannot join into a link; an anchor on a `.md` path
   that is a directory is not checked; a README with no commit is never stale (default).
+- 2026-10-14 T2: `LinksInVerify` is a plain `unittest.TestCase` that reads `verify.sh`, like
+  `test_map.py`'s text checks; `test_install.py` drops its unused `import sys` (default).
 
 ## Parked
 

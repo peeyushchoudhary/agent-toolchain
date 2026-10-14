@@ -20,8 +20,9 @@ it are in [measurements.md](measurements.md).
   asks for it twice per milestone and otherwise defaults reversible choices and logs them.
 - **The chief session.** The session, in Claude Code or Codex, which plans a goal with the
   founder, dispatches builders, runs the gate, commits each task and asks for the review. It is the
-  only session that commits. [D30](../decisions/decisions.md#d30) makes it the founder's own
-  console session: no launcher, loop or Stop hook.
+  only session that commits.
+  [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2)
+  makes it the founder's own console session: no launcher, loop or Stop hook.
 
 Builders, the scout and the reviewer are roles the chief dispatches, not users: each is an agent
 file with a declared model and effort.
@@ -47,7 +48,8 @@ file with a declared model and effort.
 
 ## Principles
 
-[D29](../decisions/decisions.md#d29) fixes three:
+[D29](../decisions/decisions.md#d29--simplified-goal-execution-methodology-v7-one-look-per-artifact-a-mechanical-gate-two-touchpoints)
+fixes three:
 
 - **One look per artifact.** Each document and each milestone diff gets one adversarial review by
   the other vendor, read-only, one round, no grant.
@@ -57,10 +59,10 @@ file with a declared model and effort.
   secrets and external actions park for the founder, everything else in scope is defaulted and
   logged.
 
-[D30](../decisions/decisions.md#d30) adds: bounded planning documents that cite exhaustive pages by
-section; pointer files generated from `covers`, never hand-written; roles that declare model and
-effort; cost recorded, never enforced. One instruction source serves both harnesses, at most 1,350
-words always loaded.
+[D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2)
+adds: bounded planning documents that cite exhaustive pages by section; pointer files generated
+from `covers`, never hand-written; roles that declare model and effort; cost recorded, never
+enforced. One instruction source serves both harnesses, at most 1,350 words always loaded.
 
 ## Surface
 
