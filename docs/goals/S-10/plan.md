@@ -472,6 +472,14 @@ covering `install/**` or `docs/**` may be listed; T4's own test and tick touch t
 - 2026-10-14 T4: the flowchart puts the review before `goal.py done`, as `close.md` orders them;
   each Components row links the page that describes it; entry points under `scripts/` and
   `agents/` are written short, with one sentence naming their directory (default).
+- 2026-10-14 merge review: BLOCK, 5 blocking and 2 non-blocking, all on `docs.py links`, each
+  closed by a `[T1][Rn]` commit with its test (`.runs/S-10/review.md`). `links` now scans each
+  paragraph, ending one at a heading, list item or table row; it allows one line ending before a
+  destination, treats escaped backticks and brackets as text, resolves a leading `/` from the root
+  and lists a path that leaves it, skips footnotes and decodes anchors. Anchors use the rendered
+  heading text, skip HTML comments and include setext headings; no `reads:` range in this
+  repository changed. Design Interface 1's claim that a code span across lines fails safe was
+  wrong (R2); the design stays as approved (default).
 
 ## Parked
 
