@@ -128,6 +128,8 @@ EXCLUDE="docs/decisions/decisions.md docs/product/measurements.md install/verify
 EXCLUDE="$EXCLUDE install/skills/execution-methodology/tests/test_rules.py"
 # The skills .gitignore explains why it is an allowlist with the vendor tool that writes beside it.
 EXCLUDE="$EXCLUDE install/skills/.gitignore"
+# docs/agents/lessons.md, where a repository has one, is a record and may name removed components.
+EXCLUDE="$EXCLUDE docs/agents/lessons.md"
 : > "$TMP/hits"
 git ls-files -z --cached --others --exclude-standard -- install README.md AGENTS.md docs | tr '\0' '\n' > "$TMP/files"
 [ -s "$TMP/files" ] || echo "verify: could not list the files to scan" > "$TMP/hits"

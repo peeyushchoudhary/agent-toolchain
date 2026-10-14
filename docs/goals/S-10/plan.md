@@ -191,7 +191,7 @@ AC4, AC2. `link_check.py` is in `tests-may-change` because done row 5 counts eve
 - New test **`test_install.py::LinksInVerify.test_verify_runs_the_shipped_link_check`** (AC4).
   `install/verify.sh` contains `docs.py" links "$ROOT"` and does not contain `link_check.py`.
 
-### [ ] T3 — The repository reference, the reading rule, D36 and the layout runbook
+### [x] T3 — The repository reference, the reading rule, D36 and the layout runbook
 writes: install/skills/execution-methodology/references/repository.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, docs/architecture/repository-standard.md, install/verify.sh, install/global.md, AGENTS.md, docs/decisions/decisions.md, docs/runbooks/migrate-layout.md, docs/architecture/methodology.md, docs/product/measurements.md, docs/README.md, docs/AGENTS.md, .claude/rules/**, install/tests/test_records.py, install/skills/execution-methodology/tests/test_rules.py
 reads: docs/goals/S-10/design.md#interfaces, docs/architecture/repository-standard.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/references/modules.md, install/global.md, AGENTS.md, docs/decisions/decisions.md, docs/runbooks/migrate-v5.md, docs/architecture/methodology.md, docs/product/measurements.md, install/tests/test_records.py, install/tests/test_size.py, install/verify.sh, install/skills/execution-methodology/tests/test_rules.py, install/skills/execution-methodology/scripts/docs.py
 tests-may-change: install/tests/test_records.py, install/skills/execution-methodology/tests/test_rules.py
@@ -465,6 +465,10 @@ covering `install/**` or `docs/**` may be listed; T4's own test and tick touch t
   that is a directory is not checked; a README with no commit is never stale (default).
 - 2026-10-14 T2: `LinksInVerify` is a plain `unittest.TestCase` that reads `verify.sh`, like
   `test_map.py`'s text checks; `test_install.py` drops its unused `import sys` (default).
+- 2026-10-14 T3: the naming rule is one sentence so its kept spellings sit with `lowercase`;
+  D36's Why is in the past tense, as D35's is; the decisions summary shortens D32–D35's clauses to
+  fit D36's within 120 words; `methodology.md`'s `last-verified` moves to 2026-10-14, since T3
+  re-verified it against `install/` (default).
 
 ## Parked
 

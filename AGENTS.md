@@ -4,6 +4,12 @@ Documentation and executable tooling for coding-agent work across projects; ther
 runtime or build artifact. Start at [docs/README.md](docs/README.md) and open only what the task
 needs.
 
+## Verification
+
+The repository gate is `cd install && ./install.sh --dry-run && ./verify.sh`; its last line,
+`verify: PASS`, is the verdict. During a goal, run it through `gate.py receipt`: a failure recorded
+in the goal's baseline is not attributed to the change, and a new one is.
+
 ## Boundaries and authority
 
 This public repository must contain no project names, personal paths, account identifiers, or
@@ -32,11 +38,5 @@ see [D17](docs/decisions/decisions.md#d17--this-repository-complies-with-the-sta
   [D32](docs/decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6),
   [D33](docs/decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7),
   [D34](docs/decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8),
-  [D35](docs/decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9).
-
-## Verification
-
-The repository gate is `cd install && ./install.sh --dry-run && ./verify.sh`; its last line,
-`verify: PASS`, is the verdict. During a goal, run it through `gate.py receipt`: a failure recorded
-in the goal's baseline is not attributed to the change, and a new one is. It includes the link
-check: every relative link in `AGENTS.md`, `README.md` and `docs/` must resolve.
+  [D35](docs/decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9),
+  [D36](docs/decisions/decisions.md#d36--the-readme-answers-seven-questions-again-the-repository-rules-ship-with-the-skill-docspy-links-s-10).

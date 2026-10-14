@@ -34,6 +34,8 @@ pushes the branch and opens the PR. Then, in this order:
 4. Run `goal.py cleanup --goal <id> --apply`. It removes only the worktrees recorded with `own`,
    and their branches, whose work `origin/main` holds.
 
+Archiving or untracking anything at a close follows [repository.md](repository.md#lifecycle).
+
 Next milestone: same branch.
 
 With `full_gate: modules`, the full gate is `gate.py receipt --goal <id> --modules all`. After a
