@@ -363,7 +363,7 @@ Tests:
     - `repository.md` contains `last-verified: YYYY-MM-DD`.
     - `close.md` contains `(repository.md#lifecycle)`.
 
-### [ ] T4 — This repository's README answers the seven questions
+### [x] T4 — This repository's README answers the seven questions
 writes: README.md, install/tests/test_records.py
 reads: docs/goals/S-10/design.md#interfaces, install/skills/execution-methodology/references/repository.md, install/tests/test_records.py, README.md, install/README.md, docs/architecture/methodology.md, docs/product/prd.md, install/skills/execution-methodology/references/close.md
 tests-may-change: install/tests/test_records.py
@@ -469,6 +469,9 @@ covering `install/**` or `docs/**` may be listed; T4's own test and tick touch t
   D36's Why is in the past tense, as D35's is; the decisions summary shortens D32–D35's clauses to
   fit D36's within 120 words; `methodology.md`'s `last-verified` moves to 2026-10-14, since T3
   re-verified it against `install/` (default).
+- 2026-10-14 T4: the flowchart puts the review before `goal.py done`, as `close.md` orders them;
+  each Components row links the page that describes it; entry points under `scripts/` and
+  `agents/` are written short, with one sentence naming their directory (default).
 
 ## Parked
 

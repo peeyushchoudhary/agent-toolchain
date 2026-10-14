@@ -1,5 +1,6 @@
 """The records' live facts: D35 ends the pilot, D29's table status names it, and the pages say so (S-9);
-D36 ships the repository rules, and the layout runbook guards what a migration could lose (S-10)."""
+D36 ships the repository rules, the layout runbook guards what a migration could lose, and the README answers
+the seven questions (S-10)."""
 from __future__ import annotations
 
 import re
@@ -15,6 +16,7 @@ GLOBAL = REPO / "install" / "global.md"
 VERIFY = REPO / "install" / "verify.sh"
 RUNBOOK = REPO / "docs" / "runbooks" / "migrate-layout.md"
 REFERENCES = REPO / "install" / "skills" / "execution-methodology" / "references"
+README = REPO / "README.md"
 D35 = "## D35 — The pilot and its stop rule have ended (S-9)"
 D36 = ("## D36 — The README answers seven questions again; the repository rules ship with the skill;"
        " docs.py links (S-10)")
@@ -66,6 +68,14 @@ class RecordsTest(unittest.TestCase):
         self.assertIn("`docs/agents/lessons.md`", sentence(STANDARD, "may name removed components"))
         excludes = [l for l in VERIFY.read_text(encoding="utf-8").splitlines() if l.startswith("EXCLUDE=")]
         self.assertTrue(any("docs/agents/lessons.md" in l for l in excludes), excludes)
+
+    def test_readme_answers_the_seven_questions_in_order(self):
+        lines = README.read_text(encoding="utf-8").splitlines()
+        self.assertEqual([l[3:] for l in lines if l.startswith("## ")],
+                         ["Overview", "Current state", "Product requirements", "Architecture", "Components",
+                          "Run locally", "Working in this repository"])
+        self.assertTrue(lines[-1].startswith("<!-- covers: ["), lines[-1])
+        self.assertEqual(re.findall(r"\b[0-9a-f]{7,40}\b", "\n".join(lines)), [])
 
 
 class LayoutMigrationTest(unittest.TestCase):
