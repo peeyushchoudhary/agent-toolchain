@@ -78,6 +78,31 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(c["gradle"], {"executed": 11, "failed": 2, "skipped": 1})
         self.assertEqual(c["failures"], ["FooTest.bar()"])
 
+    def test_vitest(self):
+        out = (" FAIL  src/a.test.tsx > Screen > shows the pill\n"
+               " FAIL  src/a.test.tsx > Screen > shows the pill\n"
+               " Test Files  1 failed | 4 passed (5)\n"
+               "      Tests  1 failed | 40 passed | 2 skipped | 1 todo (44)\n"
+               "\x1b[2m      Tests \x1b[22m \x1b[1m\x1b[32m6 passed\x1b[39m\x1b[22m\x1b[90m (6)\x1b[39m\n")
+        c = gate.parse_counts(out)
+        self.assertEqual((c["executed"], c["failed"], c["skipped"]), (47, 1, 3))
+        self.assertEqual(c["failures"], ["src/a.test.tsx > Screen > shows the pill"])
+        self.assertEqual(c["suites"], {"vitest": {"executed": 47, "failed": 1, "skipped": 3}})
+        self.assertEqual(gate.parse_counts(" Test Files  5 passed (5)\n")["executed"], 0)
+
+    def test_suites_split_the_counts_by_runner(self):
+        out = ("Ran 4 tests in 0.1s\n\nOK (skipped=1)\n"
+               "      Tests  2613 passed (2613)\n"
+               "  122 passed (1.3h)\n"
+               "12 tests completed, 2 failed, 1 skipped\n")
+        c = gate.parse_counts(out)
+        self.assertEqual(c["suites"], {
+            "unittest": {"executed": 3, "failed": 0, "skipped": 1},
+            "vitest": {"executed": 2613, "failed": 0, "skipped": 0},
+            "playwright": {"executed": 122, "failed": 0, "skipped": 0},
+            "junit": {"executed": 11, "failed": 2, "skipped": 1}})
+        self.assertEqual(gate.parse_counts("nothing ran here\n")["suites"], {})
+
     def test_fail_verdict_lines_are_recognised_and_pass_output_is_not(self):
         for out in ("verify: FAIL (1 checks)", "FAIL: test_x", "  FAIL: lint (verify.checks)",
                     "FAILED tests/test_x.py::test_y", "result: FAILED"):
@@ -698,7 +723,7 @@ class CoverageTest(GateCase):
         before = (sorted(self.repo.path(".runs").rglob("*")), self.repo.read(".runs/F-9/checks.jsonl"))
         res = self.coverage()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(res.stdout.strip(), "coverage: 6 = 6")
+        self.assertEqual(res.stdout.strip(), "coverage: unittest 6 = 6")
         self.assertEqual((sorted(self.repo.path(".runs").rglob("*")), self.repo.read(".runs/F-9/checks.jsonl")),
                          before)  # runs nothing, writes nothing
         self.repo.write("dirty.txt", "x")
@@ -723,23 +748,46 @@ class CoverageTest(GateCase):
         self.repo.gate("receipt", "--goal", "F-9", "--modules", "b")  # a FAIL receipt is no PASS
         res = self.coverage()
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(res.stdout.strip(), "coverage: full 6, modules 3; b missing")
+        self.assertEqual(res.stdout.strip(), "coverage: unittest full 6, modules 3; b missing")
         self.repo.write(".runs/mode-b", "ok")
         self.modules("b")  # its one retry
         wider = f"{self.full} && {EMIT}"
         self.assertGate(self.receipt(wider), "PASS", "9 run")
         res = self.coverage("--cmd", wider)
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-        self.assertEqual(res.stdout.strip(), "coverage: full 9, modules 6")
+        self.assertEqual(res.stdout.strip(), "coverage: unittest full 9, modules 6")
 
-    def test_coverage_skips_count_none_modules(self):
+    def test_coverage_counts_what_a_count_none_module_ran(self):
         self.assertGate(self.receipt(self.full), "PASS")
-        self.modules("a,b")  # c has no receipt
+        self.modules("a,b")  # c has no receipt, and a count-none module is never missing
         res = self.coverage()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(res.stdout.strip(), "coverage: 6 = 6")
-        self.modules("c")  # a count-none module adds nothing
-        self.assertEqual(self.coverage().stdout.strip(), "coverage: 6 = 6")
+        self.assertEqual(res.stdout.strip(), "coverage: unittest 6 = 6")
+        self.repo.write(".runs/mode-c", "vitest")
+        self.modules("c")  # c ran tests the full gate did not
+        res = self.coverage()
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "coverage: unittest 6 = 6; vitest full 0, modules 3")
+
+    def test_coverage_compares_each_suite_not_the_total(self):
+        full = f"{module_cmd('a')} && GATE_FIXTURE_MODE=vitest {EMIT}"
+        self.assertGate(self.receipt(full), "PASS", "6 run")
+        self.modules("a,b")
+        res = self.coverage("--cmd", full)
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)  # 6 and 6, but not the same tests
+        self.assertEqual(res.stdout.strip(), "coverage: unittest full 3, modules 6; vitest full 3, modules 0")
+
+    def test_coverage_names_receipts_without_per_suite_counts(self):
+        self.assertGate(self.receipt(self.full), "PASS")
+        self.modules("a,b")
+        path = gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(), self.full)
+        old = json.loads(path.read_text())
+        del old["suites"]
+        path.write_text(json.dumps(old))
+        res = self.coverage()
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), "coverage: full 6, modules 6 in total; "
+                                             "no per-suite counts in full gate: take that receipt again")
 
 
 if __name__ == "__main__":
