@@ -1,6 +1,6 @@
 ---
 goal: S-10
-title: The README's seven questions, a shipped link check, and the layout rules
+title: The README's seven questions, the repository rules in the skill, and a shipped link check
 gate: cd install && ./verify.sh
 full_gate: cd install && ./install.sh --dry-run && ./verify.sh
 milestones:
@@ -16,9 +16,10 @@ protected: [docs/decisions/decisions.md#D1-D35, docs/goals/S-10/design.md#interf
 AC2). `docs.py pointers` writes that twin with each `AGENTS.md` it creates, and `lint` no longer
 treats a `CLAUDE.md` as a page (AC2). A README's `covers` comment puts it under `docs.py stale`
 (AC3). `verify.sh` runs `docs.py links` in place of the unshipped `link_check.py` (AC4). The
-standard names the README's seven sections and the layout rules; `planning.md` puts the README
-update in a milestone's last task; `global.md` tells both harnesses to read the `AGENTS.md` files on
-the way to a file; D36 records it; a runbook migrates a repository's layout (AC5). This
+skill ships `references/repository.md` with the README's seven sections and the layout, agent-file
+and lifecycle rules; `planning.md` and `close.md` point to it; `global.md` tells both harnesses to
+read the `AGENTS.md` files on the way to a file; D36 records it; a runbook migrates a repository
+after grepping each path's readers (AC5). This
 repository's README answers the seven questions (AC6). Spec: [spec.md](spec.md). Design:
 [design.md](design.md).
 
@@ -119,86 +120,111 @@ AC4, AC2.
 - New test **`test_install.py::LinksInVerify.test_verify_runs_the_shipped_link_check`** (AC4).
   `install/verify.sh` contains `docs.py" links "$ROOT"` and does not contain `link_check.py`.
 
-### [ ] T3 — The standard, the planning rule, the reading rule, D36 and the layout runbook
-writes: docs/architecture/repository-standard.md, install/skills/execution-methodology/references/planning.md, install/global.md, AGENTS.md, docs/decisions/decisions.md, docs/runbooks/migrate-layout.md, docs/architecture/methodology.md, docs/product/measurements.md, docs/README.md, docs/AGENTS.md, .claude/rules/**, install/tests/test_records.py, install/skills/execution-methodology/tests/test_rules.py
-reads: docs/goals/S-10/design.md#interfaces, docs/architecture/repository-standard.md, install/skills/execution-methodology/references/planning.md, install/global.md, AGENTS.md, docs/decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9, docs/runbooks/migrate-v5.md, docs/architecture/methodology.md, docs/product/measurements.md, install/tests/test_records.py, install/tests/test_size.py, install/verify.sh
+### [ ] T3 — The repository reference, the reading rule, D36 and the layout runbook
+writes: install/skills/execution-methodology/references/repository.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, docs/architecture/repository-standard.md, install/global.md, AGENTS.md, docs/decisions/decisions.md, docs/runbooks/migrate-layout.md, docs/architecture/methodology.md, docs/product/measurements.md, docs/README.md, docs/AGENTS.md, .claude/rules/**, install/tests/test_records.py, install/skills/execution-methodology/tests/test_rules.py
+reads: docs/goals/S-10/design.md#interfaces, docs/architecture/repository-standard.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, install/global.md, AGENTS.md, docs/decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9, docs/runbooks/migrate-v5.md, docs/architecture/methodology.md, docs/product/measurements.md, install/tests/test_records.py, install/tests/test_size.py, install/verify.sh
 tests-may-change: install/tests/test_records.py, install/skills/execution-methodology/tests/test_rules.py
 needs: T2
-AC5. Design Interfaces 5 and 6.
+AC5. Design Interfaces 4–7.
+
+**New `install/skills/execution-methodology/references/repository.md`.** Design Interface 7, as
+prose, at most 900 words.
+- Its four sections are `## The README`, `## Layout`, `## Agent files` and `## Lifecycle`.
+- The product minimum closes `## Layout`. Move it word for word from `repository-standard.md`'s
+  last paragraph, and add `docs.py links` to the gate.
+- No frontmatter: it is a skill reference, not a `docs/` page.
+- Name no project, and no name `verify.sh`'s dangling-name scan lists.
+
+**`planning.md`.**
+- Under "Chief's planning rules", MUST, add: "Give a milestone that changes what the repository
+  ships a last task with `writes: README.md` and a criterion naming the README's new Current
+  state."
+- After the `docs/` frontmatter template, add one line: "Where files go, what the README answers
+  and how records age:", then a Markdown link whose text and target are both `repository.md`.
+
+**`close.md`.** After step 4, add one line: "Archiving or untracking anything at a close follows",
+then a Markdown link with text `repository.md` and target `repository.md#lifecycle`.
 
 **`repository-standard.md`.**
-- **Layout block.** The `README.md` row reads "front page for a human: the seven sections below".
-- **New section `## The README`.** Interface 5's seven sections and its never-stated list, as
-  prose. Add the `covers` comment (Interface 4). Add that a milestone that changes what ships
-  updates Current state in its last task.
-- **New section `## Layout rules`:**
-  - One home per kind: decisions in `docs/decisions/`, in-flight work in `docs/goals/`, history
-    behind tags named in `docs/archive/`.
-  - Tool output and run state (a plugin's plans and specs, code-graph output, scratch workspaces)
-    are never tracked: ignored, and archived behind a tag when already tracked.
-  - Every `AGENTS.md` has a sibling `CLAUDE.md` holding `@AGENTS.md`.
-  - A directory gets its own `AGENTS.md` only for invariants of its own.
-  - Code goes where the build tool declares its modules, and `modules.json` names them.
-  - `docs/product/features/` is optional.
-- **Enforcement paragraph.** The link check is `docs.py links`. The product-repository minimum adds
-  `docs.py links` to its gate.
-- **Frontmatter.** `summary` (at most 120 words) names the README's sections and the layout rules;
-  `last-verified: 2026-10-14`.
+- **Layout block.** The `README.md` row reads "front page for a human: the seven sections of the
+  skill's `references/repository.md`".
+- **After the block,** one sentence: the rules every repository follows (README, layout, agent
+  files, lifecycle, the product minimum) are the skill's `references/repository.md`, and this page
+  is how this repository applies them. Link the reference by its relative path.
+- **Last paragraph.** Replace the product-minimum paragraph with that link.
+- **Enforcement paragraph.** The link check is `docs.py links`.
+- **Frontmatter.** Update `summary` (at most 120 words); `last-verified: 2026-10-14`.
 
-**`planning.md`, "Chief's planning rules", MUST.** Add: "Give a milestone that changes what the
-repository ships a last task with `writes: README.md` and a criterion naming the README's new
-Current state."
+**`global.md`.** Append design Interface 6's sentence as its own paragraph after the skill
+paragraph.
 
-**`global.md`.** Append Interface 6's sentence as its own paragraph after the skill paragraph.
-
-**`AGENTS.md`.**
+**`AGENTS.md`.** The reference's agent-files rule applies here too (D17).
+- Move the `## Verification` section up to follow the opening paragraph, so the gate is within
+  the first 15 lines.
+- Delete that section's last sentence (from "It includes the link check").
 - Add the D36 link after D35.
-- Delete the Verification paragraph's last sentence (from "It includes the link check").
-- The always-loaded total must stay at most 1,350 (`test_size.py`). Today it is 1,344, and these
-  edits net about −1.
+- The always-loaded total stays at most 1,350 (`test_size.py`). Today it is 1,344, and these edits
+  net about −1.
 
 **D36 in `decisions.md`.**
-- Append `## D36 — The README answers seven questions again, as prose; docs.py links ships (S-10)`
-  after D35, in D35's shape, with one blank line before the heading.
-  - **Chose:** Interface 5's sections, stated in `repository-standard.md` with no presence check;
-    `docs.py links` with the skill, added to each repository's gate at its layout migration; every
-    `AGENTS.md` with its twin; `global.md`'s reading rule.
-  - **Over:** the council's five sections, a one-paragraph rule, v6's validator, the link check
-    inside `lint`, a generated routing table.
+- Append `## D36 — The README answers seven questions again; the repository rules ship with the
+  skill; docs.py links (S-10)` after D35, in D35's shape, with one blank line before the heading.
+  - **Chose:**
+    - Interface 7's reference, shipped in the skill, with no presence check;
+    - `docs.py links`, added to each repository's gate at its layout migration;
+    - every `AGENTS.md` with its twin;
+    - `global.md`'s reading rule.
+  - **Over:**
+    - the council's five README sections, or a one-paragraph rule;
+    - the rules only in `repository-standard.md`;
+    - v6's validator and its full naming rules;
+    - the link check inside `lint`;
+    - a generated routing table.
   - **Why:**
-    - five audits on 2026-10-14 found every README's status stale;
-    - broken links passed product gates because the check never shipped;
-    - six `AGENTS.md` files Claude never loads;
-    - the founder chose the seven sections on 2026-10-14.
-  - **Reverses:** D29's removal of the README contract, as prose only.
+    - Five audits and a structure council on 2026-10-14 found every README's status stale.
+    - The standard is not installed.
+    - Broken links passed product gates.
+    - Six `AGENTS.md` files are never loaded.
+    - Product gates and code read files in tool folders.
+    - The founder chose the seven sections, the shipped reference, the naming rule and lessons as
+      a record (2026-10-14).
+  - **Reverses:** D29's removal of the README contract, as prose.
 - **Table.**
-  - Add a D36 row dated 2026-10-14, `standing`.
+  - Add a D36 row, dated 2026-10-14 and `standing`.
   - D1's status `superseded by D29` becomes `superseded by D29; its questions restored as prose by
     D36`.
+  - D17's status `standing` becomes `standing; its layout and validator superseded by D30 and
+    D36`.
+  - D18's status `standing` becomes `standing; the README beside it removed at S-1`.
   - Add a D36 clause to `summary`, which stays at most 120 words.
-- D1–D35 stay byte-identical.
+- D1–D35's text stays byte-identical.
 
 **New `docs/runbooks/migrate-layout.md`,** with frontmatter (`covers: []`). Numbered steps for a
-product repository at a milestone boundary:
-1. Tag the old layout (`archive/pre-layout`; pushing it is the founder's).
-2. Move what is still read out of a tool folder first.
-3. Untrack tool output: add it to `.gitignore`, then `git rm -r --cached`. List the tag and paths
-   in `docs/archive/README.md`.
-4. Bring each kind to one home, and delete copied history.
-5. Drop gate steps, Make targets and PR-template lines that call scripts the skill no longer
-   installs, so the gate passes on a fresh clone.
-6. Add each missing `CLAUDE.md` twin, and remove a nested `AGENTS.md` with no invariant of its own.
-7. Rewrite `README.md` to the seven sections with its `covers` comment.
-8. Add `docs.py links` to the gate, then run `docs.py lint`, `docs.py links`, `docs.py stale` and
-   the full gate.
+product repository at a milestone boundary, on a branch:
+1. Before moving, archiving or untracking any path, `git grep -n <path> -- ':!*.md'`. Repoint each
+   reader in the same commit; a path that code or the gate reads stays put. Code, build roots and
+   domain content are never moved or renamed.
+2. Move whatever a tool folder holds that is still read into its home, and delete the `!`
+   re-include for it.
+3. Untrack tool output: add it to `.gitignore`, then `git rm -r --cached`.
+4. Bring each kind to one home, keeping the home already cited. Replace copied history with one
+   row in `docs/archive/README.md` that names a commit on `origin/main`.
+5. Drop gate steps, Make targets, PR-template lines and tracked hooks that call or name tools the
+   skill no longer installs, so the gate passes on a fresh clone.
+6. Add each missing `CLAUDE.md` twin, and move the gate into the root `AGENTS.md`'s first 15
+   lines.
+7. Rewrite `README.md` to the seven sections, with its `covers` comment.
+8. Add `docs.py links` to the gate. Run `docs.py lint`, `docs.py links`, `docs.py stale` and the
+   full gate.
 
-Rollback: `git revert`; the tag keeps the history. Name no project, and no name `verify.sh`'s
-dangling-name scan lists.
+Rollback: `git revert`. Name no project, and no name `verify.sh`'s dangling-name scan lists.
 
 **`methodology.md`.**
 - In the "Disclosure in layers" bullet, "a marked block in the nearest `AGENTS.md` for Codex"
   becomes "a marked block in the nearest `AGENTS.md`, which `global.md`'s reading rule has both
-  harnesses read". Add that `docs.py links` checks links, anchors and twins.
+  harnesses read".
+- Add that `docs.py links` checks links, anchors and twins, and that `references/repository.md`
+  carries the README, layout and lifecycle rules.
 - The Accepted risks line "The pilot's sampled follow-up reviews make the comparison." becomes "No
   comparison has run since D35 ended the pilot."
 
@@ -210,20 +236,25 @@ dangling-name scan lists.
 Regenerate with `docs.py index .` (into `docs/README.md`'s table) and `docs.py pointers .`.
 
 Tests:
-- **`test_records.py::RecordsTest.test_d36_restores_the_readme_questions`** (AC5). Copy
+- **`test_records.py::RecordsTest.test_d36_ships_the_repository_rules`** (AC5). Copy
   `test_d35_ends_the_pilot_and_updates_d29`'s shape.
   - `decisions.md` holds D36's heading line.
-  - D1's table row contains `restored as prose by D36`.
+  - D1's table row contains `restored as prose by D36`, and D17's contains `superseded by D30 and
+    D36`.
   - D36's row ends `| standing |`.
   - `install/global.md` contains `read each AGENTS.md between the repository root and it`.
-  - `repository-standard.md` contains `## The README` and `docs.py links`.
-- **`test_rules.py`**, in the class holding `planning.md`'s tests (or a new class `Planning`):
-  `test_planning_gives_the_readme_update_to_a_milestones_last_task` (AC5). `planning.md` contains
-  `` a last task with `writes: README.md` ``.
+- **`test_rules.py`**, new class `Repository`:
+  - `test_the_reference_carries_the_readme_layout_and_lifecycle` (AC5). `references/repository.md`:
+    - has the headings `## The README`, `## Layout`, `## Agent files`, `## Lifecycle`;
+    - is at most 900 words;
+    - contains `` `git grep` ``.
+  - `test_planning_and_close_point_to_the_reference` (AC5).
+    - `planning.md` contains `` a last task with `writes: README.md` `` and `(repository.md)`.
+    - `close.md` contains `(repository.md#lifecycle)`.
 
 ### [ ] T4 — This repository's README answers the seven questions
 writes: README.md, install/tests/test_records.py
-reads: docs/goals/S-10/design.md#interfaces, docs/architecture/repository-standard.md, README.md, install/README.md, docs/architecture/methodology.md, docs/product/prd.md, install/skills/execution-methodology/references/close.md
+reads: docs/goals/S-10/design.md#interfaces, install/skills/execution-methodology/references/repository.md, README.md, install/README.md, docs/architecture/methodology.md, docs/product/prd.md, install/skills/execution-methodology/references/close.md
 tests-may-change: install/tests/test_records.py
 needs: T1, T2, T3
 gate: python3 -m unittest discover -s install/tests -t install/tests -p 'test_records.py' && cd install && ./install.sh --dry-run && ./verify.sh --no-suites
@@ -288,6 +319,14 @@ At T4's commit, `docs.py stale .` and `docs.py links .` list nothing.
   checks gained are `docs.py links` (links, anchors, twins) and the README under `stale`. The Codex
   gap closes with one `global.md` sentence. Product migrations stay the founder's (founder,
   2026-10-14).
+
+- 2026-10-14: the repository rules ship as the skill's `references/repository.md`; new paths are
+  lowercase and unique, with goal ids exempt; `lessons.md` is a record cited by anchor; the
+  structure work folds into S-10 (founder, 2026-10-14, after the structure council).
+- 2026-10-14: the structure council's corrections are adopted. `modules.json` partitions the tests
+  rather than naming build modules; there is no "nested `AGENTS.md` only for its own invariants"
+  rule; every move or untrack starts with a grep for its readers; generated files the build
+  consumes stay tracked (default).
 
 ## Parked
 

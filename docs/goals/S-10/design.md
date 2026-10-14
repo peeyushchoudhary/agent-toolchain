@@ -1,4 +1,4 @@
-# S-10 design: the README's seven questions, a shipped link check, and the layout rules
+# S-10 design: the README's seven questions, the repository rules in the skill, and a shipped link check
 
 ## Structure
 
@@ -10,11 +10,14 @@
 - **`verify.sh`.** Its links section calls `docs.py links`. `install/tests/link_check.py` and its
   test move into `docs.py` and `test_docs.py`.
 - **Words.**
-  - `repository-standard.md`: the README's seven sections, the layout rules, and `docs.py links`
-    in a product repository's gate.
-  - `planning.md`: the README update in a milestone's last task.
+  - New `references/repository.md` in the skill (Interface 7). It ships to every harness home, so
+    product-repository agents read it.
+  - `repository-standard.md` keeps this repository's own layout and links the reference for the
+    rules every repository follows.
+  - `planning.md`: the README update in a milestone's last task, and a pointer to the reference.
+  - `close.md`: a pointer to the reference's lifecycle rules.
   - `global.md`: the `AGENTS.md` reading rule.
-  - D36.
+  - D36, plus D17's and D18's status cells.
   - `docs/runbooks/migrate-layout.md`.
   - `methodology.md`: drop the "for Codex" claim and S-9's leftover pilot wording.
   - `measurements.md`: the same pilot wording.
@@ -64,6 +67,35 @@
    change, or the methodology version.
 6. **The reading rule** (durable words, `global.md`): "Before editing files in a directory, read
    each AGENTS.md between the repository root and it."
+7. **`references/repository.md`** (durable words), at most 900 words, with four sections:
+   - **The README:** Interfaces 4 and 5.
+   - **Layout:**
+     - Code goes where the build file declares it. `modules.json` partitions the tests, and each
+       module's `test` calls the build tool's own selector.
+     - New code and docs paths are lowercase with unique names. Goal ids are exempt; existing names
+       are never renamed.
+     - One home per kind: decisions, in-flight work in `docs/goals/`, history in `docs/archive/`.
+       The home already cited is kept.
+     - Tool output and run state are never tracked. What a tool folder holds that is still read is
+       moved out first, never re-included with a `!` rule.
+     - Generated files the build consumes stay tracked, with a regeneration check in the gate.
+   - **Agent files:**
+     - `AGENTS.md` is authored; every `AGENTS.md` has a sibling `CLAUDE.md` holding `@AGENTS.md`.
+     - The root `AGENTS.md` names the gate within its first 15 lines.
+     - A tracked hook names only things that exist.
+     - A gate step calls only tooling the repository holds or the skill ships.
+   - **Lifecycle:**
+     - Records (decisions, measurements, goals, `docs/agents/lessons.md`) are dated, cited by
+       anchor and never moved.
+     - A finished goal stays in place; its folder holds spec, design, plan and the inputs its
+       `reads:` cite, and review output stays in `.runs/`.
+     - Supersession goes in a status cell, never by rewriting the text.
+     - An archive entry is one row in `docs/archive/README.md` naming a commit on `origin/main`,
+       never a copy.
+     - Before moving or untracking a path, `git grep` for it outside `*.md`, repoint each reader in
+       the same commit, and run the full gate. Code and domain content are never moved.
+   - **The product minimum:** moved here from `repository-standard.md`, plus `docs.py links` in
+     the gate.
 
 ## Data touched
 
@@ -87,3 +119,12 @@ None. `links` and `stale` read only. `pointers` writes one more generated file, 
 - **A generated root routing table for Codex.** It grows with every page; one sentence suffices.
 - **Status generated from tags.** `lint --check` would fail on an unchanged tree once a tag is
   pushed.
+- **The rules only in `repository-standard.md`.** It is not installed, so no product-repository
+  agent reads it, and one product repository copied 2,337 lines into its archive.
+- **Prescribing source layout.** Build files already declare it. One repository has 10 Gradle
+  projects and 85 map modules, so "modules are build modules" would be false.
+- **v6's full naming rules.** Hundreds of existing docs files break them and no defect traces to
+  that. Renaming is a build risk.
+- **A `done/` folder or goal status field.** Most product plans cite other goals' folders by path.
+- **"A nested `AGENTS.md` only for its own invariants."** `docs.py pointers` creates `AGENTS.md`
+  files to carry pointer blocks.
