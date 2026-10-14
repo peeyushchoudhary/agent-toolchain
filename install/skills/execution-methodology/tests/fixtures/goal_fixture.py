@@ -125,6 +125,7 @@ new = "FAIL: test_new (mod.Case.test_new)"
 out = {
     "ok": ("Ran 3 tests in 0.01s\n\nOK", 0),
     "zero": ("nothing ran here", 0),
+    "vitest": (" Test Files  1 passed (1)\n      Tests  3 passed (3)", 0),
     "lie": ("Ran 3 tests in 0.01s\n\nFAILED (failures=1)", 0),
     "crash": ("Traceback: boom", 1),
     "base": (f"{fail}\n----\nRan 3 tests in 0.01s\n\nFAILED (failures=1)", 1),

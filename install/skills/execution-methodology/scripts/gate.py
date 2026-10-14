@@ -20,9 +20,12 @@ module's PASS on the same tree, retries a failed one once (`retry_of`), and then
 An empty selection, or a selected module whose test command is blank, is refused with exit 2
 before anything runs.
 
-`coverage` runs nothing and writes nothing: on HEAD's clean tree it compares the test count of the PASS
-receipt for `--cmd` (default: the map's `replaces`) with the summed counts of the modules' PASS receipts,
-skipping count-none modules. Advisory: exit 0 when they are equal, 1 otherwise.
+`coverage` runs nothing and writes nothing: on HEAD's clean tree it compares, suite by suite, the counts
+of the PASS receipt for `--cmd` (default: the map's `replaces`) with the summed counts of the modules'
+PASS receipts. A suite is the runner a count came from: unittest, pytest, playwright, vitest, or junit
+(JUnit XML under --junit, else Gradle's summary line). A count-none module adds whatever it ran and is
+never missing. A receipt written before receipts carried `suites` is compared by its total and named.
+Advisory: exit 0 when every suite is equal and no module is missing, 1 otherwise.
 
 Under a goal each run appends one line to `<runs>/<goal>/checks.jsonl`, and each command's last line is
 its budget line. Every record line and receipt carries load readings (`started_at`, `load_before`,
@@ -101,36 +104,58 @@ GRADLE_CACHED = re.compile(r"^\d+ actionable tasks?:.*\bfrom cache\b", re.M)
 PLAYWRIGHT_LINE = re.compile(r"^  (\d+) (passed|flaky|failed|interrupted|skipped|did not run)"
                              r"(?: \([\d.]+(?:ms|s|m|h)\))?[ \t]*$", re.M)
 PLAYWRIGHT_ID = re.compile(r"^    (\[[^\]\n]+\] › .+?)[ \t─]*$")
+# Vitest's end-of-run summary, `Tests  1 failed | 41 passed | 2 skipped (44)`; `Test Files` is not it.
+# Each failed test is listed as `FAIL  <file> > <suite> > <test>`.
+VITEST_LINE = re.compile(r"^[ \t]*Tests[ \t]+(\d+ [a-z ]+?(?: \| \d+ [a-z ]+?)*)[ \t]+\(\d+\)[ \t]*$", re.M)
+VITEST_PAIR = re.compile(r"(\d+) (passed|failed|skipped|todo|expected fail)\b")
+VITEST_ID = re.compile(r"^[ \t]*FAIL[ \t]+(\S+ > .+?)[ \t]*$", re.M)
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
 VERDICT_FAIL = re.compile(r"FAILED \(|\b[1-9]\d* failed\b|GATE DID NOT PASS|BUILD FAILED"
                           # a line-anchored FAIL verdict: `FAIL: test_x`, `verify: FAIL (1 checks)`
                           r"|^[ \t]*(?:[\w./-]+: )?FAIL(?:ED)?\b(?!:?[ \t]*0\b)", re.M)
 
 
+def tally(suites, name, executed=0, failed=0, skipped=0):
+    """Add one summary's counts to suites[name], creating it at zero."""
+    t = suites.setdefault(name, {"executed": 0, "failed": 0, "skipped": 0})
+    t["executed"] += executed
+    t["failed"] += failed
+    t["skipped"] += skipped
+
+
 def parse_counts(out: str) -> dict:
-    """Sum executed/failed/skipped across every unittest, pytest, Playwright and Gradle summary in out."""
+    """Sum executed/failed/skipped across every unittest, pytest, Playwright, Vitest and Gradle summary
+    in out; `suites` holds the same counts per runner, naming only runners whose summary appeared."""
     executed = failed = skipped = 0
     ids = []
+    suites = {}
     rans = list(UNITTEST_RAN.finditer(out))
     for k, ran in enumerate(rans):
         end = UNITTEST_END.search(out, ran.end(), rans[k + 1].start() if k + 1 < len(rans) else len(out))
         detail = end.group(2) or "" if end else ""
         kv = dict(p.strip().split("=", 1) for p in detail.split(",") if "=" in p)
         skip = int(kv.get("skipped", 0))
+        bad = int(kv.get("failures", 0)) + int(kv.get("errors", 0))
         executed += int(ran.group(1)) - skip
         skipped += skip
-        failed += int(kv.get("failures", 0)) + int(kv.get("errors", 0))
+        failed += bad
+        tally(suites, "unittest", int(ran.group(1)) - skip, bad, skip)
     for name, where in UNITTEST_ID.findall(out):
         ids.append(where if where.endswith("." + name) else f"{where}.{name}")
     for line in PYTEST_LINE.findall(out):
+        tally(suites, "pytest")
         for n, word in PYTEST_PAIR.findall(line):
             n = int(n)
             if word in ("passed", "xpassed", "xfailed"):
                 executed += n
+                tally(suites, "pytest", n)
             elif word == "skipped":
                 skipped += n
+                tally(suites, "pytest", skipped=n)
             else:
                 executed += n
                 failed += n
+                tally(suites, "pytest", n, n)
     ids += PYTEST_ID.findall(out)
     lines = out.splitlines()
     for k, line in enumerate(lines):
@@ -140,16 +165,35 @@ def parse_counts(out: str) -> dict:
         n, word = int(m.group(1)), m.group(2)
         if word in ("passed", "flaky"):
             executed += n
+            tally(suites, "playwright", n)
         elif word in ("skipped", "did not run"):
             skipped += n
+            tally(suites, "playwright", skipped=n)
         else:
             executed += n
             failed += n
+            tally(suites, "playwright", n, n)
             for listed in lines[k + 1:]:
                 hit = PLAYWRIGHT_ID.match(listed)
                 if not hit:
                     break
                 ids.append(hit.group(1))
+    plain = ANSI.sub("", out)
+    for line in VITEST_LINE.findall(plain):
+        tally(suites, "vitest")
+        for n, word in VITEST_PAIR.findall(line):
+            n = int(n)
+            if word in ("passed", "expected fail"):
+                executed += n
+                tally(suites, "vitest", n)
+            elif word in ("skipped", "todo"):
+                skipped += n
+                tally(suites, "vitest", skipped=n)
+            else:
+                executed += n
+                failed += n
+                tally(suites, "vitest", n, n)
+    ids += list(dict.fromkeys(VITEST_ID.findall(plain))) if VITEST_LINE.search(plain) else []
     gradle = {"executed": 0, "failed": 0, "skipped": 0}
     for done_, bad, skip in GRADLE_LINE.findall(out):
         skip = int(skip or 0)
@@ -157,8 +201,10 @@ def parse_counts(out: str) -> dict:
         gradle["failed"] += int(bad)
         gradle["skipped"] += skip
     ids += [f"{c}.{m}" for c, m in GRADLE_ID.findall(out)]
+    if GRADLE_LINE.search(out):
+        suites["junit"] = dict(gradle)
     return {"executed": executed, "failed": failed, "skipped": skipped,
-            "failures": ids, "gradle": gradle}
+            "failures": ids, "gradle": gradle, "suites": suites}
 
 
 def parse_junit(root, pattern, since: float) -> dict | None:
@@ -290,6 +336,9 @@ def evaluate(root, cmd, goal, count_none, junit, label, runs=None, load_before=N
     failed = counts["failed"] + src["failed"]
     skipped = counts["skipped"] + src["skipped"]
     failures = sorted(set(counts["failures"] + (xml["failures"] if xml else [])))
+    suites = dict(counts["suites"])
+    if xml:
+        suites["junit"] = {k: xml[k] for k in ("executed", "failed", "skipped")}
     entry = load_baseline(root, goal, cmd, runs)
     baseline = set(entry.get("failures", []))
     new = [f for f in failures if f not in baseline]
@@ -325,7 +374,7 @@ def evaluate(root, cmd, goal, count_none, junit, label, runs=None, load_before=N
     if after != before:
         reasons.append("the run changed the working tree")
     return {"command": cmd, "exit": code, "executed": executed, "failed": failed,
-            "skipped": skipped, "failures": failures, "new_failures": new,
+            "skipped": skipped, "suites": suites, "failures": failures, "new_failures": new,
             "baseline_failures": known, **readings, "finished_at": now(),
             "verdict": "FAIL" if reasons else "PASS", "reasons": reasons, "log": str(log)}, duration
 
@@ -570,21 +619,29 @@ def cmd_coverage(args, root):
     if full.get("verdict") != "PASS":
         print(f"coverage: no PASS receipt for {cmd} on tree {tree}")
         return 1
-    total, missing = 0, []
+    sums, total, missing, unsplit = {}, 0, [], [] if "suites" in full else ["full gate"]
     for name, spec in mods:
-        if spec.get("count") == "none":
-            continue
         res = read_receipt(receipt_path(root, args.goal, tree, module_key(name, spec), args.runs))
-        if res.get("verdict") == "PASS":
-            total += res.get("executed", 0)
-        else:
-            missing.append(name)
-    n = full.get("executed", 0)
-    if n == total and not missing:
-        print(f"coverage: {n} = {total}")
-        return 0
-    print(f"coverage: full {n}, modules {total}" + (f"; {', '.join(missing)} missing" if missing else ""))
-    return 1
+        if res.get("verdict") != "PASS":
+            missing += [] if spec.get("count") == "none" else [name]
+            continue
+        total += res.get("executed", 0)
+        unsplit += [] if "suites" in res else [name]
+        for suite, t in res.get("suites", {}).items():
+            sums[suite] = sums.get(suite, 0) + t.get("executed", 0)
+    tail = f"; {', '.join(missing)} missing" if missing else ""
+    if unsplit:
+        print(f"coverage: full {full.get('executed', 0)}, modules {total} in total; no per-suite counts in "
+              f"{', '.join(unsplit)}: take that receipt again{tail}")
+        return 1
+    fulls = {suite: t.get("executed", 0) for suite, t in full["suites"].items()}
+    parts, same = [], True
+    for suite in sorted(set(fulls) | set(sums)):
+        a, b = fulls.get(suite, 0), sums.get(suite, 0)
+        same = same and a == b
+        parts.append(f"{suite} {a} = {b}" if a == b else f"{suite} full {a}, modules {b}")
+    print("coverage: " + ("; ".join(parts) or "no tests on either side") + tail)
+    return 0 if same and not missing else 1
 
 
 def cmd_baseline(args, root):
