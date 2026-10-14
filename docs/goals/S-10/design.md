@@ -32,18 +32,22 @@
    - **Scope.** `README.md`, `AGENTS.md` and the tracked `docs/**/*.md`; a missing file is skipped.
    - **Code** (design review R7, R10), in `fenced` itself, so headings and `reads:` agree with links.
      - A fence opens on a run of three or more backticks or tildes, indented at most three spaces.
-       It closes on a run of the same character at least as long.
+       It closes on a line holding only a run of the same character at least as long, indented at
+       most three spaces, with nothing after it but whitespace (plan review R4).
      - On a line outside a fence, a backtick run of length n opens a code span. The span closes at
        the next run of exactly n backticks on that line; a run left unmatched is literal.
      - A span running across lines is not recognised. A link inside it is checked, so the error is
        a false failure, never a false pass.
    - **Destinations** (R6). For each inline link or image, the destination (what follows the
-     closing bracket's opening parenthesis) is:
+     closing bracket's opening parenthesis, after any spaces or tabs; plan review R5) is:
      - `<…>` up to the first `>`; or
      - else a run without spaces, with balanced parentheses.
      - A title after whitespace is ignored, and percent-encoding is decoded before the path is
        checked.
      - A destination with a URI scheme, such as `https:`, is skipped.
+     - A link reference definition (`[label]: destination`, at most three spaces of indent, outside
+       a fence) has its destination checked the same way (plan review R6). A reference use with no
+       definition stays unchecked.
    - **Targets.** The path must exist.
    - **Anchors** (R8, R9).
      - `#anchor` on a `.md` target, or alone for the same file, must equal one of the target's
@@ -132,6 +136,8 @@
        restore them.
    - **The product minimum:** moved here from `repository-standard.md`, plus `docs.py links` in
      the gate.
+   - **The page frontmatter template:** moved here from `planning.md`, which keeps a pointer and
+     stays within its 400-word ceiling (plan review R2).
 
 ## Data touched
 

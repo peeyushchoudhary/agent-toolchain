@@ -17,7 +17,8 @@ harnesses read nested `AGENTS.md` files; a runbook migrates a repository safely.
   exit 1.
 - AC2 WHEN a tracked `AGENTS.md` has no sibling `CLAUDE.md` holding the line `@AGENTS.md`, THE
   SYSTEM SHALL list it in `docs.py links`. WHEN `docs.py pointers` creates an `AGENTS.md`, it SHALL
-  write that twin, and `docs.py lint` SHALL not treat a `CLAUDE.md` under `docs/` as a page.
+  write that twin, and `docs.py lint` SHALL not treat a `CLAUDE.md` holding only `@AGENTS.md` as a
+  page.
 - AC3 WHEN `README.md` holds a `covers` comment and a covered path was committed after the README's
   last commit, THE SYSTEM SHALL list `README.md` in `docs.py stale`.
 - AC4 `verify.sh` SHALL run `docs.py links`; `install/tests/link_check.py` is removed.

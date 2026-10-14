@@ -14,7 +14,7 @@ protected: [docs/decisions/decisions.md#D1-D35, docs/goals/S-10/design.md#interf
 `docs.py links` ships with the skill. It lists every broken relative link or anchor in
 `README.md`, `AGENTS.md` and `docs/`, and every `AGENTS.md` without its `@AGENTS.md` twin (AC1,
 AC2). `docs.py pointers` writes that twin with each `AGENTS.md` it creates, and `lint` no longer
-treats a `CLAUDE.md` as a page (AC2). A README's `covers` comment puts it under `docs.py stale`
+treats a `CLAUDE.md` holding only `@AGENTS.md` as a page (AC2). A README's `covers` comment puts it under `docs.py stale`
 (AC3). `verify.sh` runs `docs.py links` in place of the unshipped `link_check.py` (AC4). The
 skill ships `references/repository.md` with the README's seven sections and the layout, agent-file
 and lifecycle rules; `planning.md` and `close.md` point to it; `global.md` tells both harnesses to
@@ -27,13 +27,16 @@ repository's README answers the seven questions (AC6). Spec: [spec.md](spec.md).
 
 ### [ ] T1 — `docs.py links`, GitHub's fences and anchors, `CLAUDE.md` twins, the README's `covers`
 writes: install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/tests/test_docs.py
-reads: docs/goals/S-10/design.md#interfaces, install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_docs.py, install/tests/link_check.py, install/tests/test_install.py
+reads: docs/goals/S-10/design.md#interfaces, install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_docs.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py, install/tests/link_check.py, install/tests/test_install.py
 tests-may-change: install/skills/execution-methodology/tests/test_docs.py
 AC1, AC2, AC3. Design Interfaces 1–4. Each design-review finding named below gets its test here.
 
-**`fenced(lines)`** (R10). Keep its signature and yield shape. It remembers the opening run's
-character and length: up to three spaces of indent, then at least three backticks or tildes. A
-line closes the fence only when it opens with a run of the same character at least as long.
+**`fenced(lines)`** (R10, plan review R4). Keep its signature and yield shape.
+- It remembers the opening run's character and length: up to three spaces of indent, then at least
+  three backticks or tildes.
+- A line closes the fence only when it is, apart from up to three spaces of indent and trailing
+  whitespace, a run of the same character at least as long:
+  `re.fullmatch(rf" {{0,3}}{ch}{{{n},}}[ \t]*", line)`.
 
 **`anchors(heads)`** (R9). Keep its signature. It keeps a set of every anchor already emitted. For
 a slug already taken, it tries `-1`, `-2`, and so on, until one is free.
@@ -44,12 +47,14 @@ and `stale`. It uses the same verdict line (`docs.py links: PASS` or `FAIL (<n>)
 - **Lines.** On each line outside a fence, remove code spans first (R7). A backtick run of length
   n opens a span that closes at the next run of exactly n backticks on that line. Scan run by run;
   an unmatched run is literal text.
-- **Destinations** (R6). After each closing bracket followed by an opening parenthesis (links and
-  images alike), read the destination:
+- **Destinations** (R6, plan review R5). After each closing bracket followed by an opening
+  parenthesis (links and images alike), skip spaces and tabs, then read the destination:
   - `<…>` up to the first `>`; or
   - else characters up to whitespace or the unbalanced `)`, counting nested parentheses.
   - Skip one with a URI scheme (`re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", d)`).
   - Split off `#anchor`, and `urllib.parse.unquote` the path.
+- **Reference definitions** (plan review R6). A line outside a fence matching `^ {0,3}\[[^\]]+\]:[
+  \t]*(\S.*)$` has its destination read from group 1 by the same rule and checked like a link.
 - **Anchors** (R8). An empty path means the same file. When the target is a `.md` file, the anchor
   (lowercased) must be in `anchors(headings(<target lines>))`. There is no `dNN` shorthand here;
   `resolve` (for `reads:`) keeps its own.
@@ -102,10 +107,18 @@ Tests in `test_docs.py`, new class **`LinksTest(DocsCase)`** unless named otherw
   docs/record.md#d17--nonexistent`, `README.md:3: docs/record.md#d17`, `README.md:4: #nowhere`,
   `docs.py links: FAIL (4)`. Exit 1.
 - **`test_rendered_destinations_with_spaces_encoding_titles_and_images`** (R6). `docs/user
-  guide.md` and a directory `docs/user/` exist.
+  guide.md`, `docs/a(b).md` and a directory `docs/user/` exist.
   - These pass: an angle-bracket link to `docs/user guide.md` with the title `"Guide"`, the link
-    `docs/user%20guide.md`, and an image of `docs/user%20guide.md`.
-  - An angle-bracket link to `docs/user guide2.md` is listed.
+    `docs/user%20guide.md`, an image of `docs/user%20guide.md`, and the link `docs/a(b).md`
+    (balanced parentheses; plan review R9).
+  - An angle-bracket link to `docs/user guide2.md` is listed, and so is `docs/a(c).md`.
+- **`test_destination_after_opening_whitespace_is_checked`** (plan review R5). A link whose
+  parenthesis is followed by a space, then `missing.md`, lists `README.md:1: missing.md`.
+- **`test_defined_reference_link_to_missing_target_fails`** (plan review R6). `README.md` holds a
+  reference use `[guide][manual]` and the definition `[manual]: missing.md`; the definition's line
+  is listed. A definition naming `docs/record.md` passes.
+- **`test_decision_shorthand_is_not_a_rendered_anchor`** (R8). A link to `docs/record.md#d17` is
+  listed, while `docs.py reads` still resolves the `reads:` entry `docs/record.md#d17`.
 - **`test_code_spans_require_matching_complete_backtick_runs`** (R7).
   - A line opening with two backticks, then a link to `docs/none.md`, then one backtick, lists the
     link.
@@ -113,6 +126,9 @@ Tests in `test_docs.py`, new class **`LinksTest(DocsCase)`** unless named otherw
 - **`test_duplicate_suffix_collisions_match_rendered_anchors`** (R9).
   - `docs.anchors` of headings `X`, `X`, `X-1` is `["x", "x-1", "x-1-1"]`.
   - Links to all three pass `links`.
+- **`test_fence_with_trailing_text_does_not_expose_headings`** (plan review R4). Inside a
+  three-backtick fence, a line of three backticks followed by `example`, then `## Hidden`, then the
+  real closing fence. A link to `#hidden` is listed.
 - **`test_shorter_fence_does_not_expose_example_headings`** (R10). A page has a four-backtick fence
   holding a three-backtick line and `## Inside`, then the real closing fence, then `## After`.
   - A link to `#inside` is listed; one to `#after` passes.
@@ -121,6 +137,8 @@ Tests in `test_docs.py`, new class **`LinksTest(DocsCase)`** unless named otherw
   - `sub/AGENTS.md` without a `CLAUDE.md` gives `sub/CLAUDE.md: missing; it holds the line
     @AGENTS.md`.
   - `sub/CLAUDE.md` holding `hello\n` gives `sub/CLAUDE.md: no @AGENTS.md line`.
+  - The same message is given when `sub/CLAUDE.md` is a symlink to a file holding `@AGENTS.md`,
+    and when it is a directory (plan review R9).
 - **`PointersTest.test_first_generation_writes_the_rule_file_and_a_new_agents_md`.** The expected
   lines gain `src/a/CLAUDE.md: written` after `src/a/AGENTS.md: written`, and `tests/CLAUDE.md:
   written` after `tests/AGENTS.md: written`. `tests/CLAUDE.md` reads `@AGENTS.md\n`.
@@ -139,16 +157,21 @@ Tests in `test_docs.py`, new class **`LinksTest(DocsCase)`** unless named otherw
 - New **`StaleTest.test_readme_covers_preserves_quoted_globs_and_ignores_examples`** (R12).
   - With `<!-- covers: ["src/a,b/**"] -->`, a later commit under `src/a,b/` lists `README.md`.
   - A covers line inside a fence only is no declaration.
+  - With two declarations, `[src/z/**]` first and `[src/a/**]` second, a later `src/a/` commit does
+    not list the README (plan review R9).
+  - `<!-- covers: [src/a/** -->` (unterminated) and `<!-- covers: src/a/** -->` (not a list) are
+    no declaration.
 
 Do not change `lint`'s checks beyond `pages`, any other test, the map, or any file outside the
 writes.
 
 ### [ ] T2 — `verify.sh` runs `docs.py links`; `link_check.py` is removed; `docs/CLAUDE.md`
 writes: install/verify.sh, install/tests/link_check.py, install/tests/test_install.py, install/tests/test_map.py, install/README.md, docs/CLAUDE.md, docs/product/prd.md
-reads: docs/goals/S-10/design.md#interfaces, install/verify.sh, install/tests/test_install.py, install/tests/test_map.py, install/README.md
-tests-may-change: install/tests/test_install.py, install/tests/test_map.py
+reads: docs/goals/S-10/design.md#interfaces, install/verify.sh, install/tests/test_install.py, install/tests/test_map.py, install/README.md, docs/product/prd.md, docs/decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2
+tests-may-change: install/tests/test_install.py, install/tests/test_map.py, install/tests/link_check.py
 needs: T1
-AC4, AC2.
+AC4, AC2. `link_check.py` is in `tests-may-change` because done row 5 counts every file under
+`tests/` as a test (plan review R1).
 - **`verify.sh`, section 5.** The comment reads "Relative links and anchors in AGENTS.md,
   README.md and docs/**/*.md resolve, and each AGENTS.md has its CLAUDE.md twin (the skill's
   docs.py links)." The command becomes `check links python3
@@ -169,8 +192,8 @@ AC4, AC2.
   `install/verify.sh` contains `docs.py" links "$ROOT"` and does not contain `link_check.py`.
 
 ### [ ] T3 — The repository reference, the reading rule, D36 and the layout runbook
-writes: install/skills/execution-methodology/references/repository.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, docs/architecture/repository-standard.md, install/global.md, AGENTS.md, docs/decisions/decisions.md, docs/runbooks/migrate-layout.md, docs/architecture/methodology.md, docs/product/measurements.md, docs/README.md, docs/AGENTS.md, .claude/rules/**, install/tests/test_records.py, install/skills/execution-methodology/tests/test_rules.py
-reads: docs/goals/S-10/design.md#interfaces, docs/architecture/repository-standard.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/references/modules.md, install/global.md, AGENTS.md, docs/decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9, docs/runbooks/migrate-v5.md, docs/architecture/methodology.md, docs/product/measurements.md, install/tests/test_records.py, install/tests/test_size.py, install/verify.sh
+writes: install/skills/execution-methodology/references/repository.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, docs/architecture/repository-standard.md, install/verify.sh, install/global.md, AGENTS.md, docs/decisions/decisions.md, docs/runbooks/migrate-layout.md, docs/architecture/methodology.md, docs/product/measurements.md, docs/README.md, docs/AGENTS.md, .claude/rules/**, install/tests/test_records.py, install/skills/execution-methodology/tests/test_rules.py
+reads: docs/goals/S-10/design.md#interfaces, docs/architecture/repository-standard.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/references/modules.md, install/global.md, AGENTS.md, docs/decisions/decisions.md, docs/runbooks/migrate-v5.md, docs/architecture/methodology.md, docs/product/measurements.md, install/tests/test_records.py, install/tests/test_size.py, install/verify.sh, install/skills/execution-methodology/tests/test_rules.py, install/skills/execution-methodology/scripts/docs.py
 tests-may-change: install/tests/test_records.py, install/skills/execution-methodology/tests/test_rules.py
 needs: T2
 AC5. Design Interfaces 4–7, with design review R1–R4 and R13–R18.
@@ -185,17 +208,21 @@ removed names.
 - No frontmatter: it is a skill reference, not a `docs/` page.
 - Name no project, and no name `verify.sh`'s dangling-name scan lists.
 
-**`planning.md`.**
-- Under "Chief's planning rules", MUST, add: "Give a milestone that changes what the repository
-  ships a last task with `writes: README.md` and a criterion naming the README's new Current
-  state."
-- After the `docs/` frontmatter template, add one line: "Where files go, what the README answers
-  and how records age:", then a Markdown link whose text and target are both `repository.md`.
+**`planning.md`** stays within its 400-word ceiling (`test_rules.py` `REFERENCE_WORDS`) and its
+rules section within 200 (plan review R2). Today they are 400 and 155.
+- **Move the template.** Move the closing `docs/` frontmatter template (its lead-in sentence and
+  fenced block, 25 words) into `repository.md`'s `## Layout`.
+- **The pointer.** Put in its place the line "Frontmatter, layout, README and records:", then a
+  Markdown link whose text and target are both `repository.md`.
+- **The MUST rule.** Under "Chief's planning rules", MUST, add: "Give a milestone that changes what
+  the repository ships a last task writing `README.md`'s Current state."
 
 **`close.md`.** After step 4, add one line: "Archiving or untracking anything at a close follows",
 then a Markdown link with text `repository.md` and target `repository.md#lifecycle`.
 
 **`repository-standard.md`.**
+- **Records sentence** (plan review R3). It names `docs/agents/lessons.md` among the records that
+  may name removed components, for any repository that has one.
 - **Layout block.** The `README.md` row reads "front page for a human: the seven sections of the
   skill's `references/repository.md`".
 - **After the block,** one sentence: the rules every repository follows (README, layout, agent
@@ -204,6 +231,9 @@ then a Markdown link with text `repository.md` and target `repository.md#lifecyc
 - **Last paragraph.** Replace the product-minimum paragraph with that link.
 - **Enforcement paragraph.** The link check is `docs.py links`.
 - **Frontmatter.** Update `summary` (at most 120 words); `last-verified: 2026-10-14`.
+
+**`verify.sh`** (plan review R3). The dangling-name check's `EXCLUDE` gains
+`docs/agents/lessons.md`, with a one-line comment that it is a record.
 
 **`global.md`.** Append design Interface 6's sentence as its own paragraph after the skill
 paragraph.
@@ -300,6 +330,10 @@ Tests:
     D36`.
   - D36's row ends `| standing |`.
   - `install/global.md` contains `read each AGENTS.md between the repository root and it`.
+- **`test_rules.py` constants.**
+  - Add `REPOSITORY = SKILL / "references" / "repository.md"` to `SKILL_FILES`.
+  - Add `REPOSITORY: 900` to `REFERENCE_WORDS`, so the retired-name, path and word-ceiling tests
+    cover it.
 - **`test_rules.py`**, new class `Repository`. Each test reads `references/repository.md`.
   - `test_the_reference_carries_the_readme_layout_and_lifecycle` (AC5). It has the headings `## The
     README`, `## Layout`, `## Agent files` and `## Lifecycle`, is at most 900 words, and contains
@@ -312,6 +346,10 @@ Tests:
     not contain `selector`.
   - `test_lessons_record_can_retain_retired_component_rationale` (R15). The sentence naming
     `docs/agents/lessons.md` contains `may name removed components`.
+- **`test_records.py::RecordsTest.test_lessons_record_can_retain_retired_component_rationale`**
+  (R15, plan review R3).
+  - `repository-standard.md` names `docs/agents/lessons.md` in its records sentence.
+  - `install/verify.sh`'s `EXCLUDE` lines contain `docs/agents/lessons.md`.
 - **`test_records.py`**, new class `LayoutMigrationTest`, reading
   `docs/runbooks/migrate-layout.md`:
   - `test_gate_input_survives_migration_in_a_fresh_checkout` (R2). It contains `git worktree add
@@ -321,12 +359,13 @@ Tests:
   - `test_archival_preserves_cited_records_and_verifies_recovery_content` (R4, R18). It contains
     `git cat-file -e`, `pushed` and `records`, and does not contain `:!*.md`.
   - `test_planning_and_close_point_to_the_reference` (AC5).
-    - `planning.md` contains `` a last task with `writes: README.md` `` and `(repository.md)`.
+    - `planning.md` contains `` a last task writing `README.md` `` and `(repository.md)`.
+    - `repository.md` contains `last-verified: YYYY-MM-DD`.
     - `close.md` contains `(repository.md#lifecycle)`.
 
 ### [ ] T4 — This repository's README answers the seven questions
 writes: README.md, install/tests/test_records.py
-reads: docs/goals/S-10/design.md#interfaces, install/skills/execution-methodology/references/repository.md, README.md, install/README.md, docs/architecture/methodology.md, docs/product/prd.md, install/skills/execution-methodology/references/close.md
+reads: docs/goals/S-10/design.md#interfaces, install/skills/execution-methodology/references/repository.md, install/tests/test_records.py, README.md, install/README.md, docs/architecture/methodology.md, docs/product/prd.md, install/skills/execution-methodology/references/close.md
 tests-may-change: install/tests/test_records.py
 needs: T1, T2, T3
 gate: python3 -m unittest discover -s install/tests -t install/tests -p 'test_records.py' && cd install && ./install.sh --dry-run && ./verify.sh --no-suites
@@ -394,6 +433,15 @@ covering `install/**` or `docs/**` may be listed; T4's own test and tick touch t
   - R16: T4's stale criterion is narrowed to the README.
 
   Each blocking finding names its closing test in T1 or T3 (default).
+- 2026-10-14: the plan review returned BLOCK with 7 blocking findings and 2 non-blocking. All are
+  resolved in the plan, spec and design (default):
+  - R1: `link_check.py` is in T2's `tests-may-change`.
+  - R2: `planning.md`'s template moves to the reference, keeping its ceiling.
+  - R3: the standard and `verify.sh` carry the lessons exemption.
+  - R4–R6: closing fences, opening whitespace and reference definitions.
+  - R7: AC2 is narrowed to an import-only `CLAUDE.md`.
+  - R8: the missing `reads:`.
+  - R9: the regression cases.
 - 2026-10-14: undefined reference links are not checked. The case found, `[T9]`, is plain
   bracketed text (default).
 - 2026-10-14: this repository's own README test fixes its seven headings. Product repositories keep
