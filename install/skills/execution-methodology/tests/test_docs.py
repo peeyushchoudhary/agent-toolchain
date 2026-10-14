@@ -264,6 +264,10 @@ class LinksTest(DocsCase):
                               **{"docs/x.md": "# X\n\n# X\n\n# X-1\n"})
         self.assertEqual((res.returncode, res.stdout), (0, "docs.py links: PASS\n"))
 
+    def test_percent_encoded_fragments_resolve(self):
+        res = self.links_with("# Guide\n\n[x](#%67uide)\n[y](docs/record.md#%64etail)\n[z](#%6Eope)\n")
+        self.assertEqual(res.stdout.splitlines(), ["README.md:5: #%6Eope", "docs.py links: FAIL (1)"])
+
     def test_fence_with_trailing_text_does_not_expose_headings(self):
         res = self.links_with("[a](#hidden)\n\n```\n```example\n## Hidden\n```\n")
         self.assertEqual(res.stdout.splitlines(), ["README.md:1: #hidden", "docs.py links: FAIL (1)"])
