@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""The pages under docs/: `lint [ROOT]`, `index [ROOT]`, `reads <Tn> [--goal <id>]`, `pointers [ROOT]
-[--check]`, `stale [ROOT]`.
+"""The pages under docs/: `lint [ROOT]`, `index [ROOT]`, `links [ROOT]`, `reads <Tn> [--goal <id>]`,
+`pointers [ROOT] [--check]`, `stale [ROOT]`.
 
 lint: every tracked docs/**/*.md but docs/README.md, docs/goals/** and AGENTS.md starts with summary (<=120
 words), read-when, covers and last-verified, the table in docs/README.md is `index`'s output, and
 `pointers --check` finds nothing.
 reads: each entry of the task's reads: line as path:start-end, path, or term: <word>; the plan is
 found the way goal.py finds it.
+links: each inline link, image and reference definition outside code in README.md, AGENTS.md and the
+tracked docs/**/*.md names an existing path, and its #anchor one of the target .md file's GitHub
+anchors (no dNN shorthand); each AGENTS.md has a sibling CLAUDE.md, a regular file holding the line
+@AGENTS.md. It is not part of lint.
 pointers: for each page with a non-empty covers, the generated .claude/rules/<page-slug>.md (the
 path under docs/ with each segment slugged, joined by `--`; two pages naming one file are refused) and the
 block between the pointer markers in the nearest AGENTS.md at or above each glob's literal
@@ -15,7 +19,8 @@ pointers whose page dropped covers are removed; a destination resolving outside 
 --check writes nothing and reports each file a regeneration would change.
 stale: a page whose covered paths' last commit is on a day after last-verified, or on that day and
 later than the page's own last commit (committer timestamps). Only commits are seen: an uncommitted
-change does not make a page stale.
+change does not make a page stale. README.md is stale when the paths its first `<!-- covers: [...] -->`
+line outside a fence names were committed later than README.md itself.
 Exit codes: 0 clean, 1 findings, 2 could not run.
 """
 from __future__ import annotations
@@ -26,10 +31,11 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from goal import PlanError, find_ctx, git, parse_plan  # noqa: E402
+from goal import PlanError, find_ctx, flow, git, parse_plan  # noqa: E402
 
 KEYS = ("summary", "read-when", "covers", "last-verified")
 HEADER = ["| Page | Read when |", "|---|---|"]
@@ -42,11 +48,14 @@ def slug(heading: str) -> str:
     return re.sub(r"[^\w\- ]", "", text).replace(" ", "-")
 
 def fenced(lines):
-    """(n, line, inside) per line, n from 1; inside is true within a ``` or ~~~ fence and on its opening line."""
+    """(n, line, inside) per line, n from 1; inside is true within a ``` or ~~~ fence and on its opening line.
+    A fence closes only on a line holding nothing but a run of its character at least as long as the opening one."""
     fence = None
     for n, line in enumerate(lines, 1):
-        s = line.lstrip()
-        fence = (None if s.startswith(fence) else fence) if fence else (s[:3] if s.startswith(("```", "~~~")) else None)
+        if fence and re.fullmatch(rf" {{0,3}}{fence[0]}{{{len(fence)},}}[ \t]*", line):
+            fence = None
+        elif not fence and (m := re.match(r" {0,3}(`{3,}|~{3,})", line)):
+            fence = m[1]
         yield n, line, bool(fence)
 
 def headings(lines):
@@ -55,10 +64,16 @@ def headings(lines):
             if not inside and (h := re.match(r"(#{1,6})\s+(.*?)\s*#*$", line))]
 
 def anchors(heads):
-    """Each heading's GitHub anchor; a repeated slug gains -1, -2 the way GitHub suffixes it."""
-    slugs, seen = [], {}
+    """Each heading's GitHub anchor; a taken slug gains the first free -1, -2 the way GitHub suffixes it."""
+    slugs, taken = [], set()
     for _n, _l, text in heads:
-        s = slug(text); slugs.append(f"{s}-{seen[s]}" if s in seen else s); seen[s] = seen.get(s, 0) + 1
+        s = base = slug(text)
+        k = 0
+        while s in taken:
+            k += 1
+            s = f"{base}-{k}"
+        slugs.append(s)
+        taken.add(s)
     return slugs
 
 def relative(glob):
@@ -68,11 +83,16 @@ def covered(meta):
     """The page's repository-relative covers globs."""
     return [g for g in meta["covers"] if relative(g)] if isinstance(meta.get("covers"), list) else []
 
+def twin(root, f):
+    """A CLAUDE.md whose only non-blank line is @AGENTS.md: AGENTS.md's twin, not a page."""
+    return f.endswith("/CLAUDE.md") and [l for l in (Path(root) / f).read_text(encoding="utf-8").splitlines()
+                                         if l.strip()] == ["@AGENTS.md"]
+
 def pages(root):
-    """Tracked docs/**/*.md but the index, the goals and any AGENTS.md (a pointer target, not a page)."""
+    """Tracked docs/**/*.md but the index, the goals, any AGENTS.md (a pointer target, not a page) and its twin."""
     files = git(root, "ls-files", "-z", "--", "docs/*.md").split("\0")
     return sorted(f for f in files if f.endswith(".md") and f != "docs/README.md"
-                  and not f.startswith("docs/goals/") and not f.endswith("/AGENTS.md"))
+                  and not f.startswith("docs/goals/") and not f.endswith("/AGENTS.md") and not twin(root, f))
 
 def frontmatter(root, page):
     return parse_plan((Path(root) / page).read_text(encoding="utf-8"))
@@ -186,7 +206,65 @@ def pointers(root, check=False):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(new.encode("utf-8")) if new is not None else p.unlink()
         print(f"{rel}: {'written' if new is not None else 'removed'}")
+        claude = p.with_name("CLAUDE.md")  # a new AGENTS.md gets its twin unless an entry holds that name
+        if have is None and rel in blocks and not os.path.lexists(claude) and inside(root, claude):
+            claude.write_bytes(b"@AGENTS.md\n")
+            print(f"{rel[:-len('AGENTS.md')]}CLAUDE.md: written")
     return errs
+
+def destination(text):
+    """The link destination text starts with, after spaces or tabs: <...> up to the first >, else up to
+    whitespace or an unbalanced )."""
+    text, depth = text.lstrip(" \t"), 0
+    if text.startswith("<"):
+        return text[1:].partition(">")[0]
+    for k, c in enumerate(text):
+        if c.isspace() or c == ")" and not depth:
+            return text[:k]
+        depth += (c == "(") - (c == ")")
+    return text
+
+def links(root):
+    """file:n: destination for each bad link outside code, then each AGENTS.md's missing or bad CLAUDE.md twin."""
+    root, bad, found = Path(os.path.realpath(root)), [], {}
+    files = ["README.md", "AGENTS.md"] + git(root, "ls-files", "-z", "--", "docs/*.md").split("\0")
+    for f in dict.fromkeys(f for f in files if f.endswith(".md")):
+        if not (root / f).is_file():
+            continue
+        for n, line, fence in fenced((root / f).read_text(encoding="utf-8").splitlines()):
+            if fence:
+                continue
+            runs, k, text = list(re.finditer(r"`+", line)), 0, line
+            while k < len(runs):  # a run of n backticks opens a span the next run of exactly n closes
+                close = next((j for j in range(k + 1, len(runs)) if len(runs[j][0]) == len(runs[k][0])), None)
+                if close is None:
+                    k += 1
+                    continue
+                text = text[:runs[k].start()] + " " * (runs[close].end() - runs[k].start()) + text[runs[close].end():]
+                k = close + 1
+            dests = [destination(text[m.end():]) for m in re.finditer(r"\]\(", text)]
+            if d := re.match(r"^ {0,3}\[[^\]]+\]:[ \t]*(\S.*)$", line):
+                dests.append(destination(d[1]))
+            for d in dests:
+                if re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", d):
+                    continue
+                path, _, anchor = d.partition("#")
+                dest = os.path.normpath(os.path.join(os.path.dirname(f), urllib.parse.unquote(path))) if path else f
+                target = root / dest
+                if anchor and dest.endswith(".md") and target.is_file() and dest not in found:
+                    found[dest] = anchors(headings(target.read_text(encoding="utf-8").splitlines()))
+                if not os.path.exists(target) or anchor and dest in found and anchor.lower() not in found[dest]:
+                    bad.append(f"{f}:{n}: {d}")
+    listed = git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ":(glob)**/AGENTS.md")
+    for rel in sorted(filter(None, listed.split("\0"))):
+        name = f"{rel[:-len('AGENTS.md')]}CLAUDE.md"
+        p = root / name
+        if not os.path.lexists(p):
+            bad.append(f"{name}: missing; it holds the line @AGENTS.md")
+        elif (p.is_symlink() or not p.is_file() or not inside(root, p)
+              or "@AGENTS.md" not in p.read_text(encoding="utf-8").splitlines()):
+            bad.append(f"{name}: no @AGENTS.md line")
+    return bad
 
 def stale(root):
     """One line per page whose covered paths were committed after its last-verified day."""
@@ -201,6 +279,20 @@ def stale(root):
             own.replace("Z", "+00:00"))  # git may print UTC as Z
         if last and (last[:10] > day or last[:10] == day and later):
             found.append(f"{page}: {last} after last-verified {day}")
+    readme = Path(root) / "README.md"
+    lines = readme.read_text(encoding="utf-8").splitlines() if readme.is_file() else []
+    declared = next((m[1] for _n, line, inside in fenced(lines)
+                     if not inside and (m := re.match(r"^<!-- covers: (.*) -->$", line))), None)
+    try:
+        globs = flow(declared) if declared is not None else []
+    except ValueError:
+        globs = []
+    if globs := [g for g in globs if relative(g)] if isinstance(globs, list) else []:
+        last = git(root, "log", "-1", "--format=%cI", "--", *(f":(glob){g}" for g in globs))
+        own = git(root, "log", "-1", "--format=%cI", "--", "README.md")
+        if last and own and dt.datetime.fromisoformat(last.replace("Z", "+00:00")) > dt.datetime.fromisoformat(
+                own.replace("Z", "+00:00")):
+            found.append(f"README.md: {last} after README.md's last commit {own}")
     return found
 
 def resolve(root, entry):
@@ -232,7 +324,7 @@ def cmd_reads(a):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="action", required=True)
-    parsers = {name: sub.add_parser(name) for name in ("lint", "index", "pointers", "stale")}
+    parsers = {name: sub.add_parser(name) for name in ("lint", "index", "links", "pointers", "stale")}
     [p.add_argument("root", nargs="?", default=".") for p in parsers.values()]
     parsers["pointers"].add_argument("--check", action="store_true")
     reads = sub.add_parser("reads")
@@ -242,7 +334,7 @@ def main(argv=None):
     try:
         if a.action in ("reads", "index"):
             return cmd_reads(a) if a.action == "reads" else print("\n".join(index(a.root))) or 0
-        errs = {"lint": lint, "stale": stale}.get(a.action, lambda root: pointers(root, a.check))(a.root)
+        errs = {"lint": lint, "links": links, "stale": stale}.get(a.action, lambda root: pointers(root, a.check))(a.root)
         verdict = f"{len(errs)} stale" if a.action == "stale" else f"FAIL ({len(errs)})"
         print("".join(f"{e}\n" for e in errs) + f"docs.py {a.action}: {verdict if errs else 'PASS'}")
         return 1 if errs else 0

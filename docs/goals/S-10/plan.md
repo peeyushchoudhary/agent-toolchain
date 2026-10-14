@@ -25,7 +25,7 @@ repository's README answers the seven questions (AC6). Spec: [spec.md](spec.md).
 
 ## Tasks
 
-### [ ] T1 — `docs.py links`, GitHub's fences and anchors, `CLAUDE.md` twins, the README's `covers`
+### [x] T1 — `docs.py links`, GitHub's fences and anchors, `CLAUDE.md` twins, the README's `covers`
 writes: install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/tests/test_docs.py
 reads: docs/goals/S-10/design.md#interfaces, install/skills/execution-methodology/scripts/docs.py, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_docs.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py, install/tests/link_check.py, install/tests/test_install.py
 tests-may-change: install/skills/execution-methodology/tests/test_docs.py
@@ -460,6 +460,9 @@ covering `install/**` or `docs/**` may be listed; T4's own test and tick touch t
   rather than naming build modules; there is no "nested `AGENTS.md` only for its own invariants"
   rule; every move or untrack starts with a grep for its readers; generated files the build
   consumes stay tracked (default).
+- 2026-10-14 T1: an angle-bracket destination is reported without its brackets; a code span is
+  blanked rather than cut, so text either side cannot join into a link; an anchor on a `.md` path
+  that is a directory is not checked; a README with no commit is never stale (default).
 
 ## Parked
 

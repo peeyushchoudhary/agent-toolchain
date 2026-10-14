@@ -132,6 +132,15 @@ class LintTest(DocsCase):
         self.assertDocs(2, "lint", str(outside))
         self.assertDocs(2, "index", str(outside / "missing"))
 
+    def test_install_rollout_with_an_existing_claude_page(self):
+        row = "|---|---|\n| [CLAUDE.md](CLAUDE.md) | changing the agent files |\n"
+        self.repo.write("docs/CLAUDE.md", page(when="changing the agent files", covers="[]"))
+        res = self.lint_with("docs/README.md", README.replace("|---|---|\n", row))
+        self.assertEqual(res.returncode, 0, res.stdout)
+        self.repo.write("docs/CLAUDE.md", "@AGENTS.md\n")
+        res = self.lint_with("docs/README.md", README)
+        self.assertEqual(res.returncode, 0, res.stdout)
+
 
 class ReadsTest(DocsCase):
     plan = (plan_text()
@@ -177,6 +186,88 @@ class ReadsTest(DocsCase):
         self.assertDocs(2, "reads", "T1", "--goal", "F-0", texts=("plan not found",))
 
 
+class LinksTest(DocsCase):
+    def links_with(self, readme, **files):
+        for rel, text in {"README.md": readme, **files}.items():
+            self.repo.write(rel, text)
+        self.repo.commit("links")
+        return self.docs("links")
+
+    def test_links_anchors_and_twins_pass(self):
+        self.repo.write("AGENTS.md", "root\n")
+        self.repo.write("CLAUDE.md", "@AGENTS.md\n")
+        res = self.links_with("[a](docs/record.md#d17--zeta-rule-v2)\n[b](docs/record.md#d18-other-thing)\n"
+                              "[c](docs/record.md#detail)\n[d](<docs/record.md>)\n[e](docs/record.md \"Title\")\n"
+                              "![f](docs/record.md)\n")
+        self.assertEqual((res.returncode, res.stdout), (0, "docs.py links: PASS\n"), res.stderr)
+
+    def test_bad_links_and_anchors_are_listed(self):
+        res = self.links_with("[a](docs/none.md)\n[b](docs/record.md#d17--nonexistent)\n[c](docs/record.md#d17)\n"
+                              "[d](#nowhere)\n`[e](docs/none.md)`\n```\n[f](docs/none.md)\n```\n")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.splitlines(), ["README.md:1: docs/none.md", "README.md:2: docs/record.md#d17--nonexistent",
+                                                   "README.md:3: docs/record.md#d17", "README.md:4: #nowhere",
+                                                   "docs.py links: FAIL (4)"])
+
+    def test_rendered_destinations_with_spaces_encoding_titles_and_images(self):
+        self.repo.path("docs/user").mkdir()
+        res = self.links_with("[a](<docs/user guide.md> \"Guide\")\n[b](docs/user%20guide.md)\n"
+                              "![c](docs/user%20guide.md)\n[d](docs/a(b).md)\n[e](<docs/user guide2.md>)\n"
+                              "[f](docs/a(c).md)\n", **{"docs/user guide.md": "# Guide\n", "docs/a(b).md": "# AB\n"})
+        self.assertEqual(res.stdout.splitlines(), ["README.md:5: docs/user guide2.md", "README.md:6: docs/a(c).md",
+                                                   "docs.py links: FAIL (2)"])
+
+    def test_destination_after_opening_whitespace_is_checked(self):
+        res = self.links_with("[a]( missing.md)\n")
+        self.assertEqual(res.stdout.splitlines(), ["README.md:1: missing.md", "docs.py links: FAIL (1)"])
+
+    def test_defined_reference_link_to_missing_target_fails(self):
+        res = self.links_with("See [guide][manual] and [the record][record].\n\n[manual]: missing.md\n"
+                              "[record]: docs/record.md \"Record\"\n")
+        self.assertEqual(res.stdout.splitlines(), ["README.md:3: missing.md", "docs.py links: FAIL (1)"])
+
+    def test_decision_shorthand_is_not_a_rendered_anchor(self):
+        res = self.links_with("[c](docs/record.md#d17)\n")
+        self.assertEqual(res.stdout.splitlines(), ["README.md:1: docs/record.md#d17", "docs.py links: FAIL (1)"])
+        self.assertEqual(docs.resolve(self.repo.dir, "docs/record.md#d17"), (True, "docs/record.md:3-12"))
+
+    def test_code_spans_require_matching_complete_backtick_runs(self):
+        res = self.links_with("``[a](docs/none.md)`\n``[b](docs/none.md)``\n")
+        self.assertEqual(res.stdout.splitlines(), ["README.md:1: docs/none.md", "docs.py links: FAIL (1)"])
+
+    def test_duplicate_suffix_collisions_match_rendered_anchors(self):
+        self.assertEqual(docs.anchors([(1, 1, "X"), (3, 1, "X"), (5, 1, "X-1")]), ["x", "x-1", "x-1-1"])
+        res = self.links_with("[a](docs/x.md#x)\n[b](docs/x.md#x-1)\n[c](docs/x.md#x-1-1)\n",
+                              **{"docs/x.md": "# X\n\n# X\n\n# X-1\n"})
+        self.assertEqual((res.returncode, res.stdout), (0, "docs.py links: PASS\n"))
+
+    def test_fence_with_trailing_text_does_not_expose_headings(self):
+        res = self.links_with("[a](#hidden)\n\n```\n```example\n## Hidden\n```\n")
+        self.assertEqual(res.stdout.splitlines(), ["README.md:1: #hidden", "docs.py links: FAIL (1)"])
+
+    def test_shorter_fence_does_not_expose_example_headings(self):
+        res = self.links_with("[a](docs/fence.md#inside)\n[b](docs/fence.md#after)\n",
+                              **{"docs/fence.md": "# F\n\n````\n```\n## Inside\n```\n````\n\n## After\n"})
+        self.assertEqual(res.stdout.splitlines(), ["README.md:1: docs/fence.md#inside", "docs.py links: FAIL (1)"])
+        self.assertEqual(docs.resolve(self.repo.dir, "docs/fence.md#after"), (True, "docs/fence.md:9-9"))
+
+    def test_agents_md_twins(self):
+        self.repo.write("sub/AGENTS.md", "rules\n")
+        self.assertDocs(1, "links", texts=("sub/CLAUDE.md: missing; it holds the line @AGENTS.md", "docs.py links: FAIL (1)"))
+        self.repo.write("sub/CLAUDE.md", "hello\n")
+        self.assertDocs(1, "links", texts=("sub/CLAUDE.md: no @AGENTS.md line",))
+        self.repo.path("sub/CLAUDE.md").unlink()
+        self.repo.write("sub/real.md", "@AGENTS.md\n")
+        os.symlink("real.md", self.repo.path("sub/CLAUDE.md"))
+        self.assertDocs(1, "links", texts=("sub/CLAUDE.md: no @AGENTS.md line",))
+        self.repo.path("sub/CLAUDE.md").unlink()
+        self.repo.path("sub/CLAUDE.md").mkdir()
+        self.assertDocs(1, "links", texts=("sub/CLAUDE.md: no @AGENTS.md line",))
+        self.repo.path("sub/CLAUDE.md").rmdir()
+        self.repo.write("sub/CLAUDE.md", "# Sub\n@AGENTS.md\n")
+        self.assertDocs(0, "links", texts=("docs.py links: PASS",))
+
+
 RULE = """---
 paths: ["src/a/**", "tests/test_a.py"]
 ---
@@ -199,8 +290,10 @@ class PointersTest(DocsCase):
     def test_first_generation_writes_the_rule_file_and_a_new_agents_md(self):
         out = self.assertDocs(0, "pointers")
         self.assertEqual(out.splitlines(), [".claude/rules/design.md: written", "src/a/AGENTS.md: written",
-                                            "tests/AGENTS.md: written", "docs.py pointers: PASS"])
+                                            "src/a/CLAUDE.md: written", "tests/AGENTS.md: written",
+                                            "tests/CLAUDE.md: written", "docs.py pointers: PASS"])
         self.assertEqual(self.repo.read(".claude/rules/design.md"), RULE)
+        self.assertEqual(self.repo.read("tests/CLAUDE.md"), "@AGENTS.md\n")
         self.assertEqual(self.repo.read("tests/AGENTS.md"),
                          "<!-- docs.py pointers -->\n[docs/design.md](../docs/design.md), read when: changing the fixture\n"
                          "- docs/design.md#shape\n- docs/design.md#shape-1\n<!-- /docs.py pointers -->\n")
@@ -307,6 +400,15 @@ class PointersTest(DocsCase):
         self.assertEqual(list(outside.iterdir()), [])
         self.assertTrue(self.repo.path("src/a/AGENTS.md").is_file())
 
+    def test_twin_symlink_cannot_write_outside_repository(self):
+        outside = Path(tempfile.mkdtemp(prefix="docsfx-"))
+        self.addCleanup(shutil.rmtree, outside, True)
+        self.repo.path("src/a").mkdir(parents=True)
+        os.symlink(outside / "CLAUDE.md", self.repo.path("src/a/CLAUDE.md"))
+        out = self.assertDocs(0, "pointers", texts=("src/a/AGENTS.md: written",))
+        self.assertNotIn("src/a/CLAUDE.md", out)
+        self.assertFalse(os.path.lexists(outside / "CLAUDE.md"))
+
 
 class StaleTest(DocsCase):
     def setUp(self):
@@ -338,6 +440,32 @@ class StaleTest(DocsCase):
         out = self.assertDocs(1, "stale")
         self.assertIn("docs/design.md: 2026-10-02T08:00:00+02:00 after last-verified 2026-10-01", out)
         self.assertNotIn("docs/runbooks/run.md", out)
+
+    def readme_stale(self, readme, change, minute):
+        """stale's README.md lines once README.md is committed at 10:<minute> and a change one minute later."""
+        self.repo.write("README.md", readme)
+        self.commit_at(f"2026-10-01T10:{minute:02d}:00+02:00", "readme")
+        self.repo.write(change, f"V = {minute}\n")
+        self.commit_at(f"2026-10-01T10:{minute + 1:02d}:00+02:00", "a change")
+        return [l for l in self.docs("stale").stdout.splitlines() if l.startswith("README.md")]
+
+    def test_a_readme_covers_comment(self):
+        self.repo.write("README.md", "# R\n\n<!-- covers: [src/a/**] -->\n")
+        self.commit_at("2026-10-01T10:00:00+02:00", "readme")
+        self.assertDocs(0, "stale", texts=("docs.py stale: PASS",))
+        self.repo.write("src/a/y.py", "Y = 1\n")
+        self.commit_at("2026-10-01T10:01:00+02:00", "a covered change after it")
+        self.assertIn("README.md: 2026-10-01T10:01:00+02:00 after README.md's last commit 2026-10-01T10:00:00+02:00",
+                      self.assertDocs(1, "stale").splitlines())
+        self.assertEqual(self.readme_stale("# R\n", "src/a/z.py", 2), [])
+
+    def test_readme_covers_preserves_quoted_globs_and_ignores_examples(self):
+        self.assertEqual(len(self.readme_stale('# R\n<!-- covers: ["src/a,b/**"] -->\n', "src/a,b/x.py", 2)), 1)
+        self.assertEqual(self.readme_stale("# R\n```\n<!-- covers: [src/a/**] -->\n```\n", "src/a/x.py", 4), [])
+        self.assertEqual(self.readme_stale("<!-- covers: [src/z/**] -->\n<!-- covers: [src/a/**] -->\n",
+                                           "src/a/x.py", 6), [])
+        self.assertEqual(self.readme_stale("<!-- covers: [src/a/** -->\n", "src/a/x.py", 8), [])
+        self.assertEqual(self.readme_stale("<!-- covers: src/a/** -->\n", "src/a/x.py", 10), [])
 
 
 if __name__ == "__main__":
