@@ -22,6 +22,7 @@ MUST
 - Put every magic value, signature, path and test name in the task text; packets carry identifiers, not text.
 - Resolve spec, design and plan contradictions before dispatch; an unsettled choice is a Decisions or `- Q:` line.
 - Hand the reviewer the diff and criteria, never the builder's report; run the gate yourself.
+- Give a milestone that changes what the repository ships a last task writing `README.md`'s Current state.
 
 SHOULD
 - Give a needed refactor its own task before the feature task.
@@ -47,13 +48,4 @@ AVOID
 `design.md`: `## Structure`, `## Interfaces`, `## Data touched`, `## Smallest change`,
 `## Rejected options`.
 
-Every `docs/` page but the index and `docs/goals/**` starts:
-
-```
----
-summary: <at most 120 words>
-read-when: <one line>
-covers: [src/area/**]
-last-verified: YYYY-MM-DD
----
-```
+Frontmatter, layout, README and records: [repository.md](repository.md).

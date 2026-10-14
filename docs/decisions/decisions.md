@@ -1,5 +1,5 @@
 ---
-summary: The one decisions record: a table of every decision id with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning and dispatches builders by dependency; D33 adds the test-module map that picks task gates, composes the full gate and retries a failed module once; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot and its stop rule.
+summary: The one decisions record: a table of every decision id with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning; D33 adds the test-module map; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot; D36 ships the README and repository rules in the skill and adds `docs.py links`.
 read-when: Making or citing a decision, or asking why the methodology is the way it is
 covers: []
 last-verified: 2026-10-09
@@ -13,7 +13,7 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 
 | Id | Date | Decision | Status |
 |---|---|---|---|
-| [D1](#d1--the-readme-is-a-fourth-disclosure-layer-not-part-of-the-agent-route) | 2026-07-26 | The README is a fourth disclosure layer | superseded by D29 |
+| [D1](#d1--the-readme-is-a-fourth-disclosure-layer-not-part-of-the-agent-route) | 2026-07-26 | The README is a fourth disclosure layer | superseded by D29; its questions restored as prose by D36 |
 | [D2](#d2--secret-scanning-and-branch-protection-run-locally-not-on-github) | 2026-07-26 | Secret scanning and branch protection run locally | standing |
 | [D3](#d3--the-secret-scan-reads-every-commit-in-the-pushed-range-not-the-net-diff) | 2026-07-26 | The secret scan reads every commit in the pushed range | standing |
 | [D4](#d4--merge-commits-never-squash) | 2026-07-26 | Merge commits, never squash | standing |
@@ -29,8 +29,8 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | D14 | 2026-08-08 | Bounded repairs and review | removed |
 | D15 | 2026-08-08 | Read-only judges test writable copies | removed |
 | D16 | 2026-08-21 | Onboarding and conformance stay two skills | removed |
-| [D17](#d17--this-repository-complies-with-the-standard-it-ships) | 2026-08-22 | This repository complies with the standard it ships | standing |
-| [D18](#d18--the-decisions-record-stays-one-file-inside-docsdecisions) | 2026-08-22 | The decisions record stays one file | standing |
+| [D17](#d17--this-repository-complies-with-the-standard-it-ships) | 2026-08-22 | This repository complies with the standard it ships | standing; its layout and validator superseded by D30 and D36 |
+| [D18](#d18--the-decisions-record-stays-one-file-inside-docsdecisions) | 2026-08-22 | The decisions record stays one file | standing; the README beside it removed at S-1 |
 | [D19](#d19--no-compression-proxy-in-this-repository) | 2026-08-22 | No compression proxy in this repository | standing |
 | D20 | 2026-08-22 | The conformance skill is published | removed |
 | D21 | 2026-08-22 | The vendored conformance suite needs the layer installed | removed |
@@ -48,6 +48,7 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | [D33](#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7) | 2026-10-13 | Methodology v7.3: a test-module map picks task gates, composes the full gate and retries a failed module once (S-7) | standing |
 | [D34](#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8) | 2026-10-13 | Post-merge cleanup: the chief records its worktrees and removes what origin/main holds (S-8) | standing |
 | [D35](#d35--the-pilot-and-its-stop-rule-have-ended-s-9) | 2026-10-13 | The pilot and its stop rule have ended (S-9) | standing |
+| [D36](#d36--the-readme-answers-seven-questions-again-the-repository-rules-ship-with-the-skill-docspy-links-s-10) | 2026-10-14 | The README answers seven questions again; the repository rules ship with the skill; docs.py links (S-10) | standing |
 
 ---
 
@@ -478,3 +479,24 @@ the clause no longer described practice (founder, 2026-10-13).
 
 **Reverses:** D29's stop rule and D30's amendment of it. Both sections stay byte-identical as
 rationale, and D29's table status names D35.
+
+## D36 — The README answers seven questions again; the repository rules ship with the skill; docs.py links (S-10)
+
+**Chose:** the skill's `references/repository.md`, shipped with the skill to every harness home,
+with no presence check: the README's seven sections and its `covers` comment, the layout, the agent
+files and the lifecycle. `docs.py links`, which each repository adds to its gate at its layout
+migration. Every `AGENTS.md` with its `CLAUDE.md` twin. `global.md`'s reading rule: before editing
+files in a directory, read each `AGENTS.md` between the repository root and it.
+
+**Over:** the council's five README sections, or a one-paragraph rule; the rules only in
+`repository-standard.md`; v6's validator and its full naming rules; the link check inside `lint`;
+a generated routing table.
+
+**Why:** five audits and a structure council on 2026-10-14 found every README's status stale. The
+standard was not installed, so product repositories never read it. Broken links passed product
+gates. Six `AGENTS.md` files were never loaded. Product gates and code read files in tool folders.
+The founder chose the seven sections, the shipped reference, the naming rule and lessons as a
+record (2026-10-14).
+
+**Reverses:** D29's removal of the README contract, as prose; D1's questions return without its
+structural gate.

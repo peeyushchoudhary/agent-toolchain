@@ -1,5 +1,5 @@
 ---
-summary: The dated numbers the decisions and the methodology cite: cross-vendor review cost and findings, token prices, v5.1 and v6 load and waste, real defects by review round, the v6 guards' catches, founder decisions per milestone. Also the size of `install/` per ref and the always-loaded word count, the pilot's measures with their definitions and its stop rule, and the records of the end-to-end runs.
+summary: The dated numbers the decisions and the methodology cite: cross-vendor review cost and findings, token prices, v5.1 and v6 load and waste, real defects by review round, the v6 guards' catches, founder decisions per milestone. Also the size of `install/` per ref and the always-loaded word count, the ended pilot's measures, definitions and stop rule, and the records of the end-to-end runs.
 read-when: Citing a number or recording a measurement
 covers: []
 last-verified: 2026-10-09
@@ -40,6 +40,8 @@ Newlines of every file in `git ls-tree -r <ref> install`; test files are under `
 Always-loaded prose after S-1 T6: 1,263 words of 1,350.
 
 ## Pilot
+
+Ended by D35 on 2026-10-13; kept as the record.
 
 One product repository, migrated after S-1 M2, reviewed after a week and judged over four; its
 baseline is first recomputed from its own history under these definitions.

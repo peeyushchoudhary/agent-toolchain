@@ -24,12 +24,13 @@ ROLES = SKILL / "references" / "roles.md"
 SECURITY = SKILL / "references" / "security-checklist.md"
 CLOSE = SKILL / "references" / "close.md"
 MODULES = SKILL / "references" / "modules.md"
+REPOSITORY = SKILL / "references" / "repository.md"
 BUILDER_TOML = SKILL / "agents" / "builder.toml"
 ALWAYS_LOADED = (REPO / "install" / "global.md", REPO / "AGENTS.md", ENTRY)
-SKILL_FILES = (ENTRY, BUILDER, REVIEWER, SCOUT, DESIGN, PLANNING, ROLES, SECURITY, CLOSE, MODULES)
+SKILL_FILES = (ENTRY, BUILDER, REVIEWER, SCOUT, DESIGN, PLANNING, ROLES, SECURITY, CLOSE, MODULES, REPOSITORY)
 
 # Word ceilings of the on-demand references (D30); words are whitespace-separated tokens.
-REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150, CLOSE: 400, MODULES: 200}
+REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150, CLOSE: 400, MODULES: 200, REPOSITORY: 900}
 PLANNING_RULES_WORDS = 200
 # Word ceilings of the agent files' bodies, the text after the closing frontmatter line (D30).
 AGENT_BODY_WORDS = {BUILDER: 350, REVIEWER: 350, SCOUT: 200}
@@ -263,6 +264,37 @@ class Planning(unittest.TestCase):
                       "`full_gate: modules`", "Decisions line naming the module that runs each non-test check",
                       "Prefer derived gates"):
             self.assertIn(words, text)
+
+
+def sentence(path: Path, words: str) -> str:
+    """The first sentence of path, its lines joined, that holds words."""
+    return next((s for s in re.split(r"(?<=\.) ", flat(path)) if words in s), "")
+
+
+class Repository(unittest.TestCase):
+    """S-10, AC5: the repository rules every repository follows ship as references/repository.md."""
+
+    def test_the_reference_carries_the_readme_layout_and_lifecycle(self):
+        text = REPOSITORY.read_text(encoding="utf-8")
+        for heading in ("## The README", "## Layout", "## Agent files", "## Lifecycle"):
+            self.assertIn(heading, text.splitlines())
+        self.assertLessEqual(len(text.split()), 900)
+        self.assertIn("`git grep`", text)
+
+    def test_repository_rules_preserve_required_generated_pointers(self):
+        self.assertIn("pointer files", sentence(REPOSITORY, "Generated files a gate checks"))
+
+    def test_naming_rule_allows_required_interface_filenames(self):
+        rule = sentence(REPOSITORY, "lowercase")
+        for words in ("`AGENTS.md`", "`CLAUDE.md`", "`README.md`", "keep their spelling"):
+            self.assertIn(words, rule)
+
+    def test_module_rule_preserves_non_test_gate_modules(self):
+        self.assertIn(MODULES.resolve(), {resolved for _label, resolved in named_paths(REPOSITORY)})
+        self.assertNotIn("selector", REPOSITORY.read_text(encoding="utf-8"))
+
+    def test_lessons_record_can_retain_retired_component_rationale(self):
+        self.assertIn("may name removed components", sentence(REPOSITORY, "`docs/agents/lessons.md`"))
 
 
 if __name__ == "__main__":

@@ -17,4 +17,5 @@ page's `read-when`, then print it with `docs.py index`.
 | [product/prd.md](product/prd.md) | Deciding whether a change belongs in the methodology, or what `install/` must keep doing |
 | [runbooks/codex.md](runbooks/codex.md) | Running Codex as the chief or as the other vendor's reviewer |
 | [runbooks/github.md](runbooks/github.md) | Creating a repository, merging a milestone, or installing the guard in a clone |
+| [runbooks/migrate-layout.md](runbooks/migrate-layout.md) | Migrating a product repository to the repository rules, or untracking or archiving paths in one |
 | [runbooks/migrate-v5.md](runbooks/migrate-v5.md) | Migrating a v5.1 project, or deciding whether `--retire-v5` may run |

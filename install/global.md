@@ -12,4 +12,6 @@ When a repository has `docs/goals/*/plan.md` with an open milestone, load the
 logged as a Decisions line, or parked for the founder; never stop to ask about work the plan
 already decides.
 
+Before editing files in a directory, read each AGENTS.md between the repository root and it.
+
 Report outcomes, not intentions: what changed, what ran, what failed.
