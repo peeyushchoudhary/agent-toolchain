@@ -213,16 +213,17 @@ def pointers(root, check=False):
     return errs
 
 def destination(text):
-    """The link destination text starts with, after spaces or tabs: <...> up to the first >, else up to
-    whitespace or an unbalanced )."""
-    text, depth = text.lstrip(" \t"), 0
+    """(offset, destination) for the link destination text starts with, after spaces or tabs and at most one
+    line ending: <...> up to the first >, else up to whitespace or an unbalanced )."""
+    at, depth = re.match(r"[ \t]*\n?[ \t]*", text).end(), 0
+    text = text[at:]
     if text.startswith("<"):
-        return text[1:].partition(">")[0]
+        return at, text[1:].partition(">")[0]
     for k, c in enumerate(text):
         if c.isspace() or c == ")" and not depth:
-            return text[:k]
+            return at, text[:k]
         depth += (c == "(") - (c == ")")
-    return text
+    return at, text
 
 def destinations(text):
     """(offset, destination) for each inline link, image and reference definition outside code in a paragraph."""
@@ -234,8 +235,9 @@ def destinations(text):
             continue
         masked = masked[:runs[k].start()] + " " * (runs[close].end() - runs[k].start()) + masked[runs[close].end():]
         k = close + 1
-    dests = [(m.end(), destination(masked[m.end():])) for m in re.finditer(r"\]\(", masked)]
-    dests += [(d.start(1), destination(d[1])) for d in re.finditer(r"^ {0,3}\[[^\]]+\]:[ \t]*(\S.*)$", masked, re.M)]
+    dests = [(m.end() + at, d) for m in re.finditer(r"\]\(", masked) for at, d in [destination(masked[m.end():])]]
+    dests += [(d.start(1), destination(d[1])[1])  # a definition's destination may start on the next line
+              for d in re.finditer(r"^ {0,3}\[[^\]]+\]:[ \t]*(?:\n[ \t]*)?(\S.*)$", masked, re.M)]
     return sorted(dests)
 
 def links(root):

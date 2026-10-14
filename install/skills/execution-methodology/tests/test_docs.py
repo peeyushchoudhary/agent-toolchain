@@ -235,6 +235,12 @@ class LinksTest(DocsCase):
         res = self.links_with("``[a](docs/none.md)`\n\n``[b](docs/none.md)``\n")
         self.assertEqual(res.stdout.splitlines(), ["README.md:1: docs/none.md", "docs.py links: FAIL (1)"])
 
+    def test_multiline_destinations_are_checked(self):
+        res = self.links_with("[guide](\nmissing.md)\n[a](\n  docs/record.md#detail)\n\n[manual]:\nmissing2.md\n"
+                              "[record]:\n  docs/record.md \"Record\"\n")
+        self.assertEqual(res.stdout.splitlines(), ["README.md:2: missing.md", "README.md:7: missing2.md",
+                                                   "docs.py links: FAIL (2)"])
+
     def test_multiline_code_span_cannot_hide_a_live_link(self):
         res = self.links_with("`start\nend` [x](missing.md) `tail\n\n`one\n\ntwo` [y](docs/none.md)\n# A `x\n"
                               "[a](missing3.md) `\n\n- one `x\n- [b](missing4.md) `\n\n| `c | d\n| [e](missing5.md) ` |\n")
