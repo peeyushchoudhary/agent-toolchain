@@ -224,6 +224,20 @@ def destination(text):
         depth += (c == "(") - (c == ")")
     return text
 
+def destinations(text):
+    """(offset, destination) for each inline link, image and reference definition outside code in a paragraph."""
+    runs, k, masked = list(re.finditer(r"`+", text)), 0, text
+    while k < len(runs):  # a run of n backticks opens a span the next run of exactly n closes
+        close = next((j for j in range(k + 1, len(runs)) if len(runs[j][0]) == len(runs[k][0])), None)
+        if close is None:
+            k += 1
+            continue
+        masked = masked[:runs[k].start()] + " " * (runs[close].end() - runs[k].start()) + masked[runs[close].end():]
+        k = close + 1
+    dests = [(m.end(), destination(masked[m.end():])) for m in re.finditer(r"\]\(", masked)]
+    dests += [(d.start(1), destination(d[1])) for d in re.finditer(r"^ {0,3}\[[^\]]+\]:[ \t]*(\S.*)$", masked, re.M)]
+    return sorted(dests)
+
 def links(root):
     """file:n: destination for each bad link outside code, then each AGENTS.md's missing or bad CLAUDE.md twin."""
     root, bad, found = Path(os.path.realpath(root)), [], {}
@@ -231,23 +245,23 @@ def links(root):
     for f in dict.fromkeys(f for f in files if f.endswith(".md")):
         if not (root / f).is_file():
             continue
-        for n, line, fence in fenced((root / f).read_text(encoding="utf-8").splitlines()):
-            if fence:
-                continue
-            runs, k, text = list(re.finditer(r"`+", line)), 0, line
-            while k < len(runs):  # a run of n backticks opens a span the next run of exactly n closes
-                close = next((j for j in range(k + 1, len(runs)) if len(runs[j][0]) == len(runs[k][0])), None)
-                if close is None:
-                    k += 1
-                    continue
-                text = text[:runs[k].start()] + " " * (runs[close].end() - runs[k].start()) + text[runs[close].end():]
-                k = close + 1
-            dests = [destination(text[m.end():]) for m in re.finditer(r"\]\(", text)]
-            if d := re.match(r"^ {0,3}\[[^\]]+\]:[ \t]*(\S.*)$", line):
-                dests.append(destination(d[1]))
-            for d in dests:
+        lines, blocks, was, alone = (root / f).read_text(encoding="utf-8").splitlines(), [[]], False, False
+        for n, line, fence in fenced(lines):  # a paragraph: non-blank lines outside a fence
+            if not line.strip() or fence or was:  # was: the line before is in a fence, so this one closes it
+                blocks.append([])
+            else:  # an ATX heading stands alone; a list item or a table row starts a paragraph
+                heading = re.match(r" {0,3}#{1,6}(\s|$)", line)
+                if heading or alone or re.match(r" {0,3}(([-*+]|\d{1,9}[.)]) |\|)", line):
+                    blocks.append([])
+                blocks[-1].append(n)
+                alone = bool(heading)
+            was = fence
+        for numbers in filter(None, blocks):
+            text = "\n".join(lines[k - 1] for k in numbers)
+            for at, d in destinations(text):
                 if re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", d):
                     continue
+                n = numbers[text.count("\n", 0, at)]  # the line the destination starts on
                 path, _, anchor = d.partition("#")
                 dest = os.path.normpath(os.path.join(os.path.dirname(f), urllib.parse.unquote(path))) if path else f
                 target = root / dest

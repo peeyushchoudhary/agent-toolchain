@@ -232,8 +232,15 @@ class LinksTest(DocsCase):
         self.assertEqual(docs.resolve(self.repo.dir, "docs/record.md#d17"), (True, "docs/record.md:3-12"))
 
     def test_code_spans_require_matching_complete_backtick_runs(self):
-        res = self.links_with("``[a](docs/none.md)`\n``[b](docs/none.md)``\n")
+        res = self.links_with("``[a](docs/none.md)`\n\n``[b](docs/none.md)``\n")
         self.assertEqual(res.stdout.splitlines(), ["README.md:1: docs/none.md", "docs.py links: FAIL (1)"])
+
+    def test_multiline_code_span_cannot_hide_a_live_link(self):
+        res = self.links_with("`start\nend` [x](missing.md) `tail\n\n`one\n\ntwo` [y](docs/none.md)\n# A `x\n"
+                              "[a](missing3.md) `\n\n- one `x\n- [b](missing4.md) `\n\n| `c | d\n| [e](missing5.md) ` |\n")
+        self.assertEqual(res.stdout.splitlines(), ["README.md:2: missing.md", "README.md:6: docs/none.md",
+                                                   "README.md:8: missing3.md", "README.md:11: missing4.md",
+                                                   "README.md:14: missing5.md", "docs.py links: FAIL (5)"])
 
     def test_duplicate_suffix_collisions_match_rendered_anchors(self):
         self.assertEqual(docs.anchors([(1, 1, "X"), (3, 1, "X"), (5, 1, "X-1")]), ["x", "x-1", "x-1-1"])
