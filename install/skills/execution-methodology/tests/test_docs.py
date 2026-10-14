@@ -226,6 +226,10 @@ class LinksTest(DocsCase):
                               "[record]: docs/record.md \"Record\"\n")
         self.assertEqual(res.stdout.splitlines(), ["README.md:3: missing.md", "docs.py links: FAIL (1)"])
 
+    def test_footnote_prose_is_not_a_link_destination(self):
+        res = self.links_with("A claim.[^1]\n\n[^1]: Explanation.\n[^note]:\n  More prose.\n")
+        self.assertEqual((res.returncode, res.stdout), (0, "docs.py links: PASS\n"))
+
     def test_decision_shorthand_is_not_a_rendered_anchor(self):
         res = self.links_with("[c](docs/record.md#d17)\n")
         self.assertEqual(res.stdout.splitlines(), ["README.md:1: docs/record.md#d17", "docs.py links: FAIL (1)"])

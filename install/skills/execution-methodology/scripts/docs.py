@@ -243,8 +243,8 @@ def destinations(text):
             k += 1
     masked = "".join(masked)
     dests = [(m.end() + at, d) for m in re.finditer(r"\]\(", masked) for at, d in [destination(masked[m.end():])]]
-    dests += [(d.start(1), destination(d[1])[1])  # a definition's destination may start on the next line
-              for d in re.finditer(r"^ {0,3}\[[^\]]+\]:[ \t]*(?:\n[ \t]*)?(\S.*)$", masked, re.M)]
+    dests += [(d.start(1), destination(d[1])[1])  # may start on the next line; a [^label] is a footnote
+              for d in re.finditer(r"^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*(?:\n[ \t]*)?(\S.*)$", masked, re.M)]
     return sorted(dests)
 
 def links(root):
