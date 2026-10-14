@@ -59,15 +59,36 @@ def fenced(lines):
         yield n, line, bool(fence)
 
 def headings(lines):
-    """[(n, level, text)] for every Markdown heading outside a code fence."""
-    return [(n, len(h.group(1)), h.group(2)) for n, line, inside in fenced(lines)
-            if not inside and (h := re.match(r"(#{1,6})\s+(.*?)\s*#*$", line))]
+    """[(n, level, text)] for every Markdown heading outside a code fence and an HTML comment: each ATX heading,
+    and a one-line paragraph after a blank line or the frontmatter, underlined with = or - (setext), unless it is a
+    list item, quote, table row, ATX heading, fence or HTML line."""
+    rows, heads, comment = list(fenced(lines)), [], False
+    front = lines.index("---", 1) + 1 if lines[:1] == ["---"] and "---" in lines[1:] else 0
+    for k, (n, line, inside) in enumerate(rows):
+        was, rest = comment, "" if inside else line
+        while rest and (i := rest.find("-->" if comment else "<!--")) >= 0:  # an HTML comment may span lines
+            comment, rest = not comment, rest[i + (3 if comment else 4):]
+        if inside or was:
+            continue
+        if h := re.match(r"(#{1,6})\s+(.*?)\s*#*$", line):
+            heads.append((n, len(h.group(1)), h.group(2)))
+        elif (k >= front and not comment and k + 1 < len(rows) and not rows[k + 1][2]
+              and (k == front or not rows[k - 1][1].strip() and not rows[k - 1][2])
+              and (u := re.fullmatch(r" {0,3}(=+|-+)[ \t]*", rows[k + 1][1])) and re.match(r" {0,3}\S", line)
+              and not re.match(r"\s*([-*+>#<]|\d{1,9}[.)]|`{3}|~{3})", line) and "|" not in line):
+            heads.append((n, 1 if u[1][0] == "=" else 2, line.strip()))
+    return heads
+
+def rendered(text):
+    """A heading's text as GitHub renders it: a link or image becomes its text and an HTML tag goes, outside code."""
+    return re.sub(r"((?<!`)(`+)(?!`).*?(?<!`)\2(?!`))|!?\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)"
+                  r"|<!--.*?-->|</?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*)?/?>", lambda m: m[1] or m[3] or "", text)
 
 def anchors(heads):
     """Each heading's GitHub anchor; a taken slug gains the first free -1, -2 the way GitHub suffixes it."""
     slugs, taken = [], set()
     for _n, _l, text in heads:
-        s = base = slug(text)
+        s = base = slug(rendered(text))
         k = 0
         while s in taken:
             k += 1

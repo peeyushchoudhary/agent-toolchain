@@ -271,6 +271,17 @@ class LinksTest(DocsCase):
                               **{"docs/x.md": "# X\n\n# X\n\n# X-1\n"})
         self.assertEqual((res.returncode, res.stdout), (0, "docs.py links: PASS\n"))
 
+    def test_anchors_follow_rendered_heading_content(self):
+        page = ("---\ntitle: x\n---\n# [Guide](../README.md)\n\n## Setup <em>now</em>\n\n<!--\n## Hidden\n-->\n\n"
+                "### [x] T1 — `a <b>` task\n\n## ![logo](record.md) Brand\n\nSetext Title\n============\n\n"
+                "Second one\n---\n\n- item\n---\n\n> quoted\n===\n")
+        names = ("guide", "guidereadmemd", "setup-now", "hidden", "x-t1--a-b-task", "logo-brand", "setext-title",
+                 "second-one", "item", "quoted", "title-x")
+        res = self.links_with("".join(f"[{k}](docs/h.md#{a})\n" for k, a in enumerate(names, 1)), **{"docs/h.md": page})
+        self.assertEqual(res.stdout.splitlines(), [f"README.md:{k}: docs/h.md#{a}" for k, a in enumerate(names, 1)
+                                                   if k in (2, 4, 9, 10, 11)] + ["docs.py links: FAIL (5)"])
+        self.assertEqual(docs.resolve(self.repo.dir, "docs/h.md#setext-title"), (True, "docs/h.md:16-26"))
+
     def test_percent_encoded_fragments_resolve(self):
         res = self.links_with("# Guide\n\n[x](#%67uide)\n[y](docs/record.md#%64etail)\n[z](#%6Eope)\n")
         self.assertEqual(res.stdout.splitlines(), ["README.md:5: #%6Eope", "docs.py links: FAIL (1)"])
