@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Goal state computed from docs/goals/<id>/plan.md and git: lint, status, next, resume, packet, done, cost, own, cleanup.
+"""Goal state computed from docs/goals/<id>/plan.md and git: lint, status, next, resume, packet, done, cost, own, cleanup, review.
 
 The plan is --plan, else docs/goals/<--goal>/plan.md, else the one plan whose last milestone is not
 tagged goal/<id>/<Mn>. `cost` sums the harness transcripts' tokens; it records, never enforces.
 `own` records a goal's linked worktree; `cleanup` removes recorded worktrees and branches origin/main holds.
+`review` runs the other vendor's read-only reviewer with REVIEWERS' exact model and effort.
 Exit codes: 0 ok or done, 1 finding or not done, 2 usage or internal error.
 """
 from __future__ import annotations
@@ -47,6 +48,10 @@ BARE_SKIP_RE = re.compile(r"(?<![\w.])skip\s*\(")
 # (org.junit. is JUnit 4, whose only one is Test); no other qualifier counts.
 JUNIT_TEST_ANNOTATIONS = ("Test", "ParameterizedTest", "RepeatedTest", "TestFactory", "TestTemplate")
 JUNIT_PACKAGES = ("org.junit.jupiter.api.", "org.junit.jupiter.params.", "org.junit.")
+# The other vendor's reviewer, keyed by the chief's harness: (CLI, exact model ID, effort). roles.md
+# states the same; `review` passes these to the CLI, and `done` accepts a review.md only from one.
+REVIEWERS = {"claude": ("codex", "gpt-6-astra", "high"), "codex": ("claude", "claude-opus-5-5", "high")}
+REVIEW_STAGES = ("design", "plan", "merge")
 RUNTIME_PIN = "docs/agents/execution/runtime.json"
 MIGRATE_NOTICE = (f"this project still carries the v5.1 runtime pin ({RUNTIME_PIN}); "
                   "migrate it first, following docs/runbooks/migrate-v5.md")
@@ -535,6 +540,10 @@ def review_findings(ctx):
             ["git", "merge-base", "--is-ancestor", m.group(1), "HEAD"], cwd=ctx.root).returncode:
         return ["review.md has no reviewed: <sha> that is HEAD or its ancestor"]
     reviewed = git(ctx.root, "rev-parse", f"{m.group(1)}^{{commit}}")
+    who = re.search(r"^reviewer:(.*)$", text, re.M)
+    if not who or not any(f" {model} at {effort} " in f"{who.group(1)} " for _, model, effort in REVIEWERS.values()):
+        out.append("review.md's reviewer: line names neither " + " nor ".join(
+            f"{model} at {effort}" for _, model, effort in REVIEWERS.values()) + "; run goal.py review")
     out += ["an open - [ ] BLOCKING finding"] if re.search(r"^\s*- \[ \] BLOCKING\b", text, re.M) else []
     closed = {}  # commit sha -> finding id, for every closure that holds
     lines = text.splitlines()
@@ -1143,12 +1152,56 @@ def cmd_cleanup(ctx, a):
     print(f"cleanup: {removed} {'removed' if a.apply else 'to remove'}, {kept} kept")
     return 1 if failed else 0
 
+def review_argv(chief, prompt, root, out):
+    """The other vendor's read-only review call, with REVIEWERS' exact model and effort."""
+    cli, model, effort = REVIEWERS[chief]
+    if cli == "codex":  # --ignore flags keep user servers, hooks and rules out of the judge
+        return ["codex", "exec", "-s", "read-only", "--ignore-user-config", "--ignore-rules", "-m", model,
+                "-c", f"model_reasoning_effort={effort}", "--json", "-C", str(root), "-o", str(out), prompt]
+    return ["claude", "-p", "--model", model, "--effort", effort, "--tools", "Read,Grep,Glob",
+            "--permission-mode", "dontAsk", "--strict-mcp-config", "--no-session-persistence",
+            "--output-format", "text", prompt]
+
+def cmd_review(ctx, a):
+    _, model, effort = REVIEWERS[a.chief]
+    packet = Path(a.packet) if a.packet else ctx.runs / f"{a.stage}-review-packet.md"
+    out = ctx.runs / ("review.md" if a.stage == "merge" else f"{a.stage}-review.md")
+    raw, log = ctx.runs / f"{a.stage}-review.raw.md", ctx.runs / f"{a.stage}-review.log"
+    if not packet.is_file():
+        raise ValueError(f"no review packet {packet}")
+    if out.exists():
+        print(f"{out.relative_to(ctx.root)} exists; move it aside before a new review", file=sys.stderr)
+        return 1
+    reviewer = (Path(__file__).resolve().parent.parent / "agents" / "reviewer.md").read_text(encoding="utf-8")
+    prompt = reviewer.split("---\n", 2)[2].lstrip("\n") + "\n" + packet.read_text(encoding="utf-8")
+    argv = review_argv(a.chief, prompt, ctx.root, raw)
+    print(f"review: {argv[0]} {model} at {effort}, read-only; {argv[0]} output in {log.relative_to(ctx.root)}")
+    raw.unlink(missing_ok=True)
+    with open(log, "w") as fh:
+        proc = subprocess.run(argv, cwd=ctx.root, stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT)
+    if argv[0] == "claude":
+        shutil.copyfile(log, raw)
+    text = raw.read_text(encoding="utf-8") if raw.is_file() else ""
+    fenced = re.fullmatch(r"\s*```[\w-]*\n(.*?)\n```\s*", text, re.S)  # a reviewer may wrap the review in a fence
+    text = fenced.group(1) + "\n" if fenced else text
+    if proc.returncode or not re.search(r"^verdict: (PASS|BLOCK)\s*$", text, re.M):
+        print(f"review: {argv[0]} exited {proc.returncode} without a verdict: line; see {log.relative_to(ctx.root)}",
+              file=sys.stderr)
+        return 1
+    line = f"reviewer: {argv[0]} {model} at {effort} (read-only), {datetime.now().date()}, {a.stage}"
+    text = re.sub(r"^reviewer:.*$", line, text, count=1, flags=re.M) if re.search(r"^reviewer:", text, re.M) \
+        else f"{line}\n{text}"
+    out.write_text(text, encoding="utf-8")
+    verdict = re.search(r"^verdict: (\w+)", text, re.M).group(1)
+    print(f"review: {verdict} in {out.relative_to(ctx.root)}")
+    return 0
+
 def main(argv=None):
     common = argparse.ArgumentParser(add_help=False)
     [common.add_argument(opt, default=argparse.SUPPRESS) for opt in ("--plan", "--goal")]
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0], parents=[common])
     sub = ap.add_subparsers(dest="action", required=True)
-    for name in ("lint", "status", "next", "resume", "packet", "done", "cost", "own", "cleanup"):
+    for name in ("lint", "status", "next", "resume", "packet", "done", "cost", "own", "cleanup", "review"):
         p = sub.add_parser(name, parents=[common])
         if name == "own":
             p.add_argument("path", help="a linked worktree to record in .runs/<id>/worktrees.jsonl")
@@ -1158,6 +1211,10 @@ def main(argv=None):
             p.add_argument("--milestone")
         if name == "packet":
             p.add_argument("--approval", action="store_true", help="write .runs/<id>/approval.html instead")
+        if name == "review":
+            p.add_argument("--chief", required=True, choices=sorted(REVIEWERS), help="this session's harness")
+            p.add_argument("--stage", required=True, choices=REVIEW_STAGES)
+            p.add_argument("--packet", help="default .runs/<id>/<stage>-review-packet.md")
         if name == "cost":
             p.add_argument("--since", help="git ref whose commit time starts the sum (default goal/<id>/approved)")
     a = ap.parse_args(argv)

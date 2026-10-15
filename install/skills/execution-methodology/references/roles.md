@@ -1,6 +1,6 @@
 # Roles
 
-Exact model IDs, never aliases:
+Exact model IDs, never aliases; `goal.py review` passes the reviewer's to its CLI:
 
 | Role | Claude | Codex | Effort |
 |---|---|---|---|

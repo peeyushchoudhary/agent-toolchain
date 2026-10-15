@@ -138,6 +138,19 @@ class Frontmatter(unittest.TestCase):
         self.assertNotIn("disable-model-invocation", meta)
         self.assertFalse((SKILL / "agents" / "openai.yaml").exists(), "Codex's allow_implicit_invocation sidecar")
 
+    def test_roles_agent_files_and_goal_review_name_the_same_reviewer_models(self):
+        sys.path.insert(0, str(SKILL / "scripts"))
+        import goal
+        roles = ROLES.read_text(encoding="utf-8")
+        row = next(l for l in roles.splitlines() if l.startswith("| Reviewer"))
+        self.assertEqual(goal.REVIEWERS["codex"][1:], (frontmatter(REVIEWER)["model"].strip(),
+                                                       frontmatter(REVIEWER)["effort"].strip()))
+        for chief, (cli, model, effort) in goal.REVIEWERS.items():
+            with self.subTest(chief=chief):
+                self.assertIn(f"`{model}`", row)
+                self.assertIn(f"when {chief.capitalize()} is chief", row.split(f"`{model}`", 1)[1].split("|")[0])
+                self.assertIn(f"`{effort}`", row)
+
     def test_the_reviewer_and_the_scout_are_read_only(self):
         for path in (REVIEWER, SCOUT):
             with self.subTest(file=path.name):

@@ -1,8 +1,8 @@
 ---
-summary: Codex beside Claude Code: the repository layer both share, what the installer writes into `$CODEX_HOME`, how the founder's own Codex session runs as the chief (`goal.py resume`, the pre-push guard, `codex exec --worktree` for builders), and the exact `codex exec` call that runs the read-only review when Claude is the chief.
+summary: Codex beside Claude Code: the repository layer both share, what the installer writes into `$CODEX_HOME`, how the founder's own Codex session runs as the chief (`goal.py resume`, the pre-push guard, `codex exec --worktree` for builders), and `goal.py review`, which runs the read-only cross-vendor review with the exact model and effort.
 read-when: Running Codex as the chief or as the other vendor's reviewer
 covers: []
-last-verified: 2026-10-09
+last-verified: 2026-10-15
 ---
 
 # Codex
@@ -45,15 +45,20 @@ Pushes go through the guard's `pre-push` hook, which `git-hooks.sh` installs in 
 
 ## Codex as the other vendor's reviewer
 
-When Claude is the chief, the design, plan and merge reviews run the
-[reviewer prompt](../../install/skills/execution-methodology/agents/reviewer.md) through:
+When Claude is the chief, the design, plan and merge reviews run through
+`goal.py review --chief claude --stage <design|plan|merge>`, never a hand-built call. It sends the
+[reviewer prompt](../../install/skills/execution-methodology/agents/reviewer.md) and the stage's
+packet to:
 
 ```bash
 codex exec -s read-only --ignore-user-config --ignore-rules \
-  -m <model> -c model_reasoning_effort=<effort> --json -C <dir> "<packet>" < /dev/null
+  -m gpt-6-astra -c model_reasoning_effort=high --json -C <dir> -o <raw> "<prompt>" < /dev/null
 ```
 
-`-m` names the reviewing model (Astra in S-1). The `--ignore` flags keep user servers and hooks out
-of the judge; outside a git repository add `--skip-git-repo-check`. Each call spends about
-23K input tokens on the base prompt. The chief saves the output, already in the `review.md` format,
-to `.runs/<id>/review.md`.
+`codex exec` reads no agent file, so without `-m` it falls back to Codex's default model; that is
+why the call is built by `goal.py`, whose model table `roles.md` states. The `--ignore` flags keep
+user servers and hooks out of the judge. Each call spends about 23K input tokens on the base prompt.
+`goal.py review` writes the review, its reviewer line naming the model, to `.runs/<id>/review.md`
+for merge, and `goal.py done` refuses one from any other model. When Codex is the chief, the same
+command with `--chief codex` runs `claude -p --model claude-opus-5-5 --effort high` with only
+Read, Grep and Glob.

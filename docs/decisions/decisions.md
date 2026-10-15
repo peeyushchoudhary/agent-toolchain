@@ -1,5 +1,5 @@
 ---
-summary: The one decisions record: a table of every decision id with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning; D33 adds the test-module map; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot; D36 ships the README and repository rules in the skill and adds `docs.py links`.
+summary: The one decisions record: a table of every decision id with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning; D33 adds the test-module map; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot; D36 ships the README and repository rules in the skill and adds `docs.py links`; D37 pins model IDs and adds `goal.py review`.
 read-when: Making or citing a decision, or asking why the methodology is the way it is
 covers: []
 last-verified: 2026-10-09
@@ -49,6 +49,7 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | [D34](#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8) | 2026-10-13 | Post-merge cleanup: the chief records its worktrees and removes what origin/main holds (S-8) | standing |
 | [D35](#d35--the-pilot-and-its-stop-rule-have-ended-s-9) | 2026-10-13 | The pilot and its stop rule have ended (S-9) | standing |
 | [D36](#d36--the-readme-answers-seven-questions-again-the-repository-rules-ship-with-the-skill-docspy-links-s-10) | 2026-10-14 | The README answers seven questions again; the repository rules ship with the skill; docs.py links (S-10) | standing |
+| [D37](#d37--exact-model-ids-the-cross-vendor-review-runs-through-goalpy-review) | 2026-10-15 | Exact model IDs; the cross-vendor review runs through goal.py review | standing |
 
 ---
 
@@ -500,3 +501,19 @@ record (2026-10-14).
 
 **Reverses:** D29's removal of the README contract, as prose; D1's questions return without its
 structural gate.
+
+## D37 — Exact model IDs; the cross-vendor review runs through goal.py review
+
+**Chose:** every role names an exact model ID in `roles.md` and its agent file: the builder
+`claude-opus-5-5` or `gpt-6.1-sol`, the scout `claude-haiku-5-5` or `gpt-6-luna`, the reviewer
+`gpt-6-astra` when Claude is chief and `claude-opus-5-5` when Codex is, at `high`. `goal.py review`
+builds the reviewer's call from one table, and `goal.py done` refuses a `review.md` whose reviewer
+line names another model.
+
+**Over:** the aliases `opus` and `haiku`; a review call each chief writes by hand from a runbook.
+
+**Why:** on 2026-10-15 a product repository's chief found that every review since 2026-10-10 had
+run on Codex's default model at default effort. `codex exec` reads no agent file, the installed
+skill named no command, and the only written call, in an uninstalled runbook, left the model as a
+placeholder. Both review directions were run live through `goal.py review`; the Codex session
+record showed `gpt-6-astra` at `high`, read-only, and the Claude CLI reported `claude-opus-5-5`.
