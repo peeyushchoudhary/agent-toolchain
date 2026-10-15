@@ -228,8 +228,8 @@ class Repo:
     def receipt(self, cmd, name="proof", **kw):
         return self.gate("receipt", "--goal", "F-9", "--cmd", cmd, "--name", name, **kw)
 
-    def review(self, body, reviewed="HEAD"):
-        self.write(".runs/F-9/review.md", f"reviewed: {self.git('rev-parse', reviewed)}\n\n{body}")
+    def review(self, body, reviewed="HEAD", reviewer="codex gpt-6-astra at high (read-only), 2026-01-01, merge"):
+        self.write(".runs/F-9/review.md", f"reviewer: {reviewer}\nreviewed: {self.git('rev-parse', reviewed)}\n\n{body}")
 
     def close(self):
         """Tick and commit M1's tasks, then write PASS receipts for HEAD's tree and a review."""

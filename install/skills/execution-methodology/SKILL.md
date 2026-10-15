@@ -84,8 +84,8 @@ deletes a file repairs the links naming it.
 5. No existing test changed or deleted outside `tests-may-change`; no skip, only or xfail added.
 6. Frontmatter, Outcome and task headers equal the approved commit's.
 7. PASS receipts for `full_gate` and the milestone's `e2e` on HEAD's tree.
-8. `.runs/<id>/review.md` reviewed an ancestor of HEAD, every later commit is a recorded fix or
-   plan-only, and no `- [ ] BLOCKING` line remains.
+8. `.runs/<id>/review.md`, from `goal.py review`, reviewed an ancestor of HEAD, every later commit
+   is a recorded fix or plan-only, and no `- [ ] BLOCKING` line remains.
 
 
 ## Authority
@@ -105,8 +105,9 @@ touchpoint; never request a grant.
 
 ## Review
 
-The other vendor reviews adversarially, read-only, with [agents/reviewer.md](agents/reviewer.md):
-Codex when Claude is chief, Claude when Codex is. Once each at:
+`goal.py review --chief <claude|codex> --stage <s>` runs the other vendor's reviewer, adversarial
+and read-only, with [agents/reviewer.md](agents/reviewer.md) and the exact models in
+[references/roles.md](references/roles.md); never hand-build the call. Once each at:
 
 - **design**, whenever `design.md` exists ([references/design.md](references/design.md));
 - **plan**, before the approval tag; resolve findings in the plan;
@@ -114,8 +115,7 @@ Codex when Claude is chief, Claude when Codex is. Once each at:
   [references/security-checklist.md](references/security-checklist.md) when `touches:` names
   data, auth or external.
 
-One round, no grant. Findings go to `.runs/<id>/review.md` in the reviewer's format; closing them
-and the milestone close: [references/close.md](references/close.md).
+One round, no grant. Closing findings and the milestone close: [references/close.md](references/close.md).
 
 ## Resuming
 

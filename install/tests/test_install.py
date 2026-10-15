@@ -307,6 +307,15 @@ class AgentTest(InstallCase):
             self.assertEqual({k: v for k, v in toml.items() if k != "developer_instructions"}, want, name)
             self.assertIn("developer_instructions", toml)
 
+    def test_claude_agent_frontmatter_pins_exact_model_ids(self):
+        roles = {"builder": ("claude-opus-5-5", "high"), "reviewer": ("claude-opus-5-5", "high"),
+                 "scout": ("claude-haiku-5-5", None)}
+        for name, (model, effort) in roles.items():
+            front, _ = md_parts(name)
+            fields = dict(l.split(": ", 1) for l in front.splitlines() if ": " in l)
+            self.assertEqual(fields.get("model"), model, name)
+            self.assertEqual(fields.get("effort"), effort, name)
+
     def test_settings_reminder_prints_only_when_baseref_is_absent(self):
         reminder = 'reminder: set "worktree": {"baseRef": "head"} in ~/.claude/settings.json'
         settings = self.claude / "settings.json"

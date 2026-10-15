@@ -2,10 +2,14 @@
 
 ## Findings
 
-Findings go to `.runs/<id>/review.md`:
+`goal.py review --chief <claude|codex> --stage <design|plan|merge>` sends
+[the reviewer prompt](../agents/reviewer.md) and `.runs/<id>/<stage>-review-packet.md` to the other
+vendor's CLI with the exact model and effort in [roles.md](roles.md), and writes `<stage>-review.md`
+(`review.md` for merge, never over an existing one). `done` refuses a `review.md` whose reviewer line
+names another model:
 
 ```
-reviewer: <vendor model> (read-only), <date>, <stage>
+reviewer: <cli> <model> at <effort> (read-only), <date>, <stage>
 reviewed: <full sha>
 verdict: PASS | BLOCK
 ## Findings

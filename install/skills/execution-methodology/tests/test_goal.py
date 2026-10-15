@@ -973,6 +973,24 @@ class ReviewRowTest(RepoCase):
         (self.repo.dir / ".runs/F-9/review.md").unlink()
         self.assertRow(8, "no .runs/F-9/review.md")
 
+    def test_a_review_by_a_model_review_does_not_run_is_named(self):
+        for reviewer in ("codex gpt-6.1-sol (read-only), 2026-01-01, merge",
+                         "codex gpt-6-astra (read-only), 2026-01-01, merge",
+                         "codex gpt-6-astra at medium (read-only), 2026-01-01, merge",
+                         "claude opus at high (read-only), 2026-01-01, merge"):
+            with self.subTest(reviewer=reviewer):
+                self.repo.review("", reviewer=reviewer)
+                self.assertRow(8, "reviewer: line names neither gpt-6-astra at high nor claude-opus-5-5 at high")
+        self.repo.write(".runs/F-9/review.md", f"reviewed: {self.repo.git('rev-parse', 'HEAD')}\n")
+        self.assertRow(8, "reviewer: line names neither")
+
+    def test_a_review_by_either_reviewer_model_is_accepted(self):
+        for reviewer in ("codex gpt-6-astra at high (read-only), 2026-01-01, merge",
+                         "claude claude-opus-5-5 at high (read-only), 2026-01-01, merge"):
+            with self.subTest(reviewer=reviewer):
+                self.repo.review("", reviewer=reviewer)
+                self.assertRowOk(8)
+
 
     def test_packet_counts_causes_over_closed_blocking_findings(self):
         sha = self.repo.git("rev-parse", "HEAD")
@@ -985,6 +1003,100 @@ class ReviewRowTest(RepoCase):
         res = self.repo.goal("packet")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("cause: context 1, logic 1, spec 0\n", self.repo.read(".runs/F-9/packet.md"))
+
+
+FAKE_REVIEWER = '''#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ["FAKE_ARGV"], "w") as fh:
+    json.dump({"argv": sys.argv, "stdin_tty": sys.stdin.isatty(), "stdin": sys.stdin.read()}, fh)
+text = "reviewer: some model (read-only), today, merge\\nreviewed: abc\\n"
+text += "" if os.environ.get("FAKE_NO_VERDICT") else "verdict: PASS\\n## Findings\\n"
+text = "```\\n" + text + "```\\n" if os.environ.get("FAKE_FENCE") else text
+if os.path.basename(sys.argv[0]) == "codex":
+    open(sys.argv[sys.argv.index("-o") + 1], "w").write(text)
+    print('{"type": "event"}')
+else:
+    sys.stdout.write(text)
+'''
+
+
+class ReviewCommandTest(RepoCase):
+    def setUp(self):
+        super().setUp()
+        self.bin = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.bin, ignore_errors=True)
+        for cli in ("codex", "claude"):
+            (self.bin / cli).write_text(FAKE_REVIEWER)
+            (self.bin / cli).chmod(0o755)
+        self.argv = self.bin / "argv.json"
+        self.repo.write(".runs/F-9/merge-review-packet.md", "Review the milestone diff.\n")
+
+    def review(self, *args, **extra):
+        return self.repo.goal("review", *args, PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}",
+                              FAKE_ARGV=str(self.argv), **extra)
+
+    def called(self):
+        return json.loads(self.argv.read_text())
+
+    def test_a_claude_chief_runs_codex_gpt_6_astra_at_high_read_only(self):
+        res = self.review("--chief", "claude", "--stage", "merge")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        argv = self.called()["argv"]
+        self.assertEqual(Path(argv[0]).name, "codex")
+        for pair in (["exec", "-s", "read-only", "--ignore-user-config", "--ignore-rules"],
+                     ["-m", "gpt-6-astra"], ["-c", "model_reasoning_effort=high"]):
+            self.assertIn(" ".join(pair), " ".join(argv[1:]), argv)
+        self.assertFalse(self.called()["stdin_tty"])
+        self.assertEqual(self.called()["stdin"], "", "stdin is /dev/null, so codex never waits on it")
+        review = self.repo.read(".runs/F-9/review.md")
+        self.assertRegex(review, r"^reviewer: codex gpt-6-astra at high \(read-only\), \d{4}-\d\d-\d\d, merge\n")
+        self.assertIn("verdict: PASS", review)
+
+    def test_a_codex_chief_runs_claude_opus_5_5_at_high_with_read_only_tools(self):
+        res = self.review("--chief", "codex", "--stage", "plan", "--packet", ".runs/F-9/merge-review-packet.md")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        argv = self.called()["argv"]
+        self.assertEqual(Path(argv[0]).name, "claude")
+        for pair in (["-p"], ["--model", "claude-opus-5-5"], ["--effort", "high"], ["--tools", "Read,Grep,Glob"],
+                     ["--permission-mode", "dontAsk"]):
+            self.assertIn(" ".join(pair), " ".join(argv[1:]), argv)
+        review = self.repo.read(".runs/F-9/plan-review.md")
+        self.assertRegex(review, r"^reviewer: claude claude-opus-5-5 at high \(read-only\), [-\d]+, plan\n")
+
+    def test_the_prompt_is_the_reviewer_persona_then_the_packet(self):
+        self.review("--chief", "claude", "--stage", "merge")
+        prompt = self.called()["argv"][-1]
+        persona = (GOAL.parents[1] / "agents" / "reviewer.md").read_text().split("---\n", 2)[2].lstrip("\n")
+        self.assertTrue(prompt.startswith(persona), prompt[:200])
+        self.assertTrue(prompt.endswith("Review the milestone diff.\n"))
+
+    def test_a_review_the_done_check_accepts(self):
+        self.repo.close()
+        (self.repo.dir / ".runs/F-9/review.md").unlink()
+        self.review("--chief", "claude", "--stage", "merge")
+        self.repo.edit(".runs/F-9/review.md", "reviewed: abc", f"reviewed: {self.repo.git('rev-parse', 'HEAD')}")
+        self.assertRowOk(8)
+
+    def test_a_review_wrapped_in_a_fence_is_unwrapped(self):
+        res = self.review("--chief", "codex", "--stage", "merge", FAKE_FENCE="1")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        review = self.repo.read(".runs/F-9/review.md")
+        self.assertTrue(review.startswith("reviewer: claude claude-opus-5-5 at high"), review)
+        self.assertNotIn("```", review)
+
+    def test_no_verdict_fails_and_writes_no_review(self):
+        res = self.review("--chief", "codex", "--stage", "merge", FAKE_NO_VERDICT="1")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("without a verdict: line", res.stderr)
+        self.assertFalse(self.repo.path(".runs/F-9/review.md").exists())
+
+    def test_an_existing_review_is_never_overwritten(self):
+        self.repo.write(".runs/F-9/review.md", "closures\n")
+        res = self.review("--chief", "claude", "--stage", "merge")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("exists; move it aside", res.stderr)
+        self.assertEqual(self.repo.read(".runs/F-9/review.md"), "closures\n")
+        self.assertFalse(self.argv.exists(), "no reviewer ran")
 
 
 def jsonl(path: Path, rows) -> None:

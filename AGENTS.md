@@ -39,4 +39,5 @@ see [D17](docs/decisions/decisions.md#d17--this-repository-complies-with-the-sta
   [D33](docs/decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7),
   [D34](docs/decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8),
   [D35](docs/decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9),
-  [D36](docs/decisions/decisions.md#d36--the-readme-answers-seven-questions-again-the-repository-rules-ship-with-the-skill-docspy-links-s-10).
+  [D36](docs/decisions/decisions.md#d36--the-readme-answers-seven-questions-again-the-repository-rules-ship-with-the-skill-docspy-links-s-10),
+  [D37](docs/decisions/decisions.md#d37--exact-model-ids-the-cross-vendor-review-runs-through-goalpy-review).

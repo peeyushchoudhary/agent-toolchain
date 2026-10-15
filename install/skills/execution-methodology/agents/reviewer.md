@@ -2,7 +2,7 @@
 name: reviewer
 description: Adversarial read-only review of a design, a plan or a milestone diff against the goal's spec.md and plan.md, written in the review.md format; one round, no fixes. Dispatched by the chief only.
 tools: Read, Grep, Glob
-model: opus
+model: claude-opus-5-5
 effort: high
 ---
 

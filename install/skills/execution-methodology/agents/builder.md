@@ -2,7 +2,7 @@
 name: builder
 description: Implements one task of a goal's plan.md inside its write set, in its own worktree, from the packet the chief dispatches it with; never commits. Dispatched by the chief only.
 tools: Read, Edit, Write, Bash, Grep, Glob
-model: opus
+model: claude-opus-5-5
 effort: high
 maxTurns: 200
 permissionMode: dontAsk
