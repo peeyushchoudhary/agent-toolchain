@@ -23,16 +23,16 @@ write set and tests.
 
 ## What each file guards against
 
-- **builder** (`opus`, `effort: high`, `maxTurns: 200`, `permissionMode: dontAsk`,
+- **builder** (`claude-opus-5-5`, `effort: high`, `maxTurns: 200`, `permissionMode: dontAsk`,
   `isolation: worktree`): work started in the chief's checkout or on a base without the goal
   branch, out-of-scope edits, quiet narrowing or widening of the task, code
   written to the test's inputs instead of the behaviour, tests edited to pass, success claimed
   without the gate's own output, speculative abstraction and adjacent clean-ups, and work started
   from a summary instead of the files.
-- **reviewer** (`tools: Read, Grep, Glob`, `opus`, `effort: high`): a review that trusts the
+- **reviewer** (`tools: Read, Grep, Glob`, `claude-opus-5-5`, `effort: high`): a review that trusts the
   builder's report, style noise, findings about code the diff did not touch, a finding with no
   scenario, self-filtering that hides defects, and a reviewer that edits or runs tests.
-- **scout** (`tools: Read, Grep, Glob`, `haiku`, `maxTurns: 20`): reconnaissance that drifts into
+- **scout** (`tools: Read, Grep, Glob`, `claude-haiku-5-5`, `maxTurns: 20`): reconnaissance that drifts into
   judging, pasting code or proposing work, and paths named without being opened.
 
 ## Adopted lines and their evidence

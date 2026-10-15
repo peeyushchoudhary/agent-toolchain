@@ -2,7 +2,7 @@
 name: scout
 description: Read-only reconnaissance for the chief's planning; returns at most 300 words of identifiers (paths, entry points, the pattern and the test to copy). Dispatched by the chief only.
 tools: Read, Grep, Glob
-model: haiku
+model: claude-haiku-5-5
 maxTurns: 20
 ---
 
