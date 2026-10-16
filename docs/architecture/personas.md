@@ -11,7 +11,7 @@ The agent files are [builder.md](../../install/skills/execution-methodology/agen
 [reviewer.md](../../install/skills/execution-methodology/agents/reviewer.md) and
 [scout.md](../../install/skills/execution-methodology/agents/scout.md). Each body has `## MUST`,
 `## SHOULD`, `## AVOID` and `## REPORT`, one behaviour per line, within a word ceiling that
-`test_rules.py` asserts (350, 350, 200). Each has a Codex twin, `agents/<name>.toml`, whose `developer_instructions` is the same body byte
+`test_rules.py` asserts (400, 350, 200). Each has a Codex twin, `agents/<name>.toml`, whose `developer_instructions` is the same body byte
 for byte (asserted by the install tests). Model and effort agree with
 [roles.md](../../install/skills/execution-methodology/references/roles.md); the decision is
 [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2).
@@ -45,6 +45,7 @@ write set and tests.
 | Copy the nearest existing pattern and name the file | builder | Best practices, "follow the pattern" (same page) |
 | No helpers or abstractions for one use; no adjacent fixes; report follow-ups | builder | The over-engineering sample in Anthropic's [prompting best practices](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices) |
 | Report a wrong test as red, never edit it; implement the behaviour, not the test's inputs | builder | Same page ("if any of the tests are incorrect, inform me"); a reward-hacking study ([arXiv 2511.21654](https://arxiv.org/abs/2511.21654)) |
+| Never commit, not even WIP; never create, change or route around a guard, hook or private-identifier list; on a refusal, stop and report its text | builder | A product repository's chief, 2026-10-15: a builder refused by the guard wrote a private-name list to pass it, made a local WIP commit that skipped the private-facts check, then deleted the list ([D38](../decisions/decisions.md#d38--the-module-map-may-grow-never-shrink-builders-never-route-around-a-guard)) |
 | See the named test fail before the change (SHOULD, behaviour changes only) | builder | The reward-hacking study and one community anecdote; no vendor document, so not a MUST |
 | The gate's last line as printed; a gate that did not start is not green | builder | Best practices, "show evidence rather than asserting success" |
 | No preambles or questions; default and record | builder | The [Codex prompting guide](https://developers.openai.com/cookbook/examples/gpt-5/codex_prompting_guide); the skill's Authority section |
