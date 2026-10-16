@@ -54,7 +54,7 @@ import modmap  # noqa: E402
 
 def git(root, *args, check=True):
     """Run git in root and return stdout (stripped of the trailing newline)."""
-    proc = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
+    proc = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, errors="surrogateescape")
     if check and proc.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)}: {proc.stderr.strip()}")
     return proc.stdout.rstrip("\n")

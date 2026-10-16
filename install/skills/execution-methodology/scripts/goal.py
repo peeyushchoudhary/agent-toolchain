@@ -191,13 +191,20 @@ def goal_has(ctx, name):
 def protected_entries(plan, ctx=None):
     """The plan's protected entries plus a v7.1 goal's unlisted defaults: spec.md whole, and
     design.md's Interfaces and Data touched sections when the page exists; and the module map
-    when it exists at the approval tag, so a map change waits for the founder."""
+    when it exists at the approval tag, unless a task of the approved plan names the map's exact
+    path in its writes: then the goal maintains the map. An explicit protected entry covering the
+    map, at approval or in the supplied plan, always keeps it protected."""
     out = [p for p in plan["meta"].get("protected") or [] if isinstance(p, str)]
     if getattr(ctx, "root", None) is not None and (spec := goal_has(ctx, "spec.md")):
         design = goal_has(ctx, "design.md")
         out += [spec] + ([f"{design}#interfaces", f"{design}#data-touched"] if design else [])
     if getattr(ctx, "root", None) is not None and file_at(ctx.root, ctx.tag("approved"), modmap.MAP) is not None:
-        out.append(modmap.MAP)
+        approved = ctx.plan_at(ctx.tag("approved"))
+        explicit = out + [p for p in approved["meta"].get("protected") or [] if isinstance(p, str)]
+        maintained = any(modmap.MAP in t["writes"] for t in approved["tasks"].values()) and not any(
+            matches(modmap.MAP, [p.partition("#")[0]]) for p in explicit)
+        if not maintained:
+            out.append(modmap.MAP)
     return list(dict.fromkeys(out))
 
 def path_protected(plan, ctx=None):
@@ -356,6 +363,32 @@ def commit_plan_only(ctx, c):
         frozen_view(file_at(ctx.root, c, ctx.plan_rel))
     return plan_only(ctx, git(ctx.root, "log", "-1", "--format=%s", c), changes(ctx.root, parent, c), same)
 
+def map_shrinks(old: str | None, new: str | None, files: list[str]) -> list[str]:
+    """What a module-map change takes from the checks; after approval the map may only grow. A removed
+    module or need, or a changed test or count, can drop tests. A removed path, of a module or of
+    shared (whose changes select every module), counts only when one of `files` it matched is no
+    longer matched, so replacing globs with a wider one is growth."""
+    try:
+        o, n = json.loads(old or "{}"), json.loads(new or "{}")
+    except ValueError:
+        return ["leaves it unreadable"] if old is not None else []
+    if not isinstance(o, dict) or not isinstance(n, dict):
+        return []
+    def lost(before, after):
+        return [g for g in before if g not in after and any(
+            glob_re(g).match(f) and not matches(f, after) for f in files)]
+    out = [f"removes shared {g}" for g in lost(o.get("shared") or [], n.get("shared") or [])]
+    om, nm = o.get("modules") or {}, n.get("modules") or {}
+    for name, mod in om.items():
+        if name not in nm:
+            out.append(f"removes module {name}")
+            continue
+        new_mod = nm[name]
+        out += [f"removes paths {g} from {name}" for g in lost(mod.get("paths") or [], new_mod.get("paths") or [])]
+        out += [f"removes needs {v} from {name}" for v in mod.get("needs") or [] if v not in (new_mod.get("needs") or [])]
+        out += [f"changes {name}'s {key}" for key in ("test", "count") if mod.get(key) != new_mod.get(key)]
+    return out
+
 def commit_findings(ctx, base):
     """Rows 3, 4 and 5 over every commit in base..HEAD."""
     rows = {3: [], 4: [], 5: []}
@@ -388,6 +421,10 @@ def commit_findings(ctx, base):
                         file_at(ctx.root, parent, path) if parent else "", anchor))
                         != settled(protected_text(file_at(ctx.root, c, path), anchor))):
                     rows[4].append(f"{short} [{tids[0]}] changes protected {entry}")
+            if path == modmap.MAP and parent and modmap.MAP not in entries:
+                files = git(ctx.root, "ls-tree", "-r", "--name-only", c).splitlines()
+                for what in map_shrinks(file_at(ctx.root, parent, path), file_at(ctx.root, c, path), files):
+                    rows[5].append(f"{short} [{tids[0]}] {what} in the module map")
             if path == ctx.plan_rel and plan_same:
                 continue  # ticks and writes lines; the frozen view is row 6's to judge
             if not matches(path, task["writes"]):

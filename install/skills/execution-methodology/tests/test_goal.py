@@ -345,6 +345,99 @@ class ModuleRowTest(RepoCase):
         self.repo.edit(PLAN, "writes: src/c/**", f"writes: src/c/**, {MAP_PATH}")
         self.assertIn("lint: T3: writes intersect protected\n", self.repo.goal("lint").stdout)
 
+    def test_an_approved_literal_map_write_lets_the_goal_maintain_the_map(self):
+        broad = "docs/goals/**"
+        cases = (
+            ("approved owner", MAP_PATH, MAP_PATH, "T1", "", True, True, True),
+            ("non-owner", "src/a/**", "src/a/**", "T1", "", True, True, False),
+            ("later exact widening", broad, MAP_PATH, "T1", "", True, True, False),
+            ("broad only", broad, broad, "T1", "", True, True, False),
+            ("explicit exact", MAP_PATH, MAP_PATH, "T1", MAP_PATH, True, True, False),
+            ("explicit glob", MAP_PATH, MAP_PATH, "T1", broad, True, True, False),
+            ("explicit section", MAP_PATH, MAP_PATH, "T1", MAP_PATH + "#missing", True, True, False),
+            ("removed approved protection", MAP_PATH, MAP_PATH, "T1", MAP_PATH, True, True, False),
+            ("owner widened to a glob", MAP_PATH, "docs/goals/*.json", "T1", "", True, True, True),
+            ("another task widened to the map", MAP_PATH, MAP_PATH, "T2", "", True, True, True),
+            ("before approval", MAP_PATH, MAP_PATH, "T1", "", False, True, True),
+            ("no approval explicit", MAP_PATH, MAP_PATH, "T1", MAP_PATH, False, True, False),
+            ("initial map creation", MAP_PATH, MAP_PATH, "T1", "", True, False, True),
+            ("no approved map explicit", MAP_PATH, MAP_PATH, "T1", MAP_PATH, True, False, False),
+        )
+        for name, approved, current, tid, explicit, tagged, mapped, allowed in cases:
+            with self.subTest(name=name):
+                plan = plan_text(v71=True).replace("writes: src/a/**, tests/**", f"writes: {approved}")
+                if explicit:
+                    plan = plan.replace("protected: [docs/design.md]", f"protected: [docs/design.md, {explicit}]")
+                repo = Repo(plan, files={**V71_FILES, **({MAP_PATH: json.dumps(MODULES)} if mapped else {})})
+                self.addCleanup(repo.cleanup)
+                base = repo.git("rev-parse", "HEAD")
+                if not tagged:
+                    repo.git("tag", "-d", "goal/F-9/approved")
+                if name == "removed approved protection":
+                    repo.edit(PLAN, f"protected: [docs/design.md, {MAP_PATH}]", "protected: [docs/design.md]")
+                repo.edit(PLAN, f"writes: {approved}\n", f"writes: {current}\n")
+                if tid == "T2":
+                    repo.edit(PLAN, "writes: src/b/**, tests/**", f"writes: {MAP_PATH}")
+                if repo.read(PLAN) != plan:
+                    repo.edit(PLAN, "## Decisions\n", "## Decisions\n\n- Adjust task writes.\n")
+                    repo.commit("F-9: adjust task writes")
+                lint = repo.goal("lint")
+                task_writes = MAP_PATH if tid == "T2" else current
+                lint_blocked = not allowed and task_writes != "src/a/**"
+                self.assertEqual(lint.returncode, int(lint_blocked), lint.stdout + lint.stderr)
+                if lint_blocked:
+                    self.assertIn(f"lint: {tid}: writes intersect protected\n", lint.stdout)
+                repo.write(MAP_PATH, json.dumps({**MODULES, "shared": [*MODULES["shared"], "tools/**"]}))
+                sha = repo.commit(f"[{tid}] update module map")
+                ctx = goal.find_ctx(cwd=repo.dir)
+                findings = goal.commit_findings(ctx, base)[4]
+                protected = f"{sha[:10]} [{tid}] changes protected {explicit or MAP_PATH}"
+                self.assertEqual(protected in findings, not allowed, findings)
+                self.assertEqual("a writes glob at HEAD intersects protected" in findings, lint_blocked, findings)
+                if allowed:
+                    self.assertEqual(findings, [])
+                if tagged:
+                    res = repo.goal("done")
+                    self.assertIn("row 4 ok\n" if allowed else protected, res.stdout, res.stdout + res.stderr)
+
+        # Separate serial tasks may each name the map in the approved plan.
+        plan = (plan_text().replace("writes: src/a/**, tests/**", f"writes: {MAP_PATH}")
+                .replace("writes: src/b/**, tests/**", f"writes: {MAP_PATH}\nneeds: T1"))
+        repo = Repo(plan, files={MAP_PATH: json.dumps(MODULES)})
+        self.addCleanup(repo.cleanup)
+        for tid in ("T1", "T2"):
+            self.assertEqual(repo.goal("lint").returncode, 0)
+            repo.write(MAP_PATH, json.dumps({**MODULES, "shared": [*MODULES["shared"], f"tools/{tid}/**"]}))
+            repo.commit(f"[{tid}] update module map")
+            res = repo.goal("done")
+            self.assertIn("row 4 ok\n", res.stdout, res.stdout + res.stderr)
+
+    def test_a_maintained_map_may_grow_but_never_shrink(self):
+        plan = plan_text().replace("writes: src/a/**, tests/**", f"writes: {MAP_PATH}")
+        grown = {**MODULES, "modules": {**MODULES["modules"],
+                                        "a": {**MODULES["modules"]["a"], "paths": [*MODULES["modules"]["a"]["paths"], "src/a2/**"]},
+                                        "d": {"paths": ["src/d/**"], "test": "python3 -m unittest tests.test_d"}}}
+        mods = MODULES["modules"]
+        cases = (
+            ("removes module c", {**MODULES, "modules": {k: v for k, v in mods.items() if k != "c"}}),
+            ("removes paths tests/test_a.py from a", {**MODULES, "modules": {**mods, "a": {**mods["a"], "paths": ["src/a/**"]}}}),
+            ("removes needs a from b", {**MODULES, "modules": {**mods, "b": {k: v for k, v in mods["b"].items() if k != "needs"}}}),
+            ("changes c's test", {**MODULES, "modules": {**mods, "c": {**mods["c"], "test": "true"}}}),
+            ("changes checks's count", {**MODULES, "modules": {**mods, "checks": {k: v for k, v in mods["checks"].items() if k != "count"}}}),
+            ("removes shared .gitignore", {**MODULES, "shared": [g for g in MODULES["shared"] if g != ".gitignore"]}),
+        )
+        wider = {**MODULES, "modules": {**mods, "a": {**mods["a"], "paths": ["src/**", "tests/test_a.py"]}},
+                 "shared": ["**/.gitignore", "docs/**", "tests/test_e2e*.py"], "replaces": "true"}
+        for what, shrunk in (("", grown), ("", wider), *cases):
+            with self.subTest(what=what or "grows"):
+                repo = Repo(plan, files={MAP_PATH: json.dumps(MODULES)})
+                self.addCleanup(repo.cleanup)
+                repo.write(MAP_PATH, json.dumps(shrunk))
+                sha = repo.commit("[T1] maintain the module map")
+                rows = goal.commit_findings(goal.find_ctx(cwd=repo.dir), repo.git("rev-parse", "HEAD~1"))
+                self.assertEqual(rows[4], [], rows)
+                self.assertEqual(rows[5], [f"{sha[:10]} [T1] {what} in the module map"] if what else [], rows)
+
     def test_packet_lists_retried_modules_with_load_readings(self):
         self.repo.goal("packet")
         self.assertIn("\nRetried modules:\nnone\n", self.repo.read(".runs/F-9/packet.md"))
@@ -968,6 +1061,18 @@ class ReviewRowTest(RepoCase):
     def test_an_open_blocking_finding_is_named(self):
         self.repo.review("- [ ] BLOCKING R2 the beta value is wrong\n")
         self.assertRow(8, "open - [ ] BLOCKING")
+
+    def test_a_committed_file_that_is_not_utf8_never_crashes_done(self):
+        # A fixture with a deliberately malformed byte must not crash the git calls behind row 5.
+        self.repo.path("tests/fixtures").mkdir(parents=True, exist_ok=True)
+        self.repo.path("tests/fixtures/malformed.csv").write_bytes(b"name,value\nbad,\xff\xfe\n")
+        self.repo.write("tests/test_malformed.py", "import unittest\n\n\nclass M(unittest.TestCase):\n"
+                        "    def test_reads(self):\n        pass\n")
+        sha = self.fix("src/b/z.py", "Z = 1\n", "[T2] beta reads a malformed fixture")
+        res = self.repo.goal("done")
+        self.assertNotIn("codec", res.stderr, res.stderr)
+        self.assertNotEqual(res.returncode, 2, res.stdout + res.stderr)
+        self.assertIn(f"{sha[:10]} after reviewed:", res.stdout)
 
     def test_a_missing_review_is_named(self):
         (self.repo.dir / ".runs/F-9/review.md").unlink()

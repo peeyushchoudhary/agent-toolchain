@@ -15,8 +15,11 @@ Commit it with the plan. Then, on that clean commit, compare once:
 - `gate.py receipt --goal <id> --modules all`;
 - `gate.py coverage --goal <id>`.
 
-Coverage compares the counts suite by suite (unittest, pytest, playwright, vitest, junit), so take
-the full-gate receipt with the same `--junit` glob as the modules, or its junit suite reads 0.
-Record the line coverage prints in a Decisions line. To compose the full gate from the map, set
-`full_gate: modules` and add a Decisions line naming the module that runs each non-test check of
-the replaced command. Prefer derived gates to `gate:` lines.
+Coverage compares counts suite by suite (unittest, pytest, playwright, vitest, junit); take the
+full-gate receipt with the modules' `--junit` glob, or its junit suite reads 0. Record coverage's
+line in Decisions. For `full_gate: modules`, add a Decisions line naming the module that runs each
+non-test check of the replaced command. Prefer derived gates to `gate:` lines.
+
+An approved map is protected unless an approved task's `writes:` names
+`docs/goals/modules.json` exactly; then the goal maintains it. A covering `protected:` entry
+locks it.
