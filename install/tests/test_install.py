@@ -93,7 +93,7 @@ class InstallTest(InstallCase):
         self.install()
         for root, name, hooks in ((self.claude, "CLAUDE.md", "settings.json"), (self.codex, "AGENTS.md", "hooks.json")):
             self.assertEqual((root / name).read_text(encoding="utf-8"), GLOBAL)
-            self.assertEqual({p.name for p in (root / "skills").iterdir()}, {SKILL})
+            self.assertEqual({p.name for p in (root / "skills").iterdir()}, {SKILL, f".{SKILL}.installed"})
             installed = root / "skills" / SKILL
             self.assertEqual({p.name for p in installed.iterdir()}, {"SKILL.md", "references", "agents", "scripts"})
             self.assertTrue(os.access(installed / "scripts" / "goal.py", os.X_OK), installed)
@@ -165,6 +165,25 @@ class InstallTest(InstallCase):
             self.assertIn("hooks:", r.stderr)
             self.assertNotIn("Traceback", r.stdout + r.stderr)
             self.assertEqual(bad.read_text(), text)
+
+
+class InPlaceEditTest(InstallCase):
+    def test_an_installed_file_edited_in_place_is_named_before_it_is_replaced(self):
+        self.install()
+        for root in (self.claude, self.codex):
+            self.assertTrue((root / "skills" / f".{SKILL}.installed").is_file(), root)
+        edited = self.claude / "skills" / SKILL / "scripts" / "gate.py"
+        edited.write_text(edited.read_text(encoding="utf-8") + "# patched in place\n", encoding="utf-8")
+        out = self.install().stdout
+        self.assertIn(f"warning: {edited} was edited in place since the last install", out)
+        self.assertNotIn(f"warning: {self.codex}/skills/{SKILL}/scripts/gate.py", out)
+        self.assertEqual(edited.read_bytes(), (SKILLS / SKILL / "scripts" / "gate.py").read_bytes())
+        self.assertNotIn("edited in place", self.install().stdout)
+
+    def test_uninstall_removes_the_install_record(self):
+        self.install()
+        self.install("--uninstall")
+        self.assertFalse((self.claude / "skills" / f".{SKILL}.installed").exists())
 
 
 class UninstallTest(InstallCase):

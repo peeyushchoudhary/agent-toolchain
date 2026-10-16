@@ -72,21 +72,52 @@ retired_entry() {  # retired_entry REL: print the RETIRED_FILES entry that cover
 # extras SRC DEST: files DEST has and SRC lacks, ignoring __pycache__ (carried forward, reported).
 extras() { [ -d "$2" ] && (cd "$2" && find . \( -type f -o -type l \) -not -path '*/__pycache__/*') |
   sed 's|^\./||' | while IFS= read -r rel; do [ -e "$1/$rel" ] || [ -L "$1/$rel" ] || echo "$rel"; done; }
+# manifest write|check DIR FILE: the hash of every file under DIR as this installer left it, or the
+# files whose hash no longer matches it: an installed copy edited in place, which this install replaces.
+manifest() {
+  python3 - "$@" <<'PY'
+import hashlib, os, sys
+mode, root, path = sys.argv[1:4]
+def files():
+    for d, dirs, names in os.walk(root):
+        dirs[:] = sorted(x for x in dirs if x != "__pycache__")
+        for n in sorted(names):
+            p = os.path.join(d, n)
+            yield os.path.relpath(p, root), hashlib.sha256(open(p, "rb").read()).hexdigest()
+if mode == "write":
+    with open(path, "w") as fh:
+        fh.write(f"# {os.environ.get('SOURCE_REF', 'unknown source')}\n")
+        fh.writelines(f"{h}  {rel}\n" for rel, h in files())
+else:
+    now = dict(files())
+    for line in open(path):
+        if not line.startswith("#") and "  " in line:
+            h, rel = line.rstrip("\n").split("  ", 1)
+            if now.get(rel, h) != h:
+                print(rel)
+PY
+}
 # Staged beside the old copy and swapped in by rename, so a failed copy leaves the working install
 # (whose guard.py every repository's git hooks call) intact. tests/ is not shipped.
 install_skill() {  # install_skill ROOT
   local src="$HERE/skills/$SKILL" dest="$1/skills/$SKILL" st="$1/skills/.$SKILL.new" old="$1/skills/.$SKILL.old" rel kept
   kept="$(extras "$src" "$dest")"
   [ -z "$kept" ] || while IFS= read -r rel; do say "kept $dest/$rel (not in this package)"; done <<< "$kept"
+  local record="$1/skills/.$SKILL.installed"
   if [ -z "$(diff -rq -x __pycache__ -x tests "$src" "$dest" 2>&1 | grep -vF "Only in $dest")" ]; then
+    [ "$DRY" -eq 1 ] || [ -f "$record" ] || manifest write "$dest" "$record"
     say "unchanged $dest"; return 0; fi
+  [ ! -f "$record" ] || [ ! -d "$dest" ] || while IFS= read -r rel; do [ -n "$rel" ] &&
+    say "warning: $dest/$rel was edited in place since the last install; install/ is its only source, so this install replaces it"
+  done <<< "$(manifest check "$dest" "$record")"
   [ "$DRY" -eq 1 ] && { say "would: copy $src (without tests/) to $dest"; return 0; }
   rm -rf "$st" "$old" && mkdir -p "$1/skills" && cp -R "$src" "$st" && rm -rf "$st/tests" &&
     find "$st" -name __pycache__ -prune -exec rm -rf {} + && chmod +x "$st"/scripts/* || { rm -rf "$st"; return 1; }
   while IFS= read -r rel; do [ -n "$rel" ] || continue
     mkdir -p "$(dirname "$st/$rel")" && cp -P -p "$dest/$rel" "$st/$rel" || { rm -rf "$st"; return 1; }
   done <<< "$kept"
-  if { [ ! -e "$dest" ] || mv "$dest" "$old"; } && mv "$st" "$dest"; then rm -rf "$old"; say "installed $dest"; return 0; fi
+  if { [ ! -e "$dest" ] || mv "$dest" "$old"; } && mv "$st" "$dest"; then
+    rm -rf "$old"; manifest write "$dest" "$record"; say "installed $dest"; return 0; fi
   [ -e "$dest" ] || [ ! -e "$old" ] || mv "$old" "$dest"; rm -rf "$st"; return 1
 }
 # Uninstall removes the files this package ships and the directories that leaves empty; files it
@@ -95,6 +126,7 @@ uninstall_skill() {  # uninstall_skill ROOT
   local src="$HERE/skills/$SKILL" dest="$1/skills/$SKILL" kept rel
   { [ -e "$dest" ] || [ -L "$dest" ]; } || return 0
   kept="$(extras "$src" "$dest")"
+  [ "$DRY" -eq 1 ] || rm -f "$1/skills/.$SKILL.installed"
   [ -n "$kept" ] || { step "removed $dest" rm -rf "$dest"; return; }
   if [ "$DRY" -eq 0 ]; then
     (cd "$src" && find . \( -type f -o -type l \) -not -path '*/__pycache__/*') | sed 's|^\./||' |
@@ -236,6 +268,15 @@ retire_root() {  # retire_root ROOT AGENT_EXT
 }
 
 # ── Run ──────────────────────────────────────────────────────────────────────────────────────────
+# The source this install comes from; anything but a clean main leaves the installed copies off main.
+if branch="$(git -C "$HERE" rev-parse --abbrev-ref HEAD 2>/dev/null)"; then
+  SOURCE_REF="$branch $(git -C "$HERE" rev-parse --short HEAD)" dirty="$(git -C "$HERE" status --porcelain -- . 2>/dev/null)"
+  [ -z "$dirty" ] || SOURCE_REF="$SOURCE_REF with uncommitted changes"
+  if [ "$MODE" != uninstall ] && { [ "$branch" != main ] || [ -n "$dirty" ]; }; then
+    say "warning: installing from $SOURCE_REF, not a clean main; the installed copies differ from main until main is installed"
+  fi
+  export SOURCE_REF
+fi
 for r in "${ROOTS[@]}"; do
   echo "$r"
   if [ "$MODE" = uninstall ]; then
