@@ -72,28 +72,37 @@ retired_entry() {  # retired_entry REL: print the RETIRED_FILES entry that cover
 # extras SRC DEST: files DEST has and SRC lacks, ignoring __pycache__ (carried forward, reported).
 extras() { [ -d "$2" ] && (cd "$2" && find . \( -type f -o -type l \) -not -path '*/__pycache__/*') |
   sed 's|^\./||' | while IFS= read -r rel; do [ -e "$1/$rel" ] || [ -L "$1/$rel" ] || echo "$rel"; done; }
-# manifest write|check DIR FILE: the hash of every file under DIR as this installer left it, or the
-# files whose hash no longer matches it: an installed copy edited in place, which this install replaces.
+# manifest write|check DIR FILE SRC: the hash of each file under DIR that the package SRC ships, as this
+# installer left it; or the shipped files whose hash no longer matches it: an installed copy edited in
+# place, which this install replaces. Carried-forward files are neither recorded nor named, and a link
+# is hashed as its target's name, never followed.
 manifest() {
   python3 - "$@" <<'PY'
 import hashlib, os, sys
-mode, root, path = sys.argv[1:4]
-def files():
+mode, root, path, src = sys.argv[1:5]
+def digest(p):
+    try:
+        data = os.readlink(p).encode() if os.path.islink(p) else open(p, "rb").read()
+    except OSError:
+        return "unreadable"
+    return hashlib.sha256(data).hexdigest()
+def shipped():
     for d, dirs, names in os.walk(root):
         dirs[:] = sorted(x for x in dirs if x != "__pycache__")
         for n in sorted(names):
-            p = os.path.join(d, n)
-            yield os.path.relpath(p, root), hashlib.sha256(open(p, "rb").read()).hexdigest()
+            rel = os.path.relpath(os.path.join(d, n), root)
+            if os.path.lexists(os.path.join(src, rel)):
+                yield rel, digest(os.path.join(root, rel))
 if mode == "write":
     with open(path, "w") as fh:
         fh.write(f"# {os.environ.get('SOURCE_REF', 'unknown source')}\n")
-        fh.writelines(f"{h}  {rel}\n" for rel, h in files())
+        fh.writelines(f"{h}  {rel}\n" for rel, h in shipped())
 else:
-    now = dict(files())
+    now = dict(shipped())
     for line in open(path):
         if not line.startswith("#") and "  " in line:
             h, rel = line.rstrip("\n").split("  ", 1)
-            if now.get(rel, h) != h:
+            if rel in now and now[rel] != h:
                 print(rel)
 PY
 }
@@ -105,11 +114,17 @@ install_skill() {  # install_skill ROOT
   [ -z "$kept" ] || while IFS= read -r rel; do say "kept $dest/$rel (not in this package)"; done <<< "$kept"
   local record="$1/skills/.$SKILL.installed"
   if [ -z "$(diff -rq -x __pycache__ -x tests "$src" "$dest" 2>&1 | grep -vF "Only in $dest")" ]; then
-    [ "$DRY" -eq 1 ] || [ -f "$record" ] || manifest write "$dest" "$record"
+    [ "$DRY" -eq 1 ] || [ -f "$record" ] || manifest write "$dest" "$record" "$src" ||
+      say "warning: could not write $record; the next install cannot name in-place edits"
     say "unchanged $dest"; return 0; fi
-  [ ! -f "$record" ] || [ ! -d "$dest" ] || while IFS= read -r rel; do [ -n "$rel" ] &&
-    say "warning: $dest/$rel was edited in place since the last install; install/ is its only source, so this install replaces it"
-  done <<< "$(manifest check "$dest" "$record")"
+  if [ -f "$record" ] && [ -d "$dest" ]; then
+    local edited
+    if edited="$(manifest check "$dest" "$record" "$src")"; then
+      while IFS= read -r rel; do [ -z "$rel" ] ||
+        say "warning: $dest/$rel was edited in place since the last install; install/ is its only source, so this install replaces it"
+      done <<< "$edited"
+    else say "warning: could not check $dest against $record; in-place edits, if any, are replaced unnamed"; fi
+  fi
   [ "$DRY" -eq 1 ] && { say "would: copy $src (without tests/) to $dest"; return 0; }
   rm -rf "$st" "$old" && mkdir -p "$1/skills" && cp -R "$src" "$st" && rm -rf "$st/tests" &&
     find "$st" -name __pycache__ -prune -exec rm -rf {} + && chmod +x "$st"/scripts/* || { rm -rf "$st"; return 1; }
@@ -117,7 +132,9 @@ install_skill() {  # install_skill ROOT
     mkdir -p "$(dirname "$st/$rel")" && cp -P -p "$dest/$rel" "$st/$rel" || { rm -rf "$st"; return 1; }
   done <<< "$kept"
   if { [ ! -e "$dest" ] || mv "$dest" "$old"; } && mv "$st" "$dest"; then
-    rm -rf "$old"; manifest write "$dest" "$record"; say "installed $dest"; return 0; fi
+    rm -rf "$old"; say "installed $dest"
+    manifest write "$dest" "$record" "$src" || say "warning: could not write $record; the next install cannot name in-place edits"
+    return 0; fi
   [ -e "$dest" ] || [ ! -e "$old" ] || mv "$old" "$dest"; rm -rf "$st"; return 1
 }
 # Uninstall removes the files this package ships and the directories that leaves empty; files it

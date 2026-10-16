@@ -180,6 +180,20 @@ class InPlaceEditTest(InstallCase):
         self.assertEqual(edited.read_bytes(), (SKILLS / SKILL / "scripts" / "gate.py").read_bytes())
         self.assertNotIn("edited in place", self.install().stdout)
 
+    def test_carried_forward_files_and_dangling_links_never_hide_or_fake_an_edit(self):
+        skill = self.claude / "skills" / SKILL
+        self.write(skill / "notes" / "local.md", "mine\n")       # carried forward, not shipped
+        (skill / "notes" / "gone").symlink_to(self.home / "nowhere")
+        self.install()
+        self.write(skill / "notes" / "local.md", "mine, edited\n")
+        edited = skill / "scripts" / "goal.py"
+        edited.write_text(edited.read_text(encoding="utf-8") + "# patched in place\n", encoding="utf-8")
+        out = self.install().stdout
+        self.assertIn(f"warning: {edited} was edited in place", out)
+        self.assertNotIn("local.md was edited", out)
+        self.assertNotIn("could not", out)
+        self.assertEqual((skill / "notes" / "local.md").read_text(), "mine, edited\n")
+
     def test_uninstall_removes_the_install_record(self):
         self.install()
         self.install("--uninstall")

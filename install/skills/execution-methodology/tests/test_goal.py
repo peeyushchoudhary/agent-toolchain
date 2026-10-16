@@ -433,10 +433,60 @@ class ModuleRowTest(RepoCase):
                 repo = Repo(plan, files={MAP_PATH: json.dumps(MODULES)})
                 self.addCleanup(repo.cleanup)
                 repo.write(MAP_PATH, json.dumps(shrunk))
-                sha = repo.commit("[T1] maintain the module map")
-                rows = goal.commit_findings(goal.find_ctx(cwd=repo.dir), repo.git("rev-parse", "HEAD~1"))
+                repo.commit("[T1] maintain the module map")
+                rows = goal.commit_findings(goal.find_ctx(cwd=repo.dir), repo.git("rev-parse", "goal/F-9/approved"))
                 self.assertEqual(rows[4], [], rows)
-                self.assertEqual(rows[5], [f"{sha[:10]} [T1] {what} in the module map"] if what else [], rows)
+                self.assertEqual(rows[5], [f"the module map at HEAD {what} since approval"] if what else [], rows)
+
+    def maintained(self, files=None, modules=MODULES):
+        plan = plan_text().replace("writes: src/a/**, tests/**", f"writes: {MAP_PATH}, src/**, tests/**")
+        repo = Repo(plan, files={MAP_PATH: json.dumps(modules), **(files or {})})
+        self.addCleanup(repo.cleanup)
+        return repo
+
+    def shrinks(self, repo):
+        rows = goal.commit_findings(goal.find_ctx(cwd=repo.dir), repo.git("rev-parse", "goal/F-9/approved"))
+        return [f for f in rows[5] if "module map" in f]
+
+    def test_an_invalid_map_between_commits_cannot_hide_a_shrink(self):
+        repo = self.maintained()
+        repo.write(MAP_PATH, "[]")
+        repo.commit("[T1] break the module map")
+        repo.write(MAP_PATH, json.dumps({**MODULES, "modules": {k: v for k, v in MODULES["modules"].items() if k != "c"}}))
+        repo.commit("[T1] restore it without c")
+        self.assertEqual(self.shrinks(repo), ["the module map at HEAD removes module c since approval"])
+
+    def test_a_map_left_invalid_at_head_is_named(self):
+        repo = self.maintained()
+        repo.write(MAP_PATH, "[]")
+        repo.commit("[T1] break the module map")
+        self.assertEqual(self.shrinks(repo), ["the module map at HEAD is not a valid map since approval"])
+
+    def test_a_file_deleted_and_restored_cannot_hide_a_lost_path(self):
+        repo = self.maintained()
+        mods = MODULES["modules"]
+        repo.git("rm", "-q", "tests/test_a.py")
+        repo.write(MAP_PATH, json.dumps({**MODULES, "modules": {**mods, "a": {**mods["a"], "paths": ["src/a/**"]}}}))
+        repo.commit("[T1] drop test_a and its path")
+        repo.write("tests/test_a.py", "import unittest\n")
+        repo.commit("[T1] restore test_a")
+        self.assertEqual(self.shrinks(repo), ["the module map at HEAD removes paths tests/test_a.py from a since approval"])
+
+    def test_a_non_ascii_tracked_path_is_judged_unquoted(self):
+        modules = {**MODULES, "modules": {**MODULES["modules"], "u": {"paths": ["src/u/**"], "test": "true"}}}
+        repo = self.maintained({"src/u/caf\u00e9.py": "X = 1\n"}, modules)
+        repo.write(MAP_PATH, json.dumps({**modules, "modules": {**modules["modules"], "u": {"paths": [], "test": "true"}}}))
+        repo.commit("[T1] drop u's path")
+        self.assertEqual(self.shrinks(repo), ["the module map at HEAD removes paths src/u/** from u since approval"])
+
+    def test_a_malformed_module_in_history_never_crashes_done(self):
+        repo = self.maintained()
+        repo.write(MAP_PATH, json.dumps({"modules": {"a": []}}))
+        repo.commit("[T1] a malformed module")
+        repo.write(MAP_PATH, json.dumps(MODULES))
+        repo.commit("[T1] repair it")
+        self.assertEqual(self.shrinks(repo), [])
+        self.assertNotEqual(repo.goal("done").returncode, 2)
 
     def test_packet_lists_retried_modules_with_load_readings(self):
         self.repo.goal("packet")

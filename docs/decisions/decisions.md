@@ -525,9 +525,11 @@ record showed `gpt-6-astra` at `high`, read-only, and the Claude CLI reported `c
 - A map present at approval stays protected unless a task of the approved plan names
   `docs/goals/modules.json` exactly in its writes. Then the goal maintains it, and a task later
   widened to it with a Decisions line may edit it. A covering `protected:` entry still locks it.
-- `goal.py done` row 5 names a map edit that takes from the checks: a removed module or need, a
-  changed test or count, or a removed path or shared glob that leaves a tracked file it matched
-  unmatched. Replacing globs with a wider one is growth.
+- `goal.py done` row 5 compares the map at HEAD with the approved one and names what it takes from
+  the checks: a removed module or need, a changed test or count, or a removed path or shared glob
+  that leaves a tracked file it matched unmatched. A map HEAD cannot read is named too. Replacing
+  globs with a wider one is growth. Judging HEAD against approval, not commit by commit, means no
+  sequence of commits can hide a shrink.
 - `gate.py` decodes git output with `surrogateescape`, so a tracked file that is not UTF-8 never
   crashes `done`.
 - The builder never commits, not even WIP. It never creates, changes or routes around a guard,
@@ -548,4 +550,5 @@ two different map rules, and a UTF-8 fix with no test. The founder chose the pla
 (2026-10-16). The founder's own analysis found that it let a map edit silently drop tests, which
 the row-5 check closes. Run on that goal's real history, every map edit was growth. A third
 product repository's builder wrote a private-name list to pass the guard and made a local WIP
-commit.
+commit. A read-only `gpt-6-astra` review of the change found five bypasses
+and robustness gaps, each closed with a test before merge.

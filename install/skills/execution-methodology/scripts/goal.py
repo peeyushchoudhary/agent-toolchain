@@ -364,28 +364,37 @@ def commit_plan_only(ctx, c):
     return plan_only(ctx, git(ctx.root, "log", "-1", "--format=%s", c), changes(ctx.root, parent, c), same)
 
 def map_shrinks(old: str | None, new: str | None, files: list[str]) -> list[str]:
-    """What a module-map change takes from the checks; after approval the map may only grow. A removed
-    module or need, or a changed test or count, can drop tests. A removed path, of a module or of
-    shared (whose changes select every module), counts only when one of `files` it matched is no
-    longer matched, so replacing globs with a wider one is growth."""
-    try:
-        o, n = json.loads(old or "{}"), json.loads(new or "{}")
-    except ValueError:
-        return ["leaves it unreadable"] if old is not None else []
-    if not isinstance(o, dict) or not isinstance(n, dict):
-        return []
+    """What the map `new` takes from the checks that the map `old` ran; a maintained map may only
+    grow. A removed module or need, or a changed test or count, can drop tests. A removed path, of a
+    module or of shared (whose changes select every module), counts only when one of `files` it
+    matched is no longer matched, so replacing globs with a wider one is growth. A malformed `old`
+    is map_lint's to name; a malformed `new` is a finding, since it may run nothing."""
+    def parse(text):
+        try:
+            m = json.loads(text) if text is not None else {}
+        except ValueError:
+            return None
+        return m if isinstance(m, dict) and isinstance(m.get("modules", {}), dict) else None
+    def globs(v):
+        return [g for g in v if isinstance(g, str)] if isinstance(v, list) else []
     def lost(before, after):
         return [g for g in before if g not in after and any(
             glob_re(g).match(f) and not matches(f, after) for f in files)]
-    out = [f"removes shared {g}" for g in lost(o.get("shared") or [], n.get("shared") or [])]
-    om, nm = o.get("modules") or {}, n.get("modules") or {}
-    for name, mod in om.items():
+    o, n = parse(old), parse(new)
+    if o is None:
+        return []
+    if n is None:
+        return ["is not a valid map"]
+    out = [f"removes shared {g}" for g in lost(globs(o.get("shared")), globs(n.get("shared")))]
+    nm = n.get("modules") or {}
+    for name, mod in (o.get("modules") or {}).items():
+        mod = mod if isinstance(mod, dict) else {}
         if name not in nm:
             out.append(f"removes module {name}")
             continue
-        new_mod = nm[name]
-        out += [f"removes paths {g} from {name}" for g in lost(mod.get("paths") or [], new_mod.get("paths") or [])]
-        out += [f"removes needs {v} from {name}" for v in mod.get("needs") or [] if v not in (new_mod.get("needs") or [])]
+        new_mod = nm[name] if isinstance(nm[name], dict) else {}
+        out += [f"removes paths {g} from {name}" for g in lost(globs(mod.get("paths")), globs(new_mod.get("paths")))]
+        out += [f"removes needs {v} from {name}" for v in globs(mod.get("needs")) if v not in globs(new_mod.get("needs"))]
         out += [f"changes {name}'s {key}" for key in ("test", "count") if mod.get(key) != new_mod.get(key)]
     return out
 
@@ -421,10 +430,6 @@ def commit_findings(ctx, base):
                         file_at(ctx.root, parent, path) if parent else "", anchor))
                         != settled(protected_text(file_at(ctx.root, c, path), anchor))):
                     rows[4].append(f"{short} [{tids[0]}] changes protected {entry}")
-            if path == modmap.MAP and parent and modmap.MAP not in entries:
-                files = git(ctx.root, "ls-tree", "-r", "--name-only", c).splitlines()
-                for what in map_shrinks(file_at(ctx.root, parent, path), file_at(ctx.root, c, path), files):
-                    rows[5].append(f"{short} [{tids[0]}] {what} in the module map")
             if path == ctx.plan_rel and plan_same:
                 continue  # ticks and writes lines; the frozen view is row 6's to judge
             if not matches(path, task["writes"]):
@@ -441,6 +446,13 @@ def commit_findings(ctx, base):
     if overlap([w for t in ctx.plan_at("HEAD")["tasks"].values() for w in t["writes"]],
                path_protected(ctx.plan_at("HEAD"), ctx)):
         rows[4].append("a writes glob at HEAD intersects protected")
+    # A maintained map is judged as HEAD runs it against the approved one, so no sequence of commits
+    # (an invalid map between, a file deleted and restored) can hide what it takes away.
+    approved_map = file_at(ctx.root, base, modmap.MAP)
+    if approved_map is not None and modmap.MAP not in protected_entries(ctx.plan_at("HEAD"), ctx):
+        files = [f for f in git(ctx.root, "ls-tree", "-r", "-z", "--name-only", "HEAD").split("\0") if f]
+        rows[5] += [f"the module map at HEAD {what} since approval"
+                    for what in map_shrinks(approved_map, file_at(ctx.root, "HEAD", modmap.MAP), files)]
     return rows
 
 def balanced(code, i):
