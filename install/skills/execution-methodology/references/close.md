@@ -34,7 +34,10 @@ pushes the branch and opens the PR. Then, in this order:
 2. Once the founder says to merge, run `gh pr merge <n> --merge`, adding `--delete-branch` only
    when the milestone is the goal's last.
 3. `git tag goal/<id>/<milestone> <head>` at that head commit, not at the checkout `gh` switched,
-   then `git push origin goal/<id>/approved goal/<id>/<milestone>`.
+   then `git push --atomic origin goal/<id>/approved goal/<id>/<milestone>`. If a re-approval moved
+   an approval tag an earlier milestone pushed, add
+   `--force-with-lease=refs/tags/goal/<id>/approved:<sha>`, `<sha>` being what `git ls-remote`
+   shows for it; both tags go, or neither.
 4. Run `goal.py cleanup --goal <id> --apply`. It removes only the worktrees recorded with `own`,
    and their branches, whose work `origin/main` holds.
 

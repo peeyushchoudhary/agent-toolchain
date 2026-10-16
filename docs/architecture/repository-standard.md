@@ -2,7 +2,7 @@
 summary: How this repository applies the rules the skill's `references/repository.md` sets for every repository: where each kind of file belongs, from the contract and `install/` to the product, architecture, decision, runbook, goal and archive pages and the generated pointer files. Which pages are dated records, `docs/agents/lessons.md` among them where one exists, and which state only what is true now. What enforces the standard in `install/verify.sh`: `docs.py links`, the dangling-name check, `docs.py lint` and the always-loaded size ceiling. The product minimum is in the reference.
 read-when: Adding, moving or removing a file, or deciding where something belongs
 covers: [docs/**]
-last-verified: 2026-10-14
+last-verified: 2026-10-16
 ---
 
 # Repository standard
@@ -23,7 +23,8 @@ docs/product/measurements.md   dated numbers
 docs/runbooks/                 procedures
 docs/goals/<id>/               spec.md, design.md unless touches is none, plan.md; one per goal
 docs/goals/modules.json        the test-module map (D33): each module's paths, needs and test
-                               command; approved with a plan, protected after
+                               command; approved with a plan, protected after; a task
+                               whose writes name it may grow it, never shrink it (D38)
 docs/archive/                  pointers to tags; nothing current
 .claude/rules/<page-slug>.md   generated: one pointer file per page with a non-empty covers; the
                                slug is the page's path under docs/ with `/` as `--`

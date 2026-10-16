@@ -2,7 +2,7 @@
 summary: The three Claude agent files the skill ships (builder, reviewer, scout), what each guards against, the evidence and source behind every adopted line, and what was left out and where it lives instead. The lines come from a persona council held on 2026-10-09: four experts (each harness's vendor guidance, open-source practice, prompt craft) and an adversarial synthesis. The council record stays on the founder's machine; this page is its public part.
 read-when: Changing a line of an agent file, or asking why a persona says what it says
 covers: [install/skills/execution-methodology/agents/**]
-last-verified: 2026-10-13
+last-verified: 2026-10-16
 ---
 
 # Personas
@@ -95,6 +95,8 @@ function, [arXiv 2605.10039](https://arxiv.org/abs/2605.10039)); no "be thorough
 - `permissionMode: dontAsk` is ignored under bypass, accept-edits or auto mode; it matters only
   for a default-mode chief.
 - `CLAUDE_CODE_EFFORT_LEVEL` overrides `effort`, so no session exports it.
+- `codex exec` reads no agent file, so `goal.py review` sends the reviewer body ahead of the packet
+  and passes the model and effort itself, in both directions ([D37](../decisions/decisions.md#d37--exact-model-ids-the-cross-vendor-review-runs-through-goalpy-review)).
 - No persona is the chief. The skill runs in the root session only (D31): a Claude Code subagent
   has no Agent tool, so it could not dispatch builders or reviewers, and in either harness an
   orchestrating agent above the builders is not a shape this methodology has.

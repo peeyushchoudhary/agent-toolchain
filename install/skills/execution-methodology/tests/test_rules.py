@@ -247,13 +247,21 @@ class Close(unittest.TestCase):
         text = flat(CLOSE)
         at = 0
         for words in ("goal.py done", "`gh pr merge <n> --merge`", "`git tag goal/<id>/<milestone> <head>`",
-                      "`git push origin goal/<id>/approved goal/<id>/<milestone>`",
+                      "`git push --atomic origin goal/<id>/approved goal/<id>/<milestone>`",
                       "`goal.py cleanup --goal <id> --apply`"):
             found = text.find(words, at)
             self.assertGreaterEqual(found, 0, f"{words} missing or out of order")
             at = found + len(words)
         sentence = next((s for s in re.split(r"(?<=\.) ", text) if "`--delete-branch`" in s), "")
         self.assertIn("only when the milestone is the goal's last", sentence)
+
+    def test_close_handles_reapproval_after_published_approval(self):
+        # S-9 merge review R1: a re-approval that moved a pushed approval tag pushes it with a lease,
+        # atomically with the milestone tag, so the remote is never left half closed.
+        step = next(s for s in re.split(r"(?=\b\d\. )", flat(CLOSE)) if s.startswith("3. "))
+        for words in ("--atomic", "re-approval moved", "--force-with-lease=refs/tags/goal/<id>/approved:<sha>",
+                      "git ls-remote", "both tags go, or neither"):
+            self.assertIn(words, step)
 
     def test_the_loop_records_builder_and_sample_worktrees(self):
         # S-8 (D34), AC7: every worktree the chief makes is recorded, so cleanup may remove it.

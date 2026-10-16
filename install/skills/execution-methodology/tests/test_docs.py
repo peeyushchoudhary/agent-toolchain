@@ -265,6 +265,12 @@ class LinksTest(DocsCase):
         self.assertEqual(res.stdout.splitlines(), ["README.md:1: missing.md", "README.md:5: none2.md",
                                                    "docs.py links: FAIL (2)"])
 
+    def test_an_escaped_opening_bracket_is_not_a_link(self):
+        res = self.links_with("An escaped \\[not a link](missing.md), \\[x\\](gone.md) and ![i](none.png),\n"
+                              "[a [nested] text](docs/none.md) then [real](README.md).\n")
+        self.assertEqual(res.stdout.splitlines(), ["README.md:1: none.png", "README.md:2: docs/none.md",
+                                                   "docs.py links: FAIL (2)"])
+
     def test_duplicate_suffix_collisions_match_rendered_anchors(self):
         self.assertEqual(docs.anchors([(1, 1, "X"), (3, 1, "X"), (5, 1, "X-1")]), ["x", "x-1", "x-1-1"])
         res = self.links_with("[a](docs/x.md#x)\n[b](docs/x.md#x-1)\n[c](docs/x.md#x-1-1)\n",

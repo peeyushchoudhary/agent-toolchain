@@ -1,5 +1,5 @@
 ---
-summary: The one decisions record: a table of every decision id with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning; D33 adds the test-module map; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot; D36 ships the README and repository rules in the skill and adds `docs.py links`; D37 pins model IDs; D38 lets the map grow, never shrink.
+summary: Every decision id in one table with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning; D33 adds the test-module map; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot; D36 ships the README and repository rules and adds `docs.py links`; D37 pins model IDs; D38 lets the map grow, never shrink; D39 leases a moved approval tag's push.
 read-when: Making or citing a decision, or asking why the methodology is the way it is
 covers: []
 last-verified: 2026-10-09
@@ -51,6 +51,7 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | [D36](#d36--the-readme-answers-seven-questions-again-the-repository-rules-ship-with-the-skill-docspy-links-s-10) | 2026-10-14 | The README answers seven questions again; the repository rules ship with the skill; docs.py links (S-10) | standing |
 | [D37](#d37--exact-model-ids-the-cross-vendor-review-runs-through-goalpy-review) | 2026-10-15 | Exact model IDs; the cross-vendor review runs through goal.py review | standing |
 | [D38](#d38--the-module-map-may-grow-never-shrink-builders-never-route-around-a-guard) | 2026-10-16 | The module map may grow, never shrink; builders never route around a guard | standing; amends D33's protected map |
+| [D39](#d39--a-re-approval-pushes-the-moved-approval-tag-with-a-lease) | 2026-10-16 | A re-approval pushes the moved approval tag with a lease | standing; closes S-9's parked merge-review R1 |
 
 ---
 
@@ -552,3 +553,25 @@ the row-5 check closes. Run on that goal's real history, every map edit was grow
 product repository's builder wrote a private-name list to pass the guard and made a local WIP
 commit. A read-only `gpt-6-astra` review of the change found five bypasses
 and robustness gaps, each closed with a test before merge.
+
+## D39 — A re-approval pushes the moved approval tag with a lease
+
+**Chose:** close step 3 pushes `goal/<id>/approved` and `goal/<id>/<milestone>` in one
+`git push --atomic`. When a re-approval moved an approval tag an earlier milestone already pushed,
+the push adds `--force-with-lease=refs/tags/goal/<id>/approved:<sha>`, `<sha>` being what
+`git ls-remote` shows for it: both tags go, or neither, and a remote tag moved since is refused.
+
+**Over:**
+- Leaving the remote approval tag at the old commit: `done` judges against the local tag, so the
+  published record would name an approval the milestone was not checked against.
+- A new tag name per re-approval: every script reads `goal/<id>/approved`.
+- A plain `--force`: it overwrites a tag moved by someone else.
+
+**Why:** S-9's merge review parked R1: a plain push of a moved approval tag is rejected, and the
+milestone tag can still go out alone. The founder chose the force-with-lease push (2026-10-16). It
+was rehearsed in a scratch repository with the guard hooks installed: the plain push was rejected
+and pushed nothing, a stale lease was rejected and pushed nothing, and the documented lease pushed
+both tags.
+
+Also on 2026-10-16: `docs.py links` no longer reads `\[text](path)` as a link; an inline link
+needs an unescaped `[` before its `](`.

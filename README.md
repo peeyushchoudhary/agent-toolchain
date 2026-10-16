@@ -44,11 +44,11 @@ once `goal.py done` passes. Design, reasons and accepted risks are in
 
 | Component | Responsibility | Entry point | Page |
 |---|---|---|---|
-| `install.sh` | Installs, updates or uninstalls the skill, global file and agent files in both homes | `install/install.sh` | [install/README.md](install/README.md) |
+| `install.sh` | Installs, updates or uninstalls the skill, global file and agent files in both homes, naming any installed file edited in place | `install/install.sh` | [install/README.md](install/README.md) |
 | `verify.sh` | The repository gate; its last line is the verdict | `install/verify.sh` | [install/README.md](install/README.md#the-gate) |
 | `global.md` | The global instruction file both harnesses load | `install/global.md` | [methodology.md](docs/architecture/methodology.md) |
 | The skill | The rules for running a goal, with references loaded on demand | `install/skills/execution-methodology/SKILL.md`, `references/` | [methodology.md](docs/architecture/methodology.md#shape) |
-| `goal.py` | Plan lint, status, next, resume, packet, cost, own, cleanup and the done check | `scripts/goal.py` | [methodology.md](docs/architecture/methodology.md#shape) |
+| `goal.py` | Plan lint, status, next, resume, review, packet, cost, own, cleanup and the done check | `scripts/goal.py` | [methodology.md](docs/architecture/methodology.md#shape) |
 | `gate.py` | Runs a gate and records its receipt against the tree | `scripts/gate.py` | [methodology.md](docs/architecture/methodology.md#shape) |
 | `modmap.py` | Loads the test-module map and picks the modules a task's writes reach | `scripts/modmap.py` | [modules.md](install/skills/execution-methodology/references/modules.md) |
 | `docs.py` | Page lint, index, pointers, `reads:` ranges, links and the stale warning | `scripts/docs.py` | [repository.md](install/skills/execution-methodology/references/repository.md) |
