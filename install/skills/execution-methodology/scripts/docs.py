@@ -10,7 +10,9 @@ found the way goal.py finds it.
 links: each inline link, image and reference definition outside code in README.md, AGENTS.md and the
 tracked docs/**/*.md names an existing path, and its #anchor one of the target .md file's GitHub
 anchors (no dNN shorthand); each AGENTS.md has a sibling CLAUDE.md, a regular file holding the line
-@AGENTS.md. It is not part of lint.
+@AGENTS.md. A destination starting with / resolves from ROOT, a bare #anchor names the page itself, and
+one with a scheme (https:, mailto:) is not checked; a [^label] footnote and an escaped \\[ or \\` open
+nothing. It is not part of lint.
 pointers: for each page with a non-empty covers, the generated .claude/rules/<page-slug>.md (the
 path under docs/ with each segment slugged, joined by `--`; two pages naming one file are refused) and the
 block between the pointer markers in the nearest AGENTS.md at or above each glob's literal
@@ -263,7 +265,13 @@ def destinations(text):
         else:
             k += 1
     masked = "".join(masked)
-    dests = [(m.end() + at, d) for m in re.finditer(r"\]\(", masked) for at, d in [destination(masked[m.end():])]]
+    dests, opens = [], []
+    for m in re.finditer(r"[\[\]]", masked):  # a ]( closes a link only when an unescaped [ opened it
+        if m[0] == "[":
+            opens.append(m.start())
+        elif opens and opens.pop() is not None and masked.startswith("(", m.end()):
+            at, d = destination(masked[m.end() + 1:])
+            dests.append((m.end() + 1 + at, d))
     dests += [(d.start(1), destination(d[1])[1])  # may start on the next line; a [^label] is a footnote
               for d in re.finditer(r"^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*(?:\n[ \t]*)?(\S.*)$", masked, re.M)]
     return sorted(dests)

@@ -2,7 +2,7 @@
 summary: How a goal runs under methodology v7.3 and why: three bounded documents per goal (`spec.md`, `design.md` when `touches` names anything but `none`, `plan.md` with `reads:` per task) frozen at the approval tag; pages disclosed in layers (frontmatter, the generated index, anchors, generated pointer files, the stale warning); builder, reviewer and scout roles with declared models; the founder's own session as the chief, with cost recorded, never enforced; gate receipts, the eight-row done check, one read-only review by the other vendor per stage, one guard, two founder touchpoints. Also what v6 was and the measurements that retired it, the accepted risks, the ended stop rule, the v6 lessons that still hold, and the rollback.
 read-when: Changing anything under `install/`, or asking how a goal runs, what v7 replaced, its risks or its rollback
 covers: [install/**]
-last-verified: 2026-10-14
+last-verified: 2026-10-16
 ---
 
 # Methodology v7.3
@@ -13,8 +13,9 @@ How a goal runs, and why. The rules are in the
 [D30](../decisions/decisions.md#d30--methodology-v71-context-roles-and-planning-documents-s-2),
 [D32](../decisions/decisions.md#d32--methodology-v72-each-tasks-gate-chosen-at-planning-builders-dispatched-by-dependency-s-6),
 [D33](../decisions/decisions.md#d33--methodology-v73-a-test-module-map-picks-task-gates-composes-the-full-gate-and-retries-a-failed-module-once-s-7),
-[D34](../decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8)
-and [D35](../decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9).
+[D34](../decisions/decisions.md#d34--post-merge-cleanup-the-chief-records-its-worktrees-and-removes-what-originmain-holds-s-8),
+[D35](../decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9), [D37](../decisions/decisions.md#d37--exact-model-ids-the-cross-vendor-review-runs-through-goalpy-review)
+and [D38](../decisions/decisions.md#d38--the-module-map-may-grow-never-shrink-builders-never-route-around-a-guard).
 
 ## Shape
 
@@ -41,7 +42,7 @@ and [D35](../decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-
   README, layout and lifecycle rules every repository follows.
 - **Roles** ([roles.md](../../install/skills/execution-methodology/references/roles.md)): the
   builder on the frontier tier at high effort, in its own worktree; the scout on the cheap tier,
-  read-only; the reviewer, the other vendor's strongest reasoning model, read-only. Their agent files
+  read-only; the reviewer, the other vendor's model pinned by exact ID, read-only. Their agent files
   ship to both harnesses, marked: `agents/*.md` to `~/.claude/agents/`, `agents/*.toml` to
   `$CODEX_HOME/agents/` ([personas.md](personas.md) holds the evidence). The caps are structural:
   one builder per task, at most four at once, one review round per stage, the builder's and the
@@ -56,7 +57,9 @@ and [D35](../decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-
 - **Module map (v7.3, D33).** A repository may commit `docs/goals/modules.json`: each test module's
   paths, the modules it `needs` and one test command, the `shared` paths, the full-gate command it
   `replaces` and a `count: "none"` module running that command without its tests. The chief drafts
-  it at planning and the founder approves it with the plan; it is protected after. A task without
+  it at planning and the founder approves it with the plan; it is protected after, unless an approved
+  task's `writes:` names `docs/goals/modules.json` exactly: then the goal may grow it, never shrink it
+  (D38). A task without
   `gate:` runs the modules its writes reach (`gate.py check --modules`). With `full_gate: modules`
   the full gate is `receipt --modules all`; on the same tree it keeps passed modules, retries a
   failed one once and refuses a second failure. Load readings are diagnostics beside a retry.
@@ -78,16 +81,20 @@ and [D35](../decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-
   or is plan-only; each task commit inside its `writes` as read at its parent, never in
   `protected` (the spec and the design's frozen sections included); no test changed outside
   `tests-may-change`; frozen view unchanged; `full_gate` and `e2e` receipts on HEAD's tree; no open
-  blocking review finding, each closed by a named test or by removal. It reads no verdict, round or
-  grant.
+  blocking review finding, each closed by a named test or by removal, under a reviewer line naming
+  the pinned model. Row 5 also names each way the map at HEAD shrank the approved one. It reads no
+  verdict, round or grant.
 - **The close** ([close.md](../../install/skills/execution-methodology/references/close.md)): the
   `full_gate` and `e2e` receipts, the merge review, `goal.py done` printing DONE, then the chief
   pushes the branch and opens the PR. Once the founder says to merge, the chief runs `gh pr merge
   <n> --merge`, with `--delete-branch` only at the goal's last milestone; tags
-  `goal/<id>/<milestone>` at the PR's head commit and pushes it with `goal/<id>/approved`; then
+  `goal/<id>/<milestone>` at the PR's head commit and pushes it with `goal/<id>/approved` in one
+  atomic push, leased with `--force-with-lease` when a re-approval moved a pushed approval tag; then
   runs `goal.py cleanup --goal <id> --apply`, which removes only the recorded worktrees, and their
   branches, whose work `origin/main` holds (D34).
-- **One review by the other vendor** per stage, read-only and adversarial, with `agents/reviewer.md`:
+- **One review by the other vendor** per stage, read-only and adversarial, with `agents/reviewer.md`,
+  run only by `goal.py review --chief <claude|codex> --stage <s>`, which passes the exact model and
+  effort ([D37](../decisions/decisions.md#d37--exact-model-ids-the-cross-vendor-review-runs-through-goalpy-review)):
   design whenever `design.md` exists, plan before the approval tag, merge on the milestone diff (with
   the security checklist when `touches` names data, auth or external). One round each, no grant.
   Each closed blocking finding carries `cause: context|logic|spec`, which `goal.py packet` counts;
@@ -99,7 +106,8 @@ and [D35](../decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-
 - **Two founder touchpoints** per milestone: approval and merge. Reversible choices in scope are
   defaulted and logged; scope, data, auth, cost, secrets and external actions park.
 - **One instruction source** for both harnesses, at most 1,350 words always loaded; the references
-  and agent files load on demand.
+  and agent files load on demand. `install.sh` records the hash of each file it installs and names
+  any installed copy edited in place, and a source that is not a clean `main` (D38).
 - **The stop rule, ended.** During the pilot, D29's stop rule with D30's one amendment let only goal
   S-2's mechanism into `install/` (Accepted risks). The pilot and D29's stop rule ended with
   [D35](../decisions/decisions.md#d35--the-pilot-and-its-stop-rule-have-ended-s-9): a change to
