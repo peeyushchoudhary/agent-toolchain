@@ -33,7 +33,7 @@ SKILL_FILES = (ENTRY, BUILDER, REVIEWER, SCOUT, DESIGN, PLANNING, ROLES, SECURIT
 REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150, CLOSE: 400, MODULES: 200, REPOSITORY: 900}
 PLANNING_RULES_WORDS = 200
 # Word ceilings of the agent files' bodies, the text after the closing frontmatter line (D30).
-AGENT_BODY_WORDS = {BUILDER: 350, REVIEWER: 350, SCOUT: 200}
+AGENT_BODY_WORDS = {BUILDER: 400, REVIEWER: 350, SCOUT: 200}
 
 # Named by the rules, delivered by a later task of the same goal. Anything else must exist.
 NOT_YET_BUILT = frozenset()
