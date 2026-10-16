@@ -191,13 +191,20 @@ def goal_has(ctx, name):
 def protected_entries(plan, ctx=None):
     """The plan's protected entries plus a v7.1 goal's unlisted defaults: spec.md whole, and
     design.md's Interfaces and Data touched sections when the page exists; and the module map
-    when it exists at the approval tag, so a map change waits for the founder."""
+    when it exists at the approval tag, unless a task of the approved plan names the map's exact
+    path in its writes: then the goal maintains the map. An explicit protected entry covering the
+    map, at approval or in the supplied plan, always keeps it protected."""
     out = [p for p in plan["meta"].get("protected") or [] if isinstance(p, str)]
     if getattr(ctx, "root", None) is not None and (spec := goal_has(ctx, "spec.md")):
         design = goal_has(ctx, "design.md")
         out += [spec] + ([f"{design}#interfaces", f"{design}#data-touched"] if design else [])
     if getattr(ctx, "root", None) is not None and file_at(ctx.root, ctx.tag("approved"), modmap.MAP) is not None:
-        out.append(modmap.MAP)
+        approved = ctx.plan_at(ctx.tag("approved"))
+        explicit = out + [p for p in approved["meta"].get("protected") or [] if isinstance(p, str)]
+        maintained = any(modmap.MAP in t["writes"] for t in approved["tasks"].values()) and not any(
+            matches(modmap.MAP, [p.partition("#")[0]]) for p in explicit)
+        if not maintained:
+            out.append(modmap.MAP)
     return list(dict.fromkeys(out))
 
 def path_protected(plan, ctx=None):
@@ -356,6 +363,41 @@ def commit_plan_only(ctx, c):
         frozen_view(file_at(ctx.root, c, ctx.plan_rel))
     return plan_only(ctx, git(ctx.root, "log", "-1", "--format=%s", c), changes(ctx.root, parent, c), same)
 
+def map_shrinks(old: str | None, new: str | None, files: list[str]) -> list[str]:
+    """What the map `new` takes from the checks that the map `old` ran; a maintained map may only
+    grow. A removed module or need, or a changed test or count, can drop tests. A removed path, of a
+    module or of shared (whose changes select every module), counts only when one of `files` it
+    matched is no longer matched, so replacing globs with a wider one is growth. A malformed `old`
+    is map_lint's to name; a malformed `new` is a finding, since it may run nothing."""
+    def parse(text):
+        try:
+            m = json.loads(text) if text is not None else {}
+        except ValueError:
+            return None
+        return m if isinstance(m, dict) and isinstance(m.get("modules", {}), dict) else None
+    def globs(v):
+        return [g for g in v if isinstance(g, str)] if isinstance(v, list) else []
+    def lost(before, after):
+        return [g for g in before if g not in after and any(
+            glob_re(g).match(f) and not matches(f, after) for f in files)]
+    o, n = parse(old), parse(new)
+    if o is None:
+        return []
+    if n is None:
+        return ["is not a valid map"]
+    out = [f"removes shared {g}" for g in lost(globs(o.get("shared")), globs(n.get("shared")))]
+    nm = n.get("modules") or {}
+    for name, mod in (o.get("modules") or {}).items():
+        mod = mod if isinstance(mod, dict) else {}
+        if name not in nm:
+            out.append(f"removes module {name}")
+            continue
+        new_mod = nm[name] if isinstance(nm[name], dict) else {}
+        out += [f"removes paths {g} from {name}" for g in lost(globs(mod.get("paths")), globs(new_mod.get("paths")))]
+        out += [f"removes needs {v} from {name}" for v in globs(mod.get("needs")) if v not in globs(new_mod.get("needs"))]
+        out += [f"changes {name}'s {key}" for key in ("test", "count") if mod.get(key) != new_mod.get(key)]
+    return out
+
 def commit_findings(ctx, base):
     """Rows 3, 4 and 5 over every commit in base..HEAD."""
     rows = {3: [], 4: [], 5: []}
@@ -404,6 +446,13 @@ def commit_findings(ctx, base):
     if overlap([w for t in ctx.plan_at("HEAD")["tasks"].values() for w in t["writes"]],
                path_protected(ctx.plan_at("HEAD"), ctx)):
         rows[4].append("a writes glob at HEAD intersects protected")
+    # A maintained map is judged as HEAD runs it against the approved one, so no sequence of commits
+    # (an invalid map between, a file deleted and restored) can hide what it takes away.
+    approved_map = file_at(ctx.root, base, modmap.MAP)
+    if approved_map is not None and modmap.MAP not in protected_entries(ctx.plan_at("HEAD"), ctx):
+        files = [f for f in git(ctx.root, "ls-tree", "-r", "-z", "--name-only", "HEAD").split("\0") if f]
+        rows[5] += [f"the module map at HEAD {what} since approval"
+                    for what in map_shrinks(approved_map, file_at(ctx.root, "HEAD", modmap.MAP), files)]
     return rows
 
 def balanced(code, i):

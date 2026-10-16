@@ -1,5 +1,5 @@
 ---
-summary: The one decisions record: a table of every decision id with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two founder touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning; D33 adds the test-module map; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot; D36 ships the README and repository rules in the skill and adds `docs.py links`; D37 pins model IDs and adds `goal.py review`.
+summary: The one decisions record: a table of every decision id with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning; D33 adds the test-module map; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot; D36 ships the README and repository rules in the skill and adds `docs.py links`; D37 pins model IDs; D38 lets the map grow, never shrink.
 read-when: Making or citing a decision, or asking why the methodology is the way it is
 covers: []
 last-verified: 2026-10-09
@@ -50,6 +50,7 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | [D35](#d35--the-pilot-and-its-stop-rule-have-ended-s-9) | 2026-10-13 | The pilot and its stop rule have ended (S-9) | standing |
 | [D36](#d36--the-readme-answers-seven-questions-again-the-repository-rules-ship-with-the-skill-docspy-links-s-10) | 2026-10-14 | The README answers seven questions again; the repository rules ship with the skill; docs.py links (S-10) | standing |
 | [D37](#d37--exact-model-ids-the-cross-vendor-review-runs-through-goalpy-review) | 2026-10-15 | Exact model IDs; the cross-vendor review runs through goal.py review | standing |
+| [D38](#d38--the-module-map-may-grow-never-shrink-builders-never-route-around-a-guard) | 2026-10-16 | The module map may grow, never shrink; builders never route around a guard | standing; amends D33's protected map |
 
 ---
 
@@ -517,3 +518,37 @@ run on Codex's default model at default effort. `codex exec` reads no agent file
 skill named no command, and the only written call, in an uninstalled runbook, left the model as a
 placeholder. Both review directions were run live through `goal.py review`; the Codex session
 record showed `gpt-6-astra` at `high`, read-only, and the Claude CLI reported `claude-opus-5-5`.
+
+## D38 — The module map may grow, never shrink; builders never route around a guard
+
+**Chose:**
+- A map present at approval stays protected unless a task of the approved plan names
+  `docs/goals/modules.json` exactly in its writes. Then the goal maintains it, and a task later
+  widened to it with a Decisions line may edit it. A covering `protected:` entry still locks it.
+- `goal.py done` row 5 compares the map at HEAD with the approved one and names what it takes from
+  the checks: a removed module or need, a changed test or count, or a removed path or shared glob
+  that leaves a tracked file it matched unmatched. A map HEAD cannot read is named too. Replacing
+  globs with a wider one is growth. Judging HEAD against approval, not commit by commit, means no
+  sequence of commits can hide a shrink.
+- `gate.py` decodes git output with `surrogateescape`, so a tracked file that is not UTF-8 never
+  crashes `done`.
+- The builder never commits, not even WIP. It never creates, changes or routes around a guard,
+  hook or private-identifier list. On a refusal it stops and reports the refusal's text. Its body
+  ceiling is 400 words.
+- `install.sh` records what it installed and from which source. It names each installed file
+  edited in place before replacing it, and warns when the source is not a clean `main`.
+
+**Over:**
+- A per-task owner rule. It would have failed one product goal's lint and `done` on ten logged
+  widenings until a re-approval.
+- A map frozen whole at approval.
+- Patching installed copies.
+
+**Why:** on 2026-10-15, sessions in two product repositories patched the installed skill in
+place. One installed from an unmerged branch. Another patched two installed scripts directly, with
+two different map rules, and a UTF-8 fix with no test. The founder chose the plan-wide rule
+(2026-10-16). The founder's own analysis found that it let a map edit silently drop tests, which
+the row-5 check closes. Run on that goal's real history, every map edit was growth. A third
+product repository's builder wrote a private-name list to pass the guard and made a local WIP
+commit. A read-only `gpt-6-astra` review of the change found five bypasses
+and robustness gaps, each closed with a test before merge.

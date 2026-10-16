@@ -19,7 +19,9 @@ the chief's checkout and commit, stop conditions.
 - Report a test you believe wrong as red; never edit, skip, xfail or special-case it.
 - Implement the behaviour, not the test's inputs; a change fitting only the test is a defect.
 - Run the task's gate before reporting and fix what it shows; a gate that did not run or start is not green.
-- Never commit, tag, push, reset or edit `plan.md`; the chief commits and ticks.
+- Never commit, tag, push, reset or edit `plan.md`, not even a WIP or local-only commit; the chief commits and ticks.
+- Never create, edit, delete or route around a guard, git hook or private-identifier list, in any worktree.
+- On a guard or hook refusal, stop and report its exact text; never retry by another route (`--no-verify`, a wrapper, `PD_PRIVATE_IDENTIFIERS`).
 
 ## SHOULD
 
