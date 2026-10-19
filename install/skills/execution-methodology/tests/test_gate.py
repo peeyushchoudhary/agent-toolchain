@@ -377,6 +377,152 @@ class ReceiptTest(GateCase):
         self.assertTrue(self.repo.path(".runs/F-9/baseline.json").is_file())
 
 
+
+def junit_cmd(name, cases, code=0):
+    """A command that writes JUnit XML with (id, passed) cases to .runs/junit/<name>.xml and exits code."""
+    body = "".join(f'<testcase classname="a.B" name="{n}"/>' if ok else
+                   f'<testcase classname="a.B" name="{n}"><failure/></testcase>' for n, ok in cases)
+    return f"mkdir -p .runs/junit && printf '%s' '<testsuite>{body}</testsuite>' > .runs/junit/{name}.xml && exit {code}"
+
+
+# One command string: it passes `ok`, `flaky` and `later` unless .runs/flake exists; then `flaky` fails and the
+# run stops before `later`, as a journey stops at its first failure.
+FULL = (f"if [ -f .runs/flake ]; then {junit_cmd('full', [('ok', True), ('flaky', False)], 1)}; "
+        f"else {junit_cmd('full', [('ok', True), ('flaky', True), ('later', True)])}; fi")
+BOTH = junit_cmd("sub", [("flaky", True), ("later", True)])
+
+
+class RerunFailedTest(GateCase):
+    def full(self, cmd=FULL, flake=True, verdict=None):
+        flag = self.repo.path(".runs/flake")
+        flag.parent.mkdir(parents=True, exist_ok=True)
+        flag.write_text("x") if flake else flag.unlink(missing_ok=True)
+        res = self.repo.gate("receipt", "--goal", "F-9", "--name", "full_gate", "--cmd", cmd,
+                             "--junit", ".runs/junit/full.xml")
+        if verdict:
+            self.assertGate(res, verdict)
+        return res
+
+    def failed(self):
+        self.full(flake=False, verdict="PASS")  # the reference: a complete run's IDs
+        self.assertGate(self.full(), "FAIL", "failures not in baseline: a.B.flaky")
+
+    def rerun(self, subset, cause="machine load", cmd=FULL, junit=".runs/junit/sub.xml"):
+        args = ["receipt", "--goal", "F-9", "--name", "full_gate", "--cmd", cmd, "--rerun-failed", subset]
+        args += ["--junit", junit] if junit else []
+        args += ["--cause", cause] if cause is not None else []
+        return self.repo.gate(*args)
+
+    def test_rerun_of_the_failures_and_unreached_tests_completes_the_receipt(self):
+        self.failed()
+        res = self.rerun(BOTH)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("rerun-failed: attempt 1 of 3 PASS; full run 2 run / 1 failed, 1 of the reference's 3 not "
+                      "reached; receipt PASS", res.stdout)
+        (r,) = self.receipts()
+        self.assertEqual((r["verdict"], r["command"], r["tree"], r["executed"], r["failures"], r["reasons"]),
+                         ("PASS", FULL, self.repo.tree(), 2, [], []))
+        self.assertEqual((r["rerun_failed"]["failures"], r["rerun_failed"]["unrun"]), (["a.B.flaky"], ["a.B.later"]))
+        self.assertEqual(r["junit_executed"], ["a.B.flaky", "a.B.later", "a.B.ok"])
+        (a,) = r["rerun_failed"]["attempts"]
+        self.assertEqual((a["verdict"], a["cause"], a["missing"], a["executed"]), ("PASS", "machine load", [], 2))
+        self.assertNotIn("junit_passed", r)
+        labels = [json.loads(x)["label"] for x in self.repo.read(".runs/F-9/checks.jsonl").splitlines()]
+        self.assertEqual(labels, ["receipt", "receipt", "rerun-failed"])
+        self.assertIn("receipt refused", self.rerun(BOTH).stdout)  # PASS is final
+
+    def test_a_test_the_failed_run_never_reached_must_pass_too(self):
+        self.failed()
+        res = self.rerun(junit_cmd("sub", [("flaky", True)]))
+        self.assertEqual(res.returncode, 1, res.stdout)
+        self.assertIn("not shown passing by the subset's JUnit XML: a.B.later", res.stdout)
+        (r,) = self.receipts()
+        self.assertEqual(r["verdict"], "FAIL")
+
+    def test_without_a_reference_the_unreached_tests_are_unknown(self):
+        self.assertGate(self.full(), "FAIL")
+        res = self.rerun(BOTH)
+        self.assertIn("no earlier PASS of this command recorded its JUnit test IDs", res.stdout)
+        (r,) = self.receipts()
+        self.assertNotIn("rerun_failed", r)
+
+    def test_a_pass_on_another_tree_is_the_reference(self):
+        self.full(flake=False, verdict="PASS")
+        self.repo.write("notes.txt", "x\n")
+        self.repo.commit("a later commit")
+        self.assertGate(self.full(), "FAIL")
+        self.assertEqual(self.rerun(BOTH).returncode, 0)
+
+    def test_a_failure_not_shown_passing_keeps_the_receipt_failing(self):
+        self.failed()
+        missing = "not shown passing by the subset's JUnit XML: a.B.flaky"
+        for subset, reason in ((junit_cmd("sub", [("other", True), ("later", True)]), missing),
+                               (junit_cmd("sub", [("flaky", False), ("later", True)], 1), missing),
+                               (junit_cmd("sub", [("flaky", True), ("later", True), ("other", False)], 1),
+                                "failures not in baseline: a.B.other")):
+            res = self.rerun(subset)
+            self.assertEqual(res.returncode, 1, res.stdout)
+            self.assertIn(reason, res.stdout)
+            (r,) = self.receipts()
+            self.assertEqual((r["verdict"], r["failures"]), ("FAIL", ["a.B.flaky"]))
+
+    def test_three_attempts_then_the_whole_command(self):
+        self.failed()
+        for n in (1, 2, 3):
+            self.assertIn(f"attempt {n} of 3 FAIL", self.rerun(junit_cmd("sub", [("flaky", False)], 1)).stdout)
+        res = self.rerun(BOTH)
+        self.assertIn("3 reruns of the failed tests are spent on this tree; run the whole command", res.stdout)
+        (r,) = self.receipts()
+        self.assertEqual((r["verdict"], len(r["rerun_failed"]["attempts"])), ("FAIL", 3))
+        self.assertGate(self.full(), "FAIL")  # the whole command again starts a fresh allowance
+        self.assertIn("attempt 1 of 3 PASS", self.rerun(BOTH).stdout)
+
+    def test_xml_written_before_the_subset_started_is_not_evidence(self):
+        self.failed()
+        self.repo.write(".runs/junit/sub.xml", '<testsuite><testcase classname="a.B" name="flaky"/></testsuite>')
+        old = time.time() - 60
+        os.utime(self.repo.path(".runs/junit/sub.xml"), (old, old))
+        res = self.rerun("true")
+        self.assertIn("zero tests executed", res.stdout)
+        self.assertIn("not shown passing by the subset's JUnit XML: a.B.flaky", res.stdout)
+        (r,) = self.receipts()
+        self.assertEqual(r["verdict"], "FAIL")
+
+    def test_refused_without_a_receipt_failing_only_on_named_tests(self):
+        sub = BOTH
+        self.assertIn("no FAIL receipt for this tree and command", self.rerun(sub).stdout)  # none yet
+        self.assertGate(self.receipt(mode="crash"), "FAIL")  # nonzero exit, no test named
+        self.assertIn("no FAIL receipt for this tree and command", self.rerun(sub, cmd=EMIT).stdout)
+        self.assertGate(self.receipt(), "PASS")
+        self.assertIn("no FAIL receipt for this tree and command", self.rerun(sub, cmd=EMIT).stdout)
+        unnamed = "mkdir -p .runs/junit && printf '%s' '<testsuite><testcase classname=\"a.B\" name=\"ok\"/></testsuite>' > .runs/junit/full.xml && exit 1"
+        self.assertGate(self.full(unnamed), "FAIL", "nonzero exit 1")
+        self.assertIn("no FAIL receipt for this tree and command", self.rerun(sub, cmd=unnamed).stdout)
+        self.failed()
+        self.assertIn("needs --junit for the subset's XML and a --cause", self.rerun(sub, cause=" ").stdout)
+        self.assertIn("needs --junit for the subset's XML and a --cause", self.rerun(sub, junit=None).stdout)
+        self.repo.write("dirty.txt", "x")
+        self.assertIn("the working tree is not clean", self.rerun(sub).stdout)
+        (r,) = [x for x in self.receipts() if x["command"] == FULL]
+        self.assertNotIn("rerun_failed", r)
+
+    def test_a_superseded_pass_cannot_be_completed_by_a_rerun(self):
+        self.failed()
+        self.assertEqual(self.rerun(BOTH).returncode, 0)
+        res = self.repo.gate("check", "--goal", "F-9", "--cmd", FULL, "--junit", ".runs/junit/full.xml")
+        self.assertGate(res, "FAIL")
+        self.assertIn("receipt superseded", res.stdout)
+        res = self.rerun(BOTH)
+        self.assertIn("a later failing check superseded this receipt's PASS; run the whole command", res.stdout)
+
+    def test_flags_are_checked_before_anything_runs(self):
+        for args in (["--cmd", EMIT, "--cause", "load"],
+                     ["--modules", "all", "--rerun-failed", "true", "--cause", "load"]):
+            res = self.repo.gate("receipt", "--goal", "F-9", *args)
+            self.assertEqual(res.returncode, 2, res.stdout)
+            self.assertIn("--rerun-failed takes --cmd, not --modules, and --cause needs --rerun-failed", res.stderr)
+        self.assertEqual(self.receipts(), [])
+
 class RecordTest(GateCase):
     def records(self):
         path = self.repo.path(".runs/F-9/checks.jsonl")

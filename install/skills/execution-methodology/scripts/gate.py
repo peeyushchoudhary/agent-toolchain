@@ -4,6 +4,7 @@
   gate.py check    (--cmd CMD | --modules a,b|all) [--goal G] [--count none] [--junit GLOB] [--runs DIR]
   gate.py receipt  --goal G (--cmd CMD | --modules a,b|all) [--name full_gate|e2e|proof] [--count none]
                    [--junit GLOB] [--runs DIR]
+  gate.py receipt  --goal G --cmd CMD --rerun-failed SUBSET --cause TEXT --junit GLOB [--name ...] [--runs DIR]
   gate.py baseline --goal G --cmd CMD [--junit GLOB] [--runs DIR]
   gate.py coverage --goal G [--cmd CMD] [--runs DIR]
 
@@ -19,6 +20,17 @@ in `rerun_of`, and counts the replacements in `reruns`. Exit codes: 0 PASS, 1 FA
 module's PASS on the same tree, retries a failed one once (`retry_of`), and then refuses it.
 An empty selection, or a selected module whose test command is blank, is refused with exit 2
 before anything runs.
+
+A `--cmd` receipt run with --junit stores the JUnit IDs it executed (`junit_executed`) and carries the
+last replaced PASS's IDs as `junit_reference`. `receipt --rerun-failed SUBSET` completes a FAIL receipt for
+(HEAD's clean tree, --cmd) whose only reason is `failures not in baseline`, every failure named, by running
+SUBSET instead of the whole command. The reference is the receipt's carried one, else the newest PASS of
+--cmd on another tree that stored IDs; without one it refuses, since the tests a failure stopped are
+unknown. SUBSET's JUnit XML (--junit, written after SUBSET starts) must show executed and passed, by exact
+`classname.name`, every failure and every reference ID the failed run did not execute, and SUBSET must pass
+the usual rules. Then the receipt becomes PASS, keeping the full run's counts, and records the failures,
+the unreached IDs, the chief's --cause and each attempt under `rerun_failed`; otherwise it stays FAIL with
+the attempt recorded. Three attempts per receipt, then the whole command. Nothing judges the cause.
 
 `coverage` runs nothing and writes nothing: on HEAD's clean tree it compares, suite by suite, the counts
 of the PASS receipt for `--cmd` (default: the map's `replaces`) with the summed counts of the modules'
@@ -213,7 +225,7 @@ def parse_junit(root, pattern, since: float) -> dict | None:
              if os.path.getmtime(f) >= since]
     if not files:
         return None
-    res = {"executed": 0, "failed": 0, "skipped": 0, "failures": []}
+    res = {"executed": 0, "failed": 0, "skipped": 0, "failures": [], "passed": []}
     for f in files:
         for case in ET.parse(f).getroot().iter("testcase"):
             tags = {child.tag for child in case}
@@ -221,9 +233,12 @@ def parse_junit(root, pattern, since: float) -> dict | None:
                 res["skipped"] += 1
                 continue
             res["executed"] += 1
+            case_id = f"{case.get('classname', '')}.{case.get('name', '')}"
             if tags & {"failure", "error"}:
                 res["failed"] += 1
-                res["failures"].append(f"{case.get('classname', '')}.{case.get('name', '')}")
+                res["failures"].append(case_id)
+            else:
+                res["passed"].append(case_id)
     return res
 
 
@@ -376,7 +391,9 @@ def evaluate(root, cmd, goal, count_none, junit, label, runs=None, load_before=N
     return {"command": cmd, "exit": code, "executed": executed, "failed": failed,
             "skipped": skipped, "suites": suites, "failures": failures, "new_failures": new,
             "baseline_failures": known, **readings, "finished_at": now(),
-            "verdict": "FAIL" if reasons else "PASS", "reasons": reasons, "log": str(log)}, duration
+            "verdict": "FAIL" if reasons else "PASS", "reasons": reasons, "log": str(log),
+            "junit_passed": sorted(set(xml["passed"])) if xml else [],
+            "junit_executed": sorted(set(xml["passed"]) | set(xml["failures"])) if xml else []}, duration
 
 
 def summary(res) -> str:
@@ -441,6 +458,7 @@ def cmd_check(args, root):
     goal = args.goal or active_goal(root, args.runs)
     before = git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}", check=False)
     res, duration = evaluate(root, args.cmd, goal, args.count == "none", args.junit, "check", args.runs)
+    res.pop("junit_passed"), res.pop("junit_executed")
     print(summary(res))
     tree = git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}", check=False)
     if goal:
@@ -470,6 +488,8 @@ def refuse_receipt(root, args, why, mods=()) -> int:
 def cmd_receipt(args, root):
     if args.modules is not None:
         return receipt_modules(args, root)
+    if args.rerun_failed is not None:
+        return receipt_rerun_failed(args, root)
     dirty = dirty_paths(root)
     if dirty:
         return refuse_receipt(root, args, "the working tree is not clean; commit first:\n  " + "\n  ".join(dirty[:10]))
@@ -477,7 +497,11 @@ def cmd_receipt(args, root):
     path = receipt_path(root, args.goal, tree, args.cmd, args.runs)
     old = read_receipt(path)
     res, duration = evaluate(root, args.cmd, args.goal, args.count == "none", args.junit, args.name, args.runs)
+    res.pop("junit_passed")
     res.update({"tree": tree, "name": args.name, **rerun_fields(old)})
+    reference = junit_reference(old)
+    if reference:
+        res["junit_reference"] = reference
     if git(root, "rev-parse", "HEAD^{tree}") != tree:
         res["reasons"].append("HEAD moved during the run")
         res["verdict"] = "FAIL"
@@ -490,6 +514,86 @@ def cmd_receipt(args, root):
     if res["reruns"]:
         print(f"rerun: replaces {res['reruns']} earlier receipt(s); seen failing: "
               + (", ".join(res["rerun_of"]) or "none"))
+    print(f"receipt: {path}")
+    print(budget_line("receipt", duration))
+    return 0 if res["verdict"] == "PASS" else 1
+
+
+RERUN_FAILED_ATTEMPTS = 3
+NEW_FAILURES = "failures not in baseline: "
+
+
+def junit_reference(old: dict) -> list:
+    """The executed JUnit IDs of the last PASS this receipt replaces: the tests a complete run reached."""
+    if old.get("verdict") == "PASS" and old.get("junit_executed"):
+        return old["junit_executed"]
+    return old.get("junit_reference") or []
+
+
+def newest_reference(root, goal, cmd, runs, own: dict) -> list:
+    """The receipt's own carried reference, else the newest PASS of the same command on another tree."""
+    if own.get("junit_reference"):
+        return own["junit_reference"]
+    found = []
+    for p in (runs_dir(root, runs) / goal / "receipts").glob(f"*-{cmd_hash(cmd)[:12]}.json"):
+        r = read_receipt(p)
+        if r.get("command") == cmd and r.get("verdict") == "PASS" and r.get("junit_executed"):
+            found.append((r.get("finished_at") or "", r["junit_executed"]))
+    return max(found)[1] if found else []
+
+
+def receipt_rerun_failed(args, root):
+    """Complete a FAIL receipt whose only reason is named new failures by rerunning just those tests."""
+    if not args.junit or not (args.cause or "").strip():
+        return refuse_receipt(root, args, "--rerun-failed needs --junit for the subset's XML and a --cause")
+    dirty = dirty_paths(root)
+    if dirty:
+        return refuse_receipt(root, args, "the working tree is not clean; commit first:\n  " + "\n  ".join(dirty[:10]))
+    tree = git(root, "rev-parse", "HEAD^{tree}")
+    path = receipt_path(root, args.goal, tree, args.cmd, args.runs)
+    old = read_receipt(path)
+    failures = old.get("new_failures") or []
+    reasons = old.get("reasons") or []
+    if not (old.get("verdict") == "FAIL" and old.get("tree") == tree and old.get("command") == args.cmd
+            and failures and len(reasons) == 1 and reasons[0].startswith(NEW_FAILURES)
+            and old.get("failed") == len(old.get("failures") or [])):
+        return refuse_receipt(root, args, "no FAIL receipt for this tree and command whose only reason is "
+                              "named failures not in baseline; run the whole command")
+    if old.get("superseded"):  # a check failed after a PASS: a rerun must not reopen the spent attempts
+        return refuse_receipt(root, args, "a later failing check superseded this receipt's PASS; run the whole command")
+    if not old.get("junit_executed"):
+        return refuse_receipt(root, args, "the failed run recorded no JUnit test IDs; run the whole command with --junit")
+    reference = newest_reference(root, args.goal, args.cmd, args.runs, old)
+    if not reference:
+        return refuse_receipt(root, args, "no earlier PASS of this command recorded its JUnit test IDs, so the tests the "
+                              "failed run never reached are unknown; run the whole command")
+    unrun = sorted(set(reference) - set(old["junit_executed"]))
+    attempts = list((old.get("rerun_failed") or {}).get("attempts", []))
+    if len(attempts) >= RERUN_FAILED_ATTEMPTS:
+        return refuse_receipt(root, args, f"{RERUN_FAILED_ATTEMPTS} reruns of the failed tests are spent on this "
+                              "tree; run the whole command")
+    sub, duration = evaluate(root, args.rerun_failed, args.goal, False, args.junit, args.name, args.runs)
+    passed, ran = set(sub.pop("junit_passed")), sub.pop("junit_executed")
+    missing = [f for f in failures + unrun if f not in passed]
+    attempt = {"command": args.rerun_failed, "junit": args.junit, "cause": args.cause.strip(),
+               "verdict": "PASS" if sub["verdict"] == "PASS" and not missing and git(root, "rev-parse", "HEAD^{tree}") == tree
+               else "FAIL", "missing": missing, **{k: sub[k] for k in ("exit", "executed", "failed", "skipped",
+               "failures", "reasons", "log", "finished_at", *READINGS)}}
+    res = dict(old)
+    res["rerun_failed"] = {"failures": failures, "unrun": unrun, "reference_count": len(reference),
+                           "attempts": attempts + [attempt]}
+    if attempt["verdict"] == "PASS":
+        res.update({"verdict": "PASS", "reasons": [], "failures": [], "new_failures": [], "completed_at": now(),
+                    "junit_executed": sorted(set(old["junit_executed"]) | set(ran))})
+    write_receipt(path, res)
+    record(root, args.goal, "rerun-failed", args.rerun_failed, tree, duration, attempt["verdict"], args.runs,
+           {k: sub[k] for k in READINGS})
+    print(summary(sub))
+    for f in missing:
+        print(f"  - not shown passing by the subset's JUnit XML: {f}")
+    print(f"rerun-failed: attempt {len(attempts) + 1} of {RERUN_FAILED_ATTEMPTS} {attempt['verdict']}; "
+          f"full run {old.get('executed')} run / {old.get('failed')} failed, {len(unrun)} of the reference's "
+          f"{len(reference)} not reached; receipt {res['verdict']}")
     print(f"receipt: {path}")
     print(budget_line("receipt", duration))
     return 0 if res["verdict"] == "PASS" else 1
@@ -539,6 +643,7 @@ def check_modules(args, root):
         before = git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}", check=False)
         res, duration = evaluate(root, spec["test"], goal, spec.get("count") == "none", args.junit, "check",
                                  args.runs, load)
+        res.pop("junit_passed"), res.pop("junit_executed")
         total += duration
         print(f"module {name}: {summary(res)}")
         tree = git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}", check=False)
@@ -581,6 +686,7 @@ def receipt_modules(args, root):
             print(f"module {name}: retry after a failure on this tree")
         res, duration = evaluate(root, spec["test"], args.goal, spec.get("count") == "none", args.junit, "module",
                                  args.runs, load)
+        res.pop("junit_passed"), res.pop("junit_executed")
         total += duration
         res.update({"tree": tree, "name": "module", "module": name, **rerun_fields(old)})
         if retry:
@@ -686,11 +792,18 @@ def main(argv=None):
             p.add_argument("--count", choices=["none"])
         if name == "receipt":
             p.add_argument("--name", default="proof", choices=["full_gate", "e2e", "proof", "gate"])
+            p.add_argument("--rerun-failed", metavar="SUBSET",
+                           help="complete --cmd's FAIL receipt by rerunning only its failed tests with SUBSET")
+            p.add_argument("--cause", help="with --rerun-failed: the chief's diagnosis of the failures")
     p = sub.add_parser("coverage")
     p.add_argument("--goal", required=True)
     p.add_argument("--cmd", help="the full gate command (default: the map's replaces)")
     p.add_argument("--runs", help="the .runs directory to use (default: <root>/.runs)")
     args = ap.parse_args(argv)
+    if getattr(args, "rerun_failed", None) is not None and args.modules is not None or \
+            getattr(args, "cause", None) is not None and getattr(args, "rerun_failed", None) is None:
+        print("gate.py: --rerun-failed takes --cmd, not --modules, and --cause needs --rerun-failed", file=sys.stderr)
+        return 2
     if (getattr(args, "cmd", None) or "").startswith("module:"):
         print("gate.py: a --cmd may not start with 'module:', the prefix of module receipt keys", file=sys.stderr)
         return 2

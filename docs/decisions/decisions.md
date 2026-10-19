@@ -1,5 +1,5 @@
 ---
-summary: Every decision id in one table with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning; D33 adds the test-module map; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot; D36 ships the README and repository rules and adds `docs.py links`; D37 pins model IDs; D38 lets the map grow, never shrink; D39 leases a moved approval tag's push.
+summary: Every decision id in one table with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning; D33 adds the test-module map; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot; D36 ships the README and repository rules and adds `docs.py links`; D37 pins model IDs; D38 grows the map; D39 leases a moved approval tag's push; D40 reruns failures.
 read-when: Making or citing a decision, or asking why the methodology is the way it is
 covers: []
 last-verified: 2026-10-09
@@ -52,6 +52,7 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | [D37](#d37--exact-model-ids-the-cross-vendor-review-runs-through-goalpy-review) | 2026-10-15 | Exact model IDs; the cross-vendor review runs through goal.py review | standing |
 | [D38](#d38--the-module-map-may-grow-never-shrink-builders-never-route-around-a-guard) | 2026-10-16 | The module map may grow, never shrink; builders never route around a guard | standing; amends D33's protected map |
 | [D39](#d39--a-re-approval-pushes-the-moved-approval-tag-with-a-lease) | 2026-10-16 | A re-approval pushes the moved approval tag with a lease | standing; closes S-9's parked merge-review R1 |
+| [D40](#d40--a-full-gate-that-failed-only-on-named-tests-is-completed-by-rerunning-those-tests) | 2026-10-19 | A full gate that failed only on named tests is completed by rerunning those tests | standing; reverses the per-test rerun D33 rejected |
 
 ---
 
@@ -575,3 +576,35 @@ both tags.
 
 Also on 2026-10-16: `docs.py links` no longer reads `\[text](path)` as a link; an inline link
 needs an unescaped `[` before its `](`.
+
+## D40 — A full gate that failed only on named tests is completed by rerunning those tests
+
+**Chose:** `gate.py receipt --cmd <full> --rerun-failed <subset> --cause <text> --junit <glob>`. It
+completes the FAIL receipt for HEAD's clean tree and `<full>` when that receipt's only reason is
+`failures not in baseline` and its JUnit XML named every failure. A `--cmd` receipt stores the JUnit
+IDs it executed and carries the last replaced PASS's IDs as its reference; without that, the newest
+PASS of the command on another tree with IDs is the reference, and without any it refuses. The
+subset's own XML, written after it starts, must show executed and passed, by exact `classname.name`,
+each failure and each reference ID the failed run never reached, and the subset must pass the usual
+rules. The receipt then turns PASS with the full run's counts and
+records the failures, the chief's cause and every attempt under `rerun_failed`; `goal.py packet`
+lists it under "Reran failed tests". Three attempts per receipt; a fourth needs the whole command.
+A receipt whose PASS a later failing check superseded is never completed this way. Row 7 is unchanged:
+it reads the receipt's verdict.
+
+**Over:**
+- S-6's `--rerun-failed`, removed after its round-3 merge review (R14–R23): it parsed console output
+  and canonicalised test IDs across runners, and it judged the cause from exception classes and load.
+  Here IDs come only from JUnit XML and match exactly, and nothing judges the cause: the chief's
+  `--cause` is recorded beside both runs' load readings.
+- D33's module retry alone: a full gate built from one command, not a module map, reran whole after
+  one intermittent browser test.
+- Unlimited attempts: rerunning until green.
+
+**Why:** the founder asked on 2026-10-19 that an infrastructure failure's rerun, with every other test
+passing in the full run, count as a passing full gate, after an hour-long full gate failed five
+browser tests under load that had all passed on the same tree an hour earlier. That failed run also
+counted 8 fewer tests than the passing one: a journey stops at its first failure, so rerunning only
+the named failures would leave the tests after them unchecked (S-6's R16). The reference IDs make
+those tests part of the rerun. Accepted risk: a test the reference never had, added since, that the
+failed run also never reached, is invisible.

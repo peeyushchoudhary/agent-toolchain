@@ -517,6 +517,22 @@ class ModuleRowTest(RepoCase):
                       "a: failed 2026-10-13T09:00:00+00:00 (load 6.5/11.25 on 8 cpus), retry PASS (load 1.5/2.0), "
                       "later check FAIL (load 3.0/4.0)\n\n", self.repo.read(".runs/F-9/packet.md"))
 
+    def test_packet_lists_receipts_completed_by_rerunning_failed_tests(self):
+        self.assertIn("\nReran failed tests:\nnone\n", (self.repo.goal("packet"), self.repo.read(".runs/F-9/packet.md"))[1])
+        tree = self.repo.tree()
+        path = receipt_path(self.repo.dir, "F-9", tree, "make all")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        attempt = {"verdict": "PASS", "command": "make one", "cause": "machine load", "load_before": 1.5, "load_peak": 2.0}
+        path.write_text(json.dumps({"tree": tree, "name": "full_gate", "command": "make all", "verdict": "PASS",
+                                    "executed": 40, "failed": 1, "load_before": 9.0, "load_peak": 30.5, "cpus": 8,
+                                    "rerun_failed": {"failures": ["a.B.flaky"], "attempts": [attempt]}}))
+        res = self.repo.goal("packet")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("\nReran failed tests:\n"
+                      "full_gate: PASS, full run 40 run / 1 failed (load 9.0/30.5 on 8 cpus); failed tests a.B.flaky\n"
+                      "  attempt 1: PASS · make one · cause: machine load (load 1.5/2.0)\n\n",
+                      self.repo.read(".runs/F-9/packet.md"))
+
 class DoneTest(RepoCase):
     def test_all_green_prints_done(self):
         self.repo.close()

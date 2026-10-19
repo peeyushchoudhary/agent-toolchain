@@ -50,4 +50,5 @@ failure, the same command keeps passed modules and retries a failed one once on 
 second failure needs a fix commit.
 
 Record failures present at approval once with `gate.py baseline`; diagnose any new failure, never
-rerun until green beyond that one retry.
+rerun until green beyond that one retry. An infrastructure failure of named tests:
+`receipt --rerun-failed` (D40).
