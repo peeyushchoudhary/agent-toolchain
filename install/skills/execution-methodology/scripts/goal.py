@@ -896,6 +896,16 @@ def cmd_packet(ctx, a):
                            f"(load {run.get('load_before')}/{run.get('load_peak')})"
                            + (f", later check {r.get('verdict')} (load {r.get('load_before')}/"
                               f"{r.get('load_peak')})" if run is not r else ""))
+    reran = []  # every receipt on HEAD's tree completed by rerunning only its failed tests
+    for p in sorted((ctx.runs / "receipts").glob(f"{tree}-*.json")):
+        r = json.loads(p.read_text())
+        rf = r.get("rerun_failed") if isinstance(r, dict) else None
+        if isinstance(rf, dict) and rf.get("attempts"):
+            reran.append(f"{r.get('name')}: {r.get('verdict')}, full run {r.get('executed')} run / {r.get('failed')} "
+                         f"failed (load {r.get('load_before')}/{r.get('load_peak')} on {r.get('cpus')} cpus); "
+                         f"failed tests {', '.join(rf.get('failures', []))}")
+            reran += [f"  attempt {i}: {a.get('verdict')} · {a.get('command')} · cause: {a.get('cause')} "
+                      f"(load {a.get('load_before')}/{a.get('load_peak')})" for i, a in enumerate(rf["attempts"], 1)]
     review = ctx.runs / "review.md"
     found = [l.strip() for l in (review.read_text().splitlines() if review.is_file() else [])
              if re.match(r"^\s*- \[[ x]\] ", l)]
@@ -904,6 +914,7 @@ def cmd_packet(ctx, a):
            f"Diff {approved}..HEAD:", stat, "", "Done:",
            *[f"row {n} ok" if not w else f"row {n}: {'; '.join(w[:3])}" for n, w in rows.items()], "",
            "Receipts:", *(receipts or ["none"]), "", "Retried modules:", *(retried or ["none"]), "",
+           "Reran failed tests:", *(reran or ["none"]), "",
            "Review findings:", *(found or ["none"]),
            cause_counts(review.read_text() if review.is_file() else ""), "",
            "Decisions:", *plan["decisions"], "", "Parked:", *(plan["parked"] or ["none"]), "",

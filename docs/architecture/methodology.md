@@ -63,6 +63,8 @@ and [D38](../decisions/decisions.md#d38--the-module-map-may-grow-never-shrink-bu
   `gate:` runs the modules its writes reach (`gate.py check --modules`). With `full_gate: modules`
   the full gate is `receipt --modules all`; on the same tree it keeps passed modules, retries a
   failed one once and refuses a second failure. Load readings are diagnostics beside a retry.
+  A `--cmd` receipt that failed only on tests its JUnit XML named is completed by rerunning just
+  those tests (`receipt --rerun-failed`, at most three attempts, the cause recorded, D40).
 - **The session is the chief.** The founder's own open session runs the goal on the founder's word,
   from `goal.py resume`; it loads the skill itself when a plan has an open milestone (D31 dropped the
   2026-08-22 user-invoked gate; the approval tag, placed by the founder or by the chief on the
