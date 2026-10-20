@@ -289,9 +289,12 @@ def run(root, cmd, goal, label, runs=None, load_before=None):
 
     readings = {"started_at": now()}
     started = time.monotonic()
+    child_env = os.environ.copy()
+    for name in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTEST_XDIST_WORKER", "PYTEST_XDIST_WORKER_COUNT"):
+        child_env.pop(name, None)
     with open(log, "w") as fh:
         with subprocess.Popen(["bash", "-c", cmd], cwd=root, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT, text=True, errors="replace") as proc:
+                              stderr=subprocess.STDOUT, text=True, errors="replace", env=child_env) as proc:
             sampler = threading.Thread(target=sample, daemon=True)
             sampler.start()
             for line in proc.stdout:

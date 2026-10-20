@@ -141,6 +141,216 @@ task() {  # task SCRIPTS T1|T2 GATE
   gitq add -A && gitq commit -qm "[$2] $name"
 }
 
+# ── An immutable-test migration, through the installed CLIs, with separate negative histories ──
+migration_run() {  # migration_run HARNESS SCRIPTS REPO
+  python3 - "$1" "$2" "$3" <<'PY'
+import hashlib, json, os, pathlib, subprocess, sys
+
+harness, scripts, location = sys.argv[1:]
+scripts, repo = pathlib.Path(scripts), pathlib.Path(location)
+repo.mkdir()
+controls = ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTEST_XDIST_WORKER", "PYTEST_XDIST_WORKER_COUNT")
+hostile = {name: "hostile-inherited-value" for name in controls}
+env = {**os.environ, **hostile, "E2E_MIGRATION_KEEP": "unrelated-value"}
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+def run(args, cwd=repo, code=0):
+    result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True)
+    require(result.returncode == code, f"{args!r}: exit {result.returncode}\n{result.stdout}{result.stderr}")
+    return result.stdout + result.stderr
+
+def git(*args, cwd=repo):
+    return run(["git", "-c", "commit.gpgsign=false", *args], cwd).strip()
+
+def goal(action, cwd=repo, code=0):
+    return run(["python3", str(scripts / "goal.py"), action, "--goal", "M-1"], cwd, code)
+
+def label(name, detail):
+    print(f"e2e_run: {harness + ' migration ' + name:26} ok ({detail})")
+
+git("init", "-q", "-b", "main", ".")
+git("config", "user.email", "e2e@example.invalid")
+git("config", "user.name", "e2e")
+(repo / ".gitignore").write_text(".runs/\n__pycache__/\n")
+tests = repo / "tests"
+tests.mkdir()
+(tests / "__init__.py").write_text("")
+original = b"import unittest\n\nclass Historical(unittest.TestCase):\n    def test_old(self):\n        self.assertEqual(2 + 3, 5)\n"
+(tests / "test_old.py").write_bytes(original)
+for name, expression, expected in (("keep", "2 + 3", 5), ("current", "4 * 5", 20), ("extra", "9 - 2", 7)):
+    (tests / f"test_{name}.py").write_text(
+        "import os, unittest\n\nclass Current(unittest.TestCase):\n"
+        f"    def test_behavior(self):\n        self.assertEqual({expression}, {expected})\n"
+        "    def test_environment(self):\n"
+        f"        for name in {controls!r}:\n            self.assertNotIn(name, os.environ)\n"
+        "        self.assertEqual(os.environ.get('E2E_MIGRATION_KEEP'), 'unrelated-value')\n")
+before = "python3 -m unittest tests/test_old.py tests/test_keep.py"
+after = "python3 -m unittest tests/test_keep.py tests/test_current.py tests/test_extra.py"
+full = "python3 -m unittest -v tests/test_keep.py tests/test_current.py tests/test_extra.py"
+e2e = "python3 -m unittest -q tests/test_current.py tests/test_extra.py"
+directory = repo / "docs/goals/M-1"
+directory.mkdir(parents=True)
+map_path = repo / "docs/goals/modules.json"
+module_map = {"modules": {"legacy": {"paths": ["tests/**"], "test": before}}}
+map_path.write_text(json.dumps(module_map) + "\n")
+(directory / "test-migrations.json").write_text(json.dumps({"version": 1, "migrations": [{
+    "module": "legacy", "before": before, "after": after,
+    "originals": [{"path": "tests/test_old.py", "sha256": hashlib.sha256(original).hexdigest()}],
+    "successors": ["tests/test_current.py", "tests/test_extra.py"], "historical_claim": "BYTES_ONLY",
+    "reason": "Preserve historical bytes while current arithmetic has named executable coverage."
+}]}) + "\n")
+(directory / "spec.md").write_text("""# Migration fixture
+
+**Users and problem.** A caller needs current arithmetic coverage.
+**What changes for the user.** Current tests replace a historical route, whose bytes remain.
+**Acceptance criteria.**
+- AC1 WHEN the route migrates THE SYSTEM SHALL require current and preservation proofs.
+**Non-goals.** Historical environment replay.
+**Constraints.** Standard-library Python; no provider calls.
+""")
+plan_path = directory / "plan.md"
+plan_path.write_text(f"""---
+goal: M-1
+title: Immutable-test migration fixture
+gate: {after}
+full_gate: {full}
+milestones:
+  M1: {{tasks: [T1], e2e: "{e2e}"}}
+touches: [none]
+protected: []
+---
+## Outcome
+Current arithmetic has named proof receipts; historical bytes remain unchanged.
+## Tasks
+### [ ] T1 — migrate the route
+writes: docs/goals/modules.json, candidate.txt
+reads: docs/goals/M-1/spec.md
+AC1: activate the exact replacement and collect its proofs.
+## Decisions
+- The merge review below is an explicitly labelled fixture, never an independent review.
+## Parked
+""")
+(repo / "candidate.txt").write_text("first candidate\n")
+git("add", "-A")
+git("commit", "-qm", "M-1: migration proposal")
+require("lint: PASS" in goal("lint"), "proposal lint did not pass")
+proposal = json.loads(goal("migration-proofs"))
+require(proposal["version"] == 1 and len(proposal["migrations"]) == 1
+        and proposal["migrations"][0]["applied"] is False, "proposal descriptors missing")
+# All original/current sources, hashes, map and goal precede this fixture's approval.
+git("tag", "goal/M-1/approved")
+approved = git("rev-parse", "HEAD")
+for violation, diagnostic in (("command", "command is neither approved before nor after"),
+                              ("digest", "original sha256 mismatch")):
+    negative = repo.with_name(repo.name + "-" + violation)
+    git("clone", "-q", str(repo), str(negative))
+    git("config", "user.email", "e2e@example.invalid", cwd=negative)
+    git("config", "user.name", "e2e", cwd=negative)
+    if violation == "command":
+        changed = json.loads(map_path.read_text())
+        changed["modules"]["legacy"]["test"] = before + " tests/test_current.py"
+        (negative / "docs/goals/modules.json").write_text(json.dumps(changed) + "\n")
+    else:
+        (negative / "tests/test_old.py").write_bytes(original + b"\n# changed historical bytes\n")
+    git("add", "-A", cwd=negative)
+    git("commit", "-qm", "[T1] invalid migration fixture", cwd=negative)
+    require(diagnostic in goal("lint", negative, 1), f"{violation} mismatch was not refused")
+    rejected = goal("done", negative, 1)
+    require(diagnostic in rejected and "NOT DONE M1" in rejected, "invalid history reached DONE")
+require(git("rev-parse", "HEAD") == approved, "negative fixtures changed the success history")
+label("negatives", "separate command/digest clones refused; success history untouched")
+
+module_map["modules"]["legacy"]["test"] = after
+map_path.write_text(json.dumps(module_map) + "\n")
+plan_path.write_text(plan_path.read_text().replace("### [ ] T1", "### [x] T1"))
+git("add", "-A")
+git("commit", "-qm", "[T1] activate exact migration")
+require("lint: PASS" in goal("lint"), "approved replacement lint did not pass")
+data = json.loads(goal("migration-proofs"))
+entry = data["migrations"][0]
+proofs = entry["proofs"]
+require(entry["applied"] is True and proofs == proposal["migrations"][0]["proofs"]
+        and [p["kind"] for p in proofs] == ["module", "successor", "successor", "preservation"],
+        "installed descriptors did not bind the approved replacement")
+out = repo / ".runs/M-1/out"
+out.mkdir(parents=True)
+
+def receipt(arguments, name):
+    text = run(["python3", str(scripts / "gate.py"), "receipt", "--goal", "M-1", *arguments])
+    (out / (name + ".out")).write_text(text)
+    require(text.splitlines()[-1].startswith("budget:"), "receipt has no final budget line")
+    return text
+
+def standard_evidence():
+    receipt(["--name", "full_gate", "--cmd", full], "full_gate")
+    receipt(["--name", "e2e", "--cmd", e2e], "e2e")
+    # A parser fixture only: no provider is contacted and this is not an independent review.
+    (repo / ".runs/M-1/review.md").write_text(
+        "reviewer: e2e_run.sh fixture codex gpt-6-astra at high (read-only, not a review), merge\n"
+        f"reviewed: {git('rev-parse', 'HEAD')}\nverdict: PASS\n## Findings\n")
+
+def missing_proofs():
+    text = goal("done", code=1)
+    for row in (1, 2, 3, 4, 5, 6, 8):
+        require(f"row {row} ok\n" in text, f"unexpected DONE row failure: {text}")
+    for kind in ("module", "successor", "preservation"):
+        require(f"no valid migration {kind} proof" in text, f"missing {kind} proof accepted")
+    require("no PASS full_gate" not in text and "no PASS e2e" not in text, "standard evidence missing")
+    require(text.splitlines()[-1] == "NOT DONE M1", "missing migration proofs reached DONE")
+
+def fresh_proofs():
+    tree = git("rev-parse", "HEAD^{tree}")
+    for index, proof in enumerate(proofs):
+        arguments = (["--modules", proof["module"]] if proof["kind"] == "module"
+                     else ["--cmd", proof["command"]])
+        if not proof["tests"]:
+            arguments += ["--count", "none"]
+        text = receipt(arguments, f"proof-{index}")
+        rows = [json.loads(p.read_text()) for p in (repo / ".runs/M-1/receipts").glob("*.json")]
+        matches = [r for r in rows if r.get("tree") == tree and r.get("command") == proof["command"]
+                   and r.get("module") == proof["module"]]
+        require(len(matches) == 1, f"no unique exact-tree receipt for {proof['kind']}")
+        record = matches[0]
+        require(record["verdict"] == "PASS" and record["exit"] == 0 and record["failed"] == 0
+                and record["skipped"] == 0 and not record["baseline_failures"] and not record["reasons"],
+                f"unclean {proof['kind']} receipt")
+        require(record["executed"] > 0 if proof["tests"] else record["executed"] == 0,
+                f"wrong executed count for {proof['kind']}")
+        if not proof["tests"]:
+            require("preservation: PASS" in text, "generated preservation check did not pass")
+    require((tests / "test_old.py").read_bytes() == original, "original bytes changed")
+    return tree
+
+close_missing = goal("done", code=1)
+for message in ("no PASS full_gate", "no PASS e2e", "no .runs/M-1/review.md"):
+    require(message in close_missing, f"standard close requirement waived: {message}")
+standard_evidence()
+missing_proofs()
+label("missing proofs", "DONE refused despite fresh full/E2E receipts and labelled review fixture")
+old_tree = fresh_proofs()
+require(goal("done").splitlines()[-1] == f"DONE M1 on tree {old_tree}", "fresh proofs did not reach DONE")
+(repo / "candidate.txt").write_text("second candidate\n")
+git("add", "candidate.txt")
+git("commit", "-qm", "[T1] refresh candidate tree")
+require(git("rev-parse", "HEAD^{tree}") != old_tree, "candidate tree did not change")
+standard_evidence()
+missing_proofs()
+require(any(p.name.startswith(old_tree + "-") for p in (repo / ".runs/M-1/receipts").glob("*.json")),
+        "stale receipts were not retained")
+label("stale tree", "old passing proofs retained and refused on a new committed candidate")
+tree = fresh_proofs()
+label("fresh proofs", "real module and individual unittest receipts; generated preservation --count none")
+label("immutable bytes", "original bytes equal their approval-frozen source")
+require(all(env[name] == hostile[name] for name in controls), "parent environment changed")
+label("environment", "all four inherited pytest controls absent in real module/command children; unrelated value kept")
+require(goal("done").splitlines()[-1] == f"DONE M1 on tree {tree}", "final fresh proofs did not reach DONE")
+label("DONE", "exact candidate tree; full/E2E receipts and labelled review fixture still mandatory")
+PY
+}
+
 # ── Each harness: install, approval, resume, two tasks, receipts, review fixture, done, packet, cost
 harness_run() {  # harness_run claude|codex
   local h="$1" home="$tmp/home-$1" repo="$tmp/repo-$1" origin="$tmp/origin-$1.git" skill out t f gate
@@ -235,6 +445,7 @@ PY
     grep -qx 'modules: FAIL 1 of 2 (b)' "$f/receipt-5.out" &&
     ok "$h b fails twice" "refused on the second tree, exit 1" ||
     bad "$h b fails twice" "exits$out; $(tr '\n' ';' < "$f/receipt-5.out")"
+  migration_run "$h" "$skill" "$tmp/migration-$h" || bad "$h migration rehearsal" "installed CLI flow failed"
 }
 
 for h in claude codex; do (errors=0; harness_run "$h"; exit "$errors") || errors=$((errors + $?)); done

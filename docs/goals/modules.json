@@ -3,6 +3,7 @@
   "modules": {
     "modmap": {
       "paths": ["install/skills/execution-methodology/scripts/modmap.py",
+                "install/skills/execution-methodology/scripts/migrations.py",
                 "install/skills/execution-methodology/tests/test_modmap.py"],
       "needs": [],
       "test": "python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_modmap.py'"

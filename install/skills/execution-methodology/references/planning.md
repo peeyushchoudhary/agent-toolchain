@@ -1,6 +1,6 @@
 # Planning a goal
 
-1. Interview the founder until users, problem and criteria are plain.
+1. Interview the founder for users, problem and criteria.
 2. Write `docs/goals/<id>/spec.md`.
 3. Send a scout ([roles.md](roles.md)) for the files, patterns and tests involved.
 4. Write `design.md` when `touches:` names anything but `none` ([design.md](design.md)).
@@ -10,13 +10,13 @@
    draft it by [modules.md](modules.md), committed with the plan; prefer its derived gates to `gate:`
    lines. Time the plan's `gate` once; `goal.py lint` passes.
 6. Ask at most five `- Q:` lines under Parked; answers become Decisions lines.
-7. The other vendor reviews the design, then the plan; resolve findings there.
-8. The founder tags `goal/<id>/approved`, or tells the chief to; never the chief alone.
+7. The other vendor reviews design, then plan; resolve findings there.
+8. The founder tags `goal/<id>/approved`, or tells the chief; never the chief alone.
 
 ## Chief's planning rules
 
 MUST
-- Cut each task to one session: `writes`, `tests-may-change`, `reads:` as `path#anchor` identifiers including the pattern to copy, one named test; a fresh session restarts from the plan alone.
+- Cut each task to one session: `writes`, `tests-may-change`, `reads:` as `path#anchor` identifiers including the pattern to copy, one named test; fresh sessions restart from the plan alone.
 - Write each criterion as behaviour a human can verify; a task's named test is its instance.
 - State what each task's builder must not do: widen scope, touch other tests, add configuration or dependencies.
 - Put every magic value, signature, path and test name in the task text; packets carry identifiers, not text.
@@ -48,4 +48,4 @@ AVOID
 `design.md`: `## Structure`, `## Interfaces`, `## Data touched`, `## Smallest change`,
 `## Rejected options`.
 
-Frontmatter, layout, README and records: [repository.md](repository.md).
+Declare [test migrations](test-migrations.md) before approval. Frontmatter, layout, README and records: [repository.md](repository.md).

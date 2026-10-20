@@ -24,13 +24,14 @@ ROLES = SKILL / "references" / "roles.md"
 SECURITY = SKILL / "references" / "security-checklist.md"
 CLOSE = SKILL / "references" / "close.md"
 MODULES = SKILL / "references" / "modules.md"
+MIGRATIONS = SKILL / "references" / "test-migrations.md"
 REPOSITORY = SKILL / "references" / "repository.md"
 BUILDER_TOML = SKILL / "agents" / "builder.toml"
 ALWAYS_LOADED = (REPO / "install" / "global.md", REPO / "AGENTS.md", ENTRY)
-SKILL_FILES = (ENTRY, BUILDER, REVIEWER, SCOUT, DESIGN, PLANNING, ROLES, SECURITY, CLOSE, MODULES, REPOSITORY)
+SKILL_FILES = (ENTRY, BUILDER, REVIEWER, SCOUT, DESIGN, PLANNING, ROLES, SECURITY, CLOSE, MODULES, REPOSITORY, MIGRATIONS)
 
 # Word ceilings of the on-demand references (D30); words are whitespace-separated tokens.
-REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150, CLOSE: 400, MODULES: 200, REPOSITORY: 900}
+REFERENCE_WORDS = {PLANNING: 400, ROLES: 150, SECURITY: 150, CLOSE: 400, MODULES: 200, REPOSITORY: 900, MIGRATIONS: 400}
 PLANNING_RULES_WORDS = 200
 # Word ceilings of the agent files' bodies, the text after the closing frontmatter line (D30).
 AGENT_BODY_WORDS = {BUILDER: 400, REVIEWER: 350, SCOUT: 200}
@@ -236,6 +237,14 @@ def flat(path: Path) -> str:
 class Close(unittest.TestCase):
     """v7.3 (D33): the composed full gate at close, and the one retry of a failed module."""
 
+    def test_close_names_migration_proofs(self):
+        text = flat(CLOSE)
+        self.assertIn(MIGRATIONS.resolve(), {resolved for _label, resolved in named_paths(CLOSE)})
+        for words in ("goal.py migration-proofs --goal <id>", "--count none", "full_gate", "e2e",
+                      "merge review", "goal.py done"):
+            self.assertIn(words, text)
+        self.assertLess(text.index("goal.py migration-proofs"), text.index("goal.py done"))
+
     def test_close_composes_the_full_gate_from_modules_and_states_the_retry(self):
         text = flat(CLOSE)
         for words in ("`full_gate: modules`", "receipt --goal <id> --modules all", "keeps passed modules",
@@ -285,6 +294,22 @@ class Planning(unittest.TestCase):
                       "`full_gate: modules`", "Decisions line naming the module that runs each non-test check",
                       "Prefer derived gates"):
             self.assertIn(words, text)
+
+    def test_frozen_test_migration_contract_is_explicit(self):
+        for path in (ENTRY, PLANNING, MODULES, CLOSE):
+            with self.subTest(file=path.name):
+                self.assertIn(MIGRATIONS.resolve(), {resolved for _label, resolved in named_paths(path)})
+        text = flat(MIGRATIONS)
+        for words in ("test-migrations.json", "version", "originals", "sha256", "successors",
+                      "historical_claim", "BYTES_ONLY", "reason", "python3", "./py",
+                      "-m pytest -q", "-m unittest", "retained", "approval", "protected",
+                      "third command", "count", "needs", "shared", "replaces",
+                      "goal.py migration-proofs --goal <id>", "--modules <module>",
+                      "--cmd <exact command>", "--count none", "receipt", "positive",
+                      "zero failed/skipped", "baseline", "HEAD", "goal-scoped",
+                      "re-approval", "replay", "semantic equivalence", "full/E2E", "review"):
+            with self.subTest(required=words):
+                self.assertIn(words, text)
 
 
 def sentence(path: Path, words: str) -> str:

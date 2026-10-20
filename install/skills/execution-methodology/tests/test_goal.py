@@ -9,6 +9,7 @@ import html
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1746,6 +1747,469 @@ class CleanupTest(RepoCase):
             self.head("apply"), "gone worktree .claude/worktrees/agent-c",
             "keep branch worktree-agent-c: checked out", "cleanup: 0 removed, 1 kept"])
         self.assertTrue(self.exists("refs/heads/worktree-agent-c") and elsewhere.is_dir())
+
+
+
+class MigrationFixture:
+    """Approval-bound substitutions use the repository fixtures and ModuleRowTest's row checks."""
+    declaration = "docs/goals/F-9/test-migrations.json"
+    original = "tests/test_old.py"
+    successor = "tests/test_current.py"
+    before = "python3 -m unittest tests/test_old.py tests/test_a.py"
+    after = "python3 -m unittest tests/test_a.py tests/test_current.py"
+    original_bytes = b"# frozen source\n"
+
+    def fixture(self, declared=True, amendment=None, original_bytes=None, original_mode="100644", files=None):
+        import hashlib
+        source = self.original_bytes if original_bytes is None else original_bytes
+        class SourceRepo(Repo):
+            def write(self, rel, text):
+                if isinstance(text, tuple):
+                    mode, body = text
+                    path = self.path(rel)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    if mode == "120000":
+                        path.symlink_to(body.decode())
+                    else:
+                        path.write_bytes(body)
+                        path.chmod(0o755 if mode == "100755" else 0o644)
+                else:
+                    super().write(rel, text)
+        modules = json.loads(json.dumps(MODULES))
+        modules["modules"]["a"]["test"] = self.before
+        modules["modules"]["a"]["paths"] += [self.original, self.successor]
+        entry = {"module": "a", "before": self.before, "after": self.after,
+                 "originals": [{"path": self.original,
+                                "sha256": hashlib.sha256(source).hexdigest()}],
+                 "successors": [self.successor], "historical_claim": "BYTES_ONLY", "reason": "Current coverage."}
+        if amendment:
+            amendment(entry)
+        modules["modules"]["a"]["test"] = entry["before"]
+        declaration = json.dumps({"version": 1, "migrations": [entry]})
+        plan = (plan_text(v71=True).replace("writes: src/a/**, tests/**",
+                                           f"writes: src/a/**, {MAP_PATH}, {self.successor}")
+                .replace("writes: src/b/**, tests/**", "writes: src/b/**, tests/test_a.py"))
+        files = {**V71_FILES, MAP_PATH: json.dumps(modules),
+                 self.original: (original_mode, b"test_a.py" if original_mode == "120000" else source),
+                 **(files or {})}
+        if declared:
+            files[self.declaration] = declaration
+        repo = SourceRepo(plan, files=files)
+        self.addCleanup(repo.cleanup)
+        return repo, modules, declaration
+
+    def activate(self, repo, modules):
+        current = json.loads(json.dumps(modules))
+        current["modules"]["a"]["test"] = self.after
+        repo.write(MAP_PATH, json.dumps(current))
+        repo.write(self.successor, repo.read("tests/test_a.py"))
+        return current
+
+    def findings(self, repo):
+        return goal.commit_findings(goal.find_ctx(cwd=repo.dir), "goal/F-9/approved")
+
+
+class MigrationAdmissionTest(MigrationFixture, unittest.TestCase):
+    def test_only_exact_approved_migration_is_admitted(self):
+        repo, modules, _declaration = self.fixture()
+        self.assertEqual(repo.goal("lint").returncode, 0)
+        ctx = goal.find_ctx(cwd=repo.dir)
+        protected = goal.protected_entries(ctx.plan, ctx)
+        self.assertIn(self.declaration, protected)
+        self.assertIn(self.original, protected)
+        self.assertEqual(self.findings(repo), {3: [], 4: [], 5: []})
+        current = self.activate(repo, modules)
+        repo.commit("[T1] migrate the literal test command")
+        self.assertEqual(repo.goal("lint").returncode, 0)
+        self.assertEqual(self.findings(repo), {3: [], 4: [], 5: []})
+        repo.write("src/b/value.py", "VALUE = 2\n")
+        repo.commit("[T2] continue after the migration")
+        self.assertEqual(self.findings(repo), {3: [], 4: [], 5: []})
+        self.assertEqual(goal.map_shrinks(json.dumps(modules), json.dumps(current),
+                                         [self.original, self.successor]), ["changes a's test"])
+        res = repo.goal("done")
+        self.assertIn("row 4 ok\nrow 5 ok\n", res.stdout, res.stdout + res.stderr)
+
+    def test_working_declaration_uses_committed_map_and_sources_before_approval(self):
+        repo, modules, declaration = self.fixture(declared=False)
+        repo.git("tag", "-d", "goal/F-9/approved")
+        repo.write(self.declaration, declaration)
+        self.activate(repo, modules)  # the dirty map is not the declaration's baseline
+        res = repo.goal("lint")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        entry = json.loads(declaration)
+        entry["migrations"][0]["originals"][0]["sha256"] = "0" * 64
+        repo.write(self.declaration, json.dumps(entry))
+        res = repo.goal("lint")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("original sha256 mismatch", res.stdout)
+
+    def test_post_approval_and_changed_declarations_are_refused(self):
+        for declared in (False, True):
+            with self.subTest(declared=declared):
+                repo, modules, declaration = self.fixture(declared=declared)
+                data = json.loads(declaration)
+                data["migrations"][0]["reason"] = "Changed after approval."
+                repo.write(self.declaration, json.dumps(data))
+                self.activate(repo, modules)
+                repo.commit("[T1] change the migration declaration")
+                res = repo.goal("lint")
+                self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+                self.assertIn("test-migrations.json", res.stdout)
+                rows = self.findings(repo)
+                self.assertTrue(any(f"changes protected {self.declaration}" in f for f in rows[4]), rows)
+                self.assertTrue(any("changes a's test" in f for f in rows[5]), rows)
+
+    def test_invalid_approved_originals_fail_lint_and_admission(self):
+        for defect in ("hash", "missing", "symlink", "unrepresentable"):
+            with self.subTest(defect=defect):
+                def amend(entry):
+                    original = entry["originals"][0]
+                    if defect == "hash":
+                        original["sha256"] = "0" * 64
+                    elif defect == "missing":
+                        original["path"] = f"tests/{defect}.py"
+                        entry["before"] = entry["before"].replace(self.original, original["path"])
+                    elif defect == "unrepresentable":
+                        original["path"] = "tests/\ud800.py"
+                        entry["before"] = entry["before"].replace(self.original, original["path"])
+                repo, modules, _declaration = self.fixture(amendment=amend,
+                    original_mode="120000" if defect == "symlink" else "100644")
+                res = repo.goal("lint")
+                self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+                self.assertIn("test migrations:", res.stdout)
+                self.activate(repo, modules)
+                repo.commit("[T1] try an invalid migration")
+                self.assertTrue(self.findings(repo)[5])
+
+    def test_original_bytes_and_git_modes_are_checked_without_text_decoding(self):
+        import hashlib
+        repo, modules, _declaration = self.fixture(original_bytes=b"# frozen source\xff\n", original_mode="100755")
+        self.activate(repo, modules)
+        repo.commit("[T1] migrate with raw non-UTF8 frozen bytes")
+        self.assertEqual(repo.goal("lint").returncode, 0)
+        self.assertEqual(self.findings(repo), {3: [], 4: [], 5: []})
+        for mode in ("bytes", "symlink", "missing", "executable"):
+            with self.subTest(mode=mode):
+                repo, modules, _declaration = self.fixture()
+                if mode == "bytes":
+                    repo.path(self.original).write_bytes(b"# frozen source\xff\n")
+                elif mode == "symlink":
+                    repo.path(self.original).unlink()
+                    repo.path(self.original).symlink_to("test_a.py")
+                elif mode == "missing":
+                    repo.path(self.original).unlink()
+                else:
+                    repo.path(self.original).chmod(0o755)
+                self.activate(repo, modules)
+                repo.commit("[T1] change a frozen source identity")
+                res = repo.goal("lint")
+                self.assertEqual(res.returncode, int(mode != "executable"), res.stdout + res.stderr)
+                rows = self.findings(repo)
+                self.assertTrue(any(f"changes protected {self.original}" in f for f in rows[4]), rows)
+                # Mode-only changes retain ordinary frozen-test protection; only byte/blob
+                # identity failures are migration-admission findings.
+                self.assertTrue(any(f"test {self.original}" in f for f in rows[5]), rows)
+                migration_findings = [f for f in rows[5] if "test migrations:" in f or "module map" in f]
+                self.assertEqual(bool(migration_findings), mode != "executable", rows)
+                self.assertEqual(hashlib.sha256(self.original_bytes).hexdigest(),
+                                 json.loads(repo.read(self.declaration))["migrations"][0]["originals"][0]["sha256"])
+
+    def test_mutate_restore_history_cannot_hide_protected_changes(self):
+        for path in (self.declaration, self.original):
+            with self.subTest(path=path):
+                repo, modules, _declaration = self.fixture()
+                original = repo.path(path).read_bytes()
+                repo.path(path).write_bytes(original + b" \n")
+                changed = repo.commit("F-9: invalid intermediate protected edit")
+                repo.path(path).write_bytes(original)
+                self.activate(repo, modules)
+                repo.commit("[T1] restore and activate")
+                rows = self.findings(repo)
+                self.assertTrue(any(changed[:10] in f and f"changes protected {path}" in f
+                                    for f in rows[4]), rows)
+
+    def test_introduced_then_removed_declaration_cannot_hide_in_history(self):
+        repo, _modules, declaration = self.fixture(declared=False)
+        repo.write(self.declaration, declaration)
+        changed = repo.commit("F-9: introduce undeclared metadata")
+        repo.path(self.declaration).unlink()
+        repo.commit("[T1] remove undeclared metadata")
+        rows = self.findings(repo)
+        self.assertTrue(any(changed[:10] in f and f"changes protected {self.declaration}" in f
+                            for f in rows[4]), rows)
+
+    def test_restored_third_commands_are_refused_for_every_commit_subject(self):
+        for subject in ("[T1] third command", "F-9: third command", "[T99] third command"):
+            with self.subTest(subject=subject):
+                repo, modules, _declaration = self.fixture()
+                bad = json.loads(json.dumps(modules))
+                bad["modules"]["a"]["test"] = "python3 -m unittest tests/test_a.py"
+                repo.write(MAP_PATH, json.dumps(bad))
+                changed = repo.commit(subject)
+                self.activate(repo, modules)
+                repo.commit("[T1] restore the exact approved command")
+                rows = self.findings(repo)
+                self.assertTrue(any(changed[:10] in f and "neither approved before nor after" in f
+                                    for f in rows[5]), rows)
+
+    def test_activated_successor_must_be_a_tracked_regular_blob(self):
+        for mode in ("missing", "untracked", "symlink"):
+            with self.subTest(mode=mode):
+                repo, modules, _declaration = self.fixture()
+                self.activate(repo, modules)
+                repo.path(self.successor).unlink()
+                if mode == "symlink":
+                    repo.path(self.successor).symlink_to("test_a.py")
+                repo.commit("[T1] activate without a regular successor")
+                if mode == "untracked":
+                    repo.write(self.successor, "# untracked\n")
+                res = repo.goal("lint")
+                self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+                self.assertIn(f"{self.successor}: missing tracked regular Git blob", res.stdout)
+                self.assertTrue(self.findings(repo)[5])
+
+    def test_exact_substitution_does_not_waive_other_map_shrinkage(self):
+        for defect in ("count", "replaces", "module", "needs", "paths", "shared", "other command"):
+            with self.subTest(defect=defect):
+                repo, modules, _declaration = self.fixture()
+                current = self.activate(repo, modules)
+                if defect == "count":
+                    current["modules"]["a"]["count"] = "none"
+                elif defect == "replaces":
+                    current["replaces"] = "true"
+                elif defect == "module":
+                    del current["modules"]["c"]
+                elif defect == "needs":
+                    current["modules"]["b"]["needs"] = []
+                elif defect == "paths":
+                    current["modules"]["a"]["paths"].remove("tests/test_a.py")
+                elif defect == "shared":
+                    current["shared"].remove(".gitignore")
+                else:
+                    current["modules"]["c"]["test"] = "true"
+                repo.write(MAP_PATH, json.dumps(current))
+                repo.commit("[T1] combine migration with an undeclared shrink")
+                rows = self.findings(repo)
+                self.assertTrue(rows[5], rows)
+                if defect not in ("count", "replaces"):
+                    self.assertFalse(any("changes a's test" in f for f in rows[5]), rows)
+
+
+class MigrationGoalTest(MigrationFixture, unittest.TestCase):
+    """DoneTest's live receipts, with the admission fixture's immutable declaration."""
+
+    def prepared(self, applied=True):
+        repo, modules, declaration = self.fixture(files={"tests/__init__.py": ""})
+        if applied:
+            self.activate(repo, modules)
+            repo.commit("[T1] apply the approved migration")
+        repo.close()
+        return repo, modules, declaration
+
+    def descriptors(self, repo):
+        ctx = goal.find_ctx(cwd=repo.dir)
+        return goal.migrations.proofs(goal.migration_entries(ctx)[0])
+
+    def proof_path(self, repo, descriptor):
+        key = (module_key(descriptor["module"], {"test": descriptor["command"]})
+               if descriptor["kind"] == "module" else descriptor["command"])
+        return receipt_path(repo.dir, "F-9", repo.tree(), key)
+
+    def run_proofs(self, repo):
+        for descriptor in self.descriptors(repo):
+            args = (["--modules", descriptor["module"]] if descriptor["kind"] == "module" else
+                    ["--cmd", descriptor["command"]])
+            if not descriptor["tests"]:
+                args += ["--count", "none"]
+            res = repo.gate("receipt", "--goal", "F-9", *args)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+
+    def test_exact_approved_migration_requires_fresh_proofs(self):
+        repo, _modules, _declaration = self.prepared()
+        res = repo.goal("done")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("row 7: ", res.stdout)
+        for kind in ("module", "successor", "preservation"):
+            self.assertIn(f"no valid migration {kind} proof", res.stdout)
+        descriptors = self.descriptors(repo)
+        module, successor, preservation = descriptors
+        # A command receipt for the module's command cannot stand in for a module receipt.
+        res = repo.receipt(module["command"])
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("no valid migration module proof", repo.goal("done").stdout)
+        res = repo.gate("receipt", "--goal", "F-9", "--modules", "a")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("no valid migration successor proof", repo.goal("done").stdout)
+        res = repo.receipt(successor["command"])
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        res = repo.receipt(preservation["command"])
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("zero tests executed", res.stdout)
+        res = repo.gate("receipt", "--goal", "F-9", "--cmd", preservation["command"], "--count", "none")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("preservation: PASS", res.stdout)
+        self.assertIn("gate: PASS · exit 0 · 0 run / 0 failed / 0 skipped", res.stdout)
+        for descriptor in descriptors:
+            receipt = json.loads(self.proof_path(repo, descriptor).read_text())
+            self.assertTrue(goal.migrations.proof_ok(descriptor, receipt, repo.tree()), receipt)
+            self.assertEqual(receipt["executed"] > 0, descriptor["tests"])
+        res = repo.goal("done")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn(f"DONE M1 on tree {repo.tree()}", res.stdout)
+        repo.write("src/b/fresh.py", "FRESH = True\n")
+        repo.commit("[T2] change the candidate tree")
+        rows, _tree = goal.done_rows(goal.find_ctx(cwd=repo.dir), "M1")
+        self.assertTrue(any("full_gate" in gap for gap in rows[7]), rows)
+        self.assertTrue(any("e2e" in gap for gap in rows[7]), rows)
+        for kind in ("module", "successor", "preservation"):
+            self.assertTrue(any(f"no valid migration {kind} proof" in gap for gap in rows[7]), rows)
+        self.assertTrue(rows[8], "migration proofs never replace the required review")
+
+    def test_migration_proofs_cli_emits_exact_command_json(self):
+        repo, modules, declaration = self.fixture(declared=False, files={"tests/__init__.py": ""})
+        empty = {"version": 1, "migrations": []}
+        self.assertEqual(json.loads(repo.goal("migration-proofs", "--goal", "F-9").stdout), empty)
+        repo.git("tag", "-d", "goal/F-9/approved")
+        self.assertEqual(json.loads(repo.goal("migration-proofs").stdout), empty)
+        repo.write(self.declaration, declaration)
+        # Before approval, dirty source/map edits cannot redefine the committed baseline.
+        self.activate(repo, modules)
+        repo.path(self.original).write_bytes(b"# dirty source\n")
+        res = repo.goal("migration-proofs", "--goal", "F-9")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        data = json.loads(res.stdout)
+        self.assertEqual(set(data), {"version", "migrations"})
+        self.assertIs(type(data["version"]), int)
+        row = data["migrations"][0]
+        self.assertEqual(set(row), {"module", "applied", "proofs"})
+        self.assertEqual((row["module"], row["applied"]), ("a", False))
+        descriptors = self.descriptors(repo)
+        self.assertEqual(row["proofs"], descriptors)
+        self.assertEqual(repo.goal("packet", "--approval").returncode, 0)
+        self.assertIn(declaration, html.unescape(repo.read(".runs/F-9/approval.html")))
+        self.assertEqual([d["kind"] for d in descriptors], ["module", "successor", "preservation"])
+        self.assertEqual(descriptors[0]["command"], self.after)
+        self.assertEqual(descriptors[1]["command"], "python3 -m unittest tests/test_current.py")
+        for descriptor in descriptors:
+            self.assertEqual(set(descriptor), {"kind", "module", "command", "tests"})
+            self.assertIs(type(descriptor["tests"]), bool)
+            self.assertEqual(descriptor["tests"], descriptor["kind"] != "preservation")
+            self.assertEqual(descriptor["module"], "a" if descriptor["kind"] == "module" else None)
+        # A separate approved fixture keeps its approval history intact.
+        approved, current, _declaration = self.fixture(files={"tests/__init__.py": ""})
+        self.assertEqual(json.loads(approved.goal("migration-proofs").stdout), data)
+        self.activate(approved, current)
+        approved.commit("[T1] activate the approved command")
+        expected = {"version": 1, "migrations": [{**row, "applied": True}]}
+        res = approved.goal("migration-proofs")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(json.loads(res.stdout), expected)
+        self.assertFalse(approved.path(".runs/F-9").exists(), "read-only CLI executes and writes nothing")
+
+    def test_unapplied_migration_needs_no_proof_receipts(self):
+        repo, _modules, _declaration = self.prepared(applied=False)
+        res = repo.goal("done")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("row 7 ok", res.stdout)
+        data = json.loads(repo.goal("migration-proofs").stdout)
+        self.assertFalse(data["migrations"][0]["applied"])
+        self.assertEqual(len(data["migrations"][0]["proofs"]), 3)
+
+    def test_unborn_repository_without_declaration_renders_approval_and_empty_json(self):
+        root = Path(os.path.realpath(tempfile.mkdtemp(prefix="goal-unborn-")))
+        self.addCleanup(shutil.rmtree, root, True)
+        subprocess.run(["git", "init", "-q"], cwd=root, env=env(), check=True, capture_output=True)
+        for rel, text in {**V71_FILES, PLAN: plan_text(v71=True)}.items():
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        for args in (("packet", "--approval"), ("migration-proofs",)):
+            res = subprocess.run([sys.executable, str(GOAL), *args, "--goal", "F-9"],
+                                 cwd=root, env=env(), capture_output=True, text=True, timeout=120)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            if args[0] == "migration-proofs":
+                self.assertEqual(json.loads(res.stdout), {"version": 1, "migrations": []})
+        self.assertIn("<h2>Test migrations</h2>\n<pre>none</pre>",
+                      (root / ".runs/F-9/approval.html").read_text())
+
+    def test_invalid_migration_metadata_emits_diagnostic_without_json(self):
+        for defect in ("json", "hash", "claim", "changed", "introduced", "source", "command", "map"):
+            with self.subTest(defect=defect):
+                amendment = ((lambda e: e["originals"][0].update(sha256="0" * 64)) if defect == "hash" else
+                             (lambda e: e.update(historical_claim="REPLAYED")) if defect == "claim" else None)
+                repo, modules, declaration = self.fixture(declared=defect != "introduced", amendment=amendment)
+                if defect == "json":
+                    repo.git("tag", "-d", "goal/F-9/approved")
+                    repo.write(self.declaration, "{invalid")
+                elif defect in ("changed", "introduced"):
+                    repo.write(self.declaration, declaration + "\n")
+                elif defect == "source":
+                    repo.path(self.original).unlink()
+                    repo.commit("[T1] delete the frozen source")
+                elif defect == "command":
+                    modules["modules"]["a"]["test"] = "true"
+                    repo.write(MAP_PATH, json.dumps(modules))
+                elif defect == "map":
+                    repo.write(MAP_PATH, "{invalid")
+                res = repo.goal("migration-proofs")
+                self.assertEqual((res.returncode, res.stdout), (1, ""), res.stdout + res.stderr)
+                self.assertIn("test migrations:", res.stderr)
+                rows, _tree = goal.done_rows(goal.find_ctx(cwd=repo.dir), "M1")
+                self.assertTrue(any("test migrations:" in gap for gap in rows[7]), rows)
+
+    def test_applied_proofs_reject_missing_stale_and_contradictory_receipts(self):
+        repo, _modules, _declaration = self.prepared()
+        self.run_proofs(repo)
+        ctx, tree = goal.find_ctx(cwd=repo.dir), repo.tree()
+        self.assertEqual(goal.migration_gaps(ctx, tree), [])
+        defects = ({"tree": "0" * 40}, {"command": "true"}, {"module": "other"},
+                   {"verdict": "FAIL"}, {"exit": 1}, {"failed": 1}, {"skipped": 1},
+                   {"baseline_failures": ["old.failure"]}, {"failures": ["bad.failure"]},
+                   {"new_failures": ["new.failure"]}, {"reasons": ["contradiction"]},
+                   {"executed": -1}, {"executed": True}, {"executed": "1"}, {"exit": False},
+                   {"suites": {"unittest": {"executed": 99, "failed": 0, "skipped": 0}}})
+        for descriptor in self.descriptors(repo):
+            path = self.proof_path(repo, descriptor)
+            raw = path.read_text()
+            good = json.loads(raw)
+            for patch in (*defects, *(({"executed": 0, "suites": {}},) if descriptor["tests"] else ())):
+                with self.subTest(kind=descriptor["kind"], patch=patch):
+                    path.write_text(json.dumps({**good, **patch}))
+                    self.assertTrue(goal.migration_gaps(ctx, tree))
+            for invalid in ("not JSON", "[]"):
+                path.write_text(invalid)
+                self.assertTrue(goal.migration_gaps(ctx, tree))
+            path.unlink()
+            self.assertTrue(goal.migration_gaps(ctx, tree))
+            path.write_text(raw)
+        self.assertEqual(goal.migration_gaps(ctx, tree), [])
+
+    def test_approval_and_packet_show_declaration_commands_limits_and_gaps(self):
+        repo, _modules, declaration = self.prepared()
+        for approval in (True, False):
+            res = repo.goal("packet", *(["--approval"] if approval else []))
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            text = repo.read(f".runs/F-9/{'approval.html' if approval else 'packet.md'}")
+            rendered = html.unescape(text) if approval else text
+            self.assertIn(self.declaration, rendered)
+            self.assertIn(declaration, rendered)
+            self.assertIn("BYTES_ONLY", rendered)
+            self.assertIn("historical replay or semantic equivalence", rendered)
+            self.assertIn("Preservation receipts require --count none", rendered)
+            for descriptor in self.descriptors(repo):
+                self.assertIn(descriptor["command"], rendered)
+                args = ["gate.py", "receipt", "--goal", "F-9"]
+                args += (["--modules", "a"] if descriptor["kind"] == "module" else
+                         ["--cmd", descriptor["command"]])
+                if not descriptor["tests"]:
+                    args += ["--count", "none"]
+                self.assertIn(shlex.join(args), rendered)
+                self.assertIn(f"no valid migration {descriptor['kind']} proof", rendered)
+        self.run_proofs(repo)
+        self.assertEqual(repo.goal("packet").returncode, 0)
+        self.assertIn("Migration proof gaps:\nnone", repo.read(".runs/F-9/packet.md"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -130,3 +130,42 @@ run by `gate.py check`; the cycle is one task commit to the next.
   `goal.py cost` scanned 26 GB of Codex session files; with a scratch home (S-6 T5) `test_goal.py`
   ran 67 tests in 191 s, against 530 s before.
 
+
+## 2026-10-20 — S-11 prior task checks and clean full sample
+
+Completed evidence before T6, from `.runs/S-11/checks.jsonl`, serial gate logs and the
+clean-sample receipt. Seconds below are orchestration wall time; all checks ran through
+`gate.py` under the shared serial lock.
+
+T1–T4 command (each chief check ran the whole command):
+
+```bash
+python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_modmap.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_gate.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_goal.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_docs.py' && python3 -m unittest discover -s install/tests -t install/tests && cd install && ./install.sh --dry-run && ./verify.sh --no-suites
+```
+
+| Check | Recorded base HEAD tree | Accepted commit | Seconds | Actual verdict/counts (run/failed/skipped) |
+|---|---|---|---|---|
+| T1 chief | `a0161e04098da08d4a9b12b33d6947695b4526d4` | `5bf9f9a` | 380.692 | PASS 311/0/0; `verify: PASS` |
+| T2 chief | `8e83ebefb0d6aa45e0eb45ef516236c856c2076b` | `6dfb961` | 375.395 | PASS 300/0/0; `verify: PASS` |
+| T3 chief | `87b990bc86824ebd4828dc1e7473fdea410dbe2c` | `621bdbe` | 533.356 | PASS 321/0/0; `verify: PASS` |
+| T4 chief | `f58ead6297ca2a80e08d97e4bfbe7b531867ff6a` | `4abcfa8` | 570.139 | PASS 328/0/0; `verify: PASS` |
+| T5 chief | `a1505141db4c8d92cf5d41940b14b304500180ae` | `0f6d94f` | 168.964 | PASS 44/0/0 |
+
+T5 command: `python3 -m unittest discover -s install/tests -t install/tests`. It includes
+one installed migration rehearsal in disposable homes, retaining the existing identity/rollback
+checks; its review records are explicitly fixtures, not independent reviews.
+
+These are staged task checks: the recorded tree identifies base HEAD, while the working/index
+diff was under test. The accepted commits include the integration/tick changes. These checks
+are not clean-tree receipts for either the base tree or the accepted commit.
+
+The separate clean T3 full sample ran `cd install && ./install.sh --dry-run && ./verify.sh`
+through `gate.py receipt --goal S-11 --name full_gate --cmd <command>` at `621bdbe`, tree
+`f58ead6297ca2a80e08d97e4bfbe7b531867ff6a`: 766.077 seconds, exit 0,
+`verify: PASS`, `gate: PASS · exit 0 · 393 run / 0 failed / 0 skipped`.
+The receipt binds that tree only; over 600 seconds selects full validation only at close.
+It predates T4/T5 and cannot establish the final milestone's evidence.
+
+Final close receipts/logs stay ignored under `.runs/` and in the PR packet; tracked measurements
+are not edited after those receipts. No installed parity, authenticated provider behavior,
+merge, publication or release was established by these local checks.

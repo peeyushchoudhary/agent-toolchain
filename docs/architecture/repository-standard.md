@@ -2,7 +2,7 @@
 summary: How this repository applies the rules the skill's `references/repository.md` sets for every repository: where each kind of file belongs, from the contract and `install/` to the product, architecture, decision, runbook, goal and archive pages and the generated pointer files. Which pages are dated records, `docs/agents/lessons.md` among them where one exists, and which state only what is true now. What enforces the standard in `install/verify.sh`: `docs.py links`, the dangling-name check, `docs.py lint` and the always-loaded size ceiling. The product minimum is in the reference.
 read-when: Adding, moving or removing a file, or deciding where something belongs
 covers: [docs/**]
-last-verified: 2026-10-16
+last-verified: 2026-10-20
 ---
 
 # Repository standard
@@ -22,9 +22,11 @@ docs/product/features/         one page per feature
 docs/product/measurements.md   dated numbers
 docs/runbooks/                 procedures
 docs/goals/<id>/               spec.md, design.md unless touches is none, plan.md; one per goal
+                               optional approval-frozen test-migrations.json
 docs/goals/modules.json        the test-module map (D33): each module's paths, needs and test
                                command; approved with a plan, protected after; a task
-                               whose writes name it may grow it, never shrink it (D38)
+                               whose writes name it may grow it, never shrink it (D38),
+                               except D41's exact declared substitution
 docs/archive/                  pointers to tags; nothing current
 .claude/rules/<page-slug>.md   generated: one pointer file per page with a non-empty covers; the
                                slug is the page's path under docs/ with `/` as `--`
@@ -38,6 +40,13 @@ The rules every repository follows (the README, the layout, the agent files, the
 product minimum) are the skill's
 [references/repository.md](../../install/skills/execution-methodology/references/repository.md);
 this page is how this repository applies them.
+
+The optional goal-local `test-migrations.json` is a closed, approval-frozen declaration, not a
+map override or general retirement list. It binds unchanged originals and named successors;
+`migrations.py` validates it, and `goal.py migration-proofs` prints the exact evidence commands.
+It and its originals are implicitly protected throughout the goal. The
+[test-migrations reference](../../install/skills/execution-methodology/references/test-migrations.md)
+sets command grammar, receipts, goal-scoped preservation and approval-tag trust limits.
 
 **Generated files.** The index table, the pointer files and the block between
 `<!-- docs.py pointers -->` and `<!-- /docs.py pointers -->` are written by `docs.py` from each

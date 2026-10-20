@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Goal state computed from docs/goals/<id>/plan.md and git: lint, status, next, resume, packet, done, cost, own, cleanup, review.
+"""Goal state computed from docs/goals/<id>/plan.md and git: lint, status, next, resume, packet, done, migration-proofs, cost, own, cleanup, review.
 
 The plan is --plan, else docs/goals/<--goal>/plan.md, else the one plan whose last milestone is not
 tagged goal/<id>/<Mn>. `cost` sums the harness transcripts' tokens; it records, never enforces.
@@ -14,6 +14,7 @@ import html
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -23,8 +24,9 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gate import git, module_key, receipt_path  # noqa: E402
+from gate import git, module_key, read_receipt, receipt_path  # noqa: E402
 import modmap  # noqa: E402
+import migrations  # noqa: E402
 from modmap import MapError, glob_re, matches, overlap  # noqa: E402
 
 KEYS = ("goal", "title", "gate", "full_gate", "milestones", "touches", "protected")
@@ -205,6 +207,14 @@ def protected_entries(plan, ctx=None):
             matches(modmap.MAP, [p.partition("#")[0]]) for p in explicit)
         if not maintained:
             out.append(modmap.MAP)
+    if getattr(ctx, "root", None) is not None:
+        if migration := goal_has(ctx, "test-migrations.json"):
+            out.append(migration)
+            try:
+                rev = ctx.tag("approved") if rev_ok(ctx.root, ctx.tag("approved")) else None
+                out += [o["path"] for e in migration_entries(ctx, rev) for o in e["originals"]]
+            except migrations.MigrationError:  # lint names malformed metadata; it grants no exception
+                pass
     return list(dict.fromkeys(out))
 
 def path_protected(plan, ctx=None):
@@ -246,6 +256,123 @@ def settled(text):
 def file_at(root, rev, path):
     proc = subprocess.run(["git", "show", f"{rev}:{path}"], cwd=root, capture_output=True)
     return proc.stdout.decode(errors="replace") if proc.returncode == 0 else None
+
+def blob_at(root, rev, path):
+    """A tracked Git object's (mode, raw bytes), without file_at's replacement decoding."""
+    try:
+        encoded = path.encode()
+        proc = subprocess.run(["git", "ls-tree", "-z", rev, "--", path], cwd=root, capture_output=True)
+        if proc.returncode or not proc.stdout:
+            return None
+        head, _, name = proc.stdout.rstrip(b"\0").partition(b"\t")
+        mode, kind, oid = head.split()
+        if kind != b"blob" or name != encoded:
+            return None
+        proc = subprocess.run(["git", "cat-file", "blob", oid.decode("ascii")], cwd=root, capture_output=True)
+        return (mode.decode("ascii"), proc.stdout) if proc.returncode == 0 else None
+    except (OSError, UnicodeError) as exc:
+        raise migrations.MigrationError(f"{path!r}: unavailable Git blob ({exc})") from None
+
+def migration_entries(ctx, rev=None):
+    """The fixed declaration at rev (working tree by default), bound to the approved or HEAD baseline."""
+    rel = (Path(ctx.plan_rel).parent / "test-migrations.json").as_posix()
+    approved = rev_ok(ctx.root, ctx.tag("approved"))
+    baseline = ctx.tag("approved") if approved else "HEAD"
+    if rev is None:
+        path = ctx.root / rel
+        try:
+            text = path.read_bytes() if path.exists() or path.is_symlink() else None
+        except OSError as exc:
+            raise migrations.MigrationError(f"{rel}: {exc}") from None
+    else:
+        obj = blob_at(ctx.root, rev, rel)
+        text = obj[1] if obj else None
+    if approved:
+        obj = blob_at(ctx.root, baseline, rel)
+        frozen = obj[1] if obj else None
+        if text != frozen:
+            raise migrations.MigrationError(f"{rel}: declaration differs from approval")
+    if text is None:
+        return []
+    try:
+        baseline_map = json.loads(file_at(ctx.root, baseline, modmap.MAP) or "null")
+        return migrations.parse(text, baseline_map, lambda p: blob_at(ctx.root, baseline, p))
+    except (ValueError, AttributeError, UnicodeError) as exc:
+        raise migrations.MigrationError(f"{rel}: {exc}") from None
+
+def migration_lint(ctx):
+    try:
+        entries = migration_entries(ctx)
+        if entries:
+            current = (modmap.load(ctx.root) if rev_ok(ctx.root, ctx.tag("approved")) else
+                       json.loads(file_at(ctx.root, "HEAD", modmap.MAP) or "null"))
+            migrations.allowed(entries, current, lambda p: blob_at(ctx.root, "HEAD", p))
+    except (migrations.MigrationError, MapError) as exc:
+        return [f"test migrations: {exc}"]
+    return []
+
+def migration_proofs(ctx):
+    """Version-1 descriptors bound to the working proposal or approval-frozen declaration."""
+    entries = migration_entries(ctx)
+    applied = set()
+    if entries:
+        current = (modmap.load(ctx.root) if rev_ok(ctx.root, ctx.tag("approved")) else
+                   json.loads(file_at(ctx.root, "HEAD", modmap.MAP) or "null"))
+        applied = migrations.allowed(entries, current, lambda p: blob_at(ctx.root, "HEAD", p))
+    return {"version": 1, "migrations": [
+        {"module": e["module"], "applied": e["module"] in applied, "proofs": migrations.proofs(e)}
+        for e in entries]}
+
+def cmd_migration_proofs(ctx, a):
+    try:
+        data = migration_proofs(ctx)
+    except (migrations.MigrationError, MapError, OSError, ValueError) as exc:
+        print(f"test migrations: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(data))
+    return 0
+
+def migration_gaps(ctx, tree):
+    """Applied migrations need clean exact-tree receipts, independently of full/E2E evidence."""
+    try:
+        data = migration_proofs(ctx)
+    except (migrations.MigrationError, MapError, OSError, ValueError) as exc:
+        return [f"test migrations: {exc}"]
+    gaps = []
+    for entry in data["migrations"]:
+        if not entry["applied"]:
+            continue
+        for proof in entry["proofs"]:
+            key = (module_key(proof["module"], {"test": proof["command"]})
+                   if proof["kind"] == "module" else proof["command"])
+            receipt = read_receipt(receipt_path(ctx.root, ctx.goal, tree, key))
+            if not migrations.proof_ok(proof, receipt, tree):
+                detail = f": {proof['command']}" if proof["kind"] == "successor" else ""
+                gaps.append(f"no valid migration {proof['kind']} proof for {entry['module']} on tree {tree[:10]}{detail}")
+    return gaps
+
+def migration_lines(ctx, tree):
+    """The same declaration, limits and canonical receipt instructions for approval and packets."""
+    try:
+        data = migration_proofs(ctx)
+        if not data["migrations"]:
+            return ["none"]
+        rel = (Path(ctx.plan_rel).parent / "test-migrations.json").as_posix()
+        declaration = json.dumps(json.loads((ctx.root / rel).read_bytes()))
+    except (migrations.MigrationError, MapError, OSError, ValueError) as exc:
+        return [f"test migrations: {exc}"]
+    out = [f"Declaration: {rel}", declaration,
+           "BYTES_ONLY: byte preservation only; this does not certify historical replay or semantic equivalence.",
+           "Preservation receipts require --count none; module and successor proofs require positive executed counts."]
+    for entry in data["migrations"]:
+        out.append(f"Module {entry['module']}: {'applied' if entry['applied'] else 'unapplied; proofs not required yet'}")
+        for proof in entry["proofs"]:
+            args = ["gate.py", "receipt", "--goal", ctx.goal]
+            args += ["--modules", proof["module"]] if proof["kind"] == "module" else ["--cmd", proof["command"]]
+            if not proof["tests"]:
+                args += ["--count", "none"]
+            out += [f"{proof['kind']} command:", proof["command"], f"Receipt: {shlex.join(args)}"]
+    return out + ["Migration proof gaps:", *(migration_gaps(ctx, tree) or ["none"])]
 
 def rev_ok(root, rev):
     return bool(git(root, "rev-parse", "-q", "--verify", f"{rev}^{{commit}}", check=False))
@@ -300,11 +427,13 @@ def lint(ctx):
     for mid, m in plan["milestones"].items():
         errs += [f"{mid}: names missing task {t}" for t in m["tasks"] if t not in plan["tasks"]]
         errs += [f"{mid}: no e2e"] if not m["e2e"] else []
+    protected = path_protected(plan, ctx)
     for t in plan["tasks"].values():
         errs += [f"{t['id']}: no writes"] if not t["writes"] else []
-        if overlap(t["writes"], path_protected(plan, ctx)):
+        if overlap(t["writes"], protected):
             errs.append(f"{t['id']}: writes intersect protected")
-    return errs + (spec_lint(ctx) + map_lint(ctx) if getattr(ctx, "root", None) is not None else [])
+    return errs + (spec_lint(ctx) + map_lint(ctx) + migration_lint(ctx)
+                   if getattr(ctx, "root", None) is not None else [])
 
 def map_lint(ctx):
     """docs/goals/modules.json's problems, or its MapError, as modules.json: errors; with full_gate: modules,
@@ -401,10 +530,25 @@ def map_shrinks(old: str | None, new: str | None, files: list[str]) -> list[str]
 def commit_findings(ctx, base):
     """Rows 3, 4 and 5 over every commit in base..HEAD."""
     rows = {3: [], 4: [], 5: []}
+    migration_rel = (Path(ctx.plan_rel).parent / "test-migrations.json").as_posix()
+    try:
+        migration_records = migration_entries(ctx, base)
+    except migrations.MigrationError as exc:
+        migration_records = []
+        rows[5].append(f"test migrations: {exc}")
+    migration_paths = {migration_rel, *(o["path"] for e in migration_records for o in e["originals"])}
     for c in git(ctx.root, "rev-list", "--reverse", f"{base}..HEAD").split():
         subject, short = git(ctx.root, "log", "-1", "--format=%s", c), c[:10]
         parent = git(ctx.root, "rev-parse", "-q", "--verify", f"{c}^1", check=False)
         ch = changes(ctx.root, parent, c)
+        # These approval-frozen identities apply even to a commit with an invalid task subject.
+        rows[4] += [f"{short} changes protected {path}" for _status, path in ch if path in migration_paths]
+        if migration_records:
+            try:
+                current_map = json.loads(file_at(ctx.root, c, modmap.MAP) or "null")
+                migrations.allowed(migration_records, current_map, lambda p: blob_at(ctx.root, c, p))
+            except (ValueError, AttributeError) as exc:
+                rows[5].append(f"{short} test migrations: {exc}")
         plan_same = frozen_view(file_at(ctx.root, parent, ctx.plan_rel) if parent else "") == \
             frozen_view(file_at(ctx.root, c, ctx.plan_rel))
         tids = sorted(set(re.findall(r"\[(T\d+)\]", subject)))
@@ -426,7 +570,7 @@ def commit_findings(ctx, base):
         for status, path in ch:
             for entry in entries:
                 ppath, _, anchor = entry.partition("#")  # whole file, or only the anchored sections
-                if glob_re(ppath).match(path) and (not anchor or settled(protected_text(
+                if entry not in migration_paths and glob_re(ppath).match(path) and (not anchor or settled(protected_text(
                         file_at(ctx.root, parent, path) if parent else "", anchor))
                         != settled(protected_text(file_at(ctx.root, c, path), anchor))):
                     rows[4].append(f"{short} [{tids[0]}] changes protected {entry}")
@@ -451,8 +595,17 @@ def commit_findings(ctx, base):
     approved_map = file_at(ctx.root, base, modmap.MAP)
     if approved_map is not None and modmap.MAP not in protected_entries(ctx.plan_at("HEAD"), ctx):
         files = [f for f in git(ctx.root, "ls-tree", "-r", "-z", "--name-only", "HEAD").split("\0") if f]
+        admitted = set()
+        try:
+            current_entries = migration_entries(ctx) if migration_records else []
+            if current_entries:
+                current_map = json.loads(file_at(ctx.root, "HEAD", modmap.MAP) or "null")
+                admitted = migrations.allowed(current_entries, current_map, lambda p: blob_at(ctx.root, "HEAD", p))
+        except (ValueError, AttributeError) as exc:
+            rows[5].append(f"test migrations: {exc}")
         rows[5] += [f"the module map at HEAD {what} since approval"
-                    for what in map_shrinks(approved_map, file_at(ctx.root, "HEAD", modmap.MAP), files)]
+                    for what in map_shrinks(approved_map, file_at(ctx.root, "HEAD", modmap.MAP), files)
+                    if what not in {f"changes {name}'s test" for name in admitted}]
     return rows
 
 def balanced(code, i):
@@ -681,6 +834,7 @@ def done_rows(ctx, mid):
         r = json.loads(path.read_text()) if cmd and path.is_file() else {}
         if not (r.get("tree") == tree and r.get("command") == cmd and r.get("verdict") == "PASS"):
             rows[7].append(f"no PASS {label} receipt for tree {tree[:10]}")
+    rows[7] += migration_gaps(ctx, tree)
     rows[8] = review_findings(ctx)
     return rows, tree
 
@@ -858,6 +1012,9 @@ def approval_page(ctx):
                   f"<td>{'non-test checks' if s.get('count') == 'none' else 'tests'}</td></tr>"
                   for n, s in (m.get("modules") or {}).items()], "</table>"]
     out += [f"<p>touches: {e(meta('touches'))}</p>", f"<p>protected: {e(meta('protected'))}</p>",
+            "<h2>Test migrations</h2>",
+            "<pre>" + e("\n".join(migration_lines(ctx, git(ctx.root, "rev-parse", "-q", "--verify",
+                                                         "HEAD^{tree}", check=False)))) + "</pre>",
             "<h2>Questions</h2>", "<ul>" + "".join(f"<li>{e(q)}</li>" for q in questions or ["none"]) + "</ul>",
             "</body></html>"]
     ctx.runs.mkdir(parents=True, exist_ok=True)
@@ -915,6 +1072,7 @@ def cmd_packet(ctx, a):
            *[f"row {n} ok" if not w else f"row {n}: {'; '.join(w[:3])}" for n, w in rows.items()], "",
            "Receipts:", *(receipts or ["none"]), "", "Retried modules:", *(retried or ["none"]), "",
            "Reran failed tests:", *(reran or ["none"]), "",
+           "Test migrations:", *migration_lines(ctx, tree), "",
            "Review findings:", *(found or ["none"]),
            cause_counts(review.read_text() if review.is_file() else ""), "",
            "Decisions:", *plan["decisions"], "", "Parked:", *(plan["parked"] or ["none"]), "",
@@ -1261,7 +1419,7 @@ def main(argv=None):
     [common.add_argument(opt, default=argparse.SUPPRESS) for opt in ("--plan", "--goal")]
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0], parents=[common])
     sub = ap.add_subparsers(dest="action", required=True)
-    for name in ("lint", "status", "next", "resume", "packet", "done", "cost", "own", "cleanup", "review"):
+    for name in ("lint", "status", "next", "resume", "packet", "done", "migration-proofs", "cost", "own", "cleanup", "review"):
         p = sub.add_parser(name, parents=[common])
         if name == "own":
             p.add_argument("path", help="a linked worktree to record in .runs/<id>/worktrees.jsonl")
@@ -1280,7 +1438,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         ctx = find_ctx(getattr(a, "plan", None), getattr(a, "goal", None))
-        return globals()["cmd_" + a.action](ctx, a)
+        return globals()["cmd_" + a.action.replace("-", "_")](ctx, a)
     except (PlanError, MapError, RuntimeError, OSError, ValueError) as exc:
         print(f"goal.py: {exc}", file=sys.stderr)
         return 2
