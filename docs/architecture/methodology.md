@@ -2,7 +2,7 @@
 summary: How a goal runs under methodology v7.3 and why: three bounded documents per goal (`spec.md`, `design.md` when `touches` names anything but `none`, `plan.md` with `reads:` per task) frozen at the approval tag; pages disclosed in layers (frontmatter, the generated index, anchors, generated pointer files, the stale warning); builder, reviewer and scout roles with declared models; the founder's own session as the chief, with cost recorded, never enforced; gate receipts, the eight-row done check, one read-only review by the other vendor per stage, one guard, two founder touchpoints. Also what v6 was and the measurements that retired it, the accepted risks, the ended stop rule, the v6 lessons that still hold, and the rollback.
 read-when: Changing anything under `install/`, or asking how a goal runs, what v7 replaced, its risks or its rollback
 covers: [install/**]
-last-verified: 2026-10-16
+last-verified: 2026-10-20
 ---
 
 # Methodology v7.3
@@ -59,12 +59,23 @@ and [D38](../decisions/decisions.md#d38--the-module-map-may-grow-never-shrink-bu
   `replaces` and a `count: "none"` module running that command without its tests. The chief drafts
   it at planning and the founder approves it with the plan; it is protected after, unless an approved
   task's `writes:` names `docs/goals/modules.json` exactly: then the goal may grow it, never shrink it
-  (D38). A task without
+  (D38), except the exact approval-frozen substitution in D41. A task without
   `gate:` runs the modules its writes reach (`gate.py check --modules`). With `full_gate: modules`
   the full gate is `receipt --modules all`; on the same tree it keeps passed modules, retries a
   failed one once and refuses a second failure. Load readings are diagnostics beside a retry.
   A `--cmd` receipt that failed only on tests its JUnit XML named is completed by rerunning just
   those tests (`receipt --rerun-failed`, at most three attempts, the cause recorded, D40).
+- **Immutable-test migrations (D41).** Optional `docs/goals/<id>/test-migrations.json` freezes
+  original hashes and exact literal Python before/after commands at approval. The standard-library
+  `migrations.py` helper validates this closed declaration; it admits only the declared substitution
+  and retains the other D38 command/count/coverage restrictions. Declaration and originals remain
+  protected throughout the goal's commit history; restoring a bad intermediate command does not
+  erase it. `goal.py migration-proofs --goal <id>` emits exact version-1 JSON descriptors without
+  executing them. Applied migrations need current-tree module, individual-successor and generated
+  preservation receipts, in addition to full/E2E and review. Test proofs require positive execution,
+  zero failures/skips and no baseline failures; preservation permits zero tests only with
+  `--count none`. Missing or inconsistent evidence refuses DONE. Protocol and commands:
+  [test-migrations.md](../../install/skills/execution-methodology/references/test-migrations.md).
 - **The session is the chief.** The founder's own open session runs the goal on the founder's word,
   from `goal.py resume`; it loads the skill itself when a plan has an open milestone (D31 dropped the
   2026-08-22 user-invoked gate; the approval tag, placed by the founder or by the chief on the
@@ -78,17 +89,20 @@ and [D38](../decisions/decisions.md#d38--the-module-map-may-grow-never-shrink-bu
   the harness's own permission prompts. `goal.py cost` sums the input and
   output tokens in each harness's local transcripts since the approval tag; the packet records it and
   nothing enforces it.
-- **Gate receipts.** `gate.py` records PASS or FAIL against the tree that ran.
+- **Gate receipts.** `gate.py` records PASS or FAIL against the tree that ran. Both module and
+  command children strip inherited `PYTEST_ADDOPTS`, `PYTEST_PLUGINS`, `PYTEST_XDIST_WORKER` and
+  `PYTEST_XDIST_WORKER_COUNT`. Explicit command assignments, interpreter and unrelated environment
+  stay intact; this does not sandbox arbitrary Python startup behavior.
 - **Eight-row done.** `goal.py done`: tasks ticked or parked; clean tree; every commit names a task
   or is plan-only; each task commit inside its `writes` as read at its parent, never in
   `protected` (the spec and the design's frozen sections included); no test changed outside
-  `tests-may-change`; frozen view unchanged; `full_gate` and `e2e` receipts on HEAD's tree; no open
-  blocking review finding, each closed by a named test or by removal, under a reviewer line naming
+  `tests-may-change`; frozen view unchanged; `full_gate`, `e2e` and applied-migration proofs on
+  HEAD's tree; no open blocking review finding, each closed by a named test or by removal, under a reviewer line naming
   the pinned model. Row 5 also names each way the map at HEAD shrank the approved one. It reads no
   verdict, round or grant.
 - **The close** ([close.md](../../install/skills/execution-methodology/references/close.md)): the
-  `full_gate` and `e2e` receipts, the merge review, `goal.py done` printing DONE, then the chief
-  pushes the branch and opens the PR. Once the founder says to merge, the chief runs `gh pr merge
+  `full_gate`, `e2e` and declared migration receipts, the merge review, `goal.py done` printing
+  DONE, then the chief pushes the branch and opens the PR. Once the founder says to merge, the chief runs `gh pr merge
   <n> --merge`, with `--delete-branch` only at the goal's last milestone; tags
   `goal/<id>/<milestone>` at the PR's head commit and pushes it with `goal/<id>/approved` in one
   atomic push, leased with `--force-with-lease` when a re-approval moved a pushed approval tag; then
@@ -130,6 +144,13 @@ policing per line of done-check. See [measurements.md](../product/measurements.m
 - **One round can miss what a second would catch.** Real late catches exist (a write-skew
   defect at round three, a fail-open gate found by a whole-diff pass). The merge review reads the
   whole milestone diff, and `e2e` on real services is mandatory: it caught errors every review missed.
+- **Migration preservation is limited.** `BYTES_ONLY` is neither historical replay nor semantic
+  equivalence; unavailable historical environments remain unavailable. Successor coverage is a
+  founder/reviewer judgment. Protection is goal-scoped through close, without permanent retention
+  or deletion authority. A local approval tag is the trust root: re-approval with the old declaration
+  against an already-replaced map fails; a separately founder-approved baseline without it inherits
+  no migration proofs. Chiefs/builders cannot re-tag to close the original goal. No cryptographic
+  identity or history-rewrite protection is added.
 - **The evidence is observational**; quota, availability or hosting may explain part of it.
 - **The cross-vendor case rests on n=1.** No comparison has run since D35 ended the pilot.
 - **Stop rule.** Until D35 ended it, any one of these reverted over four weeks on the pilot

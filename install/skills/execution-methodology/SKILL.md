@@ -83,7 +83,7 @@ deletes a file repairs the links naming it.
    `protected`.
 5. No existing test changed or deleted outside `tests-may-change`; no skip, only or xfail added.
 6. Frontmatter, Outcome and task headers equal the approved commit's.
-7. PASS receipts for `full_gate` and the milestone's `e2e` on HEAD's tree.
+7. PASS receipts on HEAD's tree: `full_gate`, milestone `e2e`, declared [migration proofs](references/test-migrations.md).
 8. `.runs/<id>/review.md`, from `goal.py review`, reviewed an ancestor of HEAD, every later commit
    is a recorded fix or plan-only, and no `- [ ] BLOCKING` line remains.
 

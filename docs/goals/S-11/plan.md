@@ -175,7 +175,7 @@ Never read credentials, call a provider, push, modify a real home, add a second
 full E2E invocation, skip or dependency. The milestone E2E is the same script run
 separately on the accepted clean tree; unit tests alone do not establish it.
 
-### [ ] T6 — Document the precise source contract and reconcile current status
+### [x] T6 — Document the precise source contract and reconcile current status
 writes: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/test-migrations.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/references/modules.md, install/skills/execution-methodology/references/planning.md, install/skills/execution-methodology/tests/test_rules.py, docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/decisions/decisions.md, docs/product/measurements.md, docs/README.md, README.md
 reads: install/skills/execution-methodology/SKILL.md, install/skills/execution-methodology/references/close.md, install/skills/execution-methodology/tests/test_rules.py, install/tests/test_size.py, docs/goals/S-11/spec.md, docs/goals/S-11/design.md#interfaces, install/skills/execution-methodology/references/modules.md, install/skills/execution-methodology/references/planning.md, docs/architecture/methodology.md, docs/architecture/repository-standard.md, docs/decisions/decisions.md#d38, docs/product/measurements.md, README.md
 tests-may-change: install/skills/execution-methodology/tests/test_rules.py
@@ -222,6 +222,8 @@ the close procedure. Preserve existing rules tests and agent/global bodies.
 No installer, hook, historical goal, installed-copy or unrelated prose changes.
 
 ## Decisions
+
+- 2026-10-20 T6: add a 369-word migration reference, preserve every old word ceiling and use the exact same-word DONE row. Append D41 without altering D1-D40; retain the generated index because navigation metadata is unchanged. Measurements cite only prior completed evidence and distinguish staged checks from clean receipts. Builder/chief selected gates passed 80 run / 0 failed / 0 skipped; chief 68.83 seconds, verify: PASS (default).
 
 - 2026-10-20 T5: extend the existing installed flow with a generic two-successor migration; isolate invalid commands/digests in separate approved clones and use a separate candidate update to prove stale-tree refusal. Preserve original install/rollback assertions and explicitly label the review fixture. Builder/chief installer gates passed 44 run / 0 failed / 0 skipped; chief 168.96 seconds (default).
 

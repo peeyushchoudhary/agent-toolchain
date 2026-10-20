@@ -608,3 +608,32 @@ counted 8 fewer tests than the passing one: a journey stops at its first failure
 the named failures would leave the tests after them unchecked (S-6's R16). The reference IDs make
 those tests part of the rerun. Accepted risk: a test the reference never had, added since, that the
 failed run also never reached, is invisible.
+
+## D41 — Approval-frozen immutable-test migrations narrowly amend D38
+
+**Chose:** an optional `docs/goals/<id>/test-migrations.json`, declared before approval, binds
+one exact literal Python test-file substitution per named module. The closed version-1 schema
+hashes unchanged tracked originals, names current successors and permits only `BYTES_ONLY`.
+`migrations.py` validates it without another runner or dependency. All other D38 shrinkage rules
+remain: commands outside the exact pair, module/count/needs/path/shared loss and accompanying
+`replaces` changes fail. Declaration/originals are protected through intermediate commits too.
+
+DONE adds current-tree PASS receipts for the replacement module, each successor alone and the
+generated preservation command. `goal.py migration-proofs --goal <id>` emits their exact JSON
+commands; preservation requires `--count none`. Test proofs need positive execution, zero
+failures/skips and no baseline failures. Missing/stale/contradictory evidence refuses the exception;
+full/E2E receipts, other-vendor review and DONE remain mandatory. Both gate modes remove only four
+inherited pytest controls, preserving explicit commands and interpreters. The full protocol is
+[test-migrations.md](../../install/skills/execution-methodology/references/test-migrations.md).
+
+**Over:** rewriting immutable tests, broad command-edit permission, skips, expanded baselines,
+installed-copy patches or calling byte preservation historical replay.
+
+**Why:** an obsolete frozen route can need a named current successor without erasing its source
+or silently reducing checks. Preservation proves bytes, never replay or semantic equivalence;
+founder/reviewer judgment still assesses behavior. Protection lasts through this goal's close,
+without permanent retention or deletion authority. Re-approval retains the local tag's trust model:
+old declarations against already-replaced baselines fail; a separately founder-approved baseline
+without one inherits no migration proofs. Chiefs/builders cannot re-tag or remove the artifact to
+close the original goal. This adds no cryptographic identity or history-rewrite protection and
+implies no installation, merge, release or live-provider claim.

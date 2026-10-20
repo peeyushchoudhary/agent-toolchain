@@ -13,8 +13,11 @@ is no runtime, hosted service or CI.
 
 In use. `install/` ships one skill, `execution-methodology`, with its scripts, references and agent
 files; a global instruction file for both harnesses; the guard and its hook installer; and the
-installer and repository gate. Work in flight is under [docs/goals/](docs/goals/); why things are
-as they are is in [decisions.md](docs/decisions/decisions.md).
+installer and repository gate. Source now supports approval-frozen immutable-test migrations,
+exact-tree successor/preservation proofs and inherited pytest-control isolation. The standard
+full gate, installed rehearsal, other-vendor review and DONE remain required; source checks do
+not establish installed parity, a release or live-provider behavior. Work in flight is under
+[docs/goals/](docs/goals/); why things are as they are is in [decisions.md](docs/decisions/decisions.md).
 
 ## Product requirements
 
@@ -48,9 +51,10 @@ once `goal.py done` passes. Design, reasons and accepted risks are in
 | `verify.sh` | The repository gate; its last line is the verdict | `install/verify.sh` | [install/README.md](install/README.md#the-gate) |
 | `global.md` | The global instruction file both harnesses load | `install/global.md` | [methodology.md](docs/architecture/methodology.md) |
 | The skill | The rules for running a goal, with references loaded on demand | `install/skills/execution-methodology/SKILL.md`, `references/` | [methodology.md](docs/architecture/methodology.md#shape) |
-| `goal.py` | Plan lint, status, next, resume, review, packet, cost, own, cleanup and the done check | `scripts/goal.py` | [methodology.md](docs/architecture/methodology.md#shape) |
+| `goal.py` | Plan lint, status, next, resume, review, packet, cost, own, cleanup, read-only `migration-proofs` JSON and the done check | `scripts/goal.py` | [methodology.md](docs/architecture/methodology.md#shape) |
 | `gate.py` | Runs a gate and records its receipt against the tree | `scripts/gate.py` | [methodology.md](docs/architecture/methodology.md#shape) |
 | `modmap.py` | Loads the test-module map and picks the modules a task's writes reach | `scripts/modmap.py` | [modules.md](install/skills/execution-methodology/references/modules.md) |
+| `migrations.py` | Validates exact immutable-test substitutions and generates proof descriptors | `scripts/migrations.py` | [test-migrations.md](install/skills/execution-methodology/references/test-migrations.md) |
 | `docs.py` | Page lint, index, pointers, `reads:` ranges, links and the stale warning | `scripts/docs.py` | [repository.md](install/skills/execution-methodology/references/repository.md) |
 | `guard.py` with `git-hooks.sh` | Blocks private facts, secrets and direct default-branch pushes at commit and push | `scripts/guard.py`, `scripts/git-hooks.sh` | [github.md](docs/runbooks/github.md) |
 | The agent files | The builder, reviewer and scout roles for each harness | `agents/` | [roles.md](install/skills/execution-methodology/references/roles.md) |
@@ -72,6 +76,12 @@ Then, in each product clone, install the guard hooks:
 
 ```bash
 ~/.claude/skills/execution-methodology/scripts/git-hooks.sh [REPO]
+```
+
+For a goal's canonical migration proof commands (read-only JSON, executes no gate):
+
+```bash
+python3 install/skills/execution-methodology/scripts/goal.py migration-proofs --goal <id>
 ```
 
 More options, rollback and what installs where: [install/README.md](install/README.md).
