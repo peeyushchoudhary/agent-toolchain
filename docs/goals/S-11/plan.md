@@ -83,7 +83,7 @@ inside the command still reaches its child. No simulated summaries, optional
 pytest dependency, new skip, map prefixes, general environment sandbox or unrelated
 runner changes. Preserve all existing assertions.
 
-### [ ] T3 — Enforce approval-bound structural admission and protected history
+### [x] T3 — Enforce approval-bound structural admission and protected history
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, docs/goals/modules.json
 reads: docs/goals/S-11/spec.md, docs/goals/S-11/design.md#interfaces, install/skills/execution-methodology/scripts/migrations.py, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py, docs/goals/modules.json
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
@@ -222,6 +222,10 @@ the close procedure. Preserve existing rules tests and agent/global bodies.
 No installer, hook, historical goal, installed-copy or unrelated prose changes.
 
 ## Decisions
+
+- 2026-10-20 T3: use raw Git modes/bytes and check migration identities before commit-subject early exits; preapproval uses committed HEAD metadata. Preserve the legacy map-shrink function and every existing assertion. Corrected a proposed mode-only assertion to retain ordinary frozen-test protection and added a second valid task commit fixture. Helper ownership was already accepted in T1. Builder/chief gates passed 321 run / 0 failed / 0 skipped; chief 533.36 seconds (default).
+
+- 2026-10-20 T3: the third accepted task triggers a standard full-gate sample on a recorded detached checkout. A private runner uses an 1800-second ceiling plus 20 seconds for owned-process cleanup so the full command can finish; this is separate from unchanged task ceilings. Only an actual completed full-gate runtime determines future sampling (default).
 
 - 2026-10-20 T1: pure helper uses globally unique declaration paths, rejects selectors/response-file arguments and requires typed consistent proof counts. Original tests remain intact. Builder and chief selected gates passed 311 run / 0 failed / 0 skipped; chief 380.69 seconds. Removed the superseded approval-wait note after the founder-approved tag was placed (default).
 

@@ -25,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gate import git, module_key, receipt_path  # noqa: E402
 import modmap  # noqa: E402
+import migrations  # noqa: E402
 from modmap import MapError, glob_re, matches, overlap  # noqa: E402
 
 KEYS = ("goal", "title", "gate", "full_gate", "milestones", "touches", "protected")
@@ -205,6 +206,14 @@ def protected_entries(plan, ctx=None):
             matches(modmap.MAP, [p.partition("#")[0]]) for p in explicit)
         if not maintained:
             out.append(modmap.MAP)
+    if getattr(ctx, "root", None) is not None:
+        if migration := goal_has(ctx, "test-migrations.json"):
+            out.append(migration)
+            try:
+                rev = ctx.tag("approved") if rev_ok(ctx.root, ctx.tag("approved")) else None
+                out += [o["path"] for e in migration_entries(ctx, rev) for o in e["originals"]]
+            except migrations.MigrationError:  # lint names malformed metadata; it grants no exception
+                pass
     return list(dict.fromkeys(out))
 
 def path_protected(plan, ctx=None):
@@ -246,6 +255,60 @@ def settled(text):
 def file_at(root, rev, path):
     proc = subprocess.run(["git", "show", f"{rev}:{path}"], cwd=root, capture_output=True)
     return proc.stdout.decode(errors="replace") if proc.returncode == 0 else None
+
+def blob_at(root, rev, path):
+    """A tracked Git object's (mode, raw bytes), without file_at's replacement decoding."""
+    try:
+        encoded = path.encode()
+        proc = subprocess.run(["git", "ls-tree", "-z", rev, "--", path], cwd=root, capture_output=True)
+        if proc.returncode or not proc.stdout:
+            return None
+        head, _, name = proc.stdout.rstrip(b"\0").partition(b"\t")
+        mode, kind, oid = head.split()
+        if kind != b"blob" or name != encoded:
+            return None
+        proc = subprocess.run(["git", "cat-file", "blob", oid.decode("ascii")], cwd=root, capture_output=True)
+        return (mode.decode("ascii"), proc.stdout) if proc.returncode == 0 else None
+    except (OSError, UnicodeError) as exc:
+        raise migrations.MigrationError(f"{path!r}: unavailable Git blob ({exc})") from None
+
+def migration_entries(ctx, rev=None):
+    """The fixed declaration at rev (working tree by default), bound to the approved or HEAD baseline."""
+    rel = (Path(ctx.plan_rel).parent / "test-migrations.json").as_posix()
+    approved = rev_ok(ctx.root, ctx.tag("approved"))
+    baseline = ctx.tag("approved") if approved else "HEAD"
+    if rev is None:
+        path = ctx.root / rel
+        try:
+            text = path.read_bytes() if path.exists() or path.is_symlink() else None
+        except OSError as exc:
+            raise migrations.MigrationError(f"{rel}: {exc}") from None
+    else:
+        obj = blob_at(ctx.root, rev, rel)
+        text = obj[1] if obj else None
+    if approved:
+        obj = blob_at(ctx.root, baseline, rel)
+        frozen = obj[1] if obj else None
+        if text != frozen:
+            raise migrations.MigrationError(f"{rel}: declaration differs from approval")
+    if text is None:
+        return []
+    try:
+        baseline_map = json.loads(file_at(ctx.root, baseline, modmap.MAP) or "null")
+        return migrations.parse(text, baseline_map, lambda p: blob_at(ctx.root, baseline, p))
+    except (ValueError, AttributeError, UnicodeError) as exc:
+        raise migrations.MigrationError(f"{rel}: {exc}") from None
+
+def migration_lint(ctx):
+    try:
+        entries = migration_entries(ctx)
+        if entries:
+            current = (modmap.load(ctx.root) if rev_ok(ctx.root, ctx.tag("approved")) else
+                       json.loads(file_at(ctx.root, "HEAD", modmap.MAP) or "null"))
+            migrations.allowed(entries, current, lambda p: blob_at(ctx.root, "HEAD", p))
+    except (migrations.MigrationError, MapError) as exc:
+        return [f"test migrations: {exc}"]
+    return []
 
 def rev_ok(root, rev):
     return bool(git(root, "rev-parse", "-q", "--verify", f"{rev}^{{commit}}", check=False))
@@ -304,7 +367,8 @@ def lint(ctx):
         errs += [f"{t['id']}: no writes"] if not t["writes"] else []
         if overlap(t["writes"], path_protected(plan, ctx)):
             errs.append(f"{t['id']}: writes intersect protected")
-    return errs + (spec_lint(ctx) + map_lint(ctx) if getattr(ctx, "root", None) is not None else [])
+    return errs + (spec_lint(ctx) + map_lint(ctx) + migration_lint(ctx)
+                   if getattr(ctx, "root", None) is not None else [])
 
 def map_lint(ctx):
     """docs/goals/modules.json's problems, or its MapError, as modules.json: errors; with full_gate: modules,
@@ -401,10 +465,25 @@ def map_shrinks(old: str | None, new: str | None, files: list[str]) -> list[str]
 def commit_findings(ctx, base):
     """Rows 3, 4 and 5 over every commit in base..HEAD."""
     rows = {3: [], 4: [], 5: []}
+    migration_rel = (Path(ctx.plan_rel).parent / "test-migrations.json").as_posix()
+    try:
+        migration_records = migration_entries(ctx, base)
+    except migrations.MigrationError as exc:
+        migration_records = []
+        rows[5].append(f"test migrations: {exc}")
+    migration_paths = {migration_rel, *(o["path"] for e in migration_records for o in e["originals"])}
     for c in git(ctx.root, "rev-list", "--reverse", f"{base}..HEAD").split():
         subject, short = git(ctx.root, "log", "-1", "--format=%s", c), c[:10]
         parent = git(ctx.root, "rev-parse", "-q", "--verify", f"{c}^1", check=False)
         ch = changes(ctx.root, parent, c)
+        # These approval-frozen identities apply even to a commit with an invalid task subject.
+        rows[4] += [f"{short} changes protected {path}" for _status, path in ch if path in migration_paths]
+        if migration_records:
+            try:
+                current_map = json.loads(file_at(ctx.root, c, modmap.MAP) or "null")
+                migrations.allowed(migration_records, current_map, lambda p: blob_at(ctx.root, c, p))
+            except (ValueError, AttributeError) as exc:
+                rows[5].append(f"{short} test migrations: {exc}")
         plan_same = frozen_view(file_at(ctx.root, parent, ctx.plan_rel) if parent else "") == \
             frozen_view(file_at(ctx.root, c, ctx.plan_rel))
         tids = sorted(set(re.findall(r"\[(T\d+)\]", subject)))
@@ -426,7 +505,7 @@ def commit_findings(ctx, base):
         for status, path in ch:
             for entry in entries:
                 ppath, _, anchor = entry.partition("#")  # whole file, or only the anchored sections
-                if glob_re(ppath).match(path) and (not anchor or settled(protected_text(
+                if entry not in migration_paths and glob_re(ppath).match(path) and (not anchor or settled(protected_text(
                         file_at(ctx.root, parent, path) if parent else "", anchor))
                         != settled(protected_text(file_at(ctx.root, c, path), anchor))):
                     rows[4].append(f"{short} [{tids[0]}] changes protected {entry}")
@@ -451,8 +530,17 @@ def commit_findings(ctx, base):
     approved_map = file_at(ctx.root, base, modmap.MAP)
     if approved_map is not None and modmap.MAP not in protected_entries(ctx.plan_at("HEAD"), ctx):
         files = [f for f in git(ctx.root, "ls-tree", "-r", "-z", "--name-only", "HEAD").split("\0") if f]
+        admitted = set()
+        try:
+            current_entries = migration_entries(ctx) if migration_records else []
+            if current_entries:
+                current_map = json.loads(file_at(ctx.root, "HEAD", modmap.MAP) or "null")
+                admitted = migrations.allowed(current_entries, current_map, lambda p: blob_at(ctx.root, "HEAD", p))
+        except (ValueError, AttributeError) as exc:
+            rows[5].append(f"test migrations: {exc}")
         rows[5] += [f"the module map at HEAD {what} since approval"
-                    for what in map_shrinks(approved_map, file_at(ctx.root, "HEAD", modmap.MAP), files)]
+                    for what in map_shrinks(approved_map, file_at(ctx.root, "HEAD", modmap.MAP), files)
+                    if what not in {f"changes {name}'s test" for name in admitted}]
     return rows
 
 def balanced(code, i):
