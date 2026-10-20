@@ -540,6 +540,11 @@ class E2ERunTest(InstallCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         for check in ("install", "uninstall", "rollback to v6-base", "uninstall after rollback"):
             self.assertRegex(r.stdout, rf"(?m)^e2e_run: {check} +ok \(")
+        for harness in ("claude", "codex"):
+            for check in ("migration negatives", "migration missing proofs", "migration fresh proofs",
+                          "migration immutable bytes", "migration stale tree", "migration environment",
+                          "migration DONE"):
+                self.assertRegex(r.stdout, rf"(?m)^e2e_run: {harness} {check} +ok \(")
         self.assertRegex(r.stdout.splitlines()[-1], r"^e2e_run: PASS \(.*install byte-identity, rollback to v6-base\)$")
 
 

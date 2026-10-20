@@ -145,7 +145,7 @@ contradictory receipts. Test a genuine zero-count preservation PASS taken with
 `--count none`; never waive missing evidence or alter existing full/E2E rules.
 No map, interpreter, installed-copy, history or dependency changes.
 
-### [ ] T5 — Rehearse the migration using installed CLIs in disposable homes
+### [x] T5 — Rehearse the migration using installed CLIs in disposable homes
 writes: install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py
 reads: docs/goals/S-11/spec.md, docs/goals/S-11/design.md#interfaces, install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/scripts/migrations.py
 tests-may-change: install/skills/execution-methodology/tests/e2e_run.sh, install/tests/test_install.py
@@ -222,6 +222,8 @@ the close procedure. Preserve existing rules tests and agent/global bodies.
 No installer, hook, historical goal, installed-copy or unrelated prose changes.
 
 ## Decisions
+
+- 2026-10-20 T5: extend the existing installed flow with a generic two-successor migration; isolate invalid commands/digests in separate approved clones and use a separate candidate update to prove stale-tree refusal. Preserve original install/rollback assertions and explicitly label the review fixture. Builder/chief installer gates passed 44 run / 0 failed / 0 skipped; chief 168.96 seconds (default).
 
 - 2026-10-20 T4: reuse existing receipt readers/keys for strict exact-tree proofs and shared canonical CLI/presentation descriptors. Hoist task-independent protected paths once per lint invocation. Preserve unborn no-declaration approval through a nonfatal tree lookup; its new regression failed before the fix. A cancelled partial run is diagnostic only. Final builder/chief gates passed 328 run / 0 failed / 0 skipped; chief 570.14 seconds (default).
 
