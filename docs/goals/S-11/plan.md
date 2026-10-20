@@ -29,7 +29,7 @@ Spec: [spec.md](spec.md). Design: [design.md](design.md).
 ## Tasks
 
 ### [ ] T1 — Validate an exact immutable-test migration and its proof descriptors
-writes: install/skills/execution-methodology/scripts/migrations.py, install/skills/execution-methodology/tests/test_modmap.py
+writes: install/skills/execution-methodology/scripts/migrations.py, install/skills/execution-methodology/tests/test_modmap.py, docs/goals/modules.json
 reads: docs/goals/S-11/spec.md, docs/goals/S-11/design.md#interfaces, install/skills/execution-methodology/scripts/modmap.py, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_modmap.py
 tests-may-change: install/skills/execution-methodology/tests/test_modmap.py
 gate: python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_modmap.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_gate.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_goal.py' && python3 -m unittest discover -s install/skills/execution-methodology/tests -t install/skills/execution-methodology/tests -p 'test_docs.py' && python3 -m unittest discover -s install/tests -t install/tests && cd install && ./install.sh --dry-run && ./verify.sh --no-suites
@@ -222,6 +222,13 @@ the close procedure. Preserve existing rules tests and agent/global bodies.
 No installer, hook, historical goal, installed-copy or unrelated prose changes.
 
 ## Decisions
+
+- 2026-10-20 T1: the installer coverage test failed because the new helper
+  must have ownership in its introducing task. Widened T1 writes to the already
+  maintainable modules.json and moved its single additive modmap.paths row from
+  T3 timing to T1; T3 verifies the existing row. This supersedes the original
+  incidental ownership timing, preserves all commands/counts/needs/shared paths
+  and keeps the selected gate and existing coverage assertion unchanged (default).
 
 - 2026-10-20 T2: copied the environment in the shared runner and used real
   standard-library unittest children to verify all four controls, command/module
