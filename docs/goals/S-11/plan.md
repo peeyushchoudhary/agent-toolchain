@@ -28,7 +28,7 @@ Spec: [spec.md](spec.md). Design: [design.md](design.md).
 
 ## Tasks
 
-### [ ] T1 — Validate an exact immutable-test migration and its proof descriptors
+### [x] T1 — Validate an exact immutable-test migration and its proof descriptors
 writes: install/skills/execution-methodology/scripts/migrations.py, install/skills/execution-methodology/tests/test_modmap.py, docs/goals/modules.json
 reads: docs/goals/S-11/spec.md, docs/goals/S-11/design.md#interfaces, install/skills/execution-methodology/scripts/modmap.py, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_modmap.py
 tests-may-change: install/skills/execution-methodology/tests/test_modmap.py
@@ -223,6 +223,8 @@ No installer, hook, historical goal, installed-copy or unrelated prose changes.
 
 ## Decisions
 
+- 2026-10-20 T1: pure helper uses globally unique declaration paths, rejects selectors/response-file arguments and requires typed consistent proof counts. Original tests remain intact. Builder and chief selected gates passed 311 run / 0 failed / 0 skipped; chief 380.69 seconds. Removed the superseded approval-wait note after the founder-approved tag was placed (default).
+
 - 2026-10-20 T1: the installer coverage test failed because the new helper
   must have ownership in its introducing task. Widened T1 writes to the already
   maintainable modules.json and moved its single additive modmap.paths row from
@@ -301,4 +303,3 @@ No installer, hook, historical goal, installed-copy or unrelated prose changes.
   cross-goal preservation registry, cryptographic approval history and additional
   interpreter paths are outside this goal. Their limits are documented in T6;
   none is required for the supported version-1 migration.
-- Implementation waits for reviewed-plan approval.
