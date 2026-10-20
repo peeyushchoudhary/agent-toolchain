@@ -6,10 +6,13 @@ environment variable, so one command string can pass, fail, or lie about its res
 """
 from __future__ import annotations
 
+import contextlib
 import gc
+import io
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -18,6 +21,7 @@ import time
 import unittest
 import warnings
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.goal_fixture import GATE, Repo, env  # noqa: E402
@@ -934,6 +938,76 @@ class CoverageTest(GateCase):
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
         self.assertEqual(res.stdout.strip(), "coverage: full 6, modules 6 in total; "
                                              "no per-suite counts in full gate: take that receipt again")
+
+
+class GateEnvTest(GateCase):
+    def setUp(self):
+        super().setUp()
+        self.hostile = {"PYTEST_ADDOPTS": "-k absent --maxfail=1",
+                        "PYTEST_PLUGINS": "missing_gate_fixture_plugin",
+                        "PYTEST_XDIST_WORKER": "gw99", "PYTEST_XDIST_WORKER_COUNT": "100"}
+        self.inherited = {**self.hostile, "GATE_ENV_KEEP": "unrelated value",
+                          "GATE_ENV_PYTHON": sys.executable,
+                          "GATE_ENV_EXPECTED": json.dumps(dict.fromkeys(self.hostile))}
+        self.cmd = shlex.join([sys.executable, "-m", "unittest", "discover", "-s", "tests",
+                               "-t", "tests", "-p", "test_gate_env.py"])
+        self.repo.write("tests/test_gate_env.py", """import json, os, sys, unittest
+
+
+class ChildEnv(unittest.TestCase):
+    def test_pytest_controls(self):
+        expected = json.loads(os.environ["GATE_ENV_EXPECTED"])
+        for name in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTEST_XDIST_WORKER",
+                     "PYTEST_XDIST_WORKER_COUNT"):
+            with self.subTest(name=name):
+                self.assertEqual(os.environ.get(name), expected[name])
+
+    def test_unrelated_environment_and_interpreter(self):
+        self.assertEqual(os.environ["GATE_ENV_KEEP"], "unrelated value")
+        self.assertEqual(sys.executable, os.environ["GATE_ENV_PYTHON"])
+""")
+        self.repo.write("docs/goals/modules.json", json.dumps({"modules": {
+            "env": {"paths": ["tests/**"], "test": self.cmd}}}))
+        self.repo.commit("environment fixture")
+
+    def test_cmd_and_module_children_strip_inherited_pytest_controls(self):
+        for action in ("check", "receipt"):
+            for option, value in (("--cmd", self.cmd), ("--modules", "env")):
+                with self.subTest(action=action, option=option):
+                    res = self.repo.gate(action, "--goal", "F-9", option, value, **self.inherited)
+                    self.assertGate(res, "PASS", "2 run / 0 failed / 0 skipped")
+        records = [json.loads(line) for line in self.repo.read(".runs/F-9/checks.jsonl").splitlines()]
+        self.assertEqual([r["command"] for r in records], [self.cmd] * 4)
+        spec = {"test": self.cmd}
+        keys = (self.cmd, gate.module_key("env", spec))
+        self.assertEqual(keys, (self.cmd, "module:env\n" + self.cmd))
+        for key in keys:
+            receipt = gate.read_receipt(gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(), key))
+            self.assertEqual((receipt["command"], receipt["executed"], receipt["failed"],
+                              receipt["skipped"], receipt["verdict"]), (self.cmd, 2, 0, 0, "PASS"))
+        self.assertEqual(len(self.receipts()), 2)
+
+    def test_explicit_command_assignment_and_unrelated_environment_are_preserved(self):
+        explicit = dict.fromkeys(self.hostile, "explicit value")
+        cmd = " ".join(f"{name}={shlex.quote(value)}" for name, value in explicit.items()) + " " + self.cmd
+        inherited = {**self.inherited, "GATE_ENV_EXPECTED": json.dumps(explicit)}
+        self.repo.write("docs/goals/modules.json", json.dumps({"modules": {
+            "env": {"paths": ["tests/**"], "test": cmd}}}))
+        self.repo.commit("explicit environment fixture")
+        for option, value in (("--cmd", cmd), ("--modules", "env")):
+            with self.subTest(option=option):
+                res = self.repo.gate("receipt", "--goal", "F-9", option, value, **inherited)
+                self.assertGate(res, "PASS", "2 run / 0 failed / 0 skipped")
+                key = cmd if option == "--cmd" else gate.module_key("env", {"test": cmd})
+                receipt = gate.read_receipt(gate.receipt_path(self.repo.dir, "F-9", self.repo.tree(), key))
+                self.assertEqual((receipt["command"], receipt["executed"]), (cmd, 2))
+        with mock.patch.dict(os.environ, self.inherited):
+            before = dict(os.environ)
+            with contextlib.redirect_stdout(io.StringIO()):
+                code, out, *_ = gate.run(self.repo.dir, self.cmd, "F-9", "check")
+            self.assertEqual(code, 0, out)
+            self.assertEqual(gate.parse_counts(out)["executed"], 2)
+            self.assertEqual(dict(os.environ), before)
 
 
 if __name__ == "__main__":

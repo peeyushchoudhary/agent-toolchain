@@ -62,7 +62,7 @@ successors and the replacement module may not. Preserve every existing test and
 assertion. Do not change a map command, add a new test file, dependency, executor,
 receipt format or configuration. T3 grows module ownership after this commit.
 
-### [ ] T2 — Isolate inherited pytest controls in the shared gate runner
+### [x] T2 — Isolate inherited pytest controls in the shared gate runner
 writes: install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 reads: docs/goals/S-11/spec.md, docs/goals/S-11/design.md#interfaces, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_gate.py
 tests-may-change: install/skills/execution-methodology/tests/test_gate.py
@@ -222,6 +222,12 @@ the close procedure. Preserve existing rules tests and agent/global bodies.
 No installer, hook, historical goal, installed-copy or unrelated prose changes.
 
 ## Decisions
+
+- 2026-10-20 T2: copied the environment in the shared runner and used real
+  standard-library unittest children to verify all four controls, command/module
+  checks and receipts, explicit assignments, interpreter identity and unchanged
+  parent/unrelated environment; no pytest dependency (default). Chief gate:
+  300 run / 0 failed / 0 skipped, PASS in 375.39 seconds.
 
 - 2026-10-20 planning: one optional fixed-path declaration and one pure helper,
   generating the preservation command from approved original hashes rather than
