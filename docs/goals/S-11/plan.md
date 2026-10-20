@@ -116,7 +116,7 @@ missing activated successors and simultaneous undeclared shrinkage. Keep
 Do not implement DONE proofs or presentation here; T4 supplies those before
 milestone acceptance. No installed edits, tag movement, new plan field or skip.
 
-### [ ] T4 — Require exact-tree proofs and expose their canonical commands
+### [x] T4 — Require exact-tree proofs and expose their canonical commands
 writes: install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/tests/test_goal.py
 reads: docs/goals/S-11/spec.md, docs/goals/S-11/design.md#interfaces, install/skills/execution-methodology/scripts/migrations.py, install/skills/execution-methodology/scripts/goal.py, install/skills/execution-methodology/scripts/gate.py, install/skills/execution-methodology/tests/test_goal.py, install/skills/execution-methodology/tests/fixtures/goal_fixture.py
 tests-may-change: install/skills/execution-methodology/tests/test_goal.py
@@ -222,6 +222,10 @@ the close procedure. Preserve existing rules tests and agent/global bodies.
 No installer, hook, historical goal, installed-copy or unrelated prose changes.
 
 ## Decisions
+
+- 2026-10-20 T4: reuse existing receipt readers/keys for strict exact-tree proofs and shared canonical CLI/presentation descriptors. Hoist task-independent protected paths once per lint invocation. Preserve unborn no-declaration approval through a nonfatal tree lookup; its new regression failed before the fix. A cancelled partial run is diagnostic only. Final builder/chief gates passed 328 run / 0 failed / 0 skipped; chief 570.14 seconds (default).
+
+- 2026-10-20 T4: the third-task full sample passed 393 run / 0 failed / 0 skipped with verify: PASS in 766.08 seconds on tree f58ead6297ca2a80e08d97e4bfbe7b531867ff6a. Completed runtime exceeds 600 seconds, so subsequent full validation is at milestone close. The clean sample worktree was removed (default).
 
 - 2026-10-20 T3: use raw Git modes/bytes and check migration identities before commit-subject early exits; preapproval uses committed HEAD metadata. Preserve the legacy map-shrink function and every existing assertion. Corrected a proposed mode-only assertion to retain ordinary frozen-test protection and added a second valid task commit fixture. Helper ownership was already accepted in T1. Builder/chief gates passed 321 run / 0 failed / 0 skipped; chief 533.36 seconds (default).
 
