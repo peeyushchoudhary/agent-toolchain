@@ -28,11 +28,12 @@ HOME_PATH = re.compile(r"/(?:Users|home)/([A-Za-z0-9._-]{2,})", re.IGNORECASE)
 CLAUSE_BEFORE = re.compile(r"[^\n\t\"'`()=<>,;:|\[\]{}]*$")
 # A web API route (/api/users/x, /api/v1/users/x) names an endpoint, never a home directory.
 API_ROUTE = re.compile(r"/api(?:/v[0-9]+)?$", re.IGNORECASE)
-# A segment of a web URL's path (https://host/Home/main) names a page, never a home directory. Only
-# http(s) with a non-empty host that is not loopback: file:///Users/x, file://localhost/Users/x and
-# http://127.0.0.1/Users/x serve the local disk and stay home paths.
-WEB_URL_PATH = re.compile(r"\bhttps?://(?!(?:localhost|127(?:\.[0-9]+){3}|0\.0\.0\.0|\[::1\])(?:[:/]|$))"
-                          r"[^/\s\"'`<>]+(?:/[^\s\"'`<>]*)?$", re.IGNORECASE)
+# A segment of a web URL's path (https://host/Home/main) names a page, never a home directory.
+WEB_URL_PATH = re.compile(r"\bhttps?://[^/\s\"'`<>]+(?:/[^\s\"'`<>]*)?$", re.IGNORECASE)
+# A file URL or a loopback URL, with or without a port, serves the local disk: file:///Users/x and a
+# dev server's http://localhost:5173/@fs/Users/x stay home paths, whatever the clause rule reads.
+LOCAL_URL = re.compile(r"\b(?:https?|file)://(?:localhost|127(?:\.[0-9]+){3}|0\.0\.0\.0|\[::1\])?"
+                       r"(?::[0-9]+)?(?:/[^\s\"'`<>]*)?$", re.IGNORECASE)
 PLACEHOLDERS = frozenset({"anything", "example", "home", "me", "name", "root", "runner", "shared",
                           "someone", "user", "username", "you", "youruser", "yourname", "your-name"})
 TOO_GENERIC = frozenset({"admin", "example", "git", "github", "gitlab", "local", "localhost", "main",
@@ -121,8 +122,9 @@ def find(rule, text: str) -> str | None:
     for m in rule[1].finditer(text):
         if not m[0]:
             continue
-        if rule[2] == "home" and (m[1].lower() in PLACEHOLDERS or relative_before(text[:m.start()])
-                                  or WEB_URL_PATH.search(text[:m.start()])):
+        before = text[:m.start()]
+        if rule[2] == "home" and (m[1].lower() in PLACEHOLDERS or not LOCAL_URL.search(before) and
+                                  (relative_before(before) or WEB_URL_PATH.search(before))):
             continue  # a placeholder, a later segment of a relative path, or a web URL's path
         return m[0]
     return None
@@ -331,7 +333,10 @@ def self_test() -> int:
              ("| https://example.org/docs/home" + "/hoopfrabjous |", 0),
              ("file:///Users" + "/hoopfrabjous/x", 1), ("file://localhost/Users" + "/hoopfrabjous", 1),
              ("https://example.org /Users" + "/hoopfrabjous", 1),
-             ("http://127.0.0.1/Users" + "/hoopfrabjous", 1)]
+             ("http://127.0.0.1/Users" + "/hoopfrabjous", 1),
+             ("http://localhost:5173/@fs/Users" + "/hoopfrabjous/x", 1),
+             ("http://[::1]:8000/Users" + "/hoopfrabjous", 1), ("http://0.0.0.0:3000/Users" + "/hoopfrabjous", 1),
+             ("https://example.org:8443/Home" + "/main/page", 0), ("http://localhost:3000/Users/name/x", 0)]
     failed = [text for text, want in cases if bool(next((1 for r in rules if find(r, text)), 0)) != want]
     hits: list[str] = []
     scan_diff("+++ b/f.c\n@@ -0,0 +1,2 @@\n+++counter;\n+++ /Users" + "/hoopfrabjous/b\n", rules, hits)

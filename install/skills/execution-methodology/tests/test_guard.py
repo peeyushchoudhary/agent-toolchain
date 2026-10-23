@@ -183,6 +183,12 @@ class CommitRulesTest(GuardCase):
              "absolute home path"),
             ("home path after a URL and a space", {"n.md": f"https://example.org {HOME_PATH}\n"}, 1,
              "absolute home path"),
+            ("dev-server URL with a port is still a home path",
+             {"n.md": f"at http://localhost:5173/@fs{HOME_PATH}/src/x.ts:3:7\n"}, 1, "absolute home path"),
+            ("IPv6 loopback URL with a port is still a home path", {"n.md": f"http://[::1]:8000{HOME_PATH}\n"}, 1,
+             "absolute home path"),
+            ("web URL with a port through Home/", {"n.md": "https://example.org:8443/Home" + "/main/page\n"}, 0,
+             None),
         ]
         for label, files, want, needle in cases:
             with self.subTest(label):
