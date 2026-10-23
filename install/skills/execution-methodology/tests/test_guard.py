@@ -176,6 +176,13 @@ class CommitRulesTest(GuardCase):
             ("apix is not the api route", {"n.md": f"/apix/v1{HOME_PATH}\n"}, 1, "absolute home path"),
             ("absolute path quoted with a space", {"n.md": f'cp "/Volumes/External Drive{HOME_PATH}" .\n'}, 1,
              "absolute home path"),
+            ("web URL path through Home/", {"n.md": "see https://example.org/Home" + "/main/page\n"}, 0, None),
+            ("web URL path in a markdown link", {"n.md": f"[docs](https://example.org{HOME_PATH})\n"}, 0, None),
+            ("file URL is still a home path", {"n.md": f"file://{HOME_PATH}/x\n"}, 1, "absolute home path"),
+            ("loopback URL is still a home path", {"n.md": f"http://127.0.0.1{HOME_PATH}\n"}, 1,
+             "absolute home path"),
+            ("home path after a URL and a space", {"n.md": f"https://example.org {HOME_PATH}\n"}, 1,
+             "absolute home path"),
         ]
         for label, files, want, needle in cases:
             with self.subTest(label):

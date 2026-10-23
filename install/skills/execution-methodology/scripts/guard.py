@@ -28,6 +28,11 @@ HOME_PATH = re.compile(r"/(?:Users|home)/([A-Za-z0-9._-]{2,})", re.IGNORECASE)
 CLAUSE_BEFORE = re.compile(r"[^\n\t\"'`()=<>,;:|\[\]{}]*$")
 # A web API route (/api/users/x, /api/v1/users/x) names an endpoint, never a home directory.
 API_ROUTE = re.compile(r"/api(?:/v[0-9]+)?$", re.IGNORECASE)
+# A segment of a web URL's path (https://host/Home/main) names a page, never a home directory. Only
+# http(s) with a non-empty host that is not loopback: file:///Users/x, file://localhost/Users/x and
+# http://127.0.0.1/Users/x serve the local disk and stay home paths.
+WEB_URL_PATH = re.compile(r"\bhttps?://(?!(?:localhost|127(?:\.[0-9]+){3}|0\.0\.0\.0|\[::1\])(?:[:/]|$))"
+                          r"[^/\s\"'`<>]+(?:/[^\s\"'`<>]*)?$", re.IGNORECASE)
 PLACEHOLDERS = frozenset({"anything", "example", "home", "me", "name", "root", "runner", "shared",
                           "someone", "user", "username", "you", "youruser", "yourname", "your-name"})
 TOO_GENERIC = frozenset({"admin", "example", "git", "github", "gitlab", "local", "localhost", "main",
@@ -116,8 +121,9 @@ def find(rule, text: str) -> str | None:
     for m in rule[1].finditer(text):
         if not m[0]:
             continue
-        if rule[2] == "home" and (m[1].lower() in PLACEHOLDERS or relative_before(text[:m.start()])):
-            continue  # a placeholder, or a later segment of a relative path
+        if rule[2] == "home" and (m[1].lower() in PLACEHOLDERS or relative_before(text[:m.start()])
+                                  or WEB_URL_PATH.search(text[:m.start()])):
+            continue  # a placeholder, a later segment of a relative path, or a web URL's path
         return m[0]
     return None
 
@@ -320,7 +326,12 @@ def self_test() -> int:
              ("GET\t/api/v1/users" + "/x\tapiPost\tweb/src/screens/" + "users/api.ts", 0),
              ("GET\t/api/v1/users" + "/hoopfrabjous", 0), ("/api/users" + "/hoopfrabjous", 0),
              ("col\t/Users" + "/hoopfrabjous/x", 1), ("/srv/api/v1/Users" + "/hoopfrabjous", 1),
-             ("/apix/v1/Users" + "/hoopfrabjous", 1)]
+             ("/apix/v1/Users" + "/hoopfrabjous", 1),
+             ("https://example.org/Home" + "/main/page", 0), ("see https://example.org/home" + "/about", 0),
+             ("| https://example.org/docs/home" + "/hoopfrabjous |", 0),
+             ("file:///Users" + "/hoopfrabjous/x", 1), ("file://localhost/Users" + "/hoopfrabjous", 1),
+             ("https://example.org /Users" + "/hoopfrabjous", 1),
+             ("http://127.0.0.1/Users" + "/hoopfrabjous", 1)]
     failed = [text for text, want in cases if bool(next((1 for r in rules if find(r, text)), 0)) != want]
     hits: list[str] = []
     scan_diff("+++ b/f.c\n@@ -0,0 +1,2 @@\n+++counter;\n+++ /Users" + "/hoopfrabjous/b\n", rules, hits)
