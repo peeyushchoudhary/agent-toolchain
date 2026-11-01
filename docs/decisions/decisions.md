@@ -1,5 +1,5 @@
 ---
-summary: Every decision id in one table with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable and keeps the chief in the root session; D32 sizes each task's gate at planning; D33 adds the test-module map; D34 removes the chief's recorded, merged worktrees; D35 ends the pilot; D36 ships the README and repository rules and adds `docs.py links`; D37 pins model IDs; D38 grows the map; D39 leases a moved approval tag's push; D40 reruns failures.
+summary: Every decision id in one table with its date, statement and status (standing, superseded, removed or archived), then the full text of those that keep it. A non-standing section is rationale only. D29 sets methodology v7 (one look per artifact, a mechanical gate, two touchpoints); D30 adds v7.1's planning documents, generated pointers and declared roles; D31 makes the skill model-invocable, with the chief in the root session; D32 sizes each task's gate at planning; D33 adds the test-module map; D34 removes merged worktrees; D35 ends the pilot; D36 ships the README and repository rules and adds `docs.py links`; D37 pins model IDs; D38 grows the map; D39 leases a moved approval tag's push; D40 reruns failures; D41: Astra at medium.
 read-when: Making or citing a decision, or asking why the methodology is the way it is
 covers: []
 last-verified: 2026-10-09
@@ -53,6 +53,7 @@ at commit `7bf35e7`, D28 at `archive/v6-followups-2026-10-09`.
 | [D38](#d38--the-module-map-may-grow-never-shrink-builders-never-route-around-a-guard) | 2026-10-16 | The module map may grow, never shrink; builders never route around a guard | standing; amends D33's protected map |
 | [D39](#d39--a-re-approval-pushes-the-moved-approval-tag-with-a-lease) | 2026-10-16 | A re-approval pushes the moved approval tag with a lease | standing; closes S-9's parked merge-review R1 |
 | [D40](#d40--a-full-gate-that-failed-only-on-named-tests-is-completed-by-rerunning-those-tests) | 2026-10-19 | A full gate that failed only on named tests is completed by rerunning those tests | standing; reverses the per-test rerun D33 rejected |
+| [D41](#d41--the-gpt-6-astra-reviewer-runs-at-medium-effort) | 2026-11-01 | The gpt-6-astra reviewer runs at medium effort | standing; amends D37's reviewer effort |
 
 ---
 
@@ -637,3 +638,14 @@ old declarations against already-replaced baselines fail; a separately founder-a
 without one inherits no migration proofs. Chiefs/builders cannot re-tag or remove the artifact to
 close the original goal. This adds no cryptographic identity or history-rewrite protection and
 implies no installation, merge, release or live-provider claim.
+
+## D41 — The gpt-6-astra reviewer runs at medium effort
+
+**Chose:** when Claude is chief, `goal.py review` runs `gpt-6-astra` at `medium`, and done row 8
+accepts `reviewer: codex gpt-6-astra at medium`. The Codex agent file and the runbook's command say
+the same. A Codex chief's reviewer, `claude-opus-5-5`, stays at `high`.
+
+**Over:** D37's `high` for both reviewers; a per-project override, which the founder declined in
+favour of one setting everywhere.
+
+**Why:** the founder asked on 2026-11-01 for the cross-vendor review to run gpt-6-astra at medium.

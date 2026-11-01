@@ -1148,16 +1148,16 @@ class ReviewRowTest(RepoCase):
     def test_a_review_by_a_model_review_does_not_run_is_named(self):
         for reviewer in ("codex gpt-6.1-sol (read-only), 2026-01-01, merge",
                          "codex gpt-6-astra (read-only), 2026-01-01, merge",
-                         "codex gpt-6-astra at medium (read-only), 2026-01-01, merge",
+                         "codex gpt-6-astra at high (read-only), 2026-01-01, merge",
                          "claude opus at high (read-only), 2026-01-01, merge"):
             with self.subTest(reviewer=reviewer):
                 self.repo.review("", reviewer=reviewer)
-                self.assertRow(8, "reviewer: line names neither gpt-6-astra at high nor claude-opus-5-5 at high")
+                self.assertRow(8, "reviewer: line names neither gpt-6-astra at medium nor claude-opus-5-5 at high")
         self.repo.write(".runs/F-9/review.md", f"reviewed: {self.repo.git('rev-parse', 'HEAD')}\n")
         self.assertRow(8, "reviewer: line names neither")
 
     def test_a_review_by_either_reviewer_model_is_accepted(self):
-        for reviewer in ("codex gpt-6-astra at high (read-only), 2026-01-01, merge",
+        for reviewer in ("codex gpt-6-astra at medium (read-only), 2026-01-01, merge",
                          "claude claude-opus-5-5 at high (read-only), 2026-01-01, merge"):
             with self.subTest(reviewer=reviewer):
                 self.repo.review("", reviewer=reviewer)
@@ -1210,18 +1210,18 @@ class ReviewCommandTest(RepoCase):
     def called(self):
         return json.loads(self.argv.read_text())
 
-    def test_a_claude_chief_runs_codex_gpt_6_astra_at_high_read_only(self):
+    def test_a_claude_chief_runs_codex_gpt_6_astra_at_medium_read_only(self):
         res = self.review("--chief", "claude", "--stage", "merge")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         argv = self.called()["argv"]
         self.assertEqual(Path(argv[0]).name, "codex")
         for pair in (["exec", "-s", "read-only", "--ignore-user-config", "--ignore-rules"],
-                     ["-m", "gpt-6-astra"], ["-c", "model_reasoning_effort=high"]):
+                     ["-m", "gpt-6-astra"], ["-c", "model_reasoning_effort=medium"]):
             self.assertIn(" ".join(pair), " ".join(argv[1:]), argv)
         self.assertFalse(self.called()["stdin_tty"])
         self.assertEqual(self.called()["stdin"], "", "stdin is /dev/null, so codex never waits on it")
         review = self.repo.read(".runs/F-9/review.md")
-        self.assertRegex(review, r"^reviewer: codex gpt-6-astra at high \(read-only\), \d{4}-\d\d-\d\d, merge\n")
+        self.assertRegex(review, r"^reviewer: codex gpt-6-astra at medium \(read-only\), \d{4}-\d\d-\d\d, merge\n")
         self.assertIn("verdict: PASS", review)
 
     def test_a_codex_chief_runs_claude_opus_5_5_at_high_with_read_only_tools(self):

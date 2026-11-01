@@ -52,7 +52,7 @@ JUNIT_TEST_ANNOTATIONS = ("Test", "ParameterizedTest", "RepeatedTest", "TestFact
 JUNIT_PACKAGES = ("org.junit.jupiter.api.", "org.junit.jupiter.params.", "org.junit.")
 # The other vendor's reviewer, keyed by the chief's harness: (CLI, exact model ID, effort). roles.md
 # states the same; `review` passes these to the CLI, and `done` accepts a review.md only from one.
-REVIEWERS = {"claude": ("codex", "gpt-6-astra", "high"), "codex": ("claude", "claude-opus-5-5", "high")}
+REVIEWERS = {"claude": ("codex", "gpt-6-astra", "medium"), "codex": ("claude", "claude-opus-5-5", "high")}
 REVIEW_STAGES = ("design", "plan", "merge")
 RUNTIME_PIN = "docs/agents/execution/runtime.json"
 MIGRATE_NOTICE = (f"this project still carries the v5.1 runtime pin ({RUNTIME_PIN}); "

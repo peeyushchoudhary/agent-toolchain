@@ -52,7 +52,7 @@ packet to:
 
 ```bash
 codex exec -s read-only --ignore-user-config --ignore-rules \
-  -m gpt-6-astra -c model_reasoning_effort=high --json -C <dir> -o <raw> "<prompt>" < /dev/null
+  -m gpt-6-astra -c model_reasoning_effort=medium --json -C <dir> -o <raw> "<prompt>" < /dev/null
 ```
 
 `codex exec` reads no agent file, so without `-m` it falls back to Codex's default model; that is
