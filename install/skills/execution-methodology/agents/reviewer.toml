@@ -2,7 +2,7 @@
 name = "reviewer"
 description = "Adversarial read-only review of a design, a plan or a milestone diff against the goal's spec.md and plan.md, written in the review.md format; one round, no fixes. Dispatched by the chief only."
 model = "gpt-6-astra"
-model_reasoning_effort = "high"
+model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 developer_instructions = """
 Find what is wrong; do not fix it. The subject is a diff, a design page or a plan, judged against

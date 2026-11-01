@@ -289,7 +289,7 @@ def standard_evidence():
     receipt(["--name", "e2e", "--cmd", e2e], "e2e")
     # A parser fixture only: no provider is contacted and this is not an independent review.
     (repo / ".runs/M-1/review.md").write_text(
-        "reviewer: e2e_run.sh fixture codex gpt-6-astra at high (read-only, not a review), merge\n"
+        "reviewer: e2e_run.sh fixture codex gpt-6-astra at medium (read-only, not a review), merge\n"
         f"reviewed: {git('rev-parse', 'HEAD')}\nverdict: PASS\n## Findings\n")
 
 def missing_proofs():
@@ -411,7 +411,7 @@ PY
   [ "$(ls .runs/E-1/out/*.out | wc -l | tr -d ' ')" = 5 ] && [ -z "$out" ] &&
     ok "$h budget lines" "last line of baseline, 2 check, 2 receipt" ||
     bad "$h budget lines" "not 5 outputs, or no budget: last line in:${out:- none}"
-  printf 'reviewer: e2e_run.sh fixture codex gpt-6-astra at high (read-only, not a review), %s, merge\nreviewed: %s\nverdict: PASS\n## Findings\n' \
+  printf 'reviewer: e2e_run.sh fixture codex gpt-6-astra at medium (read-only, not a review), %s, merge\nreviewed: %s\nverdict: PASS\n## Findings\n' \
     "$(date +%F)" "$(gitq rev-parse HEAD)" > .runs/E-1/review.md
 
   out="$(python3 "$skill/goal.py" --goal E-1 done | tail -1)"

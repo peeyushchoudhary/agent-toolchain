@@ -327,7 +327,7 @@ class AgentTest(InstallCase):
     def test_codex_agent_toml_parses_with_exactly_the_schema_keys(self):
         import tomllib  # Python 3.11+
         roles = {"builder": ("gpt-6.1-sol", "high", "workspace-write"),
-                 "reviewer": ("gpt-6-astra", "high", "read-only"), "scout": ("gpt-6-luna", None, "read-only")}
+                 "reviewer": ("gpt-6-astra", "medium", "read-only"), "scout": ("gpt-6-luna", None, "read-only")}
         for name, (model, effort, sandbox) in roles.items():
             text = (AGENTS / f"{name}.toml").read_text(encoding="utf-8")
             self.assertEqual(text.splitlines()[0], f"# Codex custom agent; the same body as agents/{name}.md. "
